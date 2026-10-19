@@ -112,7 +112,7 @@
     <string name="settings_touch_helpers_note">Layout de combate: ataque leve/forte, pulo e ação no losango; Blade Mode (LB), Ninja Run (RB), mira (RT), arma secundária (LT) e esquiva (X+A) em volta. Arraste num ponto livre do lado direito para mover a câmera; um toque rápido a centraliza. No jogo, a engrenagem (canto de cima à esquerda) abre estas opções com o jogo pausado.</string>
     <string name="settings_touch_reset_title">Restaurar o layout?</string>
     <string name="settings_touch_reset_text">Todos os botões voltam ao lugar, tamanho e opacidade padrão. As suas macros são apagadas.</string>
-    <string name="settings_physical_pad">Comando físico</string>
+    <string name="settings_physical_pad">Controle físico</string>
     <string name="settings_deadzone">Zona morta do analógico</string>
     <string name="settings_rumble">Vibração</string>
     <string name="settings_app">Aplicativo</string>
@@ -130,7 +130,7 @@
     <string name="editor_hint">Arraste os botões · toque num para editar</string>
     <string name="editor_add">Adicionar</string>
     <string name="editor_helpers">Botões do port</string>
-    <string name="editor_pad_buttons">Botões do comando</string>
+    <string name="editor_pad_buttons">Botões do controle</string>
     <string name="editor_new_macro">Nova macro</string>
     <string name="editor_macro">Macro</string>
     <string name="editor_show">Mostrar %1$s</string>
@@ -146,7 +146,7 @@
     <string name="editor_frames">Frames</string>
     <string name="editor_add_step">Passo</string>
     <string name="editor_hold_last">Segurar último passo</string>
-    <string name="editor_macro_note">As macros só mandam botões do comando: o jogo vê como um comando normal.</string>
+    <string name="editor_macro_note">As macros só mandam botões do controle: o jogo vê como um controle normal.</string>
     <string name="update_title">Versão %1$s disponível</string>
     <string name="update_current">Você tem a %1$s.</string>
     <string name="update_changelog">O que mudou</string>
@@ -169,7 +169,7 @@
     <string name="ingame_directional">Direcional</string>
     <string name="directional_dpad">D-pad (8 direções)</string>
     <string name="directional_stick">Analógico</string>
-    <string name="ingame_badge">Indicação do botão do comando</string>
+    <string name="ingame_badge">Indicação do botão do controle</string>
     <string name="badge_none">Nenhuma</string>
     <string name="ingame_resume">Continuar</string>
     <string name="settings_directional_sub">Analógico para andar (o MGR é 3D); a cruz de 8 direções é opcional.</string>
@@ -180,7 +180,7 @@
     <string name="touch_mode_auto">Automático</string>
     <string name="touch_mode_on">Ligado</string>
     <string name="touch_mode_off">Desligado</string>
-    <string name="settings_touch_mode_sub">Automático: aparecem quando você toca na tela e somem quando usa um comando.</string>
+    <string name="settings_touch_mode_sub">Automático: aparecem quando você toca na tela e somem quando usa um controle.</string>
     <string name="settings_touch_layout_menu">Menus</string>
     <string name="settings_touch_layout_battle">Combate</string>
     <string name="export_logs">Exportar logs</string>
@@ -189,7 +189,7 @@
     <string name="err_logs_export">Não deu para exportar os logs: %1$s</string>
     <string name="settings_verbose_log">Log detalhado (depuração)</string>
     <string name="settings_verbose_log_sub">O jogo escreve muito mais no log. Use para reportar um problema; pode custar um pouco de desempenho.</string>
-    <string name="ingame_switch_layout">Trocar controles: combate / menus / comando completo</string>
+    <string name="ingame_switch_layout">Trocar controles: combate / menus / controle completo</string>
     <string name="settings_perf_log">Diagnóstico de desempenho</string>
     <string name="settings_perf_log_sub">A cada 5 s o log regista os FPS, o tempo de GPU por frame e o clock e a carga da GPU. Leve; use para reportar travadinhas.</string>
     <string name="ingame_exit">Sair para o launcher</string>
@@ -239,7 +239,7 @@
     <string name="aniso_game">Jogo</string>
     <string name="helper_menu">Menu do jogo (Back + Start)</string>
     <string name="gpu_notice_text">Snapdragon 865 ou mais novo (ex.: Retroid Pocket 5) deve rodar o jogo com o driver do sistema; o Turnip é opcional, na aba Drivers.\n\nGPUs Mali (ex.: Mali-G57 do RG Cube) são mais lentas: use a predefinição Leve (540p, hack de 30 FPS) na aba Desempenho.\n\nSe o jogo fechar ou ficar com a imagem errada, o app mostra o que aconteceu e como mandar o log no Discord.</string>
-    <string name="settings_touch_layout_map">Comando completo</string>
+    <string name="settings_touch_layout_map">Controle completo</string>
     <string name="community_sub">Novidades, ajuda e versões do port</string>
     <string name="tab_debug">Depuração</string>
     <string name="debug_note">Ferramentas para encontrar problemas. Deixe como está, a não ser que um relatório peça para mudar algo.</string>
@@ -303,20 +303,20 @@
     <string name="menu_hints">LB/RB abas · ↑↓ mover · ◀▶ mudar · A escolher · B fechar</string>
     <string name="menu_selftest">Autoteste do render (cerca de 1,5 min)</string>
     <string name="menu_selftest_help">Pause o jogo com Start antes (cena parada). Desliga os atalhos do renderizador um de cada vez, comparando imagens: mostra qual estraga a imagem e quanto cada um vale. Resultado no Exportar logs.</string>
-    <string name="menu_selftest_refused">Já há um autoteste a correr.</string>
+    <string name="menu_selftest_refused">Já tem um autoteste rodando.</string>
     <string name="menu_export_logs_help">Junta todos os logs, o resultado do autoteste e a última captura num zip em Download/.</string>
-    <string name="menu_exporting">A exportar...</string>
+    <string name="menu_exporting">Exportando...</string>
     <string name="drivers_gpu_line">Adreno %1$d (Turnip %2$s)</string>
     <string name="drivers_turnip_stable">O Turnip é estável nesta GPU. Builds usados: %1$s.</string>
     <string name="drivers_turnip_experimental">O Turnip é experimental nesta GPU (precisa de builds com patches). O driver do sistema é a escolha segura. Builds: %1$s.</string>
     <string name="drivers_turnip_unsupported">Sem suporte conhecido do Turnip nesta GPU: use o driver do sistema. %1$s</string>
     <string name="drivers_turnip_auto">Com o Turnip ativo, TU_DEBUG=%1$s é aplicado automaticamente nesta GPU.</string>
-    <string name="drivers_boot_failed">O driver %1$s fechou o jogo no arranque e o do sistema está a ser usado. Escolha outro driver (ou o mesmo de novo) para voltar a testar.</string>
+    <string name="drivers_boot_failed">O driver %1$s fechou o jogo na inicialização e o do sistema está sendo usado. Escolha outro driver (ou o mesmo de novo) para voltar a testar.</string>
     <string name="turnip_compat_ir3_nopreamble">Compilador de shaders: sem preâmbulo (IR3 nopreamble)</string>
     <string name="turnip_compat_ir3_nouboopt">Compilador de shaders: sem otimização de UBO (IR3 nouboopt)</string>
     <string name="turnip_compat_ir3_nofp16">Compilador de shaders: sem contas de 16 bits (IR3 nofp16)</string>
-    <string name="turnip_bisect">Bisect do Turnip: muda uma opção do driver em cada arranque do jogo</string>
-    <string name="turnip_bisect_next">Próximo arranque do jogo: passo %1$s (de %2$d). Jogue um pouco + autoteste do render a cada arranque e mande todos os zips.</string>
+    <string name="turnip_bisect">Bisect do Turnip: muda uma opção do driver em cada inicialização do jogo</string>
+    <string name="turnip_bisect_next">Próxima inicialização do jogo: passo %1$s (de %2$d). Jogue um pouco + autoteste do render a cada inicialização e mande todos os zips.</string>
     <string name="close">Fechar</string>
     <string name="game_title_small">METAL GEAR RISING</string>
     <string name="orientation_portrait">Vertical</string>
@@ -342,9 +342,9 @@
     <string name="menu_tab_video">Vídeo</string>
     <string name="menu_touch_off_note">Os controles da tela estão desligados. A engrenagem e o botão de pausa continuam na tela, e o Back abre sempre este menu: ligue-os de novo aqui.</string>
     <string name="msg_log_saved">Log salvo.</string>
-    <string name="selftest_start">Autoteste do render: a preparar (deixe o jogo na pausa)…</string>
+    <string name="selftest_start">Autoteste do render: preparando (deixe o jogo pausado)…</string>
     <string name="selftest_step">Autoteste do render %1$d/%2$d: %3$s</string>
-    <string name="selftest_exporting">Autoteste terminado: a exportar os logs para Download/…</string>
+    <string name="selftest_exporting">Autoteste terminado: exportando os logs para Download/…</string>
     <string name="selftest_done">Autoteste terminado: Download/%1$s</string>
     <string name="selftest_done_fail">Autoteste terminado (exportar falhou: use Exportar logs)</string>
     <string name="settings_into_texture">Passes direto nas texturas</string>
@@ -364,7 +364,7 @@
     <string name="err_dialog_noboot_title">O jogo não abriu</string>
     <string name="err_dialog_noboot_text">O jogo fechou antes de mostrar o primeiro frame. Confira os arquivos no Início (Verificar arquivos) e tente de novo. Se continuar, mande o log.</string>
     <string name="err_dialog_driver_boot_title">O driver fechou o jogo</string>
-    <string name="err_dialog_driver_boot_text">O jogo fechou no arranque com um driver Vulkan alternativo ativo. O próximo arranque usa o driver do sistema; escolha outra versão em Drivers ou fique com o do sistema.</string>
+    <string name="err_dialog_driver_boot_text">O jogo fechou na inicialização com um driver Vulkan alternativo ativo. A próxima inicialização usa o driver do sistema; escolha outra versão em Drivers ou fique com o do sistema.</string>
     <string name="err_dialog_driver_title">Problema com o driver</string>
     <string name="err_dialog_driver_text">Não deu para baixar ou instalar o driver. Confira a conexão, ou se o arquivo é um .zip do AdrenoTools (com meta.json e a .so).</string>
     <string name="err_dialog_iso_title">Imagem do jogo danificada</string>
