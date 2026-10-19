@@ -10,6 +10,11 @@
 # GPU emulada (o mgr_app.h ja liga por omissao a partir do commit seguinte)
 gpu_plugin = xenos
 
+# Arranque: funcoes chamadas por ponteiro que o codegen nao encontrou ficam no log
+# ("UNREGISTERED indirect call") e o jogo continua em vez de fechar.
+# Depois: bash tools/collect-unregistered.sh. Tirar quando a lista estiver completa.
+env:DBZ3_COLLECT_UNREGISTERED = 1
+
 # Diagnosticos (linha "dbz3: perf" a cada 5 s, fins de passe por causa)
 dbz3_perf_logging = true
 

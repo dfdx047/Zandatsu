@@ -1,3 +1,6 @@
+# Correcoes do codegen do MGR (incluido por mgr_manifest.toml).
+# [functions] fica sempre no fim: tools/collect-unregistered.sh acrescenta linhas aqui.
+
 [functions]
 0x8266A500 = {}
 0x8266A518 = {}
@@ -5,3 +8,4 @@
 0x8266A548 = {}
 0x8266A560 = {}
 0x824E9B9C = {}
+0x82605A60 = {}
