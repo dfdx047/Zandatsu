@@ -24,14 +24,16 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
 if [ "$#" -eq 0 ]; then
-  adb pull "/sdcard/Android/data/$APP_ID/files/logs/swordman_last.log" "$TMP/last.log" > /dev/null
-  set -- "$TMP/last.log"
+  # A pasta inteira: o log roda em partes de 5 MB (swordman_last.N.log) quando ha
+  # muitas mensagens, e as primeiras funcoes em falta ficam nas partes antigas.
+  adb pull "/sdcard/Android/data/$APP_ID/files/logs" "$TMP/pulled" > /dev/null
+  set -- "$TMP"/pulled/*.log
 fi
 
 : > "$TMP/all.txt"
 for F in "$@"; do
   case "$F" in
-    *.zip) unzip -p "$F" 'logs/*.log' logcat.txt 2> /dev/null >> "$TMP/all.txt" || true ;;
+    *.zip) unzip -p "$F" 'logs/*.log' 'logcat.txt' 2> /dev/null >> "$TMP/all.txt" || true ;;
     *) cat "$F" >> "$TMP/all.txt" ;;
   esac
 done
