@@ -1,3 +1,5 @@
+diff --git a/include/rex/ui/windowed_app.h b/include/rex/ui/windowed_app.h
+index 50638d63fc3fbfc6b7b0fdbf6fdaaa87877d7bf1..5309a37a6efe312e8eb51468a6372c22fed100d2 100644
 --- a/include/rex/ui/windowed_app.h
 +++ b/include/rex/ui/windowed_app.h
 @@ -24,7 +24,10 @@

@@ -1,5 +1,5 @@
 diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
-index 797bed7..2bd6a2a 100644
+index 797bed7f97a39628638ae58125b5d689010802b4..2bd6a2a088a9014a75f2e6dd92195952428ce30f 100644
 --- a/src/graphics/vulkan/render_target_cache.cpp
 +++ b/src/graphics/vulkan/render_target_cache.cpp
 @@ -6278,6 +6278,16 @@ struct Dbz3DirectResolveState {

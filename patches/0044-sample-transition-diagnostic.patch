@@ -1,5 +1,5 @@
 diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
-index 55f7777..13516c9 100644
+index 60daf51591480f6048028128bcec109d3eb87acb..a384421ad6eba235eac26f10e8c51330b906e3ab 100644
 --- a/src/graphics/vulkan/texture_cache.cpp
 +++ b/src/graphics/vulkan/texture_cache.cpp
 @@ -10,6 +10,8 @@
@@ -11,7 +11,7 @@ index 55f7777..13516c9 100644
  #include <array>
  #include <cstddef>
  #include <cstring>
-@@ -573,6 +575,31 @@ void VulkanTextureCache::EndFrame() {
+@@ -554,6 +556,31 @@ void VulkanTextureCache::EndFrame() {
    }
  }
  
@@ -43,7 +43,7 @@ index 55f7777..13516c9 100644
  void VulkanTextureCache::RequestTextures(uint32_t used_texture_mask) {
  #if XE_GPU_FINE_GRAINED_DRAW_SCOPES
    SCOPE_profile_cpu_f("gpu");
-@@ -622,6 +649,11 @@ void VulkanTextureCache::RequestTextures(uint32_t used_texture_mask) {
+@@ -603,6 +630,11 @@ void VulkanTextureCache::RequestTextures(uint32_t used_texture_mask) {
        VulkanTexture::Usage old_usage =
            binding_texture->SetUsage(VulkanTexture::Usage::kGuestShaderSampled);
        if (old_usage != VulkanTexture::Usage::kGuestShaderSampled) {
@@ -55,7 +55,7 @@ index 55f7777..13516c9 100644
          VkPipelineStageFlags src_stage_mask;
          VkAccessFlags src_access_mask;
          VkImageLayout old_layout;
-@@ -1967,6 +1999,21 @@ void VulkanTextureCache::Dbz3CopyToResolveTexture(void* texture_opaque, VkBuffer
+@@ -1924,6 +1956,21 @@ void VulkanTextureCache::Dbz3CopyToResolveTexture(void* texture_opaque, VkBuffer
    copy_region->imageOffset = {0, 0, 0};
    copy_region->imageExtent = {width, height, 1};
    Dbz3MarkTextureLoaded(vulkan_texture);

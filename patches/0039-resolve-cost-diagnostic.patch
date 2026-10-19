@@ -1,5 +1,5 @@
 diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
-index 0562ed8..a2cde17 100644
+index 0562ed834a4009908ce341a8632ebe79257972ea..a2cde170ed2ecda973137b7d534ef37bbd6942c0 100644
 --- a/src/graphics/vulkan/render_target_cache.cpp
 +++ b/src/graphics/vulkan/render_target_cache.cpp
 @@ -72,6 +72,9 @@ REXCVAR_DEFINE_STRING(render_target_path_vulkan, "", "GPU/Vulkan",

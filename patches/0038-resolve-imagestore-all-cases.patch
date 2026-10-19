@@ -1,8 +1,8 @@
 diff --git a/include/rex/graphics/pipeline/render_target/cache.h b/include/rex/graphics/pipeline/render_target/cache.h
-index 9cff6d6..2426ade 100644
+index 267415f1d4cea56eee8edd2f2751b7f2453b9a9c..1874a6ce90325f21d3fd39adbc0e571c00503690 100644
 --- a/include/rex/graphics/pipeline/render_target/cache.h
 +++ b/include/rex/graphics/pipeline/render_target/cache.h
-@@ -325,6 +325,11 @@ class RenderTargetCache {
+@@ -336,6 +336,11 @@ class RenderTargetCache {
                                uint32_t index_count, uint64_t pixel_shader_hash);
    void Dbz3ElisionFrameEnd();
    void Dbz3MarkWritten(RenderTargetKey key) { ++dbz3_write_gen_[key]; }
@@ -15,7 +15,7 @@ index 9cff6d6..2426ade 100644
      return dbz3_direct_clear_siblings_;
    }
 diff --git a/include/rex/graphics/vulkan/render_target_cache.h b/include/rex/graphics/vulkan/render_target_cache.h
-index 24f0b38..8d0d480 100644
+index 24f0b38a2582a1ae6192605162467aa505a2d359..8d0d480fb7b7f80a568fde7c99e38b173876840a 100644
 --- a/include/rex/graphics/vulkan/render_target_cache.h
 +++ b/include/rex/graphics/vulkan/render_target_cache.h
 @@ -810,6 +810,14 @@ class VulkanRenderTargetCache final : public RenderTargetCache {
@@ -34,10 +34,10 @@ index 24f0b38..8d0d480 100644
                                      VulkanTextureCache& texture_cache, bool skip_memory);
  
 diff --git a/include/rex/graphics/vulkan/texture_cache.h b/include/rex/graphics/vulkan/texture_cache.h
-index af34e07..0b7c2b0 100644
+index 4b559032a2093a711edc38cc6b483fea3b1e85e4..e0561aebe7ea5dfffd23059e97b3507097357b50 100644
 --- a/include/rex/graphics/vulkan/texture_cache.h
 +++ b/include/rex/graphics/vulkan/texture_cache.h
-@@ -45,6 +45,21 @@ class VulkanTextureCache final : public TextureCache {
+@@ -36,6 +36,21 @@ class VulkanTextureCache final : public TextureCache {
    void* Dbz3FindResolveTexture(uint32_t base, uint32_t width, uint32_t height,
                                 xenos::Endian endian,
                                 xenos::TextureFormat format = xenos::TextureFormat::k_8_8_8_8);
@@ -59,7 +59,7 @@ index af34e07..0b7c2b0 100644
    void Dbz3CopyToResolveTexture(void* texture, VkBuffer buffer, uint32_t width, uint32_t height,
                                  VkPipelineStageFlags buffer_src_stage,
                                  VkAccessFlags buffer_src_access);
-@@ -224,6 +239,7 @@ class VulkanTextureCache final : public TextureCache {
+@@ -204,6 +219,7 @@ class VulkanTextureCache final : public TextureCache {
        kTransferDestination,
        kGuestShaderSampled,
        kSwapSampled,
@@ -67,7 +67,7 @@ index af34e07..0b7c2b0 100644
      };
  
      // Takes ownership of the image and its memory.
-@@ -241,6 +257,11 @@ class VulkanTextureCache final : public TextureCache {
+@@ -221,6 +237,11 @@ class VulkanTextureCache final : public TextureCache {
      }
  
      VkImageView GetView(bool is_signed, uint32_t host_swizzle, bool is_array = true);
@@ -79,7 +79,7 @@ index af34e07..0b7c2b0 100644
      VkImageView GetOrCreate3DAs2DImageView(bool is_signed, uint32_t host_swizzle);
  
     private:
-@@ -293,6 +314,8 @@ class VulkanTextureCache final : public TextureCache {
+@@ -273,6 +294,8 @@ class VulkanTextureCache final : public TextureCache {
  
      VkImage image_;
      VmaAllocation allocation_;
@@ -89,7 +89,7 @@ index af34e07..0b7c2b0 100644
      Usage usage_ = Usage::kUndefined;
  
 diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
-index 284882d..0562ed8 100644
+index 284882d6cc34005396c655a6bc644101512a1e85..0562ed834a4009908ce341a8632ebe79257972ea 100644
 --- a/src/graphics/vulkan/render_target_cache.cpp
 +++ b/src/graphics/vulkan/render_target_cache.cpp
 @@ -6393,6 +6393,245 @@ void main() {
@@ -608,10 +608,10 @@ index 284882d..0562ed8 100644
                                             scratch.SetAccessMask(VK_ACCESS_TRANSFER_READ_BIT));
    }
 diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
-index b00f0d2..564af6e 100644
+index f9ac132f83462ace2999e3a3fc1ca7cff67b778d..8ad045f5f1e74ecb869994e06fe056cd81d92a6c 100644
 --- a/src/graphics/vulkan/texture_cache.cpp
 +++ b/src/graphics/vulkan/texture_cache.cpp
-@@ -1227,6 +1227,29 @@ std::unique_ptr<TextureCache::Texture> VulkanTextureCache::CreateTexture(Texture
+@@ -1193,6 +1193,29 @@ std::unique_ptr<TextureCache::Texture> VulkanTextureCache::CreateTexture(Texture
    VmaAllocationCreateInfo allocation_create_info = {};
    allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
  
@@ -620,7 +620,7 @@ index b00f0d2..564af6e 100644
 +  bool dbz3_storage = false;
 +  if (!is_3d && key.dimension == xenos::DataDimension::k2DOrStacked && key.tiled &&
 +      !key.scaled_resolve && key.mip_max_level == 0 && depth_or_array_size == 1 &&
-+      formats[1] == VK_FORMAT_UNDEFINED && !FindPackEntry(key) &&
++      formats[1] == VK_FORMAT_UNDEFINED &&
 +      ((key.format == xenos::TextureFormat::k_8_8_8_8 &&
 +        formats[0] == VK_FORMAT_R8G8B8A8_UNORM) ||
 +       (key.format == xenos::TextureFormat::k_24_8 && formats[0] == VK_FORMAT_R32_SFLOAT))) {
@@ -641,7 +641,7 @@ index b00f0d2..564af6e 100644
    VkImage image;
    VmaAllocation allocation;
    if (vmaCreateImage(vma_allocator_, &image_create_info, &allocation_create_info, &image,
-@@ -1234,7 +1257,9 @@ std::unique_ptr<TextureCache::Texture> VulkanTextureCache::CreateTexture(Texture
+@@ -1200,7 +1223,9 @@ std::unique_ptr<TextureCache::Texture> VulkanTextureCache::CreateTexture(Texture
      return nullptr;
    }
  
@@ -652,7 +652,7 @@ index b00f0d2..564af6e 100644
  }
  
  bool VulkanTextureCache::EnsureScaledResolveMemoryCommitted(uint32_t start_unscaled,
-@@ -1941,6 +1966,101 @@ void VulkanTextureCache::Dbz3CopyToResolveTexture(void* texture_opaque, VkBuffer
+@@ -1898,6 +1923,101 @@ void VulkanTextureCache::Dbz3CopyToResolveTexture(void* texture_opaque, VkBuffer
    Dbz3MarkTextureLoaded(vulkan_texture);
  }
  
@@ -751,10 +751,10 @@ index b00f0d2..564af6e 100644
 +  Dbz3MarkTextureLoaded(vulkan_texture);
 +}
 +
- // DBZ3 HD Collection: packs de texturas (ver dbz3_texture_pack.h).
- 
- bool VulkanTextureCache::LinearizeGuestTexture(
-@@ -2285,6 +2405,9 @@ VulkanTextureCache::VulkanTexture::~VulkanTexture() {
+ void VulkanTextureCache::UpdateTextureBindingsImpl(uint32_t fetch_constant_mask) {
+   uint32_t bindings_remaining = fetch_constant_mask;
+   uint32_t binding_index;
+@@ -1969,6 +2089,9 @@ VulkanTextureCache::VulkanTexture::~VulkanTexture() {
    if (image_view_3d_as_2d_signed_ != VK_NULL_HANDLE) {
      dfn.vkDestroyImageView(device, image_view_3d_as_2d_signed_, nullptr);
    }
@@ -764,7 +764,7 @@ index b00f0d2..564af6e 100644
    vmaDestroyImage(vulkan_texture_cache.vma_allocator_, image_, allocation_);
  }
  
-@@ -3672,6 +3795,11 @@ void VulkanTextureCache::GetTextureUsageMasks(VulkanTexture::Usage usage,
+@@ -3350,6 +3473,11 @@ void VulkanTextureCache::GetTextureUsageMasks(VulkanTexture::Usage usage,
        access_mask = VK_ACCESS_SHADER_READ_BIT;
        layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
        break;

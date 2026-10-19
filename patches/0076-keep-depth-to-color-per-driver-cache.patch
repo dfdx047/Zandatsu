@@ -1,0 +1,36 @@
+diff --git a/src/graphics/pipeline/render_target/cache.cpp b/src/graphics/pipeline/render_target/cache.cpp
+index 5dd00a8438e05a2aabdded3f066d93483de1f431..64e6ee8f80042628c3e0e6ac9ecdcced1cc50918 100644
+--- a/src/graphics/pipeline/render_target/cache.cpp
++++ b/src/graphics/pipeline/render_target/cache.cpp
+@@ -86,7 +86,9 @@ REXCVAR_DEFINE_BOOL(dbz3_rt_keep_dd, false, "GPU",
+ REXCVAR_DEFINE_BOOL(dbz3_rt_keep_cd, false, "GPU",
+                     "Dragon Burst: com dbz3_rt_direct, mantem as transferencias cor -> profundidade")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+-REXCVAR_DEFINE_BOOL(dbz3_rt_keep_dc, false, "GPU",
++// 0076: ligado - o autoteste de 16/10 22:17 (RP5) e 22:19 (RG Cube) mostrou que estas fazem falta
++// (sem elas o desfoque do fundo fica errado: 24% / 11,5% da imagem).
++REXCVAR_DEFINE_BOOL(dbz3_rt_keep_dc, true, "GPU",
+                     "Dragon Burst: com dbz3_rt_direct, mantem as transferencias profundidade -> cor")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ REXCVAR_DEFINE_BOOL(dbz3_rt_keep_cc, false, "GPU",
+diff --git a/src/graphics/vulkan/pipeline_cache.cpp b/src/graphics/vulkan/pipeline_cache.cpp
+index d885270eb8adabce0b1884fd2aca8e69d8ae8e42..581ee536baf3d56b3824996b66626283d3aaaa83 100644
+--- a/src/graphics/vulkan/pipeline_cache.cpp
++++ b/src/graphics/vulkan/pipeline_cache.cpp
+@@ -544,8 +544,14 @@ void VulkanPipelineCache::InitializeShaderStorage(const std::filesystem::path& c
+   // pipelines guardados, que vem a seguir.
+   {
+     const ui::vulkan::VulkanDevice* const vulkan_device = command_processor_.GetVulkanDevice();
+-    Dbz3InitDriverPipelineCache(vulkan_device->functions(), vulkan_device->device(),
+-                                shader_storage_root / "vulkan_driver_pipelines.bin");
++    // Dragon Burst (0076): um ficheiro por driver (sistema da Qualcomm, Turnip, ...): a cache de
++    // um driver nao serve ao outro e o da Qualcomm nao e de confiar com dados alheios.
++    Dbz3InitDriverPipelineCache(
++        vulkan_device->functions(), vulkan_device->device(),
++        shader_storage_root /
++            fmt::format("vulkan_driver_pipelines_{}_{:08X}.bin",
++                        uint32_t(vulkan_device->properties().driverID),
++                        vulkan_device->properties().driverVersion));
+   }
+ 
+   // Initialize the pipeline storage stream - read pipeline descriptions and

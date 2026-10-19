@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Cores do MGR (os nomes ficam do launcher original). -->
+    <color name="df_orange">#E3263A</color>
+    <color name="df_orange_deep">#B81D2E</color>
+    <color name="df_yellow">#7CC4E4</color>
+    <color name="df_blue">#7CC4E4</color>
+    <color name="df_blue_deep">#2B3038</color>
+    <color name="df_star_red">#E3263A</color>
+    <color name="df_background">#F4F5F7</color>
+    <color name="df_icon_background">#0C0D10</color>
+</resources>

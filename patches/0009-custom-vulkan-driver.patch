@@ -1,6 +1,8 @@
+diff --git a/include/rex/platform/dynlib.h b/include/rex/platform/dynlib.h
+index e3fc40dc997a643ffe437012616e3093dff43cee..2dbb8eb6cceeb423fb7cf5cbf626e0c2ad2e31eb 100644
 --- a/include/rex/platform/dynlib.h
 +++ b/include/rex/platform/dynlib.h
-@@ -36,6 +36,10 @@
+@@ -36,6 +36,10 @@ class DynamicLibrary {
  
    void* GetRawSymbol(const char* name) const;
  
@@ -11,9 +13,11 @@
    template <typename T>
    T GetSymbol(const char* name) const {
      return reinterpret_cast<T>(GetRawSymbol(name));
+diff --git a/src/core/dynlib_posix.cpp b/src/core/dynlib_posix.cpp
+index fcfd6c950c20c31f2b4009513a1c835e956fda5d..3b90d0a8384572e350085f7478c195d8143d99bb 100644
 --- a/src/core/dynlib_posix.cpp
 +++ b/src/core/dynlib_posix.cpp
-@@ -38,6 +38,11 @@
+@@ -38,6 +38,11 @@ void DynamicLibrary::Close() {
    }
  }
  
@@ -25,6 +29,8 @@
  void* DynamicLibrary::GetRawSymbol(const char* name) const {
    if (!handle_)
      return nullptr;
+diff --git a/src/ui/vulkan/vulkan_instance.cpp b/src/ui/vulkan/vulkan_instance.cpp
+index 914b311c91de5480afdfaaf48a4d1555009091f9..17415b00d7436b3693faa96b5bf8db3c60e8782a 100644
 --- a/src/ui/vulkan/vulkan_instance.cpp
 +++ b/src/ui/vulkan/vulkan_instance.cpp
 @@ -25,12 +25,56 @@
@@ -84,7 +90,7 @@
  std::unique_ptr<VulkanInstance> VulkanInstance::Create(const bool with_surface,
                                                         const bool try_enable_validation) {
    std::unique_ptr<VulkanInstance> vulkan_instance(new VulkanInstance());
-@@ -75,7 +119,15 @@
+@@ -75,7 +119,15 @@ std::unique_ptr<VulkanInstance> VulkanInstance::Create(const bool with_surface,
      return nullptr;
    }
  #else

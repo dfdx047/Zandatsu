@@ -1,5 +1,5 @@
 diff --git a/include/rex/graphics/pipeline/shader/spirv_translator.h b/include/rex/graphics/pipeline/shader/spirv_translator.h
-index 9462989..8ac0d25 100644
+index 946298951747825fd1cf2f652d04e0e5c0fd9a49..8ac0d25e7032550dd17db67660ad5b7537d16f42 100644
 --- a/include/rex/graphics/pipeline/shader/spirv_translator.h
 +++ b/include/rex/graphics/pipeline/shader/spirv_translator.h
 @@ -381,6 +381,18 @@ class SpirvShaderTranslator : public ShaderTranslator {
@@ -34,18 +34,18 @@ index 9462989..8ac0d25 100644
    spv::Id var_main_tfetch_gradients_h_;
    spv::Id var_main_tfetch_gradients_v_;
 diff --git a/include/rex/graphics/pipeline/texture/cache.h b/include/rex/graphics/pipeline/texture/cache.h
-index 4489181..64e4051 100644
+index 78abccdc1a11143b1697fd613fd7d13a031a254d..54c30c5b86d7b7eca2159ec7eef71a62f488aa52 100644
 --- a/include/rex/graphics/pipeline/texture/cache.h
 +++ b/include/rex/graphics/pipeline/texture/cache.h
-@@ -15,6 +15,7 @@
- #include <cstdint>
+@@ -16,6 +16,7 @@
  #include <cstring>
+ #include <filesystem>
  #include <memory>
 +#include <string>
  #include <unordered_map>
  #include <vector>
  
-@@ -117,6 +118,8 @@ class TextureCache {
+@@ -150,6 +151,8 @@ class TextureCache {
      const TextureBinding* binding = GetValidTextureBinding(fetch_constant_index);
      return binding ? binding->host_swizzle : xenos::XE_GPU_TEXTURE_SWIZZLE_0000;
    }
@@ -55,7 +55,7 @@ index 4489181..64e4051 100644
      const TextureBinding* binding = GetValidTextureBinding(fetch_constant_index);
      return binding ? binding->swizzled_signs : kSwizzledSignsUnsigned;
 diff --git a/include/rex/graphics/vulkan/pipeline_cache.h b/include/rex/graphics/vulkan/pipeline_cache.h
-index 7b938b9..c5fe364 100644
+index 7b938b97961d607a74a93661adad271d0eaca632..c5fe364b7faff789c37b7cde14b22457baee0566 100644
 --- a/include/rex/graphics/vulkan/pipeline_cache.h
 +++ b/include/rex/graphics/vulkan/pipeline_cache.h
 @@ -34,6 +34,7 @@
@@ -101,7 +101,7 @@ index 7b938b9..c5fe364 100644
    std::deque<std::pair<uint64_t, VkPipeline>> deferred_destroy_pipelines_;
    std::mutex deferred_destroy_lock_;
 diff --git a/src/graphics/pipeline/shader/spirv_translator.cpp b/src/graphics/pipeline/shader/spirv_translator.cpp
-index 1774f97..32750e3 100644
+index 1774f9703037ff340cd44cc86a693a835fc12e1c..32750e3a3c05d97338a3b231107aff3173fcb9cb 100644
 --- a/src/graphics/pipeline/shader/spirv_translator.cpp
 +++ b/src/graphics/pipeline/shader/spirv_translator.cpp
 @@ -110,6 +110,10 @@ void SpirvShaderTranslator::Reset() {
@@ -116,7 +116,7 @@ index 1774f97..32750e3 100644
  
    input_vertex_index_ = spv::NoResult;
 diff --git a/src/graphics/pipeline/shader/spirv_translator_fetch.cpp b/src/graphics/pipeline/shader/spirv_translator_fetch.cpp
-index 9ce3bb4..4c3c2de 100644
+index 9ce3bb4ad0c3d61c8880195fb3c96f666068d89b..4c3c2dec0d72b65d491d7a72aec27d35cec7e5d9 100644
 --- a/src/graphics/pipeline/shader/spirv_translator_fetch.cpp
 +++ b/src/graphics/pipeline/shader/spirv_translator_fetch.cpp
 @@ -1288,18 +1288,26 @@ void SpirvShaderTranslator::ProcessTextureFetchInstruction(
@@ -238,10 +238,10 @@ index 9ce3bb4..4c3c2de 100644
                                                        xenos::FetchOpDimension dimension,
                                                        bool is_signed) {
 diff --git a/src/graphics/pipeline/texture/cache.cpp b/src/graphics/pipeline/texture/cache.cpp
-index 669474e..0245584 100644
+index ac13acfd4b265a1ee02b3a2a31b3505706f3312c..c43740af75a1fe89b62bbbc63ca4c3ca37e39f19 100644
 --- a/src/graphics/pipeline/texture/cache.cpp
 +++ b/src/graphics/pipeline/texture/cache.cpp
-@@ -753,6 +753,26 @@ TextureCache::Texture* TextureCache::Dbz3FindTexture(const TextureKey& key) {
+@@ -1125,6 +1125,26 @@ TextureCache::Texture* TextureCache::Dbz3FindTexture(const TextureKey& key) {
    return it != textures_.end() ? it->second.get() : nullptr;
  }
  
@@ -269,10 +269,10 @@ index 669474e..0245584 100644
    texture.MakeUpToDateAndWatch(global_critical_region_.Acquire());
  }
 diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
-index b17d5a5..2930155 100644
+index cb5256ebda2b2766f02f0b09b9b21fa872b438ac..309bc517caa9618caec8d6fec70aae723b39f18a 100644
 --- a/src/graphics/vulkan/command_processor.cpp
 +++ b/src/graphics/vulkan/command_processor.cpp
-@@ -1078,6 +1078,7 @@ bool VulkanCommandProcessor::SetupContext() {
+@@ -1076,6 +1076,7 @@ bool VulkanCommandProcessor::SetupContext() {
      REXGPU_ERROR("Failed to initialize the texture cache");
      return false;
    }
@@ -281,7 +281,7 @@ index b17d5a5..2930155 100644
    // Shared memory and EDRAM common bindings.
    VkDescriptorPoolSize descriptor_pool_sizes[1];
 diff --git a/src/graphics/vulkan/pipeline_cache.cpp b/src/graphics/vulkan/pipeline_cache.cpp
-index 68b7bfa..b7a41b2 100644
+index 68b7bfa4d1cb749d907f2f6fb300ee05406d2b1d..b7a41b2a79e4cf2b7cdf49c7ca03fe8ee00a43e2 100644
 --- a/src/graphics/vulkan/pipeline_cache.cpp
 +++ b/src/graphics/vulkan/pipeline_cache.cpp
 @@ -60,6 +60,15 @@ REXCVAR_DEFINE_INT32(
@@ -386,7 +386,7 @@ index 68b7bfa..b7a41b2 100644
      if (edram_fragment_shader_interlock) {
        shader_stage_fragment.module = depth_only_fragment_shader_;
 diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
-index ed36f6a..bc5356a 100644
+index ed36f6ad98a5f0ce3e9905fbe1c199ef5c1da0e3..bc5356a8e46ecfc2efb55f0103593802d302952c 100644
 --- a/src/graphics/vulkan/render_target_cache.cpp
 +++ b/src/graphics/vulkan/render_target_cache.cpp
 @@ -6305,6 +6305,33 @@ bool Dbz3DepthFail(int reason) {

@@ -1,0 +1,102 @@
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 54da327082e0c5ca770c257dbfc28fe23e59afd5..98b7feb11908b2488d68d49d0f8c1bf5d18346e6 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -33,6 +33,8 @@
+ #include <rex/logging.h>
+ #include <rex/math.h>
+ #include <rex/graphics/util/draw.h>
++#include <rex/graphics/draw_overrides.h>
++#include <rex/perf/frame_rate.h>
+ #include <rex/graphics/flags.h>
+ #include <rex/graphics/pipeline/shader/shader.h>
+ #include <rex/graphics/pipeline/shader/spirv_translator.h>
+@@ -4286,11 +4288,21 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+     return true;
+   }
+   VulkanShader* pixel_shader = nullptr;
++  // Dragon Burst: overrides por pixel shader pedidos pelo jogo (Burst Limit: desligar
++  // a profundidade de campo, o brilho, o motion blur e o filtro suave, como no PC).
++  const rex::graphics::PixelShaderDrawOverride* pixel_shader_draw_override = nullptr;
+   if (is_rasterization_done) {
+     // See xenos::EdramMode for explanation why the pixel shader is only used
+     // when it's kColorDepth here.
+     if (edram_mode == xenos::EdramMode::kColorDepth) {
+       pixel_shader = static_cast<VulkanShader*>(active_pixel_shader());
++      if (pixel_shader) {
++        pixel_shader_draw_override =
++            rex::graphics::FindPixelShaderDrawOverride(pixel_shader->ucode_data_hash());
++        if (pixel_shader_draw_override && pixel_shader_draw_override->skip) {
++          return true;
++        }
++      }
+       if (pixel_shader) {
+         pipeline_cache_->AnalyzeShaderUcode(*pixel_shader);
+         if (!draw_util::IsPixelShaderNeededWithRasterization(*pixel_shader, regs)) {
+@@ -4306,6 +4318,18 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+       return true;
+     }
+   }
++  // Dragon Burst (rex::graphics::SetHideHudDraws, modo foto do Burst Limit): sem o que
++  // e desenhado por cima da cena com o teste de profundidade ligado mas sempre a
++  // passar - o HUD.
++  if (is_rasterization_done && rex::graphics::GetHideHudDraws()) {
++    const reg::RB_DEPTHCONTROL hud_depth_control = draw_util::GetNormalizedDepthControl(regs);
++    const uint32_t frontbuffer_width = rex::perf::GetRenderInfo().frontbuffer_width;
++    if (hud_depth_control.z_enable &&
++        hud_depth_control.zfunc == xenos::CompareFunction::kAlways && frontbuffer_width &&
++        regs.Get<reg::RB_SURFACE_INFO>().surface_pitch >= frontbuffer_width) {
++      return true;
++    }
++  }
+   bool memexport_used_pixel = pixel_shader && (pixel_shader->memexport_eM_written() != 0);
+   if (memexport_used_pixel) {
+     if (!device_properties.fragmentStoresAndAtomics) {
+@@ -4789,6 +4813,47 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+     }
+   }
+ 
++  // Dragon Burst: constantes do pixel shader trocadas so durante este draw (overrides
++  // do jogo); repostas no fim do IssueDraw.
++  struct PixelShaderConstantOverrideScope {
++    uint32_t* register_values;
++    uint32_t& up_to_date;
++    std::vector<std::pair<uint32_t, uint32_t>> saved;
++    PixelShaderConstantOverrideScope(uint32_t* values, uint32_t& up_to_date_mask,
++                                     const rex::graphics::PixelShaderDrawOverride* draw_override)
++        : register_values(values), up_to_date(up_to_date_mask) {
++      if (!draw_override) {
++        return;
++      }
++      for (const auto& constant : draw_override->constants) {
++        if (constant.index >= 256) {
++          continue;
++        }
++        for (uint32_t i = 0; i < 4; ++i) {
++          if (!(constant.component_mask & (1u << i))) {
++            continue;
++          }
++          const uint32_t reg = XE_GPU_REG_SHADER_CONSTANT_256_X + constant.index * 4 + i;
++          saved.emplace_back(reg, register_values[reg]);
++          std::memcpy(&register_values[reg], &constant.value[i], sizeof(uint32_t));
++        }
++      }
++      if (!saved.empty()) {
++        up_to_date &= ~(UINT32_C(1) << SpirvShaderTranslator::kConstantBufferFloatPixel);
++      }
++    }
++    ~PixelShaderConstantOverrideScope() {
++      if (saved.empty()) {
++        return;
++      }
++      for (auto it = saved.rbegin(); it != saved.rend(); ++it) {
++        register_values[it->first] = it->second;
++      }
++      up_to_date &= ~(UINT32_C(1) << SpirvShaderTranslator::kConstantBufferFloatPixel);
++    }
++  } pixel_shader_constant_override(register_file_->values, current_constant_buffers_up_to_date_,
++                                   pixel_shader ? pixel_shader_draw_override : nullptr);
++
+   // Update system constants before uploading them.
+   UpdateSystemConstantValues(primitive_polygonal, primitive_processing_result,
+                              shader_32bit_index_dma, 0, viewport_info, used_texture_mask,

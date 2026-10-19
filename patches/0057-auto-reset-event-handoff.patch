@@ -1,0 +1,214 @@
+diff --git a/src/core/threading_posix.cpp b/src/core/threading_posix.cpp
+index 1d0234864b620db01c7de941366d926cf4abef81..e5e726b5da2d7fc56c785d0f3e27bbefc2370441 100644
+--- a/src/core/threading_posix.cpp
++++ b/src/core/threading_posix.cpp
+@@ -318,15 +318,29 @@ class PosixConditionBase {
+   // objeto da espera ANTES de sinalizar o outro (BeginWait), e o pulso acorda todos
+   // os registados (ver PosixCondition<Event>::Pulse). Sem isto o Burst Limit encrava
+   // no arranque: mutex + evento como variavel de condicao, acordados por pulso.
++  //
++  // Dragon Burst (0057): e cada espera registada entra numa fila (FIFO). Num evento
++  // automatico, Set/Pulse com alguem na fila ENTREGA o sinal ao primeiro da fila,
++  // como o KeSetEvent do NT: quem chega depois (ex. a propria thread que sinalizou e
++  // logo volta a esperar no mesmo evento) ja nao o pode "roubar". O Burst Limit usa
++  // um so evento para as duas direcoes do aperto de mao thread principal <-> worker e
++  // encravava quando o sinal era roubado.
+   uint64_t BeginWait() {
+     std::lock_guard<std::mutex> lock(mutex_);
+-    ++waiters_;
+-    return pulse_gen_;
++    const uint64_t id = ++next_wait_id_;
++    wait_queue_.push_back(id);
++    return id;
+   }
+ 
+-  void EndWait() {
++  void EndWait(uint64_t id) {
+     std::lock_guard<std::mutex> lock(mutex_);
+-    --waiters_;
++    for (auto it = wait_queue_.begin(); it != wait_queue_.end(); ++it) {
++      if (*it == id) {
++        wait_queue_.erase(it);
++        break;
++      }
++    }
++    OnWaitEnded(id);
+   }
+ 
+   WaitResult WaitRegistered(uint64_t ticket, std::chrono::milliseconds timeout) {
+@@ -360,7 +374,7 @@ class PosixConditionBase {
+   WaitResult Wait(std::chrono::milliseconds timeout) {
+     const uint64_t ticket = BeginWait();
+     const WaitResult result = WaitRegistered(ticket, timeout);
+-    EndWait();
++    EndWait(ticket);
+     return result;
+   }
+ 
+@@ -514,7 +528,7 @@ class PosixConditionBase {
+   inline virtual bool signaled() const = 0;
+   inline virtual void post_execution() = 0;
+   // Com mutex_ trancado: true se esta espera pode acabar agora (e consome o sinal).
+-  // `ticket`: o pulse_gen_ quando a espera se registou (so os eventos o usam).
++  // `ticket`: o id da espera registada (so os eventos o usam).
+   virtual bool TryAcquire(uint64_t ticket) {
+     (void)ticket;
+     if (!signaled()) {
+@@ -523,9 +537,12 @@ class PosixConditionBase {
+     post_execution();
+     return true;
+   }
+-  // Esperas registadas (BeginWait/EndWait) e pulsos dados (0054); sob mutex_.
+-  uint32_t waiters_ = 0;
+-  uint64_t pulse_gen_ = 0;
++  // Com mutex_ trancado, ao sair uma espera registada (0057): um sinal entregue a
++  // ela e nao consumido (acabou o tempo, ou um alerta) passa ao seguinte.
++  virtual void OnWaitEnded(uint64_t id) { (void)id; }
++  // Esperas registadas por ordem de chegada (BeginWait/EndWait); sob mutex_.
++  std::deque<uint64_t> wait_queue_;
++  uint64_t next_wait_id_ = 0;
+   // Quantos WaitMultiple estao a espera deste objeto (DBZ3-Android, 0011).
+   std::atomic<uint32_t> multi_waiters_{0};
+   std::condition_variable cond_;
+@@ -548,7 +565,12 @@ class PosixCondition<Event> : public PosixConditionBase {
+ 
+   bool Signal() override {
+     auto lock = std::unique_lock<std::mutex>(mutex_);
+-    signal_ = true;
++    if (!manual_reset_ && !wait_queue_.empty()) {
++      // Automatico com alguem a espera: o sinal vai direto para o primeiro (0057).
++      GrantFrontLocked();
++    } else {
++      signal_ = true;
++    }
+     cond_.notify_all();
+     PosixConditionBase::NotifyMultiWaiters();
+     return true;
+@@ -560,15 +582,19 @@ class PosixCondition<Event> : public PosixConditionBase {
+   }
+ 
+   // PulseEvent: acorda quem esta a espera NESTE momento (todos num evento manual,
+-  // um num automatico) e deixa o evento como estava. Retorna se havia alguem.
++  // o primeiro num automatico) e deixa o evento nao sinalizado. Retorna se havia
++  // alguem registado.
+   bool Pulse() {
+     auto lock = std::unique_lock<std::mutex>(mutex_);
+-    if (waiters_ == 0) {
++    if (wait_queue_.empty()) {
+       return false;
+     }
+-    ++pulse_gen_;
+-    if (!manual_reset_) {
+-      ++pulse_credit_;
++    if (manual_reset_) {
++      while (!wait_queue_.empty()) {
++        GrantFrontLocked();
++      }
++    } else {
++      GrantFrontLocked();
+     }
+     cond_.notify_all();
+     return true;
+@@ -577,6 +603,19 @@ class PosixCondition<Event> : public PosixConditionBase {
+   bool has_multi_waiters() const { return multi_waiters_.load(std::memory_order_seq_cst) != 0; }
+ 
+  private:
++  void GrantFrontLocked() {
++    granted_.push_back(wait_queue_.front());
++    wait_queue_.pop_front();
++  }
++  bool TakeGrantLocked(uint64_t id) {
++    for (auto it = granted_.begin(); it != granted_.end(); ++it) {
++      if (*it == id) {
++        granted_.erase(it);
++        return true;
++      }
++    }
++    return false;
++  }
+   inline bool signaled() const override { return signal_; }
+   inline void post_execution() override {
+     if (!manual_reset_) {
+@@ -584,25 +623,32 @@ class PosixCondition<Event> : public PosixConditionBase {
+     }
+   }
+   bool TryAcquire(uint64_t ticket) override {
++    if (TakeGrantLocked(ticket)) {
++      return true;
++    }
+     if (signal_) {
+       post_execution();
+       return true;
+     }
+-    // Registada antes de um pulso: esse pulso e para ela.
+-    if (ticket != pulse_gen_) {
+-      if (manual_reset_) {
+-        return true;
+-      }
+-      if (pulse_credit_ > 0) {
+-        --pulse_credit_;
+-        return true;
+-      }
+-    }
+     return false;
+   }
++  void OnWaitEnded(uint64_t id) override {
++    if (!TakeGrantLocked(id) || manual_reset_) {
++      return;
++    }
++    // Sinal entregue mas nao usado: vai para o seguinte, ou fica no evento.
++    if (!wait_queue_.empty()) {
++      GrantFrontLocked();
++      cond_.notify_all();
++    } else {
++      signal_ = true;
++      cond_.notify_all();
++      PosixConditionBase::NotifyMultiWaiters();
++    }
++  }
+   bool signal_;
+   const bool manual_reset_;
+-  uint32_t pulse_credit_ = 0;  // eventos automaticos: pulsos ainda por entregar
++  std::deque<uint64_t> granted_;  // esperas que ja receberam o sinal (0057)
+ };
+ 
+ template <>
+@@ -1312,8 +1358,9 @@ WaitResult Wait(WaitHandle* wait_handle, bool is_alertable, std::chrono::millise
+   const uint64_t ticket = condition.BeginWait();
+   struct EndWaitGuard {
+     PosixConditionBase& c;
+-    ~EndWaitGuard() { c.EndWait(); }
+-  } end_wait{condition};
++    uint64_t id;
++    ~EndWaitGuard() { c.EndWait(id); }
++  } end_wait{condition, ticket};
+   while (true) {
+     if (DispatchCurrentThreadUserCallback()) {
+       return WaitResult::kUserCallback;
+@@ -1342,8 +1389,9 @@ WaitResult SignalAndWait(WaitHandle* wait_handle_to_signal, WaitHandle* wait_han
+   const uint64_t ticket = wait_condition.BeginWait();
+   struct EndWaitGuard {
+     PosixConditionBase& c;
+-    ~EndWaitGuard() { c.EndWait(); }
+-  } end_wait{wait_condition};
++    uint64_t id;
++    ~EndWaitGuard() { c.EndWait(id); }
++  } end_wait{wait_condition, ticket};
+   if (!posix_wait_handle_to_signal->condition().Signal()) {
+     return WaitResult::kFailed;
+   }
+@@ -1410,10 +1458,10 @@ class PosixEvent : public PosixConditionHandle<Event> {
+   void Reset() override { handle_.Reset(); }
+   void Pulse() override {
+     using namespace std::chrono_literals;
+-    // Esperas simples e SignalAndWait (registadas): exatas (0054).
+-    handle_.Pulse();
+-    // WaitMultiple nao se regista: para esses fica o comportamento antigo.
+-    if (handle_.has_multi_waiters()) {
++    // Esperas simples e SignalAndWait (registadas): exatas (0054/0057).
++    // WaitMultiple nao se regista: so sem esperas registadas, e com alguem em
++    // WaitMultiple, fica o comportamento antigo.
++    if (!handle_.Pulse() && handle_.has_multi_waiters()) {
+       handle_.Signal();
+       MaybeYield();
+       Sleep(10us);

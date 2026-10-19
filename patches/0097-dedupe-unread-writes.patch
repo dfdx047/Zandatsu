@@ -1,0 +1,134 @@
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 187b202ef86dbf675589dd02618984092f8eb4fd..35015ac5a71c0ad5695e89e5e2f00e7ad8a0b5b2 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -227,6 +227,7 @@ namespace dbz3_resolve_dedupe {
+ extern bool g_dirty;
+ extern bool g_skip_next_resolve;
+ extern uint64_t g_null_draws;
++extern uint64_t g_reader;  // 0097: diagnostico (quem le)
+ void MarkRead(uint32_t address);
+ void MarkSkippedRead(uint32_t address);
+ void LogFrame();
+@@ -3294,6 +3295,7 @@ void VulkanCommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontb
+   render_target_cache_->Dbz3NativePostFrameEnd();
+   // Passo 3: o presenter le a imagem final (conta como leitura) e nada fica pendente.
+   dbz3_resolve_dedupe::g_skip_next_resolve = false;
++  dbz3_resolve_dedupe::g_reader = 1;
+   dbz3_resolve_dedupe::MarkRead(frontbuffer_ptr & 0x1FFFFFFF);
+   if (np_present_frame) {
+     dbz3_resolve_dedupe::MarkRead((dbz3_native_present::g_fetch[1] & 0xFFFFF000u) & 0x1FFFFFFF);
+@@ -5240,6 +5242,7 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+     } else if (render_target_cache_->Dbz3NativeContourBegin(*texture_cache_, nc_params)) {
+       // As duas texturas sao lidas pelo compute: para o passo 3 contam como lidas (a
+       // profundidade linear so tem este leitor e nao pode deixar de ser resolvida).
++      dbz3_resolve_dedupe::g_reader = 2;
+       Dbz3ForEachSampled(regs, vertex_shader, pixel_shader,
+                          [](uint32_t a) { dbz3_resolve_dedupe::MarkRead(a); });
+       DBZ3_DRAW_RET(true);
+@@ -5274,6 +5277,7 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+         }
+       } else if (render_target_cache_->Dbz3NativePostBegin(*texture_cache_, np_params)) {
+         // As texturas lidas pelo compute contam como lidas para o passo 3.
++        dbz3_resolve_dedupe::g_reader = 2;
+         Dbz3ForEachSampled(regs, vertex_shader, pixel_shader,
+                            [](uint32_t a) { dbz3_resolve_dedupe::MarkRead(a); });
+         DBZ3_DRAW_RET(true);
+@@ -6152,6 +6156,7 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+   if (dbz3_native_contour::g_pending) dbz3_native_contour::g_dirty = true;
+   // Passo 3b (0083+): um draw feito acaba o passe saltado e o ensino do destino.
+   render_target_cache_->Dbz3NativePostDrawDone();
++  dbz3_resolve_dedupe::g_reader = pixel_shader ? pixel_shader->ucode_data_hash() : 0;
+   Dbz3ForEachSampled(regs, vertex_shader, pixel_shader,
+                      [](uint32_t a) { dbz3_resolve_dedupe::MarkRead(a); });
+   DBZ3_DRAW_RET(true);
+diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
+index a0a95fd073b82bfe4a087460e90273bf0634e800..171ae95e3a6f74d3a04fa51a5b960e2e0e4d558b 100644
+--- a/src/graphics/vulkan/render_target_cache.cpp
++++ b/src/graphics/vulkan/render_target_cache.cpp
+@@ -89,6 +89,12 @@ REXCVAR_DEFINE_BOOL(dbz3_rit_serve_resolves, false, "GPU/Vulkan",
+                     "destino em vez de banir a assinatura (exige o resolve sem memoria)")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ 
++REXCVAR_DEFINE_BOOL(dbz3_resolve_dedupe_unread_neutral, false, "GPU/Vulkan",
++                    "Dragon Burst (0097), passo 3: uma escrita de resolve sobrescrita sem leitor "
++                    "nenhum nao recomeca a contagem dos 120 'so lidos por draws saltados' (a "
++                    "profundidade resolvida duas vezes por frame deixa de ser resolvida)")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++
+ namespace rex::graphics::vulkan {
+ 
+ // Dragon Burst: render nativo, passo 3 (definido no fim do ficheiro).
+@@ -7752,7 +7758,16 @@ struct Entry {
+   bool read = false;
+   bool skipped_read = false;
+   bool dead = false;
++  // 0097: diagnostico (desde a ultima linha do log): escritas lidas por um draw feito, sem
++  // leitor nenhum e so com leitores saltados; o ultimo leitor (hash do PS, 1 = apresentacao,
++  // 2 = compute do render nativo).
++  uint32_t writes_read = 0;
++  uint32_t writes_unread = 0;
++  uint32_t writes_skipped = 0;
++  uint64_t last_reader = 0;
+ };
++// 0097: quem le agora (o processador poe o hash do PS antes de MarkRead).
++uint64_t g_reader = 0;
+ std::vector<Entry> g_entries;
+ bool g_key_valid = false;
+ uint32_t g_key[7] = {};
+@@ -7762,6 +7777,7 @@ void MarkRead(uint32_t address) {
+   for (Entry& e : g_entries) {
+     if (address >= e.start && address < e.start + e.length) {
+       e.read = true;
++      e.last_reader = g_reader;
+       if (e.dead) {
+         e.dead = false;
+         e.streak = 0;
+@@ -7794,6 +7810,23 @@ void LogFrame() {
+         "dbz3: render nativo: {} draws nulos, {} resolves repetidos e {} sem leitor saltados "
+         "({} destinos sem leitor agora)",
+         g_null_draws, g_same, g_dead, dead);
++    // 0097: porque cada destino (nao) deixa de ser resolvido: escritas lidas / sem leitor / so
++    // com leitores saltados desde a ultima linha, a sequencia atual e o ultimo leitor.
++    std::string text;
++    uint32_t shown = 0;
++    for (Entry& e : g_entries) {
++      const uint32_t total = e.writes_read + e.writes_unread + e.writes_skipped;
++      if (total && shown < 16) {
++        ++shown;
++        text += fmt::format("{}{:08X} {}/{}/{} seq {}{} leitor {:016X}", text.empty() ? "" : "; ",
++                            e.start, e.writes_read, e.writes_unread, e.writes_skipped, e.streak,
++                            e.dead ? " (saltado)" : "", e.last_reader);
++      }
++      e.writes_read = e.writes_unread = e.writes_skipped = 0;
++    }
++    if (!text.empty()) {
++      REXGPU_INFO("dbz3: resolves (lidas/sem leitor/so saltados): {}", text);
++    }
+   }
+ }
+ 
+@@ -7825,7 +7858,22 @@ bool Resolve(const draw_util::ResolveInfo& ri, bool may_skip) {
+   }
+   e->length = std::max(e->length, length);
+   if (e->written) {
+-    if (e->read || !e->skipped_read) {
++    if (e->read) {
++      ++e->writes_read;
++    } else if (e->skipped_read) {
++      ++e->writes_skipped;
++    } else {
++      ++e->writes_unread;
++    }
++    // 0097 (dbz3_resolve_dedupe_unread_neutral): uma escrita que ninguem leu (ex.: o BL resolve
++    // a profundidade para 0E921000 duas vezes por frame em alguns cenarios e a primeira e
++    // sobrescrita sem leitor) nao recomeca a sequencia: so um draw feito que leia o destino o
++    // faz. Desligado: como antes (recomeca), e esse destino nunca chega as 120.
++    const bool neutral = !e->read && !e->skipped_read && !e->dead &&
++                         REXCVAR_GET(dbz3_resolve_dedupe_unread_neutral);
++    if (neutral) {
++      // a sequencia fica como esta
++    } else if (e->read || !e->skipped_read) {
+       e->streak = 0;
+       if (e->dead && !e->read) {
+         // Sem leitor nenhum desta vez: fica como esta (nao conta para nenhum lado).

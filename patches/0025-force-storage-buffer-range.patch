@@ -1,5 +1,5 @@
 diff --git a/src/ui/vulkan/vulkan_device.cpp b/src/ui/vulkan/vulkan_device.cpp
-index 6a5c853..22a80b7 100644
+index 6a5c853d041c9118fd9ef15fdd1f3d6ca0bb80cf..22a80b7d93eb4df772ed12ba2029fc4fc6047005 100644
 --- a/src/ui/vulkan/vulkan_device.cpp
 +++ b/src/ui/vulkan/vulkan_device.cpp
 @@ -53,6 +53,14 @@ REXCVAR_DEFINE_STRING(vulkan_mask_features, "", "UI/Vulkan",

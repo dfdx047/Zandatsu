@@ -1,0 +1,422 @@
+diff --git a/include/rex/memory/utils.h b/include/rex/memory/utils.h
+index 8ccb52c95351a421ac890fa0a43e5a4ae616e70e..01aa262c791efda038e849259aeea65784bb9bc5 100644
+--- a/include/rex/memory/utils.h
++++ b/include/rex/memory/utils.h
+@@ -92,6 +92,16 @@ bool IsWritableExecutableMemorySupported();
+ // writable executable memory on a system with it.
+ bool IsWritableExecutableMemoryPreferred();
+ 
++// Dragon Burst (0098): whether mmap honours MAP_FIXED_NOREPLACE. Linux before
++// 4.17 (e.g. the 4.14 kernels of Snapdragon 855/860 phones) ignores the flag
++// and treats the address as a hint, returning a different address when the
++// requested one is already mapped. Probed once; always true off Linux.
++bool FixedNoReplaceHonored();
++
++// Dragon Burst (0098): the /proc/self/maps line that contains the address
++// ("unmapped" when none does), for diagnostics. Empty off Linux.
++std::string DescribeHostMapping(const void* address);
++
+ // Allocates a block of memory at the given page-aligned base address.
+ // Fails if the memory is not available.
+ // Specify nullptr for base_address to leave it up to the system.
+diff --git a/include/rex/system/xmemory.h b/include/rex/system/xmemory.h
+index 0c39a42009e4e4e8d64c7325196ba5690559f335..b07c2c96e6e86250d133e1aed8fba0fc42400f76 100644
+--- a/include/rex/system/xmemory.h
++++ b/include/rex/system/xmemory.h
+@@ -568,6 +568,9 @@ class Memory {
+ 
+   bool AccessViolationCallback(std::unique_lock<std::recursive_mutex> global_lock_locked_once,
+                                void* host_address, bool is_write);
++  bool FatalGuestAccessViolation(std::unique_lock<std::recursive_mutex> global_lock,
++                                 BaseHeap* heap, uint32_t virtual_address, void* host_address,
++                                 bool is_write);
+   static bool AccessViolationCallbackThunk(
+       std::unique_lock<std::recursive_mutex> global_lock_locked_once, void* context,
+       void* host_address, bool is_write);
+diff --git a/src/core/exception_handler_posix.cpp b/src/core/exception_handler_posix.cpp
+index 8b1c76a378d7d6cebe758872855b4e55a06832b2..c6acbba1307ad7cf84ca84d9e254d8993f03208a 100644
+--- a/src/core/exception_handler_posix.cpp
++++ b/src/core/exception_handler_posix.cpp
+@@ -21,6 +21,7 @@
+ 
+ #include <signal.h>
+ 
++#include <atomic>
+ #include <cstdint>
+ #include <cstring>
+ 
+@@ -417,6 +418,47 @@ static void ExceptionHandlerCallback(int signal_number, siginfo_t* signal_info,
+       return;
+     }
+   }
++
++  // Dragon Burst (0098): nobody handled it. Returning would run the faulting
++  // instruction again, fault again and loop forever (the POCO X3 Pro logged
++  // the same guest access violation 100k times while the game sat on a black
++  // screen). Hand the signal back to the handler that was installed before
++  // ours (debuggerd / the default action) so the process crashes with a
++  // tombstone instead.
++  static std::atomic<bool> reported{false};
++  if (!reported.exchange(true)) {
++#if REX_ARCH_AMD64
++    const uint64_t host_pc = thread_context.rip;
++#elif REX_ARCH_ARM64
++    const uint64_t host_pc = thread_context.pc;
++#else
++    const uint64_t host_pc = 0;
++#endif
++    REXLOG_ERROR("Unhandled signal {} at address {} (pc 0x{:X}); crashing instead of retrying",
++                 signal_number, signal_info ? signal_info->si_addr : nullptr, host_pc);
++    rex::FlushLogging();
++  }
++  const struct sigaction* original = nullptr;
++  switch (signal_number) {
++    case SIGILL:
++      original = &original_sigill_handler_;
++      break;
++    case SIGSEGV:
++      original = &original_sigsegv_handler_;
++      break;
++#if REX_PLATFORM_MAC
++    case SIGBUS:
++      original = &original_sigbus_handler_;
++      break;
++#endif
++    default:
++      break;
++  }
++  if (original) {
++    sigaction(signal_number, original, nullptr);
++  } else {
++    signal(signal_number, SIG_DFL);
++  }
+ }
+ 
+ void ExceptionHandler::Install(Handler fn, void* data) {
+diff --git a/src/core/memory_posix.cpp b/src/core/memory_posix.cpp
+index 99319c39147fc05f5cf0708fec9ab6395595319d..c2276296eae66badc6d082b670f6e3106e16cf42 100644
+--- a/src/core/memory_posix.cpp
++++ b/src/core/memory_posix.cpp
+@@ -9,6 +9,7 @@
+  * @modified    Tom Clay & Rien Gupta, 2026 - Adapted for ReXGlue runtime (POSIX + macOS)
+  */
+ 
++#include <atomic>
+ #include <cerrno>
+ #include <cstddef>
+ #include <cstdio>
+@@ -148,6 +149,60 @@ bool IsWritableExecutableMemorySupported() {
+ #endif
+ }
+ 
++bool FixedNoReplaceHonored() {
++#if defined(MAP_FIXED_NOREPLACE) && REX_PLATFORM_LINUX && !REX_PLATFORM_MAC
++  static const bool honored = [] {
++    const size_t length = page_size();
++    void* first = mmap(nullptr, length, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
++    if (first == MAP_FAILED) {
++      return true;  // Can't tell; assume a modern kernel.
++    }
++    void* second = mmap(first, length, PROT_NONE,
++                        MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0);
++    bool result = true;
++    if (second != MAP_FAILED) {
++      // Same address: the flag was ignored and the mapping replaced; other
++      // address: the flag was ignored and the address treated as a hint.
++      result = false;
++      if (second != first) {
++        munmap(second, length);
++      }
++    } else {
++      result = errno == EEXIST;
++    }
++    munmap(first, length);
++    return result;
++  }();
++  return honored;
++#else
++  return true;
++#endif
++}
++
++std::string DescribeHostMapping(const void* address) {
++#if REX_PLATFORM_LINUX && !REX_PLATFORM_MAC
++  const uintptr_t addr = reinterpret_cast<uintptr_t>(address);
++  std::ifstream maps("/proc/self/maps");
++  if (!maps.is_open()) {
++    return "no /proc/self/maps";
++  }
++  std::string line;
++  while (std::getline(maps, line)) {
++    unsigned long long start = 0, end = 0;
++    if (std::sscanf(line.c_str(), "%llx-%llx", &start, &end) != 2) {
++      continue;
++    }
++    if (addr >= start && addr < end) {
++      return line;
++    }
++  }
++  return "unmapped";
++#else
++  (void)address;
++  return {};
++#endif
++}
++
+ // TODO(tomc): this needs to go somewhere else. we should utilize the platform namespace more.
+ #if REX_PLATFORM_LINUX
+ namespace {
+@@ -297,6 +352,29 @@ void* AllocFixed(void* base_address, size_t length, AllocationType allocation_ty
+ #endif
+ 
+   void* result = mmap(base_address, length, prot_initial, flags, -1, 0);
++#if defined(MAP_FIXED_NOREPLACE) && REX_PLATFORM_LINUX
++  // Dragon Burst (0098): Linux before 4.17 does not know MAP_FIXED_NOREPLACE
++  // and ignores it, so an occupied address is only a hint and the kernel maps
++  // the block somewhere else instead of failing with EEXIST. Returning that
++  // other block made every commit over the guest arena "succeed" without the
++  // mprotect below, so pages that had been made PROT_NONE (stack guard pages
++  // of a thread that exited, MMIO windows) stayed inaccessible when they were
++  // allocated again: the POCO X3 Pro (4.14) looped on a write fault while
++  // filling a new thread stack. Undo the stray mapping and take the EEXIST
++  // path, which is what a 4.17+ kernel would have done.
++  if (result != MAP_FAILED && base_address && result != base_address) {
++    munmap(result, length);
++    static std::atomic<bool> logged{false};
++    if (!logged.exchange(true)) {
++      REXSYS_WARN(
++          "AllocFixed: the kernel ignored MAP_FIXED_NOREPLACE (mapped {} instead of {}); "
++          "committing over existing mappings with mprotect",
++          result, base_address);
++    }
++    result = MAP_FAILED;
++    errno = EEXIST;
++  }
++#endif
+   if (result != MAP_FAILED) {
+     return result;
+   }
+@@ -315,6 +393,18 @@ void* AllocFixed(void* base_address, size_t length, AllocationType allocation_ty
+     if (mprotect(base_address, length, static_cast<int>(prot_requested)) == 0) {
+       return base_address;
+     }
++    {
++      // Dragon Burst (0098): say why a commit failed (ENOMEM: part of the
++      // range is not mapped, or the kernel's map count limit was reached).
++      const int err = errno;
++      static std::atomic<int> failures{0};
++      if (failures.fetch_add(1) < 16) {
++        REXSYS_ERROR("AllocFixed: commit mprotect({}, 0x{:X}, {}) failed: {} ({}) [{}]",
++                     base_address, length, prot_requested, strerror(err), err,
++                     DescribeHostMapping(base_address));
++      }
++      errno = err;
++    }
+ #else
+     // Verify the entire range is mapped before using mprotect
+     if (IsRangeFullyMapped(base_address, length)) {
+diff --git a/src/core/memory_win.cpp b/src/core/memory_win.cpp
+index 9a668e9484fe91dfd78a24c03783520cc1625f79..8722cea4eaafb621b9e8ff8e628465f851499bee 100644
+--- a/src/core/memory_win.cpp
++++ b/src/core/memory_win.cpp
+@@ -91,6 +91,15 @@ bool IsWritableExecutableMemorySupported() {
+ #endif
+ }
+ 
++bool FixedNoReplaceHonored() {
++  return true;
++}
++
++std::string DescribeHostMapping(const void* address) {
++  (void)address;
++  return {};
++}
++
+ void* AllocFixed(void* base_address, size_t length, AllocationType allocation_type,
+                  PageAccess access) {
+   DWORD alloc_type = 0;
+diff --git a/src/system/xmemory.cpp b/src/system/xmemory.cpp
+index 2cc05a6d86f34e37086c354d82a9c3e093b997eb..e8e0e1d5236c48ad5cca180e32140a574f59982a 100644
+--- a/src/system/xmemory.cpp
++++ b/src/system/xmemory.cpp
+@@ -10,8 +10,13 @@
+  */
+ 
+ #include <algorithm>
++#include <atomic>
++#include <chrono>
++#include <thread>
+ #include <cstring>
+ #include <utility>
++#include <cerrno>
++#include <cstdio>
+ 
+ #if REX_PLATFORM_MAC
+ #include <sys/mman.h>
+@@ -34,6 +39,14 @@
+ // TODO(benvanik): move xbox.h out
+ #include <rex/system/xtypes.h>
+ 
++#include <SDL3/SDL_messagebox.h>
++
++#include <rex/platform.h>
++#if REX_PLATFORM_LINUX
++#include <sys/sysinfo.h>
++#include <sys/utsname.h>
++#endif
++
+ REXCVAR_DEFINE_BOOL(protect_zero, true, "Memory", "Protect the zero page from reads and writes")
+     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+ 
+@@ -132,6 +145,43 @@ Memory::~Memory() {
+   physical_membase_ = nullptr;
+ }
+ 
++// Dragon Burst (0098): one line with what the host gives the guest arena, so
++// a report from an unknown phone says how much RAM it has, which kernel, the
++// page size and whether mmap honours MAP_FIXED_NOREPLACE (Linux 4.17+).
++static void LogHostMemoryInfo(size_t mapping_size) {
++#if REX_PLATFORM_LINUX
++  struct sysinfo si {};
++  uint64_t total_mb = 0, free_mb = 0, swap_mb = 0;
++  if (sysinfo(&si) == 0) {
++    total_mb = uint64_t(si.totalram) * si.mem_unit / (1024 * 1024);
++    free_mb = uint64_t(si.freeram) * si.mem_unit / (1024 * 1024);
++    swap_mb = uint64_t(si.totalswap) * si.mem_unit / (1024 * 1024);
++  }
++  uint64_t available_mb = 0;
++  if (FILE* f = std::fopen("/proc/meminfo", "r")) {
++    char line[256];
++    while (std::fgets(line, sizeof(line), f)) {
++      unsigned long long kb = 0;
++      if (std::sscanf(line, "MemAvailable: %llu kB", &kb) == 1) {
++        available_mb = kb / 1024;
++        break;
++      }
++    }
++    std::fclose(f);
++  }
++  struct utsname un {};
++  const char* kernel = uname(&un) == 0 ? un.release : "?";
++  REXSYS_INFO(
++      "Host memory: RAM {} MB (available {} MB, free {} MB, swap {} MB), kernel {}, page {} "
++      "bytes; guest arena 0x{:X} bytes; MAP_FIXED_NOREPLACE honoured: {}",
++      total_mb, available_mb, free_mb, swap_mb, kernel, rex::memory::page_size(), mapping_size,
++      rex::memory::FixedNoReplaceHonored());
++#else
++  REXSYS_INFO("Host memory: page {} bytes; guest arena 0x{:X} bytes", rex::memory::page_size(),
++              mapping_size);
++#endif
++}
++
+ bool Memory::Initialize() {
+   file_name_ = fmt::format("xenia_memory_{}", chrono::Clock::QueryHostTickCount());
+ 
+@@ -144,7 +194,8 @@ bool Memory::Initialize() {
+   mapping_ = rex::memory::CreateFileMappingHandle(file_name_, mapping_size,
+                                                   rex::memory::PageAccess::kReadWrite, false);
+   if (mapping_ == rex::memory::kFileMappingHandleInvalid) {
+-    REXSYS_ERROR("Unable to reserve the 4gb guest address space.");
++    REXSYS_ERROR("Unable to reserve the 4gb guest address space ({}).", std::strerror(errno));
++    LogHostMemoryInfo(mapping_size);
+     assert_always();
+     return false;
+   }
+@@ -171,6 +222,7 @@ bool Memory::Initialize() {
+   }
+   if (!mapping_base_) {
+     REXSYS_ERROR("Unable to find a continuous block in the 64bit address space.");
++    LogHostMemoryInfo(mapping_size);
+     assert_always();
+     return false;
+   }
+@@ -181,6 +233,7 @@ bool Memory::Initialize() {
+   REXSYS_INFO("Guest memory arena mapped: virtual base 0x{:016X}, physical base 0x{:016X}",
+               reinterpret_cast<uintptr_t>(virtual_membase_),
+               reinterpret_cast<uintptr_t>(physical_membase_));
++  LogHostMemoryInfo(mapping_size);
+ 
+   // Prepare virtual heaps.
+   heaps_.v00000000.Initialize(this, virtual_membase_, memory::HeapType::kGuestVirtual, 0x00000000,
+@@ -532,6 +585,69 @@ runtime::MMIORange* Memory::LookupVirtualMappedRange(uint32_t virtual_address) {
+   return mmio_handler_->LookupRange(virtual_address);
+ }
+ 
++// Dragon Burst (0098): a guest access violation that nobody can service. Logs
++// the guest page table entry and the host mapping once, shows a message box
++// and aborts, instead of letting the faulting instruction retry forever.
++bool Memory::FatalGuestAccessViolation(std::unique_lock<std::recursive_mutex> global_lock,
++                                       BaseHeap* heap, uint32_t virtual_address,
++                                       void* host_address, bool is_write) {
++  // A racing Protect/commit on another thread may have fixed the page already.
++  {
++    size_t length = rex::memory::page_size();
++    rex::memory::PageAccess access = rex::memory::PageAccess::kNoAccess;
++    if (rex::memory::QueryProtect(host_address, length, access) &&
++        access != rex::memory::PageAccess::kNoAccess &&
++        (!is_write || (access != rex::memory::PageAccess::kReadOnly &&
++                       access != rex::memory::PageAccess::kExecuteReadOnly))) {
++      return true;
++    }
++  }
++
++  static std::atomic<bool> reported{false};
++  if (!reported.exchange(true)) {
++    HeapAllocationInfo info{};
++    bool have_info = heap && heap->QueryRegionInfo(virtual_address, &info);
++    REXSYS_ERROR(
++        "FATAL guest memory fault: {} of 0x{:08X} on thread 0x{:X}; heap {} (page 0x{:X}); "
++        "guest region {}: base 0x{:08X} size 0x{:X} state 0x{:X} protect 0x{:X} "
++        "allocation_protect 0x{:X}; host mapping [{}]; MAP_FIXED_NOREPLACE honoured: {}",
++        is_write ? "write" : "read", virtual_address, rex::thread::current_thread_id(),
++        heap ? fmt::format("0x{:08X}", heap->heap_base()) : std::string("none"),
++        heap ? heap->page_size() : 0, have_info ? "found" : "not found", info.base_address,
++        info.region_size, info.state, info.protect, info.allocation_protect,
++        rex::memory::DescribeHostMapping(host_address), rex::memory::FixedNoReplaceHonored());
++    rex::FlushLogging();
++
++    static std::string message;
++    message = fmt::format(
++        "O jogo parou: falha de memoria do guest ({} em 0x{:08X}).\n"
++        "Exporte os logs no launcher e envie-os.\n\n"
++        "The game stopped: guest memory fault ({} of 0x{:08X}).\n"
++        "Export the logs from the launcher and send them.",
++        is_write ? "escrita" : "leitura", virtual_address, is_write ? "write" : "read",
++        virtual_address);
++    // Show the box from another thread: this one is inside the SIGSEGV
++    // handler (with SIGSEGV blocked), not a place to run JNI or Java.
++    try {
++      std::thread([] {
++        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Dragon Burst", message.c_str(), nullptr);
++        rex::FlushLogging();
++        std::abort();
++      }).detach();
++    } catch (...) {
++      std::abort();
++    }
++  }
++  // Park the faulting thread (and any other thread that faults now) until the
++  // message box thread aborts the process.
++  if (global_lock.owns_lock()) {
++    global_lock.unlock();
++  }
++  for (;;) {
++    std::this_thread::sleep_for(std::chrono::seconds(1));
++  }
++}
++
+ bool Memory::AccessViolationCallback(std::unique_lock<std::recursive_mutex> global_lock_locked_once,
+                                      void* host_address, bool is_write) {
+   // Access via physical_membase_ is special, when need to bypass everything
+@@ -559,7 +675,10 @@ bool Memory::AccessViolationCallback(std::unique_lock<std::recursive_mutex> glob
+             ctx->r10.u32, ctx->r11.u32, ctx->r28.u32, ctx->r29.u32, ctx->r30.u32, ctx->r31.u32);
+       }
+     }
+-    return false;
++    // Dragon Burst (0098): this used to return false, the faulting store ran
++    // again and the same fault repeated forever. Stop with a message instead.
++    return FatalGuestAccessViolation(std::move(global_lock_locked_once), heap, virtual_address,
++                                     host_address, is_write);
+   }
+ 
+   // Access violation callbacks from the guest are triggered when the global

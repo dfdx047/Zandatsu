@@ -1,0 +1,20 @@
+diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
+index ba8a0602c214f7a870e48604e0de10fea2bb6187..9dca2cd830afe2818c4bffb9e50c271468284043 100644
+--- a/src/graphics/vulkan/render_target_cache.cpp
++++ b/src/graphics/vulkan/render_target_cache.cpp
+@@ -8637,6 +8637,15 @@ bool VulkanRenderTargetCache::Dbz3NativePostBegin(VulkanTextureCache& texture_ca
+   np::g_learn_draw = false;
+   np::g_dirty = false;
+   np::g_served = 0;
++  // 0086: o quad saltado e um passe opaco de ecra inteiro; no caminho normal o inicio dele
++  // (sobrescreve tudo, Dbz3RitNormalPassStart) esquecia o "render target sem a imagem" do passo 4
++  // deste alvo. Sem isto, com a composicao saltada, o draw seguinte que carrega o alvo de 1280
++  // (depois do Clear 4x) bania o passe anterior desenhado direto na textura.
++  if (dbz3_rit::g_stale_sig && dbz3_rit::g_stale_base == params.color_base_tiles &&
++      dbz3_rit::g_stale_pitch == params.width / 80) {
++    dbz3_rit::g_stale_sig = 0;
++    dbz3_rit::g_stale_fb = nullptr;
++  }
+   return true;
+ }
+ 

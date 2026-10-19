@@ -1,8 +1,8 @@
 diff --git a/include/rex/graphics/pipeline/render_target/cache.h b/include/rex/graphics/pipeline/render_target/cache.h
-index 73c802e..11d9f60 100644
+index 0fd52f9ec39089e14237842f5e950c8459809550..82b5c36ae3653ec2a4fd239e1b788f64fd233b5a 100644
 --- a/include/rex/graphics/pipeline/render_target/cache.h
 +++ b/include/rex/graphics/pipeline/render_target/cache.h
-@@ -303,6 +303,7 @@ class RenderTargetCache {
+@@ -314,6 +314,7 @@ class RenderTargetCache {
  
    // DBZ3-Android (dbz3_rt_direct): render targets com a mesma base que o ultimo
    // PrepareHostRenderTargetsResolveClear tambem deve limpar (true = profundidade).
@@ -11,7 +11,7 @@ index 73c802e..11d9f60 100644
      return dbz3_direct_clear_siblings_;
    }
 diff --git a/src/graphics/pipeline/render_target/cache.cpp b/src/graphics/pipeline/render_target/cache.cpp
-index 0a80d8b..7acaf4b 100644
+index f38a0adce7730cc52db843c1410b4d74718309e0..ad7fed204753e6dbe98713e824c35017f1ff5cb7 100644
 --- a/src/graphics/pipeline/render_target/cache.cpp
 +++ b/src/graphics/pipeline/render_target/cache.cpp
 @@ -42,11 +42,10 @@ REXCVAR_DEFINE_BOOL(direct_host_resolve, true, "GPU",
@@ -41,7 +41,7 @@ index 0a80d8b..7acaf4b 100644
    }
  
    if (interlock_barrier_only) {
-@@ -1128,15 +1125,13 @@ bool RenderTargetCache::PrepareHostRenderTargetsResolveClear(
+@@ -1244,15 +1241,13 @@ bool RenderTargetCache::PrepareHostRenderTargetsResolveClear(
    const bool rt_direct = REXCVAR_GET(dbz3_rt_direct);
    if (depth_render_target) {
      ChangeOwnership(depth_render_target_key, depth_clear_start_tiles_base_relative,
@@ -59,7 +59,7 @@ index 0a80d8b..7acaf4b 100644
    }
    // DBZ3-Android (modo direto): as outras imagens com a mesma base (outro pitch/MSAA, ex. o
    // passe de 512x512 do Budokai 3 que usa a mesma profundidade) tambem sao limpas, porque
-@@ -1273,6 +1268,22 @@ bool RenderTargetCache::WouldOwnershipChangeRequireTransfers(RenderTargetKey des
+@@ -1389,6 +1384,22 @@ bool RenderTargetCache::WouldOwnershipChangeRequireTransfers(RenderTargetKey des
    return false;
  }
  
@@ -82,7 +82,7 @@ index 0a80d8b..7acaf4b 100644
  void RenderTargetCache::ChangeOwnership(RenderTargetKey dest, uint32_t start_tiles_base_relative,
                                          uint32_t length_tiles,
                                          std::vector<Transfer>* transfers_append_out,
-@@ -1330,7 +1341,8 @@ void RenderTargetCache::ChangeOwnership(RenderTargetKey dest, uint32_t start_til
+@@ -1446,7 +1457,8 @@ void RenderTargetCache::ChangeOwnership(RenderTargetKey dest, uint32_t start_til
          // Only perform the copying when actually changing the latest owner, not
          // just the latest host depth owner - the transfer source is expected to
          // be different than the destination.

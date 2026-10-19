@@ -1,8 +1,8 @@
 diff --git a/include/rex/graphics/pipeline/render_target/cache.h b/include/rex/graphics/pipeline/render_target/cache.h
-index 80ffbe5..9cff6d6 100644
+index 605012c79bd00f0de0d0e00bc5774d4a4562de01..267415f1d4cea56eee8edd2f2751b7f2453b9a9c 100644
 --- a/include/rex/graphics/pipeline/render_target/cache.h
 +++ b/include/rex/graphics/pipeline/render_target/cache.h
-@@ -322,7 +322,7 @@ class RenderTargetCache {
+@@ -333,7 +333,7 @@ class RenderTargetCache {
    //   proibido daqui em diante (no maximo um frame com a textura velha).
    bool Dbz3ShouldElideResolve(uint32_t dest_base, RenderTargetKey source);
    bool Dbz3IsRedundantRestore(const uint32_t* sampled_bases, uint32_t sampled_count,
@@ -11,7 +11,7 @@ index 80ffbe5..9cff6d6 100644
    void Dbz3ElisionFrameEnd();
    void Dbz3MarkWritten(RenderTargetKey key) { ++dbz3_write_gen_[key]; }
    const std::vector<std::pair<RenderTarget*, bool>>& dbz3_direct_clear_siblings() const {
-@@ -696,7 +696,10 @@ class RenderTargetCache {
+@@ -731,7 +731,10 @@ class RenderTargetCache {
    std::vector<Dbz3ResolveRecord> dbz3_frame_resolves_;
    std::unordered_map<uint32_t, uint32_t> dbz3_frame_resolve_counts_;
    std::unordered_set<uint64_t> dbz3_elidable_;   // (dest << 8 | ordinal) do frame anterior
@@ -24,10 +24,10 @@ index 80ffbe5..9cff6d6 100644
  
    // Map of host render targets currently containing the most up-to-date version
 diff --git a/include/rex/graphics/shared_memory.h b/include/rex/graphics/shared_memory.h
-index e192973..302128d 100644
+index d0b1d380b54530382e792a04a53564ae37634ae3..332fb171b341dfc6c8135f4471716006b0f999c5 100644
 --- a/include/rex/graphics/shared_memory.h
 +++ b/include/rex/graphics/shared_memory.h
-@@ -143,6 +143,8 @@ class SharedMemory {
+@@ -145,6 +145,8 @@ class SharedMemory {
    // overall bounds of pages to be uploaded.
    virtual bool UploadRanges(
        const std::vector<std::pair<uint32_t, uint32_t>>& upload_page_ranges) = 0;
@@ -37,7 +37,7 @@ index e192973..302128d 100644
   private:
    memory::Memory& memory_;
 diff --git a/include/rex/graphics/vulkan/command_processor.h b/include/rex/graphics/vulkan/command_processor.h
-index 5252dd3..fcb282a 100644
+index 696ff481c12369287f7c8096cba8daf15b50c68c..617602d8e2e99dc25e5c8501fa817f844fd3575a 100644
 --- a/include/rex/graphics/vulkan/command_processor.h
 +++ b/include/rex/graphics/vulkan/command_processor.h
 @@ -202,7 +202,20 @@ class VulkanCommandProcessor : public CommandProcessor {
@@ -73,7 +73,7 @@ index 5252dd3..fcb282a 100644
    // Currently bound graphics pipeline, either from the pipeline cache (with
    // potentially deferred creation - current_external_graphics_pipeline_ is
 diff --git a/include/rex/graphics/vulkan/deferred_command_buffer.h b/include/rex/graphics/vulkan/deferred_command_buffer.h
-index 7856b2b..e67335c 100644
+index 7856b2bdc6eeedd7331e9ae11107684634f58b20..e67335ca0e001787497c66c2e50c1b7fc80e9f23 100644
 --- a/include/rex/graphics/vulkan/deferred_command_buffer.h
 +++ b/include/rex/graphics/vulkan/deferred_command_buffer.h
 @@ -10,6 +10,7 @@
@@ -101,7 +101,7 @@ index 7856b2b..e67335c 100644
    void CmdVkBeginRenderPass(const VkRenderPassBeginInfo* render_pass_begin,
                              VkSubpassContents contents) {
 diff --git a/include/rex/graphics/vulkan/shared_memory.h b/include/rex/graphics/vulkan/shared_memory.h
-index 104bdad..3667ed6 100644
+index 104bdad34542f8d60efff69e0f80ced2ff7ef10d..3667ed6ce6e03d4dd2f2d8d6fba3607f33325ca2 100644
 --- a/include/rex/graphics/vulkan/shared_memory.h
 +++ b/include/rex/graphics/vulkan/shared_memory.h
 @@ -55,7 +55,14 @@ class VulkanSharedMemory : public SharedMemory {
@@ -120,7 +120,7 @@ index 104bdad..3667ed6 100644
                       VkAccessFlags& access_mask) const;
  
 diff --git a/src/graphics/pipeline/render_target/cache.cpp b/src/graphics/pipeline/render_target/cache.cpp
-index 675a359..a68f79e 100644
+index 521125166f7c38113f1376ffaef21bf2960f4533..e496b42b90ac4fcc103f77941e4c43673f40ffa3 100644
 --- a/src/graphics/pipeline/render_target/cache.cpp
 +++ b/src/graphics/pipeline/render_target/cache.cpp
 @@ -47,6 +47,10 @@ REXCVAR_DEFINE_BOOL(direct_host_resolve, true, "GPU",
@@ -134,7 +134,7 @@ index 675a359..a68f79e 100644
  REXCVAR_DEFINE_BOOL(dbz3_rt_elide_restores, true, "GPU",
                      "DBZ3-Android: com dbz3_rt_direct, ignora os restauros de ecra inteiro e os "
                      "resolves que so serviam para eles")
-@@ -1476,14 +1480,18 @@ bool RenderTargetCache::Dbz3ShouldElideResolve(uint32_t dest_base, RenderTargetK
+@@ -1592,14 +1596,18 @@ bool RenderTargetCache::Dbz3ShouldElideResolve(uint32_t dest_base, RenderTargetK
    rec.real_use = false;
    rec.overwritten = false;
    const uint64_t id = (uint64_t(dest_base) << 8) | (ordinal & 0xFF);
@@ -155,7 +155,7 @@ index 675a359..a68f79e 100644
    if (!REXCVAR_GET(dbz3_rt_direct) || !REXCVAR_GET(dbz3_rt_elide_restores) ||
        dbz3_frame_resolves_.empty() || !sampled_count) {
      return false;
-@@ -1504,6 +1512,27 @@ bool RenderTargetCache::Dbz3IsRedundantRestore(const uint32_t* sampled_bases,
+@@ -1620,6 +1628,27 @@ bool RenderTargetCache::Dbz3IsRedundantRestore(const uint32_t* sampled_bases,
        xenos::GetStorageColorFormat(regs.Get<reg::RB_COLOR_INFO>().color_format)));
    // Opaco (1*src + 0*dst) e poucos vertices (triangulo/retangulo de ecra inteiro).
    const bool opaque = (regs[XE_GPU_REG_RB_BLENDCONTROL0] & 0x1FFF1FFF) == 0x00010001;
@@ -183,7 +183,7 @@ index 675a359..a68f79e 100644
    bool restore_found = false;
    bool other_resolved = false;
    for (uint32_t i = 0; i < sampled_count; ++i) {
-@@ -1521,17 +1550,21 @@ bool RenderTargetCache::Dbz3IsRedundantRestore(const uint32_t* sampled_bases,
+@@ -1637,17 +1666,21 @@ bool RenderTargetCache::Dbz3IsRedundantRestore(const uint32_t* sampled_bases,
                 color0.pitch_tiles_at_32bpp == rec->source.pitch_tiles_at_32bpp &&
                 color0.msaa_samples == rec->source.msaa_samples)
              : color0 == rec->source;
@@ -208,7 +208,7 @@ index 675a359..a68f79e 100644
                        rec->dest, rec->ordinal);
          }
        }
-@@ -1545,6 +1578,7 @@ bool RenderTargetCache::Dbz3IsRedundantRestore(const uint32_t* sampled_bases,
+@@ -1661,6 +1694,7 @@ bool RenderTargetCache::Dbz3IsRedundantRestore(const uint32_t* sampled_bases,
  }
  
  void RenderTargetCache::Dbz3ElisionFrameEnd() {
@@ -217,7 +217,7 @@ index 675a359..a68f79e 100644
    for (const Dbz3ResolveRecord& r : dbz3_frame_resolves_) {
      if (r.overwritten && !r.real_use) {
 diff --git a/src/graphics/shared_memory.cpp b/src/graphics/shared_memory.cpp
-index ec0df7c..42f7962 100644
+index ec0df7c81818347935dd79f03787f7a3142dac17..42f79620f2294a5596e20a8e8d16384a9b0a39ae 100644
 --- a/src/graphics/shared_memory.cpp
 +++ b/src/graphics/shared_memory.cpp
 @@ -462,10 +462,13 @@ bool SharedMemory::RequestRanges(const std::pair<uint32_t, uint32_t>* ranges, si
@@ -236,7 +236,7 @@ index ec0df7c..42f7962 100644
  
  bool SharedMemory::RequestRange(uint32_t start, uint32_t length) {
 diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
-index 57d2a7c..65e2287 100644
+index 30b1feb0e095bae01de393596331cf2302d892f8..39dc58eb322a3c39b15a4617294a5b4b201490d3 100644
 --- a/src/graphics/vulkan/command_processor.cpp
 +++ b/src/graphics/vulkan/command_processor.cpp
 @@ -15,6 +15,7 @@
@@ -247,7 +247,7 @@ index 57d2a7c..65e2287 100644
  #include <mutex>
  #include <string>
  #include <string_view>
-@@ -84,6 +85,40 @@ namespace rex::graphics::vulkan {
+@@ -82,6 +83,40 @@ namespace rex::graphics::vulkan {
  // nos outros, os comandos de estado sao processados e os draws, resolves e queries
  // de oclusao sao ignorados, e nao ha apresentacao. Corta o trabalho da GPU a metade
  // com N=1 sem deixar o jogo em camara lenta em GPUs fracas.
@@ -288,7 +288,7 @@ index 57d2a7c..65e2287 100644
  namespace dbz3_frameskip {
  bool g_skip_frame = false;
  uint32_t g_counter = 0;
-@@ -2612,6 +2647,7 @@ void VulkanCommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontb
+@@ -2610,6 +2645,7 @@ void VulkanCommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontb
      if (render_target_cache_) {
        render_target_cache_->Dbz3ElisionFrameEnd();
      }
@@ -296,7 +296,7 @@ index 57d2a7c..65e2287 100644
    }
    vertex_buffers_in_sync_[0] = 0;
    vertex_buffers_in_sync_[1] = 0;
-@@ -3414,11 +3450,21 @@ bool VulkanCommandProcessor::SubmitBarriers(bool force_end_render_pass) {
+@@ -3412,11 +3448,21 @@ bool VulkanCommandProcessor::SubmitBarriers(bool force_end_render_pass) {
    SplitPendingBarrier();
    if (pending_barriers_.empty()) {
      if (force_end_render_pass) {
@@ -320,7 +320,7 @@ index 57d2a7c..65e2287 100644
    for (auto it = pending_barriers_.cbegin(); it != pending_barriers_.cend(); ++it) {
      auto it_next = std::next(it);
      bool is_last = it_next == pending_barriers_.cend();
-@@ -3465,6 +3511,7 @@ void VulkanCommandProcessor::SubmitBarriersAndEnterRenderTargetCacheRenderPass(
+@@ -3463,6 +3509,7 @@ void VulkanCommandProcessor::SubmitBarriersAndEnterRenderTargetCacheRenderPass(
    }
  
    if (in_render_pass_) {
@@ -328,7 +328,7 @@ index 57d2a7c..65e2287 100644
      if (use_dynamic_rendering) {
        deferred_command_buffer_.CmdVkEndRendering();
      } else {
-@@ -3475,6 +3522,11 @@ void VulkanCommandProcessor::SubmitBarriersAndEnterRenderTargetCacheRenderPass(
+@@ -3473,6 +3520,11 @@ void VulkanCommandProcessor::SubmitBarriersAndEnterRenderTargetCacheRenderPass(
  
    current_render_pass_ = use_dynamic_rendering ? VK_NULL_HANDLE : render_pass;
    current_framebuffer_ = framebuffer;
@@ -340,7 +340,7 @@ index 57d2a7c..65e2287 100644
  
    if (use_dynamic_rendering) {
      VkRenderingAttachmentInfo color_attachments[xenos::kMaxColorRenderTargets];
-@@ -3539,6 +3591,7 @@ void VulkanCommandProcessor::SubmitBarriersAndEnterRenderTargetCacheRenderPass(
+@@ -3537,6 +3589,7 @@ void VulkanCommandProcessor::SubmitBarriersAndEnterRenderTargetCacheRenderPass(
    }
  
    if (in_render_pass_) {
@@ -348,7 +348,7 @@ index 57d2a7c..65e2287 100644
      if (use_dynamic_rendering) {
        deferred_command_buffer_.CmdVkEndRendering();
      } else {
-@@ -3549,6 +3602,11 @@ void VulkanCommandProcessor::SubmitBarriersAndEnterRenderTargetCacheRenderPass(
+@@ -3547,6 +3600,11 @@ void VulkanCommandProcessor::SubmitBarriersAndEnterRenderTargetCacheRenderPass(
  
    current_render_pass_ = use_dynamic_rendering ? VK_NULL_HANDLE : render_pass;
    current_framebuffer_ = framebuffer;
@@ -360,7 +360,7 @@ index 57d2a7c..65e2287 100644
  
    if (use_dynamic_rendering) {
      VkRenderingAttachmentInfo color_attachment = {};
-@@ -3611,11 +3669,38 @@ void VulkanCommandProcessor::SubmitBarriersAndEnterRenderTargetCacheRenderPass(
+@@ -3609,11 +3667,38 @@ void VulkanCommandProcessor::SubmitBarriersAndEnterRenderTargetCacheRenderPass(
    in_render_pass_ = true;
  }
  
@@ -400,7 +400,7 @@ index 57d2a7c..65e2287 100644
    if (current_render_pass_ == VK_NULL_HANDLE) {
      deferred_command_buffer_.CmdVkEndRendering();
    } else {
-@@ -4059,8 +4144,8 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+@@ -4057,8 +4142,8 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
          sampled_bases[sampled_count++] = uint32_t(fetch.base_address) << 12;
        }
      }
@@ -412,7 +412,7 @@ index 57d2a7c..65e2287 100644
      }
    }
 diff --git a/src/graphics/vulkan/shared_memory.cpp b/src/graphics/vulkan/shared_memory.cpp
-index 6788214..09eff19 100644
+index 6788214140959ff171291ad9285c5b9725e688a0..09eff19acaf8222e133070eff254acf88070a60b 100644
 --- a/src/graphics/vulkan/shared_memory.cpp
 +++ b/src/graphics/vulkan/shared_memory.cpp
 @@ -27,6 +27,12 @@ REXCVAR_DEFINE_BOOL(vulkan_sparse_shared_memory, true, "GPU/Vulkan",

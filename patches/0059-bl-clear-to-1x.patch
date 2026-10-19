@@ -1,0 +1,31 @@
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 31e834a54b49696134634d01ddf1809ee17c2ca0..bd03d3e6b69f1cda265d2f9a785568b4ee6db99f 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -4438,16 +4438,23 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+     }
+   } dbz3_reg_restore;
+   dbz3_reg_restore.rf = register_file_;
++  // Dragon Burst: o Burst Limit usa outra versao do XDK, com os mesmos Clear() (retangulo
++  // em pixeis, 4x MSAA de pitch 640, VTE_CNTL = 0x300) mas outros shaders embutidos:
++  // VS 0A6D1DD7767FDF27 + PS 2E372EA28CC404B7 (captura de 2026-10-14: 4 por frame em luta).
++  const uint64_t dbz3_clear_vs_hash = vertex_shader->ucode_data_hash();
++  const bool dbz3_clear_vs = dbz3_clear_vs_hash == UINT64_C(0x1E6883FCCDE1F688) ||
++                             dbz3_clear_vs_hash == UINT64_C(0x0A6D1DD7767FDF27);
+   if (REXCVAR_GET(dbz3_clear_to_1x) && REXCVAR_GET(dbz3_rt_direct) &&
+-      prim_type == xenos::PrimitiveType::kRectangleList && index_count == 3 &&
+-      vertex_shader->ucode_data_hash() == UINT64_C(0x1E6883FCCDE1F688) &&
++      prim_type == xenos::PrimitiveType::kRectangleList && index_count == 3 && dbz3_clear_vs &&
+       (edram_mode == xenos::EdramMode::kColorDepth || edram_mode == xenos::EdramMode::kDepthOnly)) {
+     Shader* clear_ps = active_pixel_shader();
+     auto surface_info = regs.Get<reg::RB_SURFACE_INFO>();
+     auto vte = regs.Get<reg::PA_CL_VTE_CNTL>();
+     const bool viewport_off = !vte.vport_x_scale_ena && !vte.vport_x_offset_ena &&
+                               !vte.vport_y_scale_ena && !vte.vport_y_offset_ena;
+-    if (clear_ps && clear_ps->ucode_data_hash() == UINT64_C(0xA4A965C189287B99) &&
++    if (clear_ps &&
++        (clear_ps->ucode_data_hash() == UINT64_C(0xA4A965C189287B99) ||
++         clear_ps->ucode_data_hash() == UINT64_C(0x2E372EA28CC404B7)) &&
+         surface_info.msaa_samples == xenos::MsaaSamples::k4X && surface_info.surface_pitch &&
+         surface_info.surface_pitch * 2 <= 8192 && viewport_off) {
+       surface_info.msaa_samples = xenos::MsaaSamples::k1X;

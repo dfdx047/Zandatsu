@@ -1,0 +1,828 @@
+diff --git a/include/rex/graphics/vulkan/render_target_cache.h b/include/rex/graphics/vulkan/render_target_cache.h
+index cc352d7ee5ab2b3f50ca9171fa18adbd978e056a..7395929dca801b658b3b689acb11cc2a25d18929 100644
+--- a/include/rex/graphics/vulkan/render_target_cache.h
++++ b/include/rex/graphics/vulkan/render_target_cache.h
+@@ -172,6 +172,28 @@ class VulkanRenderTargetCache final : public RenderTargetCache {
+   bool Dbz3NativeLinearDepthReady(VulkanTextureCache& texture_cache, uint32_t depth_base_tiles,
+                                   uint32_t pitch_tiles, uint32_t width, uint32_t height);
+ 
++  // Dragon Burst: render nativo, passo 3b (0080, dbz3_bl_native_contour) - a mascara do
++  // contorno dos lutadores (PS ABBFE80C449D5F12) por compute em vez do quad de ecra inteiro.
++  struct Dbz3ContourParams {
++    float colors[3][4];         // c0, c1, c2: cor para os IDs c254.x, c254.y, c254.z
++    float ids[4];               // c254 (w = 0: "aresta" = algum vizinho com outro ID)
++    float scale;                // c255.x: ID = floor(canal * escala)
++    uint32_t width;             // 1280
++    uint32_t height;            // 720
++    uint32_t id_base;           // tf0: textura k_8_8_8_8 com o ID (canal id_channel)
++    uint32_t id_endian;
++    uint32_t id_channel;
++    uint32_t depth_base;        // tf1: profundidade linear k_32_FLOAT (passo 2)
++    uint32_t depth_endian;
++    uint32_t color_base_tiles;  // render target 8888 1x do passe
++  };
++  // true: tudo pronto, o draw pode ser saltado (o resolve seguinte e feito por compute).
++  // false: o draw segue normal (e o resolve seguinte ensina o destino); o motivo vai para o
++  // log ("contorno ainda nao (N)").
++  bool Dbz3NativeContourBegin(VulkanTextureCache& texture_cache, const Dbz3ContourParams& params);
++  // Fim do frame (IssueSwap): limpa o estado pendente e escreve o contador.
++  void Dbz3NativeContourFrameEnd();
++
+   // Dragon Burst: render nativo, passo 4 (dbz3_render_into_texture) - um passe que acaba num
+   // resolve de cor para uma textura desenha direto nessa textura (sem o resolve).
+   // Devolve a vista da textura para o alvo de cor (e poe-na em COLOR_ATTACHMENT_OPTIMAL) ou
+@@ -862,6 +884,10 @@ class VulkanRenderTargetCache final : public RenderTargetCache {
+                                             uint32_t height) const;
+   bool Dbz3NativeLinearDepthResolve(const draw_util::ResolveInfo& resolve_info,
+                                     VulkanTextureCache& texture_cache);
++  // Dragon Burst: render nativo, passo 3b (0080): a mascara do contorno por compute.
++  bool Dbz3NativeContourInit();
++  bool Dbz3NativeContourResolve(const draw_util::ResolveInfo& resolve_info,
++                                VulkanTextureCache& texture_cache);
+   bool Dbz3BufferResolveToTexture(VulkanRenderTarget& rt, bool source_is_integer,
+                                   VulkanTextureCache& texture_cache, void* texture, uint32_t width,
+                                   uint32_t height, bool swap_rb);
+diff --git a/include/rex/graphics/vulkan/texture_cache.h b/include/rex/graphics/vulkan/texture_cache.h
+index 258bea351067a54a5db5297ef2cb5a3501e8b7f7..65d4e00a0abb14fcc9f4f85b0dc41b7f9b09ab54 100644
+--- a/include/rex/graphics/vulkan/texture_cache.h
++++ b/include/rex/graphics/vulkan/texture_cache.h
+@@ -63,6 +63,13 @@ class VulkanTextureCache final : public TextureCache {
+   void Dbz3CopyToResolveTexture(void* texture, VkBuffer buffer, uint32_t width, uint32_t height,
+                                 VkPipelineStageFlags buffer_src_stage,
+                                 VkAccessFlags buffer_src_access);
++  // Dragon Burst (render nativo, passo 3b, 0080): ler uma textura num compute nosso.
++  // Dbz3TextureUpToDate: o conteudo na GPU e o atual (nada por carregar da memoria).
++  // Dbz3GetSampledView: vista 2D sem troca de canais no formato sem sinal (R8G8B8A8_UNORM,
++  // R32_SFLOAT). Dbz3BeginComputeRead: transicao para leitura em compute (SHADER_READ_ONLY).
++  bool Dbz3TextureUpToDate(void* texture) const;
++  VkImageView Dbz3GetSampledView(void* texture);
++  void Dbz3BeginComputeRead(void* texture);
+   // Sampler parameters that can be directly converted to a host sampler or used
+   // for checking whether samplers bindings are up to date.
+   union SamplerParameters {
+@@ -238,6 +245,8 @@ class VulkanTextureCache final : public TextureCache {
+       kDbz3StorageWrite,
+       // Dragon Burst (render nativo, passo 4): o passe desenha direto na textura.
+       kDbz3AttachmentWrite,
++      // Dragon Burst (0080): lida por um compute nosso (e pelos shaders do jogo).
++      kDbz3ComputeSampled,
+     };
+ 
+     // Takes ownership of the image and its memory.
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index cfc6307265ffb56e1bd529cad1aaa5c67b6a56a2..d2bd6b49a750beb4053b74ec149dee1154c09fd1 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -75,6 +75,11 @@ REXCVAR_DEFINE_BOOL(dbz3_bl_native_linear_depth, true, "GPU/Vulkan",
+                     "direto da profundidade, em vez do quad de ecra inteiro + resolve")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ 
++REXCVAR_DEFINE_BOOL(dbz3_bl_native_contour, true, "GPU/Vulkan",
++                    "Dragon Burst: faz a mascara do contorno dos lutadores do Burst Limit (PS "
++                    "ABBFE80C449D5F12) por compute em vez do quad de ecra inteiro + resolve")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++
+ REXCVAR_DEFINE_BOOL(dbz3_skip_null_draws, true, "GPU/Vulkan",
+                     "Salta draws que nao escrevem nada (sem cor, sem profundidade/stencil, sem "
+                     "memexport, fora de consultas de oclusao): os 24 pontos de cada frame do BL")
+@@ -215,6 +220,159 @@ void Dbz3ForEachSampled(const RegisterFile& regs, Shader* vs, Shader* ps, F&& f)
+ }
+ }  // namespace
+ 
++namespace {
++// Dragon Burst: render nativo, passo 3b (0080) - o draw e exatamente o quad da mascara do
++// contorno do Burst Limit (PS ABBFE80C449D5F12, VS 7358C5B40024B42B)? 0 = sim (params
++// preenchidos), senao o motivo. Tudo o que muda o resultado e verificado: alvo, mistura,
++// mascara, profundidade/stencil, scissor, viewport, constantes do VS (geometria e desvios de
++// 1 texel), os 4 vertices (quad de ecra inteiro com UV em pixeis), as constantes do PS e os
++// fetch constants das duas texturas (formato, tamanho, filtro ponto, modos de borda, troca de
++// canais, sinal, expoente).
++uint32_t Dbz3RecognizeContour(const RegisterFile& regs, const memory::Memory& memory,
++                              const VulkanShader& vertex_shader, bool indexed,
++                              VulkanRenderTargetCache::Dbz3ContourParams& out) {
++  constexpr uint32_t kW = 1280, kH = 720;
++  if (indexed) return 1;
++  const auto surface = regs.Get<reg::RB_SURFACE_INFO>();
++  const auto color = regs.Get<reg::RB_COLOR_INFO>(reg::RB_COLOR_INFO::rt_register_indices[0]);
++  if (surface.surface_pitch != kW || surface.msaa_samples != xenos::MsaaSamples::k1X ||
++      color.color_format != xenos::ColorRenderTargetFormat::k_8_8_8_8 || color.color_exp_bias != 0) {
++    return 2;
++  }
++  const auto colorcontrol = regs.Get<reg::RB_COLORCONTROL>();
++  const reg::RB_DEPTHCONTROL depth = draw_util::GetNormalizedDepthControl(regs);
++  if ((regs[XE_GPU_REG_RB_BLENDCONTROL0] & 0x1FFF1FFF) != 0x00010001 ||
++      (regs[XE_GPU_REG_RB_COLOR_MASK] & 0xF) != 0xF || colorcontrol.alpha_test_enable ||
++      colorcontrol.alpha_to_mask_enable || depth.stencil_enable ||
++      (depth.z_enable && (depth.z_write_enable || depth.zfunc != xenos::CompareFunction::kAlways))) {
++    return 3;
++  }
++  const uint32_t tl = regs[XE_GPU_REG_PA_SC_WINDOW_SCISSOR_TL];
++  const uint32_t br = regs[XE_GPU_REG_PA_SC_WINDOW_SCISSOR_BR];
++  const auto vte = regs.Get<reg::PA_CL_VTE_CNTL>();
++  auto rf = [&](uint32_t reg_index) {
++    float f;
++    std::memcpy(&f, &regs.values[reg_index], sizeof(f));
++    return f;
++  };
++  if ((tl & 0x7FFF7FFF) != 0 || (br & 0x7FFF) < kW || ((br >> 16) & 0x7FFF) < kH ||
++      regs[XE_GPU_REG_PA_SC_WINDOW_OFFSET] != 0 || !vte.vport_x_scale_ena ||
++      !vte.vport_x_offset_ena || !vte.vport_y_scale_ena || !vte.vport_y_offset_ena ||
++      vte.vtx_xy_fmt || rf(XE_GPU_REG_PA_CL_VPORT_XSCALE) != 640.0f ||
++      rf(XE_GPU_REG_PA_CL_VPORT_XOFFSET) != 640.0f ||
++      rf(XE_GPU_REG_PA_CL_VPORT_YSCALE) != -360.0f ||
++      rf(XE_GPU_REG_PA_CL_VPORT_YOFFSET) != 360.0f) {
++    return 4;
++  }
++  auto vsc = [&](uint32_t n, uint32_t k) { return rf(XE_GPU_REG_SHADER_CONSTANT_000_X + n * 4 + k); };
++  auto psc = [&](uint32_t n, uint32_t k) { return rf(XE_GPU_REG_SHADER_CONSTANT_256_X + n * 4 + k); };
++  // c0..c4 do VS bit a bit como nas capturas (c2.z = -1.0001, c3.z = 999.0999: o z fica dentro
++  // do volume de recorte; c4 = tamanho do alvo, usado para os desvios de 1 texel).
++  static const uint32_t kVs[5][4] = {{0x40000000, 0, 0, 0},
++                                     {0, 0x40000000, 0, 0},
++                                     {0, 0, 0xBF800347, 0xBF800000},
++                                     {0, 0, 0x4479C665, 0x447A0000},
++                                     {0x44A00000, 0x44340000, 0, 0}};
++  for (uint32_t n = 0; n < 5; ++n) {
++    for (uint32_t k = 0; k < 4; ++k) {
++      if (regs.values[XE_GPU_REG_SHADER_CONSTANT_000_X + n * 4 + k] != kVs[n][k]) {
++        return 5;
++      }
++    }
++  }
++  if (vsc(255, 0) != -1.0f || vsc(255, 1) != 1.0f) {
++    return 5;
++  }
++  // Os 4 vertices: posicao (+-0,5, +-0,5) e UV em pixeis (0,5..1280,5 x 0,5..720,5), um por canto.
++  if (vertex_shader.vertex_bindings().empty()) return 6;
++  const auto& vb = vertex_shader.vertex_bindings()[0];
++  const xenos::xe_gpu_vertex_fetch_t vf = regs.GetVertexFetch(vb.fetch_constant);
++  if (vf.type != xenos::FetchConstantType::kVertex || vb.stride_words != 4 ||
++      (vf.endian != xenos::Endian::k8in32 && vf.endian != xenos::Endian::kNone) ||
++      uint32_t(vf.size) < 16) {
++    return 6;
++  }
++  const uint8_t* data = memory.TranslatePhysical(uint32_t(vf.address) << 2);
++  if (!data) return 6;
++  uint32_t corners = 0;
++  for (uint32_t v = 0; v < 4; ++v) {
++    float f[4];
++    for (uint32_t k = 0; k < 4; ++k) {
++      uint32_t bits;
++      std::memcpy(&bits, data + (v * 4 + k) * 4, 4);
++      if (vf.endian == xenos::Endian::k8in32) bits = rex::byte_swap(bits);
++      std::memcpy(&f[k], &bits, 4);
++    }
++    if ((f[0] != -0.5f && f[0] != 0.5f) || (f[1] != -0.5f && f[1] != 0.5f) ||
++        f[2] != (f[0] + 0.5f) * float(kW) + 0.5f || f[3] != (0.5f - f[1]) * float(kH) + 0.5f) {
++      return 6;
++    }
++    corners |= 1u << ((f[0] > 0 ? 1 : 0) | (f[1] > 0 ? 2 : 0));
++  }
++  if (corners != 0xF) return 6;
++  // Constantes do PS: cores (c0..c2), IDs (c254, w = 0) e escala do ID (c255.x).
++  for (uint32_t n = 0; n < 3; ++n) {
++    for (uint32_t k = 0; k < 4; ++k) {
++      out.colors[n][k] = psc(n, k);
++      if (!std::isfinite(out.colors[n][k])) return 7;
++    }
++  }
++  for (uint32_t k = 0; k < 4; ++k) {
++    out.ids[k] = psc(254, k);
++    if (!std::isfinite(out.ids[k])) return 7;
++  }
++  out.scale = psc(255, 0);
++  if (out.ids[3] != 0.0f || !std::isfinite(out.scale) || out.scale <= 0.0f) return 7;
++  // tf0: IDs (8888 1280x720, ponto, borda = aresta, sem sinal no canal lido como .z).
++  const xenos::xe_gpu_texture_fetch_t t0 = regs.GetTextureFetch(0);
++  const uint32_t z_source = (t0.swizzle >> 6) & 7;
++  auto edge_clamp = [](xenos::ClampMode m) {
++    return m == xenos::ClampMode::kClampToEdge || m == xenos::ClampMode::kClampToHalfway;
++  };
++  const xenos::TextureSign t0_signs[4] = {t0.sign_x, t0.sign_y, t0.sign_z, t0.sign_w};
++  if (t0.type != xenos::FetchConstantType::kTexture ||
++      t0.dimension != xenos::DataDimension::k2DOrStacked ||
++      t0.format != xenos::TextureFormat::k_8_8_8_8 || !t0.tiled ||
++      uint32_t(t0.size_2d.width) + 1 != kW || uint32_t(t0.size_2d.height) + 1 != kH ||
++      z_source > 3 || t0_signs[z_source] != xenos::TextureSign::kUnsigned || t0.num_format ||
++      t0.exp_adjust != 0 || t0.mag_filter != xenos::TextureFilter::kPoint ||
++      t0.min_filter != xenos::TextureFilter::kPoint || !edge_clamp(t0.clamp_x) ||
++      !edge_clamp(t0.clamp_y) || t0.mip_max_level != 0) {
++    return 8;
++  }
++  // tf1: profundidade linear (32_FLOAT 1280x720, ponto, fora da imagem = borda preta = 0).
++  const xenos::xe_gpu_texture_fetch_t t1 = regs.GetTextureFetch(1);
++  if (t1.type != xenos::FetchConstantType::kTexture ||
++      t1.dimension != xenos::DataDimension::k2DOrStacked ||
++      t1.format != xenos::TextureFormat::k_32_FLOAT || !t1.tiled ||
++      uint32_t(t1.size_2d.width) + 1 != kW || uint32_t(t1.size_2d.height) + 1 != kH ||
++      (t1.swizzle & 7) != 0 || t1.exp_adjust != 0 ||
++      t1.mag_filter != xenos::TextureFilter::kPoint ||
++      t1.min_filter != xenos::TextureFilter::kPoint ||
++      t1.clamp_x != xenos::ClampMode::kClampToBorder ||
++      t1.clamp_y != xenos::ClampMode::kClampToBorder ||
++      t1.border_color != xenos::BorderColor::k_ABGR_Black || t1.mip_max_level != 0) {
++    return 9;
++  }
++  out.width = kW;
++  out.height = kH;
++  out.id_base = (uint32_t(t0.base_address) << 12) & 0x1FFFFFFF;
++  out.id_endian = uint32_t(t0.endianness);
++  out.id_channel = z_source;
++  out.depth_base = (uint32_t(t1.base_address) << 12) & 0x1FFFFFFF;
++  out.depth_endian = uint32_t(t1.endianness);
++  out.color_base_tiles = color.color_base;
++  return 0;
++}
++uint64_t g_dbz3_contour_unrecognized[10] = {};
++}  // namespace
++
++// Dragon Burst: render nativo, passo 3b (definido em render_target_cache.cpp).
++namespace dbz3_native_contour {
++extern bool g_pending;
++extern bool g_dirty;
++}  // namespace dbz3_native_contour
++
+ // Dragon Burst: render nativo, passo 2 (definido em render_target_cache.cpp).
+ namespace dbz3_native_ld {
+ extern bool g_pending;
+@@ -2788,6 +2946,7 @@ void VulkanCommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontb
+   dbz3_native_present::g_last_frontbuffer = frontbuffer_ptr;
+   dbz3_native_ld::g_pending = false;
+   dbz3_native_ld::g_learn = false;
++  render_target_cache_->Dbz3NativeContourFrameEnd();
+   // Passo 3: o presenter le a imagem final (conta como leitura) e nada fica pendente.
+   dbz3_resolve_dedupe::g_skip_next_resolve = false;
+   dbz3_resolve_dedupe::MarkRead(frontbuffer_ptr & 0x1FFFFFFF);
+@@ -4710,6 +4869,30 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+       dbz3_native_ld::g_learn = true;
+     }
+   }
++  // Dragon Burst: render nativo, passo 3b (0080) - mascara do contorno (ver
++  // dbz3_native_contour em render_target_cache.cpp). O quad e saltado e o resolve seguinte e
++  // feito por compute. Durante a leitura de volta de uma captura corre o caminho normal (a
++  // captura fica com a imagem original do passe).
++  if (pixel_shader && REXCVAR_GET(dbz3_bl_native_contour) &&
++      pixel_shader->ucode_data_hash() == UINT64_C(0xABBFE80C449D5F12) &&
++      vertex_shader->ucode_data_hash() == UINT64_C(0x7358C5B40024B42B) &&
++      prim_type == xenos::PrimitiveType::kQuadList && index_count == 4 &&
++      !dbz3_capture::WantsResolveReadback()) {
++    VulkanRenderTargetCache::Dbz3ContourParams nc_params = {};
++    const uint32_t nc_why = Dbz3RecognizeContour(regs, *memory_, *vertex_shader,
++                                                 index_buffer_info != nullptr, nc_params);
++    if (nc_why) {
++      if ((g_dbz3_contour_unrecognized[nc_why]++ % 600) == 0) {
++        REXGPU_INFO("dbz3: render nativo: contorno ainda nao (quad diferente, {})", 10 + nc_why);
++      }
++    } else if (render_target_cache_->Dbz3NativeContourBegin(*texture_cache_, nc_params)) {
++      // As duas texturas sao lidas pelo compute: para o passo 3 contam como lidas (a
++      // profundidade linear so tem este leitor e nao pode deixar de ser resolvida).
++      Dbz3ForEachSampled(regs, vertex_shader, pixel_shader,
++                         [](uint32_t a) { dbz3_resolve_dedupe::MarkRead(a); });
++      DBZ3_DRAW_RET(true);
++    }
++  }
+   // Dragon Burst: render nativo, copia final do frame (ver dbz3_native_present).
+   if (pixel_shader && REXCVAR_GET(dbz3_bl_native_present) &&
+       pixel_shader->ucode_data_hash() == UINT64_C(0xEC9B52789DD888F2) &&
+@@ -5566,6 +5749,8 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+ 
+   // Passo 3: o draw foi feito - o render target mudou e as texturas que leu foram lidas.
+   dbz3_resolve_dedupe::g_dirty = true;
++  // Passo 3b: um draw entre o quad do contorno saltado e o resolve (nao devia acontecer).
++  if (dbz3_native_contour::g_pending) dbz3_native_contour::g_dirty = true;
+   Dbz3ForEachSampled(regs, vertex_shader, pixel_shader,
+                      [](uint32_t a) { dbz3_resolve_dedupe::MarkRead(a); });
+   DBZ3_DRAW_RET(true);
+diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
+index 715369b24880a9f9aafd9ca647203808e5e4bb21..090261694084dc14d256ab1f47b39e2075f9b42d 100644
+--- a/src/graphics/vulkan/render_target_cache.cpp
++++ b/src/graphics/vulkan/render_target_cache.cpp
+@@ -81,6 +81,7 @@ namespace rex::graphics::vulkan {
+ // Dragon Burst: render nativo, passo 3 (definido no fim do ficheiro).
+ namespace dbz3_resolve_dedupe {
+ bool Resolve(const draw_util::ResolveInfo& resolve_info, bool may_skip);
++void ForgetHolder(uint32_t start);
+ extern bool g_dirty;
+ }  // namespace dbz3_resolve_dedupe
+ 
+@@ -97,6 +98,12 @@ extern bool g_pending;
+ extern bool g_learn;
+ }  // namespace dbz3_native_ld
+ 
++// Dragon Burst: render nativo, passo 3b (0080, definido no fim do ficheiro).
++namespace dbz3_native_contour {
++extern bool g_pending;
++extern bool g_learn;
++}  // namespace dbz3_native_contour
++
+ // DBZ3-Android: cache de pipelines do driver (pipeline_cache.cpp).
+ VkPipelineCache Dbz3GetDriverPipelineCache();
+ void Dbz3MarkDriverPipelineCacheDirty();
+@@ -1228,6 +1235,16 @@ bool VulkanRenderTargetCache::Resolve(const memory::Memory& memory,
+   if (!resolve_info.coordinate_info.width_div_8 || !resolve_info.height_div_8) {
+     return true;
+   }
++  // Dragon Burst: render nativo, passo 3b (0080) - a mascara do contorno por compute. Antes
++  // do passo 4: quando o draw corre normal (a aprender) o passe pode ir direto para a textura
++  // e o resolve nunca chegaria aqui; quando o draw foi saltado nao ha passe para o passo 4.
++  if (dbz3_native_contour::g_pending || dbz3_native_contour::g_learn) {
++    if (Dbz3NativeContourResolve(resolve_info, texture_cache)) {
++      written_address_out = 0;
++      written_length_out = 0;
++      return true;
++    }
++  }
+   // Dragon Burst: render nativo, passo 4 - o passe desenhou direto na textura de destino.
+   if (dbz3_rit::Resolve(*this, resolve_info, texture_cache)) {
+     written_address_out = 0;
+@@ -7354,6 +7371,12 @@ void MarkSkippedRead(uint32_t address) {
+   }
+ }
+ 
++// Um destino escrito fora do resolve (passo 3b) deixa de ter o conteudo do render target.
++void ForgetHolder(uint32_t start) {
++  g_holders.erase(std::remove(g_holders.begin(), g_holders.end(), start & 0x1FFFFFFF),
++                  g_holders.end());
++}
++
+ void LogFrame() {
+   if ((++g_frames % 3000) == 1) {
+     uint32_t dead = 0;
+@@ -7781,4 +7804,421 @@ void VulkanRenderTargetCache::Dbz3RitOnSample(VulkanTextureCache& texture_cache,
+   }
+ }
+ 
++
++// ---------------------------------------------------------------------------
++// Dragon Burst: render nativo, passo 3b (0080, dbz3_bl_native_contour).
++// Depois da cena, o Burst Limit desenha um quad de ecra inteiro (VS 7358C5B40024B42B,
++// PS ABBFE80C449D5F12) que faz a mascara do contorno dos lutadores: le o ID do objeto
++// (floor(canal * c255.x), 0..3) e a profundidade linear (passo 2) nos 4 vizinhos do pixel;
++// se os 4 IDs nao forem iguais, escreve a cor (c0/c1/c2) do ID do vizinho mais proximo da
++// camara, senao 0. O resultado (8888, resolvido para 0F0B9000 com troca R/B) alimenta o
++// desfoque do contorno. No RP5 o draw custa ~0,45 ms (8 tfetch traduzidos) + o passe; aqui
++// e um compute que so le a profundidade nas arestas (~0,5% dos pixeis), escreve num buffer
++// e copia para a(s) textura(s) do destino (as 8888 do pos nao tem STORAGE).
++// Validado offline com as capturas (RP5 e Mali): 17 draws, 0 pixeis diferentes.
++// ---------------------------------------------------------------------------
++namespace dbz3_native_contour {
++bool g_pending = false;
++bool g_learn = false;
++bool g_dirty = false;  // houve um draw feito entre o quad saltado e o resolve
++VulkanRenderTargetCache::Dbz3ContourParams g_params = {};
++uint32_t g_dest = 0;
++uint32_t g_dest_endian = 0;
++bool g_dest_swap = false;
++uint64_t g_done = 0;
++uint64_t g_fail = 0;
++uint64_t g_frames = 0;
++uint64_t g_not_yet[8] = {};
++bool g_active_logged = false;
++
++constexpr uint32_t kSetRing = 64;
++struct State {
++  bool init_tried = false;
++  bool ok = false;
++  VkPipelineLayout layout = VK_NULL_HANDLE;
++  VkPipeline pipeline = VK_NULL_HANDLE;
++  VkDescriptorPool pool = VK_NULL_HANDLE;
++  VkDescriptorSet sets[kSetRing] = {};
++  uint32_t next_set = 0;
++};
++State g_state;
++
++struct PushConstants {
++  float colors[3][4];
++  float ids[4];
++  float scale;
++  uint32_t width;
++  uint32_t height;
++  uint32_t flags;  // bits 0-1: canal do ID; bit 2: troca R/B (copy_dest_swap)
++};
++static_assert(sizeof(PushConstants) == 80, "contorno: push constants");
++
++// O mesmo que o PS ABBF..., em GLSL (a referencia em numpy, tools/ref_contour.py, faz estas
++// mesmas contas). A aresta e "algum vizinho com outro ID" porque c254.w = 0 (reconhecimento).
++const char* kSource = R"(#version 450
++#extension GL_EXT_samplerless_texture_functions : require
++layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
++layout(set = 0, binding = 0, std430) writeonly buffer Dest { uint dest[]; };
++layout(set = 1, binding = 0) uniform texture2D id_tex;
++layout(set = 1, binding = 1) uniform texture2D depth_tex;
++layout(push_constant) uniform Constants {
++  vec4 color0;
++  vec4 color1;
++  vec4 color2;
++  vec4 ids;
++  float scale;
++  uint width;
++  uint height;
++  uint flags;
++} pc;
++float IdAt(ivec2 p) {
++  p = clamp(p, ivec2(0), ivec2(int(pc.width) - 1, int(pc.height) - 1));
++  return floor(texelFetch(id_tex, p, 0)[pc.flags & 3u] * pc.scale);
++}
++float DepthAt(ivec2 p) {
++  if (p.x < 0 || p.y < 0 || p.x >= int(pc.width) || p.y >= int(pc.height)) return 0.0;
++  return texelFetch(depth_tex, p, 0).r;
++}
++void main() {
++  ivec2 p = ivec2(gl_GlobalInvocationID.xy);
++  if (uint(p.x) >= pc.width || uint(p.y) >= pc.height) return;
++  float il = IdAt(p + ivec2(-1, 0));
++  float ir = IdAt(p + ivec2(1, 0));
++  float iu = IdAt(p + ivec2(0, -1));
++  float id = IdAt(p + ivec2(0, 1));
++  uint v = 0u;
++  if (il != ir || il != iu || il != id) {
++    float dl = DepthAt(p + ivec2(-1, 0));
++    float dr = DepthAt(p + ivec2(1, 0));
++    float du = DepthAt(p + ivec2(0, -1));
++    float dd = DepthAt(p + ivec2(0, 1));
++    float near_id = dr > dl ? il : ir;
++    float m2 = min(dl, dr);
++    if (m2 > du) near_id = iu;
++    if (min(m2, du) > dd) near_id = id;
++    vec4 c = vec4(0.0);
++    if (near_id == pc.ids.x) c = pc.color0;
++    if (near_id == pc.ids.y) c = pc.color1;
++    if (near_id == pc.ids.z) c = pc.color2;
++    uvec4 u = uvec4(clamp(c, 0.0, 1.0) * 255.0 + 0.5);
++    if ((pc.flags & 4u) != 0u) u.rb = u.br;
++    v = u.r | (u.g << 8u) | (u.b << 16u) | (u.a << 24u);
++  }
++  dest[uint(p.y) * pc.width + uint(p.x)] = v;
++}
++)";
++
++bool NotYet(uint32_t why) {
++  g_pending = false;
++  g_learn = true;
++  if ((g_not_yet[why & 7]++ % 600) == 0) {
++    REXGPU_INFO("dbz3: render nativo: contorno ainda nao ({})", why);
++  }
++  return false;
++}
++}  // namespace dbz3_native_contour
++
++bool VulkanRenderTargetCache::Dbz3NativeContourInit() {
++  namespace nc = dbz3_native_contour;
++  nc::State& st = nc::g_state;
++  if (st.init_tried) {
++    return st.ok;
++  }
++  st.init_tried = true;
++  const ui::vulkan::VulkanDevice* const vulkan_device = command_processor_.GetVulkanDevice();
++  const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
++  const VkDevice device = vulkan_device->device();
++  VkDescriptorPoolSize pool_size = {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, nc::kSetRing * 2};
++  VkDescriptorPoolCreateInfo pool_info = {};
++  pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
++  pool_info.maxSets = nc::kSetRing;
++  pool_info.poolSizeCount = 1;
++  pool_info.pPoolSizes = &pool_size;
++  if (dfn.vkCreateDescriptorPool(device, &pool_info, nullptr, &st.pool) != VK_SUCCESS) {
++    REXGPU_ERROR("dbz3: render nativo: contorno: vkCreateDescriptorPool falhou");
++    return false;
++  }
++  VkDescriptorSetLayout set_layouts[nc::kSetRing];
++  for (uint32_t i = 0; i < nc::kSetRing; ++i) {
++    set_layouts[i] = descriptor_set_layout_sampled_image_x2_;
++  }
++  VkDescriptorSetAllocateInfo alloc_info = {};
++  alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
++  alloc_info.descriptorPool = st.pool;
++  alloc_info.descriptorSetCount = nc::kSetRing;
++  alloc_info.pSetLayouts = set_layouts;
++  if (dfn.vkAllocateDescriptorSets(device, &alloc_info, st.sets) != VK_SUCCESS) {
++    REXGPU_ERROR("dbz3: render nativo: contorno: vkAllocateDescriptorSets falhou");
++    return false;
++  }
++  VkDescriptorSetLayout layouts[2] = {
++      command_processor_.GetSingleTransientDescriptorLayout(
++          VulkanCommandProcessor::SingleTransientDescriptorLayout::kStorageBufferCompute),
++      descriptor_set_layout_sampled_image_x2_};
++  VkPushConstantRange push_range = {VK_SHADER_STAGE_COMPUTE_BIT, 0,
++                                    uint32_t(sizeof(nc::PushConstants))};
++  VkPipelineLayoutCreateInfo layout_info = {};
++  layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
++  layout_info.setLayoutCount = 2;
++  layout_info.pSetLayouts = layouts;
++  layout_info.pushConstantRangeCount = 1;
++  layout_info.pPushConstantRanges = &push_range;
++  if (dfn.vkCreatePipelineLayout(device, &layout_info, nullptr, &st.layout) != VK_SUCCESS) {
++    REXGPU_ERROR("dbz3: render nativo: contorno: vkCreatePipelineLayout falhou");
++    return false;
++  }
++  std::vector<uint32_t> spirv;
++  std::string error;
++  if (!command_processor_.CompileGlslToSpirv(VK_SHADER_STAGE_COMPUTE_BIT, nc::kSource, spirv,
++                                             error)) {
++    REXGPU_ERROR("dbz3: render nativo: contorno: shader nao compilou: {}", error);
++    return false;
++  }
++  VkShaderModuleCreateInfo module_info = {};
++  module_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
++  module_info.codeSize = spirv.size() * sizeof(uint32_t);
++  module_info.pCode = spirv.data();
++  VkShaderModule module = VK_NULL_HANDLE;
++  if (dfn.vkCreateShaderModule(device, &module_info, nullptr, &module) != VK_SUCCESS) {
++    REXGPU_ERROR("dbz3: render nativo: contorno: vkCreateShaderModule falhou");
++    return false;
++  }
++  VkComputePipelineCreateInfo pipeline_info = {};
++  pipeline_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
++  pipeline_info.stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
++  pipeline_info.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
++  pipeline_info.stage.module = module;
++  pipeline_info.stage.pName = "main";
++  pipeline_info.layout = st.layout;
++  const VkResult result = dfn.vkCreateComputePipelines(device, Dbz3GetDriverPipelineCache(), 1,
++                                                       &pipeline_info, nullptr, &st.pipeline);
++  dfn.vkDestroyShaderModule(device, module, nullptr);
++  if (result != VK_SUCCESS) {
++    st.pipeline = VK_NULL_HANDLE;
++    REXGPU_ERROR("dbz3: render nativo: contorno: vkCreateComputePipelines falhou");
++    return false;
++  }
++  Dbz3MarkDriverPipelineCacheDirty();
++  st.ok = true;
++  return true;
++}
++
++bool VulkanRenderTargetCache::Dbz3NativeContourBegin(VulkanTextureCache& texture_cache,
++                                                     const Dbz3ContourParams& params) {
++  namespace nc = dbz3_native_contour;
++  if (GetPath() != Path::kHostRenderTargets || IsDrawResolutionScaled()) {
++    return nc::NotYet(0);
++  }
++  if (!nc::g_dest) {
++    return nc::NotYet(1);  // o primeiro frame ensina o destino
++  }
++  void* found[4];
++  if (!texture_cache.Dbz3FindResolveTextures(nc::g_dest, params.width, params.height,
++                                             xenos::TextureFormat::k_8_8_8_8, false,
++                                             xenos::Endian(nc::g_dest_endian), found, 4)) {
++    return nc::NotYet(2);
++  }
++  void* id_texture = texture_cache.Dbz3FindResolveTexture(
++      params.id_base, params.width, params.height, xenos::Endian(params.id_endian),
++      xenos::TextureFormat::k_8_8_8_8);
++  if (!id_texture || !texture_cache.Dbz3TextureUpToDate(id_texture)) {
++    return nc::NotYet(3);
++  }
++  void* depth_texture = texture_cache.Dbz3FindResolveTexture(
++      params.depth_base, params.width, params.height, xenos::Endian(params.depth_endian),
++      xenos::TextureFormat::k_32_FLOAT);
++  if (!depth_texture || !texture_cache.Dbz3TextureUpToDate(depth_texture)) {
++    return nc::NotYet(4);
++  }
++  if (texture_cache.Dbz3GetSampledView(id_texture) == VK_NULL_HANDLE ||
++      texture_cache.Dbz3GetSampledView(depth_texture) == VK_NULL_HANDLE) {
++    return nc::NotYet(5);
++  }
++  if (!Dbz3NativeContourInit()) {
++    return nc::NotYet(6);
++  }
++  nc::g_params = params;
++  nc::g_pending = true;
++  nc::g_learn = false;
++  nc::g_dirty = false;
++  return true;
++}
++
++void VulkanRenderTargetCache::Dbz3NativeContourFrameEnd() {
++  namespace nc = dbz3_native_contour;
++  nc::g_pending = false;
++  nc::g_learn = false;
++  if ((++nc::g_frames % 3000) == 0 && (nc::g_done || nc::g_fail)) {
++    REXGPU_INFO(
++        "dbz3: render nativo: contorno por compute: {} passes, {} falhas, ainda nao "
++        "{}/{}/{}/{}/{}/{}/{} (frame {})",
++        nc::g_done, nc::g_fail, nc::g_not_yet[0], nc::g_not_yet[1], nc::g_not_yet[2],
++        nc::g_not_yet[3], nc::g_not_yet[4], nc::g_not_yet[5], nc::g_not_yet[6], nc::g_frames);
++  }
++}
++
++bool VulkanRenderTargetCache::Dbz3NativeContourResolve(
++    const draw_util::ResolveInfo& resolve_info, VulkanTextureCache& texture_cache) {
++  namespace nc = dbz3_native_contour;
++  const bool pending = nc::g_pending;
++  nc::g_pending = false;
++  const nc::State& st = nc::g_state;
++  const Dbz3ContourParams& prm = nc::g_params;
++  const draw_util::ResolveEdramInfo& src = resolve_info.color_edram_info;
++  const uint32_t width = uint32_t(resolve_info.coordinate_info.width_div_8) * 8;
++  const uint32_t height = resolve_info.height_div_8 * 8;
++  // O resolve que fecha o passe do contorno: cor 0 8888 1x do render target do quad, sem
++  // limpeza, de (0,0) a (0,0) do destino, 8888 sem expoente.
++  const bool matches =
++      !resolve_info.IsCopyingDepth() && !resolve_info.IsClearingDepth() &&
++      !resolve_info.IsClearingColor() && resolve_info.copy_dest_extent_length &&
++      resolve_info.rb_copy_control.copy_src_select == 0 && !src.format_is_64bpp &&
++      xenos::ColorRenderTargetFormat(src.format) == xenos::ColorRenderTargetFormat::k_8_8_8_8 &&
++      src.msaa_samples == xenos::MsaaSamples::k1X && src.pitch_tiles == prm.width / 80 &&
++      src.base_tiles == prm.color_base_tiles &&
++      resolve_info.copy_dest_info.copy_dest_format == xenos::ColorFormat::k_8_8_8_8 &&
++      resolve_info.copy_dest_info.copy_dest_exp_bias == 0 &&
++      uint32_t(resolve_info.copy_dest_info.copy_dest_endian) <= 3 &&
++      resolve_info.coordinate_info.edram_offset_x_div_8 == 0 &&
++      resolve_info.coordinate_info.edram_offset_y_div_8 == 0 &&
++      resolve_info.copy_dest_coordinate_info.offset_x_div_8 == 0 &&
++      resolve_info.copy_dest_coordinate_info.offset_y_div_8 == 0 &&
++      uint32_t(resolve_info.copy_dest_coordinate_info.pitch_aligned_div_32) * 32 ==
++          ((prm.width + 31) & ~31u) &&
++      resolve_info.copy_dest_base == resolve_info.copy_dest_extent_start && width == prm.width &&
++      height == prm.height;
++  const uint32_t endian = uint32_t(resolve_info.copy_dest_info.copy_dest_endian);
++  const bool swap = resolve_info.copy_dest_info.copy_dest_swap != 0;
++  if (nc::g_learn) {
++    // A aprender: este resolve segue o caminho normal (ou o do passo 4).
++    nc::g_learn = false;
++    if (matches && (nc::g_dest != resolve_info.copy_dest_base || nc::g_dest_endian != endian ||
++                    nc::g_dest_swap != swap)) {
++      nc::g_dest = resolve_info.copy_dest_base;
++      nc::g_dest_endian = endian;
++      nc::g_dest_swap = swap;
++      REXGPU_INFO("dbz3: render nativo: contorno -> {:08X} (endian {}, troca R/B {})",
++                  nc::g_dest, endian, swap ? 1 : 0);
++    }
++    return false;
++  }
++  if (!pending) {
++    return false;
++  }
++  auto fail = [&](uint32_t why) {
++    if ((nc::g_fail++ % 600) == 0) {
++      REXGPU_WARN("dbz3: render nativo: contorno falhou ({}), volta ao caminho normal", why);
++    }
++    nc::g_dest = 0;
++    return false;
++  };
++  if (!matches || resolve_info.copy_dest_base != nc::g_dest || endian != nc::g_dest_endian ||
++      swap != nc::g_dest_swap) {
++    return fail(1);
++  }
++  if (nc::g_dirty) {
++    return fail(7);
++  }
++  void* found[4];
++  const uint32_t n = texture_cache.Dbz3FindResolveTextures(
++      resolve_info.copy_dest_base, width, height, xenos::TextureFormat::k_8_8_8_8, false,
++      xenos::Endian(endian), found, 4);
++  void* id_texture = texture_cache.Dbz3FindResolveTexture(
++      prm.id_base, prm.width, prm.height, xenos::Endian(prm.id_endian),
++      xenos::TextureFormat::k_8_8_8_8);
++  void* depth_texture = texture_cache.Dbz3FindResolveTexture(
++      prm.depth_base, prm.width, prm.height, xenos::Endian(prm.depth_endian),
++      xenos::TextureFormat::k_32_FLOAT);
++  if (!n) {
++    return fail(2);
++  }
++  if (!id_texture || !depth_texture || !texture_cache.Dbz3TextureUpToDate(id_texture) ||
++      !texture_cache.Dbz3TextureUpToDate(depth_texture)) {
++    return fail(3);
++  }
++  const VkImageView id_view = texture_cache.Dbz3GetSampledView(id_texture);
++  const VkImageView depth_view = texture_cache.Dbz3GetSampledView(depth_texture);
++  if (!st.ok || id_view == VK_NULL_HANDLE || depth_view == VK_NULL_HANDLE) {
++    return fail(4);
++  }
++  const ui::vulkan::VulkanDevice* const vulkan_device = command_processor_.GetVulkanDevice();
++  const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
++  const VkDevice device = vulkan_device->device();
++  const VkDeviceSize buffer_size = VkDeviceSize(width) * height * 4;
++  VulkanCommandProcessor::ScratchBufferAcquisition scratch =
++      command_processor_.AcquireScratchGpuBuffer(buffer_size, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
++                                                 VK_ACCESS_SHADER_WRITE_BIT);
++  const VkBuffer scratch_buffer = scratch.buffer();
++  if (scratch_buffer == VK_NULL_HANDLE) {
++    return fail(5);
++  }
++  const VkDescriptorSet dest_set = command_processor_.AllocateSingleTransientDescriptor(
++      VulkanCommandProcessor::SingleTransientDescriptorLayout::kStorageBufferCompute);
++  if (dest_set == VK_NULL_HANDLE) {
++    return fail(6);
++  }
++  // A partir daqui o resolve e nosso: as outras texturas deste intervalo ficam invalidas e as
++  // do destino voltam a ficar carregadas na copia.
++  texture_cache.MarkRangeAsResolved(resolve_info.copy_dest_extent_start,
++                                    resolve_info.copy_dest_extent_length);
++  texture_cache.Dbz3BeginComputeRead(id_texture);
++  texture_cache.Dbz3BeginComputeRead(depth_texture);
++  // Anel de sets: 2 passes por frame, um set so volta a ser escrito ~30 frames depois.
++  const VkDescriptorSet source_set = st.sets[nc::g_state.next_set];
++  nc::g_state.next_set = (nc::g_state.next_set + 1) % nc::kSetRing;
++  VkDescriptorImageInfo image_infos[2] = {
++      {VK_NULL_HANDLE, id_view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
++      {VK_NULL_HANDLE, depth_view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL}};
++  VkDescriptorBufferInfo buffer_info = {scratch_buffer, 0, buffer_size};
++  VkWriteDescriptorSet writes[3] = {};
++  for (uint32_t i = 0; i < 2; ++i) {
++    writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
++    writes[i].dstSet = source_set;
++    writes[i].dstBinding = i;
++    writes[i].descriptorCount = 1;
++    writes[i].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
++    writes[i].pImageInfo = &image_infos[i];
++  }
++  writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
++  writes[2].dstSet = dest_set;
++  writes[2].dstBinding = 0;
++  writes[2].descriptorCount = 1;
++  writes[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
++  writes[2].pBufferInfo = &buffer_info;
++  dfn.vkUpdateDescriptorSets(device, 3, writes, 0, nullptr);
++
++  nc::PushConstants pc = {};
++  std::memcpy(pc.colors, prm.colors, sizeof(pc.colors));
++  std::memcpy(pc.ids, prm.ids, sizeof(pc.ids));
++  pc.scale = prm.scale;
++  pc.width = width;
++  pc.height = height;
++  pc.flags = (prm.id_channel & 3u) | (swap ? 4u : 0u);
++  DeferredCommandBuffer& command_buffer = command_processor_.deferred_command_buffer();
++  command_processor_.BindExternalComputePipeline(st.pipeline);
++  VkDescriptorSet sets[2] = {dest_set, source_set};
++  command_buffer.CmdVkBindDescriptorSets(VK_PIPELINE_BIND_POINT_COMPUTE, st.layout, 0, 2, sets, 0,
++                                         nullptr);
++  command_buffer.CmdVkPushConstants(st.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc), &pc);
++  command_processor_.SubmitBarriers(true);
++  command_buffer.CmdVkDispatch((width + 7) / 8, (height + 7) / 8, 1);
++  for (uint32_t i = 0; i < n; ++i) {
++    const uint32_t tex_height = std::min(height, texture_cache.Dbz3TextureHeight(found[i]));
++    texture_cache.Dbz3CopyToResolveTexture(found[i], scratch_buffer, width, tex_height,
++                                           scratch.SetStageMask(VK_PIPELINE_STAGE_TRANSFER_BIT),
++                                           scratch.SetAccessMask(VK_ACCESS_TRANSFER_READ_BIT));
++  }
++  dbz3_resolve_dedupe::ForgetHolder(resolve_info.copy_dest_base);
++  ++nc::g_done;
++  if (!nc::g_active_logged) {
++    nc::g_active_logged = true;
++    REXGPU_INFO(
++        "dbz3: render nativo: contorno por compute ativo ({:08X} <- IDs {:08X} canal {}, "
++        "profundidade {:08X}; {} textura(s), troca R/B {})",
++        resolve_info.copy_dest_base, prm.id_base, prm.id_channel, prm.depth_base, n,
++        swap ? 1 : 0);
++  }
++  return true;
++}
++
+ }  // namespace rex::graphics::vulkan
+diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
+index 5bbf2bf08a2c0ee519412b52c428efb1368a1ec7..51450f4acbe5220449947c8e8ee28f028a6f5654 100644
+--- a/src/graphics/vulkan/texture_cache.cpp
++++ b/src/graphics/vulkan/texture_cache.cpp
+@@ -2246,6 +2246,39 @@ void VulkanTextureCache::Dbz3EndStorageWrite(void* texture_opaque) {
+   }
+ }
+ 
++bool VulkanTextureCache::Dbz3TextureUpToDate(void* texture_opaque) const {
++  return static_cast<Texture*>(texture_opaque)->outdated_mask() == 0;
++}
++
++VkImageView VulkanTextureCache::Dbz3GetSampledView(void* texture_opaque) {
++  auto* t = static_cast<VulkanTexture*>(static_cast<Texture*>(texture_opaque));
++  return t->GetView(false, xenos::XE_GPU_TEXTURE_SWIZZLE_RGBA, false);
++}
++
++void VulkanTextureCache::Dbz3BeginComputeRead(void* texture_opaque) {
++  VulkanTexture& vulkan_texture =
++      *static_cast<VulkanTexture*>(static_cast<Texture*>(texture_opaque));
++  vulkan_texture.MarkAsUsed();
++  const VulkanTexture::Usage old_usage =
++      vulkan_texture.SetUsage(VulkanTexture::Usage::kDbz3ComputeSampled);
++  if (old_usage == VulkanTexture::Usage::kDbz3ComputeSampled) {
++    return;
++  }
++  VkPipelineStageFlags src_stage, dst_stage;
++  VkAccessFlags src_access, dst_access;
++  VkImageLayout old_layout, new_layout;
++  GetTextureUsageMasks(old_usage, src_stage, src_access, old_layout);
++  GetTextureUsageMasks(VulkanTexture::Usage::kDbz3ComputeSampled, dst_stage, dst_access,
++                       new_layout);
++  if (!src_stage) {
++    src_stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
++  }
++  command_processor_.PushImageMemoryBarrier(vulkan_texture.image(),
++                                            ui::vulkan::util::InitializeSubresourceRange(),
++                                            src_stage, dst_stage, src_access, dst_access,
++                                            old_layout, new_layout);
++}
++
+ bool VulkanTextureCache::Dbz3TextureIsRenderable(void* texture_opaque) const {
+   const auto& t = *static_cast<VulkanTexture*>(static_cast<Texture*>(texture_opaque));
+   // 0074: nao precisa de STORAGE (o pos do BL usa texturas sem ele).
+@@ -3885,6 +3918,11 @@ void VulkanTextureCache::GetTextureUsageMasks(VulkanTexture::Usage usage,
+       access_mask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+       layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+       break;
++    case VulkanTexture::Usage::kDbz3ComputeSampled:
++      stage_mask = guest_shader_pipeline_stages_ | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
++      access_mask = VK_ACCESS_SHADER_READ_BIT;
++      layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
++      break;
+     case VulkanTexture::Usage::kSwapSampled:
+       // The swap texture is likely to be used only for the presentation
+       // post-processing passes, and not during emulation where it'd be used in

@@ -1,0 +1,128 @@
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 40159156d80a9c23af9965380f8ae6ac2769ff22..e29139919c3fd927499461111b40e60d3ecbe121 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -64,6 +64,11 @@ REXCVAR_DEFINE_BOOL(vulkan_readback_memexport, false, "GPU/Vulkan",
+                     "Read data written by memory export in shaders on the CPU")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ 
++REXCVAR_DEFINE_BOOL(dbz3_bl_native_present, true, "GPU/Vulkan",
++                    "Dragon Burst: apresenta a imagem final do Burst Limit direto (sem a copia "
++                    "de ecra inteiro e o resolve para o frontbuffer no fim de cada frame)")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++
+ REXCVAR_DEFINE_BOOL(vulkan_async_skip_incomplete_frames, true, "GPU/Vulkan",
+                     "When async shader compilation is enabled, skip presenting frames that "
+                     "used placeholder pipelines to avoid visible flashing")
+@@ -134,6 +139,20 @@ void Dbz3PassEndsFrame() {
+   dbz3_pass_ends::g_frames = 0;
+ }
+ 
++// Dragon Burst (render nativo, dbz3_bl_native_present): o Burst Limit acaba cada frame de
++// luta a copiar a imagem pronta (0E1F1000, resolvida depois do HUD) para o render target
++// com um quad (VS 4666C5A9092B03DD, PS EC9B52789DD888F2: tex * cor de VS c5) e a resolve-la
++// para o frontbuffer. Com a cor branca a copia e identidade: salta-se o quad e o resolve
++// e o presenter le direto a textura da imagem pronta (o fetch constant do quad).
++namespace dbz3_native_present {
++bool g_pending = false;
++uint32_t g_fetch[6] = {};
++uint32_t g_last_frontbuffer = 0;
++uint64_t g_skipped_copies = 0;
++uint64_t g_skipped_resolves = 0;
++uint64_t g_presented = 0;
++}  // namespace dbz3_native_present
++
+ namespace dbz3_frameskip {
+ bool g_skip_frame = false;
+ uint32_t g_counter = 0;
+@@ -2676,6 +2695,10 @@ static void Dbz3LogGuestPerformanceVulkan() {
+ 
+ void VulkanCommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontbuffer_width,
+                                        uint32_t frontbuffer_height) {
++  // Dragon Burst (dbz3_native_present): a copia final deste frame foi saltada?
++  const bool np_present_frame = dbz3_native_present::g_pending;
++  dbz3_native_present::g_pending = false;
++  dbz3_native_present::g_last_frontbuffer = frontbuffer_ptr;
+   Dbz3LogGuestPerformanceVulkan();
+   SCOPE_profile_cpu_f("gpu");
+   if (!dbz3_frameskip::g_skip_frame) {
+@@ -2789,9 +2812,26 @@ void VulkanCommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontb
+           swap_fetch.dword_4, swap_fetch.dword_5);
+     }
+   }
++  // Dragon Burst: imagem final direto da textura (dbz3_native_present).
++  uint32_t np_saved_fetch[6];
++  const bool np_present = np_present_frame;
++  if (np_present) {
++    std::memcpy(np_saved_fetch, &register_file_->values[XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0],
++                sizeof(np_saved_fetch));
++    std::memcpy(&register_file_->values[XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0],
++                dbz3_native_present::g_fetch, sizeof(np_saved_fetch));
++    if ((++dbz3_native_present::g_presented % 3000) == 1) {
++      REXGPU_INFO("dbz3: render nativo: imagem final direta ({} copias, {} resolves saltados)",
++                  dbz3_native_present::g_skipped_copies, dbz3_native_present::g_skipped_resolves);
++    }
++  }
+   VkImageView swap_texture_view = texture_cache_->RequestSwapTexture(
+       frontbuffer_width_scaled, frontbuffer_height_scaled, frontbuffer_format,
+       &frontbuffer_width_unscaled, &frontbuffer_height_unscaled, &swap_source_needs_rb_swap);
++  if (np_present) {
++    std::memcpy(&register_file_->values[XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0], np_saved_fetch,
++                sizeof(np_saved_fetch));
++  }
+   if (swap_texture_view == VK_NULL_HANDLE) {
+     REXGPU_ERROR("XELOG_GPU PRESENT: swap_texture_view=NULL");
+     return;
+@@ -4373,6 +4413,33 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+       DBZ3_DRAW_RET(true);
+     }
+   }
++  // Dragon Burst: render nativo, copia final do frame (ver dbz3_native_present).
++  if (pixel_shader && REXCVAR_GET(dbz3_bl_native_present) &&
++      pixel_shader->ucode_data_hash() == UINT64_C(0xEC9B52789DD888F2) &&
++      vertex_shader->ucode_data_hash() == UINT64_C(0x4666C5A9092B03DD) &&
++      prim_type == xenos::PrimitiveType::kQuadList && index_count == 4) {
++    const auto np_surface = regs.Get<reg::RB_SURFACE_INFO>();
++    const xenos::xe_gpu_texture_fetch_t np_fetch = regs.GetTextureFetch(0);
++    const float* np_c5 = reinterpret_cast<const float*>(
++        &regs.values[XE_GPU_REG_SHADER_CONSTANT_000_X + 5 * 4]);
++    const uint32_t np_br = regs[XE_GPU_REG_PA_SC_WINDOW_SCISSOR_BR];
++    if (np_surface.surface_pitch == 1280 && np_surface.msaa_samples == xenos::MsaaSamples::k1X &&
++        (regs[XE_GPU_REG_RB_BLENDCONTROL0] & 0x1FFF1FFF) == 0x00010001 &&
++        (regs[XE_GPU_REG_RB_COLOR_MASK] & 0xF) == 0xF &&
++        np_fetch.type == xenos::FetchConstantType::kTexture &&
++        np_fetch.dimension == xenos::DataDimension::k2DOrStacked &&
++        np_fetch.format == xenos::TextureFormat::k_8_8_8_8 &&
++        uint32_t(np_fetch.size_2d.width) + 1 == 1280 &&
++        uint32_t(np_fetch.size_2d.height) + 1 == 720 && (np_br & 0x7FFF) >= 1280 &&
++        ((np_br >> 16) & 0x7FFF) >= 720 && np_c5[0] == 1.0f && np_c5[1] == 1.0f &&
++        np_c5[2] == 1.0f && np_c5[3] == 1.0f) {
++      std::memcpy(dbz3_native_present::g_fetch,
++                  &regs.values[XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0], sizeof(uint32_t) * 6);
++      dbz3_native_present::g_pending = true;
++      ++dbz3_native_present::g_skipped_copies;
++      DBZ3_DRAW_RET(true);
++    }
++  }
+   bool memexport_used_pixel = pixel_shader && (pixel_shader->memexport_eM_written() != 0);
+   if (memexport_used_pixel) {
+     if (!device_properties.fragmentStoresAndAtomics) {
+@@ -5329,6 +5396,18 @@ bool VulkanCommandProcessor::IssueCopy() {
+   if (dbz3_capture::Active()) {
+     dbz3_capture::OnCopy(*register_file_);
+   }
++  // Dragon Burst: o resolve da copia final saltada para o frontbuffer (dbz3_native_present).
++  if (dbz3_native_present::g_pending && dbz3_native_present::g_last_frontbuffer) {
++    const RegisterFile& np_regs = *register_file_;
++    const uint32_t np_cc = np_regs[XE_GPU_REG_RB_COPY_CONTROL];
++    const uint32_t np_dest = np_regs[XE_GPU_REG_RB_COPY_DEST_BASE] & 0x1FFFFFFF;
++    const bool np_clears = ((np_cc >> 8) & 3) != 0;
++    if (!np_clears && (np_cc & 7) != 4 &&
++        np_dest == (dbz3_native_present::g_last_frontbuffer & 0x1FFFFFFF)) {
++      ++dbz3_native_present::g_skipped_resolves;
++      return true;
++    }
++  }
+ 
+   if (!BeginSubmission(true)) {
+     return false;

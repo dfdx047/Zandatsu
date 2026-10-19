@@ -1,6 +1,6 @@
 diff --git a/include/rex/graphics/vulkan/dbz3_gpuprof.h b/include/rex/graphics/vulkan/dbz3_gpuprof.h
 new file mode 100644
-index 0000000..fa896b7
+index 0000000000000000000000000000000000000000..fa896b70c9987b6f234a13ac9dba0ae186321d47
 --- /dev/null
 +++ b/include/rex/graphics/vulkan/dbz3_gpuprof.h
 @@ -0,0 +1,154 @@
@@ -159,7 +159,7 @@ index 0000000..fa896b7
 +
 +}  // namespace rex::graphics::vulkan::dbz3_gpuprof
 diff --git a/include/rex/graphics/vulkan/deferred_command_buffer.h b/include/rex/graphics/vulkan/deferred_command_buffer.h
-index 9d2a848..7856b2b 100644
+index 9d2a8485638bae58b43636f0690e56625ef71b05..7856b2bdc6eeedd7331e9ae11107684634f58b20 100644
 --- a/include/rex/graphics/vulkan/deferred_command_buffer.h
 +++ b/include/rex/graphics/vulkan/deferred_command_buffer.h
 @@ -18,6 +18,7 @@
@@ -225,7 +225,7 @@ index 9d2a848..7856b2b 100644
  
  }  // namespace rex::graphics::vulkan
 diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
-index 6fee5fe..a79792c 100644
+index 057097fd759f0e3f1ecbb3c2cfef1bf855cfc4d9..391946876fd8924b5addff09f2ec29784ffaf69b 100644
 --- a/src/graphics/vulkan/command_processor.cpp
 +++ b/src/graphics/vulkan/command_processor.cpp
 @@ -36,6 +36,7 @@
@@ -236,7 +236,7 @@ index 6fee5fe..a79792c 100644
  #include <rex/graphics/vulkan/dbz3_hitch.h>
  #include <rex/graphics/vulkan/pipeline_cache.h>
  #include <rex/graphics/vulkan/render_target_cache.h>
-@@ -2279,38 +2280,37 @@ void VulkanCommandProcessor::OnGammaRampPWLValueWritten() {
+@@ -2277,38 +2278,37 @@ void VulkanCommandProcessor::OnGammaRampPWLValueWritten() {
  // trabalho da GPU (ou clock baixo) e nao pela CPU. Tudo na thread do command
  // processor; os resultados sao lidos sem esperar, por ordem, quando ficam prontos.
  namespace dbz3_gputime {
@@ -289,7 +289,7 @@ index 6fee5fe..a79792c 100644
    const auto& ifn = vulkan_device->vulkan_instance()->functions();
    VkPhysicalDevice physical_device = vulkan_device->physical_device();
    uint32_t family_count = 0;
-@@ -2323,118 +2323,173 @@ void Init(const ui::vulkan::VulkanDevice* vulkan_device) {
+@@ -2321,118 +2321,173 @@ void Init(const ui::vulkan::VulkanDevice* vulkan_device) {
      return;
    }
    const uint32_t bits = families[family].timestampValidBits;
@@ -538,7 +538,7 @@ index 6fee5fe..a79792c 100644
    return text;
  }
  }  // namespace dbz3_gputime
-@@ -2543,6 +2598,9 @@ void VulkanCommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontb
+@@ -2541,6 +2596,9 @@ void VulkanCommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontb
      REXGPU_ERROR("XELOG_GPU PRESENT: BeginSubmission FAILED");
      return;
    }
@@ -548,7 +548,7 @@ index 6fee5fe..a79792c 100644
  
    bool skip_present_due_async_placeholder = REXCVAR_GET(async_shader_compilation) &&
                                              REXCVAR_GET(vulkan_async_skip_incomplete_frames) &&
-@@ -3849,6 +3907,7 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+@@ -3847,6 +3905,7 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
  #if XE_GPU_FINE_GRAINED_DRAW_SCOPES
    SCOPE_profile_cpu_f("gpu");
  #endif  // XE_GPU_FINE_GRAINED_DRAW_SCOPES
@@ -556,7 +556,7 @@ index 6fee5fe..a79792c 100644
  
    const RegisterFile& regs = *register_file_;
    (void)index_buffer_info;
-@@ -5642,9 +5701,9 @@ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
+@@ -5640,9 +5699,9 @@ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
        REXGPU_ERROR("Failed to begin a Vulkan command buffer");
        return false;
      }
@@ -569,7 +569,7 @@ index 6fee5fe..a79792c 100644
        REXGPU_ERROR("Failed to end a Vulkan command buffer");
        return false;
 diff --git a/src/graphics/vulkan/deferred_command_buffer.cpp b/src/graphics/vulkan/deferred_command_buffer.cpp
-index b49e033..beeb581 100644
+index b49e033bc127a7ce0270607b2925643b0b7aa2df..beeb5816db99758b6ab99ebd7008e85a9bfaab4f 100644
 --- a/src/graphics/vulkan/deferred_command_buffer.cpp
 +++ b/src/graphics/vulkan/deferred_command_buffer.cpp
 @@ -30,6 +30,13 @@ DeferredCommandBuffer::DeferredCommandBuffer(const VulkanCommandProcessor& comma
@@ -618,7 +618,7 @@ index b49e033..beeb581 100644
    command_stream_.resize(offset + kCommandHeaderSizeElements + arguments_size_elements);
    CommandHeader& header = *reinterpret_cast<CommandHeader*>(command_stream_.data() + offset);
 diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
-index a5baf4c..12c7804 100644
+index a5baf4c42900a6f20942c0ac19ac62d97a63f019..12c780420b11c69d1d2d77426226c6491470a5ea 100644
 --- a/src/graphics/vulkan/render_target_cache.cpp
 +++ b/src/graphics/vulkan/render_target_cache.cpp
 @@ -1135,6 +1135,8 @@ bool VulkanRenderTargetCache::Resolve(const memory::Memory& memory,
@@ -639,10 +639,10 @@ index a5baf4c..12c7804 100644
    bool resolve_clear_needed = render_target_resolve_clear_values && resolve_clear_rectangle;
    VkClearRect resolve_clear_rect;
 diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
-index 0cfc17a..a63219f 100644
+index 9c8b7e8dcbb250ebec3c0d32f832697c015df777..ce2dfd9a9cb811e1bd339531459265d4dc580ec8 100644
 --- a/src/graphics/vulkan/texture_cache.cpp
 +++ b/src/graphics/vulkan/texture_cache.cpp
-@@ -1251,6 +1251,8 @@ bool VulkanTextureCache::EnsureScaledResolveMemoryCommitted(uint32_t start_unsca
+@@ -1217,6 +1217,8 @@ bool VulkanTextureCache::EnsureScaledResolveMemoryCommitted(uint32_t start_unsca
  bool VulkanTextureCache::LoadTextureDataFromResidentMemoryImpl(Texture& texture, bool load_base,
                                                                 bool load_mips) {
    dbz3_hitch::Scope dbz3_scope(dbz3_hitch::kTextureLoad);
@@ -652,10 +652,10 @@ index 0cfc17a..a63219f 100644
    TextureKey texture_key = vulkan_texture.key();
  
 diff --git a/src/ui/vulkan/vulkan_presenter.cpp b/src/ui/vulkan/vulkan_presenter.cpp
-index c47cc64..f6a3509 100644
+index 4b1112fabc600616f52b361320facc1b9b1f7a0e..690b01fcaa5628ae984a4f892ad47d8aa4385adb 100644
 --- a/src/ui/vulkan/vulkan_presenter.cpp
 +++ b/src/ui/vulkan/vulkan_presenter.cpp
-@@ -51,6 +51,15 @@
+@@ -49,6 +49,15 @@
  REXCVAR_DEFINE_BOOL(present_render_pass_clear, true, "UI/Presenter",
                      "Clear render pass during presentation");
  

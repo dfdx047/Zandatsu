@@ -1,0 +1,408 @@
+diff --git a/include/rex/graphics/vulkan/render_target_cache.h b/include/rex/graphics/vulkan/render_target_cache.h
+index e341f186b65d8897a5534e43754b64a78b09917e..5dcc856cebc4f1319fafdafc7ceef30962959127 100644
+--- a/include/rex/graphics/vulkan/render_target_cache.h
++++ b/include/rex/graphics/vulkan/render_target_cache.h
+@@ -307,6 +307,13 @@ class VulkanRenderTargetCache final : public RenderTargetCache {
+   void Dbz3RitOnSample(VulkanTextureCache& texture_cache, uint32_t address);
+   // Inicio de um passe normal: sig != 0 se comecou com um quad opaco a cobrir o scissor.
+   void Dbz3RitPassStart(uint64_t signature, uint32_t color_base_tiles, uint32_t pitch_tiles);
++  // 0096 (dbz3_rit_serve_resolves): um resolve do render target que ficou sem a imagem do passe
++  // (ela foi para a textura), sem nada desenhado desde entao, e servido pela textura: copia por
++  // desenho para o destino (ou nada, se o destino e a propria textura). false = nao da (bane).
++  bool Dbz3RitServeStale(VulkanTextureCache& texture_cache, const draw_util::ResolveInfo& ri);
++  // Uma transferencia, um compute que substitui um quad ou um resolve saltado mexeu no EDRAM:
++  // acaba o "nada desenhado desde o passe".
++  void Dbz3RitNoteOtherPass();
+ 
+  protected:
+   uint32_t GetMaxRenderTargetWidth() const override;
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index fffafa1beb8ed4e4ab35a323a745d976ac9a77c0..187b202ef86dbf675589dd02618984092f8eb4fd 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -4457,6 +4457,8 @@ void VulkanCommandProcessor::SubmitBarriersAndEnterRenderTargetCacheRenderPass(
+   bool use_dynamic_rendering =
+       REXCVAR_GET(vulkan_dynamic_rendering) && vulkan_device->properties().dynamicRendering;
+ 
++  // 0096: uma transferencia entre render targets (passo 4: acaba o "nada desenhado").
++  render_target_cache_->Dbz3RitNoteOtherPass();
+   if (use_dynamic_rendering) {
+     // Transferencias desenham fora do scissor: nunca dentro de um passe limitado (dbz3_discard).
+     if (in_render_pass_ && current_framebuffer_ == framebuffer &&
+@@ -6367,6 +6369,9 @@ bool VulkanCommandProcessor::IssueCopy() {
+     dbz3_resolve_dedupe::g_skip_next_resolve = false;
+     const uint32_t sk_cc = (*register_file_)[XE_GPU_REG_RB_COPY_CONTROL];
+     if (((sk_cc >> 8) & 3) == 0 && (sk_cc & 7) != 4 && !dbz3_capture::WantsResolveReadback()) {
++      // 0096: o quad saltado teria desenhado no render target (passo 4: nada de servir mais
++      // resolves dele a partir da textura).
++      render_target_cache_->Dbz3RitNoteOtherPass();
+       return true;
+     }
+   }
+diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
+index 0e5e73bb90c374accc4c7f3f66ee5c61f6bef815..a0a95fd073b82bfe4a087460e90273bf0634e800 100644
+--- a/src/graphics/vulkan/render_target_cache.cpp
++++ b/src/graphics/vulkan/render_target_cache.cpp
+@@ -82,6 +82,13 @@ REXCVAR_DEFINE_BOOL(dbz3_direct_resolve_draw, false, "GPU/Vulkan",
+                     "render target) em vez de compute -> buffer -> copia")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ 
++REXCVAR_DEFINE_BOOL(dbz3_rit_serve_resolves, false, "GPU/Vulkan",
++                    "Dragon Burst (0096), passo 4: depois de um passe desenhado direto na textura, "
++                    "um resolve do mesmo render target sem nada desenhado entretanto (o quad "
++                    "seguinte foi saltado por um efeito desligado) copia essa textura para o "
++                    "destino em vez de banir a assinatura (exige o resolve sem memoria)")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++
+ namespace rex::graphics::vulkan {
+ 
+ // Dragon Burst: render nativo, passo 3 (definido no fim do ficheiro).
+@@ -96,6 +103,9 @@ namespace dbz3_rit {
+ bool Resolve(VulkanRenderTargetCache& cache, const draw_util::ResolveInfo& resolve_info,
+              VulkanTextureCache& texture_cache);
+ extern std::vector<std::pair<uint64_t, VkFramebuffer>> g_old_framebuffers;
++// 0096: um compute/resolve escreveu este destino (a textura do passe 4 pode deixar de ter a
++// imagem que o render target devia ter).
++void NoteWrite(uint32_t address);
+ }  // namespace dbz3_rit
+ 
+ // Dragon Burst: render nativo, passo 2 (definido no fim do ficheiro).
+@@ -1262,6 +1272,7 @@ bool VulkanRenderTargetCache::Resolve(const memory::Memory& memory,
+   // e o resolve nunca chegaria aqui; quando o draw foi saltado nao ha passe para o passo 4.
+   if (dbz3_step_contour && (dbz3_native_contour::g_pending || dbz3_native_contour::g_learn)) {
+     if (Dbz3NativeContourResolve(resolve_info, texture_cache)) {
++      Dbz3RitNoteOtherPass();  // 0096: o quad saltado teria desenhado no render target
+       written_address_out = 0;
+       written_length_out = 0;
+       return true;
+@@ -1271,6 +1282,7 @@ bool VulkanRenderTargetCache::Resolve(const memory::Memory& memory,
+   // compute (mesma ordem que o contorno: antes do passo 4).
+   if (dbz3_step_post && (dbz3_native_post::g_pending || dbz3_native_post::g_learn)) {
+     if (Dbz3NativePostResolve(resolve_info, texture_cache)) {
++      Dbz3RitNoteOtherPass();  // 0096: idem
+       written_address_out = 0;
+       written_length_out = 0;
+       return true;
+@@ -7771,6 +7783,7 @@ void MarkSkippedRead(uint32_t address) {
+ void ForgetHolder(uint32_t start) {
+   g_holders.erase(std::remove(g_holders.begin(), g_holders.end(), start & 0x1FFFFFFF),
+                   g_holders.end());
++  dbz3_rit::NoteWrite(start & 0x1FFFFFFF);
+ }
+ 
+ void LogFrame() {
+@@ -7865,6 +7878,7 @@ struct Prediction {
+   uint32_t guest_height = 0;
+   uint32_t hits = 0;
+   bool banned = false;
++  const char* ban_why = nullptr;  // 0096: o motivo (uma linha de log por assinatura)
+ };
+ std::unordered_map<uint64_t, Prediction> g_table;
+ // Passe normal em curso (para aprender).
+@@ -7897,17 +7911,47 @@ uint64_t g_abort = 0;
+ uint64_t g_learn_fail[2] = {};
+ uint64_t g_begin_fail[7] = {};
+ uint64_t g_frames = 0;
++// 0096: o que o render target devia ter depois do passe desenhado na textura (o resolve que o
++// fechou). clean: desde esse fim nenhum passe abriu, nenhuma transferencia e nenhuma escrita na
++// textura - o render target teria exatamente a imagem que esta na textura.
++bool g_stale_clean = false;
++uint32_t g_stale_dest = 0;
++uint32_t g_stale_endian = 0;
++bool g_stale_swap = false;
++uint32_t g_stale_width = 0;
++uint32_t g_stale_height = 0;
++uint32_t g_stale_guest_width = 0;
++uint32_t g_stale_guest_height = 0;
++uint64_t g_served = 0;
++uint64_t g_served_same = 0;
++uint64_t g_serve_fail[6] = {};
++uint64_t g_ld_skipped = 0;
++
++// 0096: banir com o motivo, uma linha por assinatura (antes so a primeira de cada 64 de dois dos
++// cinco motivos aparecia no log; o M54 a 75% tinha 3 banidas e uma linha).
++void Ban(uint64_t sig, Prediction& p, const char* why, const std::string& detail) {
++  if (p.banned) return;
++  p.banned = true;
++  p.ban_why = why;
++  REXGPU_WARN("dbz3: passo 4: assinatura {:016X} banida ({}): destino {:08X} {}x{} (guest {}x{}), "
++              "{} acertos{}",
++              sig, why, p.dest, p.width, p.height, p.guest_width, p.guest_height, p.hits, detail);
++}
++void Ban(uint64_t sig, const char* why, const std::string& detail) {
++  auto it = g_table.find(sig);
++  if (it != g_table.end()) Ban(sig, it->second, why, detail);
++}
+ 
+-void BanStale(const char* why) {
+-  auto it = g_table.find(g_stale_sig);
+-  if (it != g_table.end()) it->second.banned = true;
+-  if ((g_stale_bans++ % 64) == 0) {
+-    REXGPU_WARN("dbz3: render nativo: o render target ainda era preciso depois do passe {:016X} "
+-                "({}); fica banido",
+-                g_stale_sig, why);
+-  }
++void BanStale(const char* why, const std::string& detail) {
++  ++g_stale_bans;
++  Ban(g_stale_sig, why, detail);
+   g_stale_sig = 0;
+   g_stale_fb = nullptr;
++  g_stale_clean = false;
++}
++
++void NoteWrite(uint32_t address) {
++  if (g_stale_sig && address == g_stale_dest) g_stale_clean = false;
+ }
+ constexpr uint32_t kHitsNeeded = 3;
+ 
+@@ -7959,7 +8003,30 @@ bool Resolve(VulkanRenderTargetCache& cache, const draw_util::ResolveInfo& ri,
+   if (!g_active && g_stale_sig && !ri.IsCopyingDepth() &&
+       ri.color_edram_info.base_tiles == g_stale_base &&
+       ri.color_edram_info.pitch_tiles == g_stale_pitch) {
+-    BanStale("resolvido outra vez");
++    if (dbz3_native_ld::g_pending &&
++        xenos::ColorRenderTargetFormat(ri.color_edram_info.format) ==
++            xenos::ColorRenderTargetFormat::k_32_FLOAT) {
++      // 0096: o resolve da profundidade linear (32_FLOAT na mesma base) com o quad saltado: o
++      // passo 2 calcula-o da profundidade, nao le este render target. Nao e preciso banir (mas
++      // o EDRAM ja nao e o do passe: nada de servir resolves a partir daqui).
++      ++g_ld_skipped;
++      g_stale_clean = false;
++    } else if (cache.Dbz3RitServeStale(texture_cache, ri)) {
++      // 0096: nada desenhado desde o passe: o destino recebe a imagem da textura.
++      return true;
++    } else {
++      BanStale("resolvido outra vez",
++               fmt::format(" | resolve seguinte {:08X} {}x{} fmt={} swap={} endian={}, {}",
++                           ri.copy_dest_base & 0x1FFFFFFF,
++                           uint32_t(ri.coordinate_info.width_div_8) * 8, ri.height_div_8 * 8,
++                           uint32_t(ri.color_edram_info.format), ResolveSwaps(ri) ? 1 : 0,
++                           uint32_t(ri.copy_dest_info.copy_dest_endian),
++                           g_stale_clean ? "nada desenhado desde o passe"
++                                         : "com passes/escritas entretanto"));
++    }
++  } else if (!g_active && g_stale_sig && (ri.copy_dest_base & 0x1FFFFFFF) == g_stale_dest) {
++    // 0096: outro render target vai escrever o destino da textura do passe.
++    g_stale_clean = false;
+   }
+   if (g_active) {
+     if (matches && (ri.copy_dest_base & 0x1FFFFFFF) == g_dest && ResolveSwaps(ri) == g_bgra) {
+@@ -8011,15 +8078,104 @@ bool Resolve(VulkanRenderTargetCache& cache, const draw_util::ResolveInfo& ri,
+ void VulkanRenderTargetCache::Dbz3RitNormalPassStart(const void* framebuffer,
+                                                      bool full_overwrite) {
+   using namespace dbz3_rit;
++  // 0096: qualquer passe (de qualquer alvo) acaba o "nada desenhado desde o passe".
++  g_stale_clean = false;
+   if (!g_stale_sig || g_stale_fb != framebuffer) return;
+   if (full_overwrite) {
+     g_stale_sig = 0;  // sobrescrito: o conteudo antigo ja nao interessa
+     g_stale_fb = nullptr;
+   } else {
+-    BanStale("passe que o carrega");
++    BanStale("passe que o carrega",
++             " | o passe seguinte no mesmo render target nao abre com um quad opaco a cobrir o "
++             "scissor");
+   }
+ }
+ 
++void VulkanRenderTargetCache::Dbz3RitNoteOtherPass() { dbz3_rit::g_stale_clean = false; }
++
++bool VulkanRenderTargetCache::Dbz3RitServeStale(VulkanTextureCache& texture_cache,
++                                                const draw_util::ResolveInfo& ri) {
++  using namespace dbz3_rit;
++  auto fail = [](uint32_t why) {
++    ++g_serve_fail[why];
++    return false;
++  };
++  if (!REXCVAR_GET(dbz3_rit_serve_resolves)) return fail(0);
++  if (!g_stale_clean) return fail(1);
++  if (rex::cvar::GetFlagByName("dbz3_direct_resolve_skip_memory") != "true" ||
++      !Dbz3NativeStepOn(kDbz3StepResolveToTexture) || dbz3_capture::WantsResolveReadback() ||
++      rex::cvar::GetFlagByName("dbz3_direct_resolve_texture").empty() ||
++      std::atoi(rex::cvar::GetFlagByName("dbz3_direct_resolve_texture").c_str()) <= 0) {
++    return fail(0);
++  }
++  // O mesmo retangulo, formato, endian e troca R/B do resolve que fechou o passe: o destino
++  // ficaria com os mesmos bytes que a textura do passe.
++  uint32_t width = 0, height = 0, guest_width = 0, guest_height = 0;
++  if (!Matches(ri, width, height, guest_width, guest_height) || width != g_stale_width ||
++      height != g_stale_height || guest_width != g_stale_guest_width ||
++      guest_height != g_stale_guest_height ||
++      uint32_t(ri.copy_dest_info.copy_dest_endian) != g_stale_endian ||
++      ResolveSwaps(ri) != g_stale_swap || ri.copy_dest_base != ri.copy_dest_extent_start) {
++    return fail(2);
++  }
++  void* source[4];
++  if (texture_cache.Dbz3FindResolveTextures(g_stale_dest, guest_width, guest_height,
++                                            xenos::TextureFormat::k_8_8_8_8, false,
++                                            xenos::Endian(g_stale_endian), source, 4) != 1 ||
++      !texture_cache.Dbz3TextureUpToDate(source[0])) {
++    return fail(3);
++  }
++  const uint32_t dest = ri.copy_dest_base & 0x1FFFFFFF;
++  if (dest == g_stale_dest) {
++    // A textura do passe ja tem esta imagem (o BL resolve-a outra vez com o desfoque desligado).
++    if ((g_served_same++ % 6000) == 0) {
++      REXGPU_INFO("dbz3: passo 4: resolve para o proprio destino {:08X} sem copia ({} vezes)",
++                  dest, g_served_same);
++    }
++    return true;
++  }
++  void* targets[4];
++  const uint32_t n = texture_cache.Dbz3FindResolveTextures(
++      dest, guest_width, guest_height, xenos::TextureFormat::k_8_8_8_8, false,
++      xenos::Endian(g_stale_endian), targets, 4);
++  if (!n) return fail(4);
++  const uint32_t tex_width = texture_cache.Dbz3TextureWidth(source[0]);
++  const uint32_t tex_height = texture_cache.Dbz3TextureHeight(source[0]);
++  // Tudo verificado antes de tocar na memoria (depois de MarkRangeAsResolved nao ha volta).
++  if (!Dbz3DrawCopyInit()) return fail(5);
++  for (uint32_t i = 0; i < n; ++i) {
++    if (targets[i] == source[0] || texture_cache.Dbz3TextureWidth(targets[i]) != tex_width ||
++        texture_cache.Dbz3TextureHeight(targets[i]) != tex_height ||
++        !texture_cache.Dbz3TextureIsRenderable(targets[i]) ||
++        texture_cache.Dbz3GetAttachmentView(targets[i], false) == VK_NULL_HANDLE) {
++      return fail(5);
++    }
++  }
++  const VkDescriptorSet set =
++      Dbz3DrawCopyTextureSet(texture_cache.Dbz3GetSampledView(source[0]));
++  if (set == VK_NULL_HANDLE) return fail(5);
++  // Como o modo sem memoria: as outras texturas deste intervalo ficam invalidas, as nossas sao
++  // escritas e marcadas como carregadas.
++  texture_cache.MarkRangeAsResolved(ri.copy_dest_extent_start, ri.copy_dest_extent_length);
++  dbz3_gpuprof::CountSkippedMemory();
++  texture_cache.Dbz3BeginComputeRead(source[0]);
++  for (uint32_t i = 0; i < n; ++i) {
++    // Os bytes da textura ja tem a troca R/B do resolve: vista R8G8B8A8 (sem trocar outra vez).
++    if (!Dbz3DrawCopyToTexture(set, texture_cache, targets[i], tex_width, tex_height, false)) {
++      REXGPU_ERROR("dbz3: passo 4: copia da textura {:08X} -> {:08X} falhou a meio", g_stale_dest,
++                   dest);
++    }
++  }
++  dbz3_resolve_dedupe::ForgetHolder(dest);
++  dbz3_gpuprof::CountDirectResolve();
++  if ((g_served++ % 6000) == 0) {
++    REXGPU_INFO("dbz3: passo 4: resolve do render target servido pela textura do passe "
++                "({:08X} -> {:08X}, {}x{}, {} textura(s); {} vezes)",
++                g_stale_dest, dest, tex_width, tex_height, n, g_served);
++  }
++  return true;
++}
++
+ void VulkanRenderTargetCache::Dbz3RitLogFrame() {
+   using namespace dbz3_rit;
+   if ((++g_frames % 3000) != 600) return;
+@@ -8034,6 +8190,30 @@ void VulkanRenderTargetCache::Dbz3RitLogFrame() {
+               g_table.size(), ready, banned, g_ok, g_abort, g_learn_fail[0], g_learn_fail[1],
+               g_begin_fail[0], g_begin_fail[1], g_begin_fail[2], g_begin_fail[3], g_begin_fail[4],
+               g_begin_fail[5], g_begin_fail[6]);
++  // 0096: os motivos das banidas e os resolves servidos pela textura do passe.
++  std::vector<std::pair<const char*, uint32_t>> why_counts;
++  for (const auto& kv : g_table) {
++    if (!kv.second.banned) continue;
++    const char* why = kv.second.ban_why ? kv.second.ban_why : "?";
++    auto w = std::find_if(why_counts.begin(), why_counts.end(),
++                          [&](const auto& e) { return std::strcmp(e.first, why) == 0; });
++    if (w == why_counts.end()) {
++      why_counts.emplace_back(why, 1);
++    } else {
++      ++w->second;
++    }
++  }
++  std::string why_text;
++  for (const auto& [why, count] : why_counts) {
++    why_text += fmt::format("{}{} {}", why_text.empty() ? "" : ", ", why, count);
++  }
++  REXGPU_INFO("dbz3: passo 4: banidas por: {}; resolves servidos pela textura {} (+{} para o "
++              "proprio destino), nao servidos: desligado {}, com passes entretanto {}, outro "
++              "resolve {}, sem textura do passe {}, sem textura de destino {}, destino nao "
++              "renderizavel {}; resolves da profundidade linear sem banir {}",
++              why_text.empty() ? "nenhuma" : why_text, g_served, g_served_same, g_serve_fail[0],
++              g_serve_fail[1], g_serve_fail[2], g_serve_fail[3], g_serve_fail[4], g_serve_fail[5],
++              g_ld_skipped);
+ }
+ 
+ void VulkanRenderTargetCache::Dbz3RitPassStart(uint64_t signature, uint32_t color_base_tiles,
+@@ -8055,6 +8235,30 @@ VkImageView VulkanRenderTargetCache::Dbz3RitBegin(VulkanTextureCache& texture_ca
+                                                   const uint32_t* sampled, uint32_t sampled_count,
+                                                   uint32_t color_base_tiles, uint32_t pitch_tiles) {
+   using namespace dbz3_rit;
++  // 0096: ao ligar dbz3_rit_serve_resolves ao vivo (autoteste), as assinaturas banidas por
++  // "resolvido outra vez" voltam a aprender (desligado, voltam a ser banidas no proximo).
++  {
++    static int serve_seen = -1;
++    const int serve_now = REXCVAR_GET(dbz3_rit_serve_resolves) ? 1 : 0;
++    if (serve_now != serve_seen) {
++      if (serve_seen == 0) {
++        uint32_t unbanned = 0;
++        for (auto& kv : g_table) {
++          if (kv.second.banned && kv.second.ban_why &&
++              std::strcmp(kv.second.ban_why, "resolvido outra vez") == 0) {
++            kv.second.banned = false;
++            kv.second.ban_why = nullptr;
++            kv.second.hits = 0;
++            ++unbanned;
++          }
++        }
++        REXGPU_INFO("dbz3: passo 4: resolves servidos pela textura ligados, {} assinatura(s) "
++                    "voltam a aprender",
++                    unbanned);
++      }
++      serve_seen = serve_now;
++    }
++  }
+   if (g_active || !signature || !Dbz3NativeStepOn(kDbz3StepRenderIntoTexture) ||
+       rex::cvar::GetFlagByName("dbz3_render_into_texture") != "true" ||
+       dbz3_capture::WantsResolveReadback()) {
+@@ -8076,7 +8280,7 @@ VkImageView VulkanRenderTargetCache::Dbz3RitBegin(VulkanTextureCache& texture_ca
+   }
+   for (uint32_t i = 0; i < sampled_count; ++i) {
+     if (sampled[i] == p.dest) {
+-      it->second.banned = true;  // o quad le o proprio destino
++      Ban(signature, it->second, "o quad le o proprio destino", "");
+       return VK_NULL_HANDLE;
+     }
+   }
+@@ -8104,6 +8308,7 @@ VkImageView VulkanRenderTargetCache::Dbz3RitBegin(VulkanTextureCache& texture_ca
+     return VK_NULL_HANDLE;
+   }
+   texture_cache.Dbz3BeginAttachmentWrite(found[0]);
++  g_stale_clean = false;  // 0096: outro passe
+   g_active = true;
+   g_sig = signature;
+   g_fb = framebuffer;
+@@ -8128,6 +8333,12 @@ void VulkanRenderTargetCache::Dbz3RitFinish(VulkanTextureCache& texture_cache,
+   g_stale_fb = g_fb;
+   g_stale_base = g_base;
+   g_stale_pitch = g_pitch;
++  // 0096: o resolve que o render target devia ter feito (para servir os seguintes dele).
++  g_stale_clean = Matches(ri, g_stale_width, g_stale_height, g_stale_guest_width,
++                          g_stale_guest_height);
++  g_stale_dest = g_dest;
++  g_stale_endian = uint32_t(ri.copy_dest_info.copy_dest_endian);
++  g_stale_swap = g_bgra;
+   End(texture_cache);
+   // O render target nao tem esta imagem: nada de "resolve repetido" a partir dele.
+   dbz3_resolve_dedupe::g_dirty = true;
+@@ -8142,8 +8353,7 @@ void VulkanRenderTargetCache::Dbz3RitAbort(VulkanTextureCache& texture_cache, co
+   using namespace dbz3_rit;
+   if (!g_active) return;
+   command_processor_.EndRenderPass();
+-  auto it = g_table.find(g_sig);
+-  if (it != g_table.end()) it->second.banned = true;
++  Ban(g_sig, why, fmt::format(" | desenho direto na textura {:08X} abandonado", g_dest));
+   if ((g_abort++ % 64) == 0) {
+     REXGPU_WARN("dbz3: render nativo: desenho direto na textura {:08X} abandonado ({}); "
+                 "assinatura {:016X} banida",
+@@ -8214,7 +8424,9 @@ void VulkanRenderTargetCache::Dbz3RitOnSample(VulkanTextureCache& texture_cache,
+   // A aprender: um draw do passe le o destino previsto -> nunca desenhar direto.
+   if (g_pass_sig) {
+     auto it = g_table.find(g_pass_sig);
+-    if (it != g_table.end() && it->second.dest == address) it->second.banned = true;
++    if (it != g_table.end() && it->second.dest == address) {
++      Ban(g_pass_sig, it->second, "um draw do passe le o destino previsto", "");
++    }
+   }
+ }
+ 

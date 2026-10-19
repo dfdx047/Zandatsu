@@ -1,0 +1,48 @@
+diff --git a/include/rex/graphics/vulkan/dbz3_capture.h b/include/rex/graphics/vulkan/dbz3_capture.h
+index 1c61fae6b08c54921a84ce6cc01531b84edad8c5..fb34c096996ee952e6f50a15adc979a22a99e0b1 100644
+--- a/include/rex/graphics/vulkan/dbz3_capture.h
++++ b/include/rex/graphics/vulkan/dbz3_capture.h
+@@ -268,6 +268,8 @@ inline void OnSwap(const RegisterFile& regs, const MemoryT& memory, uint32_t fro
+                    uint32_t width, uint32_t height) {
+   State& st = g_state;
+   if (st.file) {
++    // Os registos do swap (o fetch constant 0 do frontbuffer, escrito pelo VdSwap).
++    WriteRegsDelta(regs, false);
+     uint32_t rec[4] = {frontbuffer, width, height, st.frame_index};
+     WriteRecord(kSwap, rec, sizeof(rec));
+     // A imagem apresentada, para comparar offline com o que o renderizador nativo fizer.
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index bd03d3e6b69f1cda265d2f9a785568b4ee6db99f..20b475c24f8501ec2e107a0e2d8feb2675f365b1 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -2757,6 +2757,30 @@ void VulkanCommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontb
+   uint32_t frontbuffer_width_unscaled = 0, frontbuffer_height_unscaled = 0;
+   xenos::TextureFormat frontbuffer_format;
+   bool swap_source_needs_rb_swap = false;
++  // Dragon Burst: o fetch constant do frontbuffer que o VdSwap escreveu (o presenter le a
++  // imagem por ele); regista cada variante nova, para comparar menus com a luta.
++  {
++    const xenos::xe_gpu_texture_fetch_t swap_fetch = register_file_->GetTextureFetch(0);
++    static std::vector<uint64_t> dbz3_swap_seen;
++    const uint64_t sig = (uint64_t(swap_fetch.dword_0) << 32 | swap_fetch.dword_1) ^
++                         (uint64_t(swap_fetch.dword_2) << 17) ^ (uint64_t(swap_fetch.dword_3) << 41) ^
++                         frontbuffer_ptr;
++    if (dbz3_swap_seen.size() < 32 &&
++        std::find(dbz3_swap_seen.begin(), dbz3_swap_seen.end(), sig) == dbz3_swap_seen.end()) {
++      dbz3_swap_seen.push_back(sig);
++      REXGPU_INFO(
++          "dbz3: swap fb={:08X} {}x{} fetch: base={:08X} fmt={} {}x{} pitch={} tiled={} endian={} "
++          "swizzle={:03o} sign={}{}{}{} dims={} raw={:08X} {:08X} {:08X} {:08X} {:08X} {:08X}",
++          frontbuffer_ptr, frontbuffer_width, frontbuffer_height,
++          uint32_t(swap_fetch.base_address) << 12, uint32_t(swap_fetch.format),
++          uint32_t(swap_fetch.size_2d.width) + 1, uint32_t(swap_fetch.size_2d.height) + 1,
++          uint32_t(swap_fetch.pitch) << 5, uint32_t(swap_fetch.tiled), uint32_t(swap_fetch.endianness),
++          uint32_t(swap_fetch.swizzle), uint32_t(swap_fetch.sign_x), uint32_t(swap_fetch.sign_y),
++          uint32_t(swap_fetch.sign_z), uint32_t(swap_fetch.sign_w), uint32_t(swap_fetch.dimension),
++          swap_fetch.dword_0, swap_fetch.dword_1, swap_fetch.dword_2, swap_fetch.dword_3,
++          swap_fetch.dword_4, swap_fetch.dword_5);
++    }
++  }
+   VkImageView swap_texture_view = texture_cache_->RequestSwapTexture(
+       frontbuffer_width_scaled, frontbuffer_height_scaled, frontbuffer_format,
+       &frontbuffer_width_unscaled, &frontbuffer_height_unscaled, &swap_source_needs_rb_swap);

@@ -1,10 +1,10 @@
 diff --git a/src/ui/window_sdl.cpp b/src/ui/window_sdl.cpp
-index d55d1ec..f89e2c5 100644
+index 42a1d74bf9e2d787adbadb64f1564678d2ec7a17..bf3264093c916f4780c9437b4bbd1ad932fcadfb 100644
 --- a/src/ui/window_sdl.cpp
 +++ b/src/ui/window_sdl.cpp
-@@ -172,10 +172,19 @@ bool WindowSDL::OpenImpl() {
-     }
-   }
+@@ -118,10 +118,19 @@ bool WindowSDL::OpenImpl() {
+ 
+   CenterOnConfiguredDisplay();
  
 +#if REX_PLATFORM_ANDROID
 +  // DBZ3-Android: no Android a janela e sempre o ecra inteiro. Sem isto (o jogo forca
@@ -15,14 +15,14 @@ index d55d1ec..f89e2c5 100644
 +  SDL_SetWindowFullscreen(sdl_window_, true);
 +#else
    if (IsFullscreen()) {
-     // Borderless desktop fullscreen (a NULL display mode is SDL3's default).
+     ApplyFullscreenModeNow();
      SDL_SetWindowFullscreen(sdl_window_, true);
    }
 +#endif
  #if REX_PLATFORM_MAC
    CFPreferencesSetAppValue(CFSTR("ApplePressAndHoldEnabled"), kCFBooleanFalse,
                             kCFPreferencesCurrentApplication);
-@@ -297,7 +306,12 @@ void WindowSDL::ApplyNewFullscreen() {
+@@ -256,8 +265,13 @@ void WindowSDL::ApplyNewFullscreen() {
    if (!sdl_window_) {
      return;
    }
@@ -30,8 +30,9 @@ index d55d1ec..f89e2c5 100644
 +  // DBZ3-Android: sempre ecra inteiro (ver OpenImpl).
 +  SDL_SetWindowFullscreen(sdl_window_, true);
 +#else
+   ApplyFullscreenModeNow();
    SDL_SetWindowFullscreen(sdl_window_, IsFullscreen());
 +#endif
  }
  
- void WindowSDL::ApplyNewTitle() {
+ void WindowSDL::ApplyNewMonitor() {

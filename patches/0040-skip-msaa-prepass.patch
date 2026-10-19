@@ -1,10 +1,10 @@
 diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
-index bd88336..43426d4 100644
+index 81cd6b4b54dbc5c9eb526239c5a786aa401fd11a..224da479efd647f9cda2e6d60ed46e6928225cd5 100644
 --- a/src/graphics/vulkan/command_processor.cpp
 +++ b/src/graphics/vulkan/command_processor.cpp
-@@ -78,6 +78,10 @@ REXCVAR_DEFINE_BOOL(vulkan_dynamic_rendering, true, "GPU/Vulkan",
- 
- REXCVAR_DECLARE(double, dbz3_rim_light_scale);  // src/graphics/command_processor.cpp
+@@ -76,6 +76,10 @@ REXCVAR_DEFINE_BOOL(vulkan_dynamic_rendering, true, "GPU/Vulkan",
+                     "device (falls back to render passes otherwise)")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
  
 +REXCVAR_DEFINE_BOOL(dbz3_skip_msaa_prepass, false, "GPU",
 +                    "DBZ3-Android: salta o pre-passo 4x MSAA (pitch 640) do inicio do frame");
@@ -13,7 +13,7 @@ index bd88336..43426d4 100644
  namespace rex::graphics::vulkan {
  
  // DBZ3-Android: "30 FPS" de verdade (dbz3_frameskip). O jogo continua a correr a
-@@ -4282,6 +4286,18 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+@@ -4280,6 +4284,18 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
      }
      draw_util::AddMemExportRanges(regs, *pixel_shader, memexport_ranges_);
    }

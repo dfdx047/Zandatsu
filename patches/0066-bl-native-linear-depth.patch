@@ -1,0 +1,400 @@
+diff --git a/include/rex/graphics/vulkan/render_target_cache.h b/include/rex/graphics/vulkan/render_target_cache.h
+index 8d0d480fb7b7f80a568fde7c99e38b173876840a..3294389a903c62c4360e5b2b6a6a05873b40b612 100644
+--- a/include/rex/graphics/vulkan/render_target_cache.h
++++ b/include/rex/graphics/vulkan/render_target_cache.h
+@@ -164,6 +164,11 @@ class VulkanRenderTargetCache final : public RenderTargetCache {
+       xenos::MsaaSamples msaa_samples = xenos::MsaaSamples::k1X,
+       bool* is_integer_out = nullptr) const;
+ 
++  // Dragon Burst: render nativo, passo 2 - o quad da profundidade linear pode ser saltado
++  // (destino ja conhecido, texturas com imageStore, profundidade num so render target)?
++  bool Dbz3NativeLinearDepthReady(VulkanTextureCache& texture_cache, uint32_t depth_base_tiles,
++                                  uint32_t pitch_tiles, uint32_t width, uint32_t height);
++
+  protected:
+   uint32_t GetMaxRenderTargetWidth() const override;
+   uint32_t GetMaxRenderTargetHeight() const override;
+@@ -814,7 +819,13 @@ class VulkanRenderTargetCache final : public RenderTargetCache {
+   VkPipeline Dbz3StorePipeline(uint32_t variant);
+   bool Dbz3StoreToTexture(uint32_t variant, VkDescriptorSet source_set,
+                           VulkanTextureCache& texture_cache, void* texture, uint32_t width,
+-                          uint32_t height, bool swap_rb, uint32_t samples);
++                          uint32_t height, bool swap_rb, uint32_t samples,
++                          const uint32_t* raw_23 = nullptr);
++  // Dragon Burst: render nativo, passo 2 (profundidade linear por compute).
++  RenderTarget* Dbz3NativeLinearDepthSource(uint32_t depth_base_tiles, uint32_t pitch_tiles,
++                                            uint32_t height) const;
++  bool Dbz3NativeLinearDepthResolve(const draw_util::ResolveInfo& resolve_info,
++                                    VulkanTextureCache& texture_cache);
+   bool Dbz3BufferResolveToTexture(VulkanRenderTarget& rt, bool source_is_integer,
+                                   VulkanTextureCache& texture_cache, void* texture, uint32_t width,
+                                   uint32_t height, bool swap_rb);
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index e29139919c3fd927499461111b40e60d3ecbe121..f8a86e5c801efe7fac71106db4167ad23019f84e 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -13,6 +13,7 @@
+ #include <cstdlib>
+ #include <array>
+ #include <cstdint>
++#include <cmath>
+ #include <cstring>
+ #include <iterator>
+ #include <map>
+@@ -69,6 +70,11 @@ REXCVAR_DEFINE_BOOL(dbz3_bl_native_present, true, "GPU/Vulkan",
+                     "de ecra inteiro e o resolve para o frontbuffer no fim de cada frame)")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ 
++REXCVAR_DEFINE_BOOL(dbz3_bl_native_linear_depth, true, "GPU/Vulkan",
++                    "Dragon Burst: calcula a profundidade linear do Burst Limit por compute, "
++                    "direto da profundidade, em vez do quad de ecra inteiro + resolve")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++
+ REXCVAR_DEFINE_BOOL(vulkan_async_skip_incomplete_frames, true, "GPU/Vulkan",
+                     "When async shader compilation is enabled, skip presenting frames that "
+                     "used placeholder pipelines to avoid visible flashing")
+@@ -153,6 +159,16 @@ uint64_t g_skipped_resolves = 0;
+ uint64_t g_presented = 0;
+ }  // namespace dbz3_native_present
+ 
++// Dragon Burst: render nativo, passo 2 (definido em render_target_cache.cpp).
++namespace dbz3_native_ld {
++extern bool g_pending;
++extern bool g_learn;
++extern uint32_t g_depth_base;
++extern uint32_t g_pitch_tiles;
++extern float g_a;
++extern float g_b;
++}  // namespace dbz3_native_ld
++
+ namespace dbz3_frameskip {
+ bool g_skip_frame = false;
+ uint32_t g_counter = 0;
+@@ -2699,6 +2715,8 @@ void VulkanCommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontb
+   const bool np_present_frame = dbz3_native_present::g_pending;
+   dbz3_native_present::g_pending = false;
+   dbz3_native_present::g_last_frontbuffer = frontbuffer_ptr;
++  dbz3_native_ld::g_pending = false;
++  dbz3_native_ld::g_learn = false;
+   Dbz3LogGuestPerformanceVulkan();
+   SCOPE_profile_cpu_f("gpu");
+   if (!dbz3_frameskip::g_skip_frame) {
+@@ -4413,6 +4431,43 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+       DBZ3_DRAW_RET(true);
+     }
+   }
++  // Dragon Burst: render nativo, passo 2 - profundidade linear (ver dbz3_native_ld em
++  // render_target_cache.cpp). O quad e saltado e o resolve seguinte e feito por compute.
++  if (pixel_shader && REXCVAR_GET(dbz3_bl_native_linear_depth) &&
++      pixel_shader->ucode_data_hash() == UINT64_C(0xD9872B5AFB5E0BEC) &&
++      vertex_shader->ucode_data_hash() == UINT64_C(0x36FB87D39CDD870F) &&
++      prim_type == xenos::PrimitiveType::kQuadList && index_count == 4) {
++    const auto ld_surface = regs.Get<reg::RB_SURFACE_INFO>();
++    const auto ld_color = regs.Get<reg::RB_COLOR_INFO>(reg::RB_COLOR_INFO::rt_register_indices[0]);
++    const auto ld_depth = regs.Get<reg::RB_DEPTH_INFO>();
++    const xenos::xe_gpu_texture_fetch_t ld_fetch = regs.GetTextureFetch(0);
++    const float* ld_c255 = reinterpret_cast<const float*>(
++        &regs.values[XE_GPU_REG_SHADER_CONSTANT_256_X + 255 * 4]);
++    const uint32_t ld_width = uint32_t(ld_surface.surface_pitch);
++    const uint32_t ld_height = uint32_t(ld_fetch.size_2d.height) + 1;
++    if (ld_width == 1280 && ld_surface.msaa_samples == xenos::MsaaSamples::k1X &&
++        ld_color.color_format == xenos::ColorRenderTargetFormat::k_32_FLOAT &&
++        (regs[XE_GPU_REG_RB_COLOR_MASK] & 0xF) != 0 &&
++        ld_fetch.type == xenos::FetchConstantType::kTexture &&
++        ld_fetch.dimension == xenos::DataDimension::k2DOrStacked &&
++        ld_fetch.format == xenos::TextureFormat::k_24_8 &&
++        uint32_t(ld_fetch.size_2d.width) + 1 == ld_width && ld_height == 720 &&
++        std::isfinite(ld_c255[0]) && std::isfinite(ld_c255[1]) && ld_c255[0] > 0.0f) {
++      const uint32_t ld_pitch_tiles = ld_width / 80;
++      if (render_target_cache_->Dbz3NativeLinearDepthReady(*texture_cache_, ld_depth.depth_base,
++                                                           ld_pitch_tiles, ld_width, ld_height)) {
++        dbz3_native_ld::g_pending = true;
++        dbz3_native_ld::g_learn = false;
++        dbz3_native_ld::g_depth_base = ld_depth.depth_base;
++        dbz3_native_ld::g_pitch_tiles = ld_pitch_tiles;
++        dbz3_native_ld::g_a = ld_c255[0];
++        dbz3_native_ld::g_b = ld_c255[1];
++        DBZ3_DRAW_RET(true);
++      }
++      // Ainda nao: o draw segue normal e o resolve seguinte ensina o destino.
++      dbz3_native_ld::g_learn = true;
++    }
++  }
+   // Dragon Burst: render nativo, copia final do frame (ver dbz3_native_present).
+   if (pixel_shader && REXCVAR_GET(dbz3_bl_native_present) &&
+       pixel_shader->ucode_data_hash() == UINT64_C(0xEC9B52789DD888F2) &&
+diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
+index c3c6377eca8264a7bf66ddb37a26b75a9478264c..d4fb4ad5fecc4dd8569f2e85cef0428fb63b70fc 100644
+--- a/src/graphics/vulkan/render_target_cache.cpp
++++ b/src/graphics/vulkan/render_target_cache.cpp
+@@ -78,6 +78,12 @@ REXCVAR_DEFINE_INT32(dbz3_resolve_debug, 0, "GPU",
+ 
+ namespace rex::graphics::vulkan {
+ 
++// Dragon Burst: render nativo, passo 2 (definido no fim do ficheiro).
++namespace dbz3_native_ld {
++extern bool g_pending;
++extern bool g_learn;
++}  // namespace dbz3_native_ld
++
+ // DBZ3-Android: cache de pipelines do driver (pipeline_cache.cpp).
+ VkPipelineCache Dbz3GetDriverPipelineCache();
+ void Dbz3MarkDriverPipelineCacheDirty();
+@@ -1202,6 +1208,14 @@ bool VulkanRenderTargetCache::Resolve(const memory::Memory& memory,
+   if (!resolve_info.coordinate_info.width_div_8 || !resolve_info.height_div_8) {
+     return true;
+   }
++  // Dragon Burst: render nativo, passo 2 (profundidade linear calculada por compute).
++  if (dbz3_native_ld::g_pending || dbz3_native_ld::g_learn) {
++    if (Dbz3NativeLinearDepthResolve(resolve_info, texture_cache)) {
++      written_address_out = 0;
++      written_length_out = 0;
++      return true;
++    }
++  }
+ 
+   const ui::vulkan::VulkanDevice* const vulkan_device = command_processor_.GetVulkanDevice();
+   const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
+@@ -6403,9 +6417,11 @@ namespace {
+ // ---------------------------------------------------------------------------
+ // DBZ3-Android: resolve por imageStore direto na imagem da textura (sem buffer).
+ // Variantes: 0 cor unorm 1x, 1 cor uint 1x, 2 cor unorm MSAA, 3 cor uint MSAA,
+-// 4 profundidade -> R32F (k_24_8), 5 profundidade -> RGBA8 ([stencil, d_lo, d_mid, d_hi]).
++// 4 profundidade -> R32F (k_24_8), 5 profundidade -> RGBA8 ([stencil, d_lo, d_mid, d_hi]),
++// 6 profundidade linear do Burst Limit -> R32F (k_32_FLOAT): A / (A - d * B), com A e B
++// (floats) nas constantes 2 e 3 (render nativo, passo 2).
+ // ---------------------------------------------------------------------------
+-constexpr uint32_t kDbz3StoreVariants = 6;
++constexpr uint32_t kDbz3StoreVariants = 7;
+ constexpr uint32_t kDbz3StoreRing = 256;
+ 
+ struct Dbz3StoreState {
+@@ -6453,7 +6469,7 @@ std::string Dbz3StoreSource(uint32_t variant) {
+            "}\n";
+     return src;
+   }
+-  const bool as_float = variant == 4;
++  const bool as_float = variant == 4 || variant == 6;
+   src += as_float ? "layout(set = 0, binding = 0, r32f) uniform writeonly image2D dest;\n"
+                   : "layout(set = 0, binding = 0, rgba8) uniform writeonly image2D dest;\n";
+   src += "layout(set = 1, binding = 0) uniform texture2D src_depth;\n"
+@@ -6462,7 +6478,11 @@ std::string Dbz3StoreSource(uint32_t variant) {
+          "  ivec2 p = ivec2(gl_GlobalInvocationID.xy);\n"
+          "  if (uint(p.x) >= pc.width || uint(p.y) >= pc.height) return;\n"
+          "  float d = clamp(texelFetch(src_depth, p, 0).r, 0.0, 1.0);\n";
+-  if (as_float) {
++  if (variant == 6) {
++    src += "  float a = uintBitsToFloat(pc.swap_rb);\n"
++           "  float b = uintBitsToFloat(pc.samples);\n"
++           "  imageStore(dest, p, vec4(a / (a - d * b), 0.0, 0.0, 0.0));\n";
++  } else if (as_float) {
+     src += "  imageStore(dest, p, vec4(d, 0.0, 0.0, 0.0));\n";
+   } else {
+     src += "  uint d24 = uint(d * 16777215.0 + 0.5);\n"
+@@ -6591,7 +6611,7 @@ VkPipeline VulkanRenderTargetCache::Dbz3StorePipeline(uint32_t variant) {
+ bool VulkanRenderTargetCache::Dbz3StoreToTexture(uint32_t variant, VkDescriptorSet source_set,
+                                                  VulkanTextureCache& texture_cache, void* texture,
+                                                  uint32_t width, uint32_t height, bool swap_rb,
+-                                                 uint32_t samples) {
++                                                 uint32_t samples, const uint32_t* raw_23) {
+   if (!Dbz3StoreInit()) {
+     return false;
+   }
+@@ -6624,7 +6644,8 @@ bool VulkanRenderTargetCache::Dbz3StoreToTexture(uint32_t variant, VkDescriptorS
+   VkDescriptorSet sets[2] = {dest_set, source_set};
+   command_buffer.CmdVkBindDescriptorSets(VK_PIPELINE_BIND_POINT_COMPUTE, layout, 0, 2, sets, 0,
+                                          nullptr);
+-  const uint32_t constants[4] = {width, height, swap_rb ? 1u : 0u, samples};
++  const uint32_t constants[4] = {width, height, raw_23 ? raw_23[0] : (swap_rb ? 1u : 0u),
++                                 raw_23 ? raw_23[1] : samples};
+   command_buffer.CmdVkPushConstants(layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(constants),
+                                     constants);
+   command_processor_.SubmitBarriers(true);
+@@ -7069,4 +7090,159 @@ bool VulkanRenderTargetCache::Dbz3TryResolveDepthToTexture(
+   return true;
+ }
+ 
++// ---------------------------------------------------------------------------
++// Dragon Burst: render nativo, passo 2 (dbz3_bl_native_linear_depth).
++// O Burst Limit converte a profundidade (resolvida para 0E921000, k_24_8) em profundidade
++// linear com um quad de ecra inteiro (PS D9872B5AFB5E0BEC: A / (A - d * B), A = c255.x,
++// B = c255.y) num render target 32_FLOAT e resolve-o para uma textura k_32_FLOAT
++// (0F451000). Aqui o draw e o resolve sao trocados por um compute que le a profundidade
++// direto do render target (ainda intacto: entre o resolve da profundidade e o quad nada
++// desenha) e escreve na textura k_32_FLOAT por imageStore.
++// ---------------------------------------------------------------------------
++namespace dbz3_native_ld {
++bool g_pending = false;
++bool g_learn = false;
++uint32_t g_dest = 0;
++uint32_t g_depth_base = 0;
++uint32_t g_pitch_tiles = 0;
++float g_a = 0.0f;
++float g_b = 0.0f;
++uint64_t g_done = 0;
++uint64_t g_fail = 0;
++}  // namespace dbz3_native_ld
++
++VulkanRenderTargetCache::RenderTarget* VulkanRenderTargetCache::Dbz3NativeLinearDepthSource(
++    uint32_t depth_base_tiles, uint32_t pitch_tiles, uint32_t height) const {
++  if (GetPath() != Path::kHostRenderTargets || !pitch_tiles || !height) {
++    return nullptr;
++  }
++  const uint32_t rows = (height + 15) / 16;
++  RenderTarget* owner = GetSingleOwner(depth_base_tiles, 0, pitch_tiles * rows);
++  if (!owner) {
++    return nullptr;
++  }
++  const RenderTargetKey key = owner->key();
++  if (!key.is_depth || key.msaa_samples != xenos::MsaaSamples::k1X ||
++      key.base_tiles != depth_base_tiles || key.pitch_tiles_at_32bpp != pitch_tiles ||
++      xenos::DepthRenderTargetFormat(key.resource_format) !=
++          xenos::DepthRenderTargetFormat::kD24S8) {
++    return nullptr;
++  }
++  return owner;
++}
++
++bool VulkanRenderTargetCache::Dbz3NativeLinearDepthReady(VulkanTextureCache& texture_cache,
++                                                         uint32_t depth_base_tiles,
++                                                         uint32_t pitch_tiles, uint32_t width,
++                                                         uint32_t height) {
++  if (!dbz3_native_ld::g_dest) {
++    return false;
++  }
++  if (!Dbz3NativeLinearDepthSource(depth_base_tiles, pitch_tiles, height)) {
++    return false;
++  }
++  void* found[4];
++  const uint32_t n = texture_cache.Dbz3FindResolveTextures(
++      dbz3_native_ld::g_dest, width, height, xenos::TextureFormat::k_32_FLOAT, true,
++      xenos::Endian::kNone, found, 4);
++  if (!n) {
++    return false;
++  }
++  for (uint32_t i = 0; i < n; ++i) {
++    if (!texture_cache.Dbz3TextureHasStorage(found[i])) {
++      return false;
++    }
++  }
++  return Dbz3StoreInit() && Dbz3StorePipeline(6) != VK_NULL_HANDLE;
++}
++
++bool VulkanRenderTargetCache::Dbz3NativeLinearDepthResolve(
++    const draw_util::ResolveInfo& resolve_info, VulkanTextureCache& texture_cache) {
++  const bool pending = dbz3_native_ld::g_pending;
++  dbz3_native_ld::g_pending = false;
++  const bool matches =
++      !resolve_info.IsCopyingDepth() && !resolve_info.IsClearingDepth() &&
++      !resolve_info.IsClearingColor() && resolve_info.copy_dest_extent_length &&
++      xenos::ColorRenderTargetFormat(resolve_info.color_edram_info.format) ==
++          xenos::ColorRenderTargetFormat::k_32_FLOAT &&
++      resolve_info.copy_dest_info.copy_dest_format == xenos::ColorFormat::k_32_FLOAT &&
++      resolve_info.copy_dest_info.copy_dest_exp_bias == 0 &&
++      resolve_info.coordinate_info.edram_offset_x_div_8 == 0 &&
++      resolve_info.coordinate_info.edram_offset_y_div_8 == 0 &&
++      resolve_info.copy_dest_coordinate_info.offset_x_div_8 == 0 &&
++      resolve_info.copy_dest_coordinate_info.offset_y_div_8 == 0;
++  if (dbz3_native_ld::g_learn) {
++    // Primeira vez: so aprende o destino; este resolve segue o caminho normal.
++    dbz3_native_ld::g_learn = false;
++    if (matches) {
++      dbz3_native_ld::g_dest = resolve_info.copy_dest_base;
++      REXGPU_INFO("dbz3: render nativo: profundidade linear -> {:08X}",
++                  resolve_info.copy_dest_base);
++    }
++    return false;
++  }
++  if (!pending) {
++    return false;
++  }
++  const uint32_t width = uint32_t(resolve_info.coordinate_info.width_div_8) * 8;
++  const uint32_t height = resolve_info.height_div_8 * 8;
++  auto fail = [&](uint32_t why) {
++    if ((dbz3_native_ld::g_fail++ % 600) == 0) {
++      REXGPU_WARN("dbz3: render nativo: profundidade linear falhou ({}), volta ao caminho normal",
++                  why);
++    }
++    dbz3_native_ld::g_dest = 0;
++    return false;
++  };
++  if (!matches || resolve_info.copy_dest_base != dbz3_native_ld::g_dest) {
++    return fail(1);
++  }
++  RenderTarget* source =
++      Dbz3NativeLinearDepthSource(dbz3_native_ld::g_depth_base, dbz3_native_ld::g_pitch_tiles,
++                                  height);
++  if (!source) {
++    return fail(2);
++  }
++  void* found[4];
++  const uint32_t n = texture_cache.Dbz3FindResolveTextures(
++      resolve_info.copy_dest_base, width, height, xenos::TextureFormat::k_32_FLOAT, true,
++      xenos::Endian::kNone, found, 4);
++  if (!n) {
++    return fail(3);
++  }
++  auto& rt = *static_cast<VulkanRenderTarget*>(source);
++  texture_cache.MarkRangeAsResolved(resolve_info.copy_dest_extent_start,
++                                    resolve_info.copy_dest_extent_length);
++  command_processor_.PushImageMemoryBarrier(
++      rt.image(),
++      ui::vulkan::util::InitializeSubresourceRange(VK_IMAGE_ASPECT_DEPTH_BIT |
++                                                   VK_IMAGE_ASPECT_STENCIL_BIT),
++      rt.current_stage_mask(), VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, rt.current_access_mask(),
++      VK_ACCESS_SHADER_READ_BIT, rt.current_layout(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
++  rt.SetUsage(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT,
++              VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
++  uint32_t raw[2];
++  std::memcpy(&raw[0], &dbz3_native_ld::g_a, sizeof(float));
++  std::memcpy(&raw[1], &dbz3_native_ld::g_b, sizeof(float));
++  bool any = false;
++  for (uint32_t i = 0; i < n; ++i) {
++    const uint32_t tex_height = std::min(height, texture_cache.Dbz3TextureHeight(found[i]));
++    if (texture_cache.Dbz3TextureHasStorage(found[i]) &&
++        Dbz3StoreToTexture(6, rt.GetDescriptorSetTransferSource(), texture_cache, found[i], width,
++                           tex_height, false, 1, raw)) {
++      any = true;
++    }
++  }
++  if (!any) {
++    // A memoria ja foi marcada como resolvida; sem nada escrito a textura recarrega o
++    // conteudo antigo. Melhor que nada, e o proximo frame volta ao caminho normal.
++    return fail(4);
++  }
++  if ((++dbz3_native_ld::g_done % 3000) == 1) {
++    REXGPU_INFO("dbz3: render nativo: profundidade linear por compute ({} frames, A={} B={})",
++                dbz3_native_ld::g_done, dbz3_native_ld::g_a, dbz3_native_ld::g_b);
++  }
++  return true;
++}
++
+ }  // namespace rex::graphics::vulkan
+diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
+index 3ca4ae0e0af8ca4bd7bc876ef87da27ce38e276f..767566b7a5b31ab86246c158cb2c43a8983b2cba 100644
+--- a/src/graphics/vulkan/texture_cache.cpp
++++ b/src/graphics/vulkan/texture_cache.cpp
+@@ -1256,7 +1256,9 @@ std::unique_ptr<TextureCache::Texture> VulkanTextureCache::CreateTexture(Texture
+       formats[1] == VK_FORMAT_UNDEFINED &&
+       ((key.format == xenos::TextureFormat::k_8_8_8_8 &&
+         formats[0] == VK_FORMAT_R8G8B8A8_UNORM) ||
+-       (key.format == xenos::TextureFormat::k_24_8 && formats[0] == VK_FORMAT_R32_SFLOAT))) {
++       (key.format == xenos::TextureFormat::k_24_8 && formats[0] == VK_FORMAT_R32_SFLOAT) ||
++       // Dragon Burst: profundidade linear do Burst Limit (render nativo, passo 2).
++       (key.format == xenos::TextureFormat::k_32_FLOAT && formats[0] == VK_FORMAT_R32_SFLOAT))) {
+     const std::string mode_text = rex::cvar::GetFlagByName("dbz3_direct_resolve_texture");
+     if (!mode_text.empty() && std::atoi(mode_text.c_str()) > 0) {
+       const ui::vulkan::VulkanInstance::Functions& ifn =
+@@ -2038,8 +2040,10 @@ VkImageView VulkanTextureCache::VulkanTexture::Dbz3GetStorageView() {
+   view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+   view_info.image = image_;
+   view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+-  view_info.format = key().format == xenos::TextureFormat::k_24_8 ? VK_FORMAT_R32_SFLOAT
+-                                                                  : VK_FORMAT_R8G8B8A8_UNORM;
++  view_info.format = (key().format == xenos::TextureFormat::k_24_8 ||
++                      key().format == xenos::TextureFormat::k_32_FLOAT)
++                         ? VK_FORMAT_R32_SFLOAT
++                         : VK_FORMAT_R8G8B8A8_UNORM;
+   view_info.components = {VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY,
+                           VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY};
+   view_info.subresourceRange = ui::vulkan::util::InitializeSubresourceRange();

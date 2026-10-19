@@ -1,0 +1,196 @@
+diff --git a/include/rex/graphics/vulkan/texture_cache.h b/include/rex/graphics/vulkan/texture_cache.h
+index e0561aebe7ea5dfffd23059e97b3507097357b50..627167648fe0682ca64fdf2e3c70bb32a485c33c 100644
+--- a/include/rex/graphics/vulkan/texture_cache.h
++++ b/include/rex/graphics/vulkan/texture_cache.h
+@@ -175,6 +175,13 @@ class VulkanTextureCache final : public TextureCache {
+   bool LoadTextureDataFromResidentMemoryImpl(Texture& texture, bool load_base,
+                                              bool load_mips) override;
+ 
++  // Dragon Burst: imagens de substituicao (packs de texturas e as imagens que o jogo
++  // da em memoria, como os icones nitidos dos botoes do Burst Limit). A cache comum
++  // ja criou a textura em RGBA8 ao tamanho da imagem, com a cadeia de mips; aqui so
++  // se copiam os niveis para ela.
++  bool LoadTextureDataFromReplacementImpl(Texture& texture,
++                                          const TextureReplacementData& data) override;
++
+   void UpdateTextureBindingsImpl(uint32_t fetch_constant_mask) override;
+ 
+  private:
+@@ -370,6 +377,15 @@ class VulkanTextureCache final : public TextureCache {
+   // 4096.
+   VmaAllocator vma_allocator_ = VK_NULL_HANDLE;
+ 
++  // Dragon Burst: buffers de subida das substituicoes, libertados quando a GPU
++  // termina a submissao que os usou.
++  struct PendingReplacementUpload {
++    uint64_t submission;
++    VkBuffer buffer;
++    VmaAllocation allocation;
++  };
++  std::vector<PendingReplacementUpload> pending_replacement_uploads_;
++
+   static const HostFormatPair kBestHostFormats[64];
+   static const HostFormatPair kHostFormatGBGRUnaligned;
+   static const HostFormatPair kHostFormatBGRGUnaligned;
+diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
+index a384421ad6eba235eac26f10e8c51330b906e3ab..3ca4ae0e0af8ca4bd7bc876ef87da27ce38e276f 100644
+--- a/src/graphics/vulkan/texture_cache.cpp
++++ b/src/graphics/vulkan/texture_cache.cpp
+@@ -488,6 +488,11 @@ VulkanTextureCache::~VulkanTextureCache() {
+     dfn.vkDestroyPipelineLayout(device, load_pipeline_layout_, nullptr);
+   }
+ 
++  for (const PendingReplacementUpload& upload : pending_replacement_uploads_) {
++    vmaDestroyBuffer(vma_allocator_, upload.buffer, upload.allocation);
++  }
++  pending_replacement_uploads_.clear();
++
+   // Textures memory is allocated using the Vulkan Memory Allocator, destroy all
+   // textures before destroying VMA.
+   DestroyAllTextures(true);
+@@ -500,6 +505,21 @@ VulkanTextureCache::~VulkanTextureCache() {
+ void VulkanTextureCache::BeginSubmission(uint64_t new_submission_index) {
+   TextureCache::BeginSubmission(new_submission_index);
+ 
++  // Dragon Burst: buffers de subida das substituicoes cuja submissao ja terminou.
++  if (!pending_replacement_uploads_.empty()) {
++    const uint64_t completed_submission = command_processor_.GetCompletedSubmission();
++    auto remove_end = std::remove_if(
++        pending_replacement_uploads_.begin(), pending_replacement_uploads_.end(),
++        [this, completed_submission](const PendingReplacementUpload& upload) {
++          if (upload.submission > completed_submission) {
++            return false;
++          }
++          vmaDestroyBuffer(vma_allocator_, upload.buffer, upload.allocation);
++          return true;
++        });
++    pending_replacement_uploads_.erase(remove_end, pending_replacement_uploads_.end());
++  }
++
+   if (!null_images_cleared_ && null_image_2d_array_cube_ != VK_NULL_HANDLE &&
+       null_image_3d_ != VK_NULL_HANDLE) {
+     VkImage null_images[] = {null_image_2d_array_cube_, null_image_3d_};
+@@ -2088,6 +2108,123 @@ void VulkanTextureCache::Dbz3EndStorageWrite(void* texture_opaque) {
+   }
+ }
+ 
++bool VulkanTextureCache::LoadTextureDataFromReplacementImpl(Texture& texture,
++                                                            const TextureReplacementData& data) {
++  VulkanTexture& vulkan_texture = static_cast<VulkanTexture&>(texture);
++  const TextureKey& key = texture.key();
++  if (vulkan_texture.image() == VK_NULL_HANDLE || data.pixels.empty() || !data.width ||
++      !data.height || key.GetWidth() != data.width || key.GetHeight() != data.height ||
++      key.dimension != xenos::DataDimension::k2DOrStacked ||
++      key.format != xenos::TextureFormat::k_8_8_8_8) {
++    return false;
++  }
++  const HostFormatPair& host_format_pair = GetHostFormatPair(key);
++  if (host_format_pair.format_unsigned.format != VK_FORMAT_R8G8B8A8_UNORM) {
++    return false;
++  }
++
++  // Os mips mais pequenos vem feitos do carregamento; senao fazem-se aqui.
++  const uint32_t level_count = key.mip_max_level + 1;
++  std::vector<std::vector<uint8_t>> built_mips;
++  const std::vector<std::vector<uint8_t>>* mips = &data.mips;
++  if (data.mips.size() < level_count - 1) {
++    built_mips = TextureReplacement::BuildMips(data.pixels.data(), data.width, data.height);
++    mips = &built_mips;
++    if (built_mips.size() < level_count - 1) {
++      return false;
++    }
++  }
++
++  // Um so buffer de subida com todos os niveis, linhas sem padding (4 bytes por
++  // texel, offsets alinhados a 16 para qualquer optimalBufferCopyOffsetAlignment
++  // usual).
++  std::vector<VkDeviceSize> level_offsets(level_count);
++  VkDeviceSize buffer_size = 0;
++  for (uint32_t level = 0; level < level_count; ++level) {
++    const uint32_t width = std::max(data.width >> level, uint32_t(1));
++    const uint32_t height = std::max(data.height >> level, uint32_t(1));
++    buffer_size = (buffer_size + 15) & ~VkDeviceSize(15);
++    level_offsets[level] = buffer_size;
++    buffer_size += VkDeviceSize(width) * height * 4;
++  }
++
++  VkBufferCreateInfo buffer_create_info = {};
++  buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
++  buffer_create_info.size = buffer_size;
++  buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
++  buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
++  VmaAllocationCreateInfo allocation_create_info = {};
++  allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO;
++  allocation_create_info.flags =
++      VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
++  VkBuffer staging_buffer = VK_NULL_HANDLE;
++  VmaAllocation staging_allocation = VK_NULL_HANDLE;
++  VmaAllocationInfo staging_allocation_info = {};
++  if (vmaCreateBuffer(vma_allocator_, &buffer_create_info, &allocation_create_info,
++                      &staging_buffer, &staging_allocation,
++                      &staging_allocation_info) != VK_SUCCESS ||
++      !staging_allocation_info.pMappedData) {
++    if (staging_buffer != VK_NULL_HANDLE) {
++      vmaDestroyBuffer(vma_allocator_, staging_buffer, staging_allocation);
++    }
++    REXGPU_WARN("TextureReplacement: failed to create a Vulkan upload buffer ({} bytes)",
++                buffer_size);
++    return false;
++  }
++  uint8_t* mapped = static_cast<uint8_t*>(staging_allocation_info.pMappedData);
++  for (uint32_t level = 0; level < level_count; ++level) {
++    const uint32_t width = std::max(data.width >> level, uint32_t(1));
++    const uint32_t height = std::max(data.height >> level, uint32_t(1));
++    const uint8_t* source = level ? (*mips)[level - 1].data() : data.pixels.data();
++    std::memcpy(mapped + level_offsets[level], source, size_t(width) * height * 4);
++  }
++  vmaFlushAllocation(vma_allocator_, staging_allocation, 0, VK_WHOLE_SIZE);
++
++  // Escrito pelo CPU: barreira HOST -> TRANSFER.
++  command_processor_.PushBufferMemoryBarrier(
++      staging_buffer, 0, VK_WHOLE_SIZE, VK_PIPELINE_STAGE_HOST_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
++      VK_ACCESS_HOST_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT);
++  // A imagem passa a destino de transferencia (como na carga normal); o
++  // RequestTextures passa-a depois a amostrada.
++  vulkan_texture.MarkAsUsed();
++  VulkanTexture::Usage texture_old_usage =
++      vulkan_texture.SetUsage(VulkanTexture::Usage::kTransferDestination);
++  if (texture_old_usage != VulkanTexture::Usage::kTransferDestination) {
++    VkPipelineStageFlags texture_src_stage_mask, texture_dst_stage_mask;
++    VkAccessFlags texture_src_access_mask, texture_dst_access_mask;
++    VkImageLayout texture_old_layout, texture_new_layout;
++    GetTextureUsageMasks(texture_old_usage, texture_src_stage_mask, texture_src_access_mask,
++                         texture_old_layout);
++    GetTextureUsageMasks(VulkanTexture::Usage::kTransferDestination, texture_dst_stage_mask,
++                         texture_dst_access_mask, texture_new_layout);
++    command_processor_.PushImageMemoryBarrier(
++        vulkan_texture.image(), ui::vulkan::util::InitializeSubresourceRange(),
++        texture_src_stage_mask, texture_dst_stage_mask, texture_src_access_mask,
++        texture_dst_access_mask, texture_old_layout, texture_new_layout);
++  }
++  command_processor_.SubmitBarriers(true);
++  DeferredCommandBuffer& command_buffer = command_processor_.deferred_command_buffer();
++  VkBufferImageCopy* copy_regions = command_buffer.CmdCopyBufferToImageEmplace(
++      staging_buffer, vulkan_texture.image(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, level_count);
++  for (uint32_t level = 0; level < level_count; ++level) {
++    VkBufferImageCopy& copy_region = copy_regions[level];
++    copy_region.bufferOffset = level_offsets[level];
++    copy_region.bufferRowLength = 0;
++    copy_region.bufferImageHeight = 0;
++    copy_region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
++    copy_region.imageSubresource.mipLevel = level;
++    copy_region.imageSubresource.baseArrayLayer = 0;
++    copy_region.imageSubresource.layerCount = 1;
++    copy_region.imageOffset = {0, 0, 0};
++    copy_region.imageExtent.width = std::max(data.width >> level, uint32_t(1));
++    copy_region.imageExtent.height = std::max(data.height >> level, uint32_t(1));
++    copy_region.imageExtent.depth = 1;
++  }
++  pending_replacement_uploads_.push_back(PendingReplacementUpload{
++      command_processor_.GetCurrentSubmission(), staging_buffer, staging_allocation});
++  return true;
++}
++
+ void VulkanTextureCache::UpdateTextureBindingsImpl(uint32_t fetch_constant_mask) {
+   uint32_t bindings_remaining = fetch_constant_mask;
+   uint32_t binding_index;

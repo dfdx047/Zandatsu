@@ -1,0 +1,23 @@
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 0a55e97624a94d80390985930408dafff47ed59d..1753db83cb0f1a7c2fddff6c8eca5b5a376eea2c 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -90,10 +90,14 @@ REXCVAR_DEFINE_BOOL(dbz3_bl_native_blur, true, "GPU/Vulkan",
+                     "Limit (PS 97906B6915CE1A5E) por compute em vez do quad + resolve")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ 
+-// 0087: desligado por omissao. No RP5 (17/10 04:58) com o passo 4 a imagem final ficava so com o
+-// brilho desfocado: o quad da composicao tambem deixa a imagem no render target de 1280, que o
+-// passe seguinte (HUD) carrega; saltado, esse render target fica com outra imagem.
+-REXCVAR_DEFINE_BOOL(dbz3_bl_native_glow_composite, false, "GPU/Vulkan",
++// 0090: ligado outra vez. Em todas as capturas (24 com o quad), depois do quad da composicao e
++// dos resolves dele o render target de 1280 e sobrescrito por inteiro antes de alguem o carregar
++// (Clear 4x de ecra inteiro, ou um quad opaco de ecra inteiro 29D1F5 / AA377C; pelo meio so
++// draws opacos de ecra inteiro no alvo de 640). O HUD le a composicao pelas texturas 0E1F1000 /
++// 0F7E9000, nao pelo render target. A imagem partida do 0086 era a marca do passo 4 apagada; a
++// do 0087 (88%, a mesma de "sem contorno") era a barreira que faltava e o 0088 pos.
++// Autoteste de 17/10 05:21 (RP5, 0088): "com composicao do brilho por compute" igual.
++REXCVAR_DEFINE_BOOL(dbz3_bl_native_glow_composite, true, "GPU/Vulkan",
+                     "Dragon Burst: faz a composicao do brilho do contorno na cena do Burst Limit (PS "
+                     "F59256F3F90DE9FF) por compute em vez do quad + resolves")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);

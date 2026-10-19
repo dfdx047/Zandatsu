@@ -1,0 +1,120 @@
+diff --git a/include/rex/graphics/pipeline/texture/cache.h b/include/rex/graphics/pipeline/texture/cache.h
+index 54c30c5b86d7b7eca2159ec7eef71a62f488aa52..3662a06fd7fd1a025cbe4777bcc8985fde662bd5 100644
+--- a/include/rex/graphics/pipeline/texture/cache.h
++++ b/include/rex/graphics/pipeline/texture/cache.h
+@@ -31,6 +31,14 @@
+ 
+ namespace rex::graphics {
+ 
++// Dragon Burst: ganchos de diagnostico (captura .dfc): cada textura carregada e cada
++// textura invalidada por uma escrita (da GPU ou do CPU). Nulos fora de uma captura.
++// flags da carga: bit 0 base, bit 1 mips, bit 2 substituicao, bit 3 scaled_resolve.
++extern void (*g_dbz3_texture_load_hook)(uint32_t base, uint32_t width, uint32_t height,
++                                        uint32_t format, uint32_t flags);
++extern void (*g_dbz3_texture_invalidate_hook)(uint32_t base, uint32_t width, uint32_t height,
++                                              uint32_t format, uint32_t flags);
++
+ // Manages host copies of guest textures, performing untiling, format and endian
+ // conversion of textures stored in the shared memory, and also handling
+ // invalidation.
+diff --git a/include/rex/graphics/vulkan/dbz3_capture.h b/include/rex/graphics/vulkan/dbz3_capture.h
+index fb34c096996ee952e6f50a15adc979a22a99e0b1..d47009203bab3ac6fe7dc801e4b4d068fb9cd5af 100644
+--- a/include/rex/graphics/vulkan/dbz3_capture.h
++++ b/include/rex/graphics/vulkan/dbz3_capture.h
+@@ -21,6 +21,8 @@
+ //   8 RESOLVE u32 addr_fisico, u32 len, bytes: o que o resolve anterior (COPY) escreveu,
+ //             lido de volta da GPU (so no 1.o frame da captura; ver IssueCopy). Assim ve-se
+ //             offline a imagem de cada passe, que no Vulkan nunca chega a memoria do guest.
++//   9 TEX     u32 tipo (1 carga, 2 invalidacao), u32 base, u32 w, u32 h, u32 formato, u32 flags
++//             (flags: bit 0 base, 1 mips, 2 substituicao, 3 scaled; invalidacao: bit 4 pela GPU)
+ // Tudo corre na thread do command processor.
+ 
+ #include <cstdint>
+@@ -50,6 +52,7 @@ enum RecordType : uint32_t {
+   kMem = 6,
+   kInfo = 7,
+   kResolveData = 8,
++  kTexEvent = 9,
+ };
+ 
+ struct State {
+@@ -149,6 +152,19 @@ inline void WriteResolveData(const void* data, uint32_t addr, uint32_t len) {
+   st.resolve_bytes += len;
+ }
+ 
++inline void WriteTexEvent(uint32_t kind, uint32_t base, uint32_t w, uint32_t h, uint32_t fmt,
++                          uint32_t flags) {
++  if (!g_state.file) return;
++  const uint32_t rec[6] = {kind, base, w, h, fmt, flags};
++  WriteRecord(kTexEvent, rec, sizeof(rec));
++}
++inline void TexLoadHook(uint32_t base, uint32_t w, uint32_t h, uint32_t fmt, uint32_t flags) {
++  WriteTexEvent(1, base, w, h, fmt, flags);
++}
++inline void TexInvalidateHook(uint32_t base, uint32_t w, uint32_t h, uint32_t fmt, uint32_t flags) {
++  WriteTexEvent(2, base, w, h, fmt, flags);
++}
++
+ template <typename ShaderT>
+ inline void WriteShader(const ShaderT* shader, uint32_t type) {
+   State& st = g_state;
+diff --git a/src/graphics/pipeline/texture/cache.cpp b/src/graphics/pipeline/texture/cache.cpp
+index 551a78d8bed6e3f0ad588d994dd7db6d913bc587..c61be0b29cd93e804bdf6fb193f86d8ac7f44508 100644
+--- a/src/graphics/pipeline/texture/cache.cpp
++++ b/src/graphics/pipeline/texture/cache.cpp
+@@ -195,6 +195,9 @@ REXCVAR_DEFINE_STRING(texture_folder, "", "GPU/Texture Replacement",
+ 
+ namespace rex::graphics {
+ 
++void (*g_dbz3_texture_load_hook)(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t) = nullptr;
++void (*g_dbz3_texture_invalidate_hook)(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t) = nullptr;
++
+ static std::filesystem::path GetTextureDumpFolder() {
+   const std::string configured_texture_folder = REXCVAR_GET(texture_folder);
+   if (!configured_texture_folder.empty()) {
+@@ -867,6 +870,13 @@ bool TextureCache::CommitPreparedTextureLoad(const PendingTextureLoad& pending_l
+   // not up to date anymore.
+   texture.MakeUpToDateAndWatch(global_critical_region_.Acquire());
+   texture.LogAction("Loaded");
++  if (g_dbz3_texture_load_hook) {
++    g_dbz3_texture_load_hook(texture_key.base_page << 12, texture_key.GetWidth(),
++                             texture_key.GetHeight(), uint32_t(texture_key.format),
++                             (pending_load.load_base ? 1u : 0u) | (pending_load.load_mips ? 2u : 0u) |
++                                 (uploaded_replacement ? 4u : 0u) |
++                                 (texture_key.scaled_resolve ? 8u : 0u));
++  }
+   {
+     rex::perf::TextureCacheStats& stats = rex::perf::GetTextureCacheStats();
+     stats.loaded.fetch_add(1, std::memory_order_relaxed);
+@@ -1223,6 +1233,12 @@ void TextureCache::WatchCallback(const std::unique_lock<std::recursive_mutex>& g
+                                  bool invalidated_by_gpu) {
+   Texture& texture = *static_cast<Texture*>(context);
+   texture.WatchCallback(global_lock, argument != 0);
++  if (g_dbz3_texture_invalidate_hook) {
++    const TextureKey key = texture.key();
++    g_dbz3_texture_invalidate_hook(key.base_page << 12, key.GetWidth(), key.GetHeight(),
++                                   uint32_t(key.format),
++                                   (argument != 0 ? 2u : 1u) | (invalidated_by_gpu ? 16u : 0u));
++  }
+   texture.texture_cache().texture_became_outdated_.store(true, std::memory_order_release);
+ }
+ 
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 20b475c24f8501ec2e107a0e2d8feb2675f365b1..54187e7adbf6b44849553c8cf2f7403065d3fd8f 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -2683,6 +2683,14 @@ void VulkanCommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontb
+     const bool capture_was_active = dbz3_capture::Active();
+     dbz3_capture::OnSwap(*register_file_, *memory_, frontbuffer_ptr, frontbuffer_width,
+                          frontbuffer_height);
++    // Dragon Burst: cargas e invalidacoes de texturas na captura (registo 9).
++    if (dbz3_capture::Active()) {
++      g_dbz3_texture_load_hook = dbz3_capture::TexLoadHook;
++      g_dbz3_texture_invalidate_hook = dbz3_capture::TexInvalidateHook;
++    } else {
++      g_dbz3_texture_load_hook = nullptr;
++      g_dbz3_texture_invalidate_hook = nullptr;
++    }
+     if (!capture_was_active && dbz3_capture::Active()) {
+       Dbz3DrawTimingBegin();
+     } else if (capture_was_active && !dbz3_capture::Active() && dbz3_drawtime::g_active) {

@@ -1,0 +1,69 @@
+diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
+index d4fb4ad5fecc4dd8569f2e85cef0428fb63b70fc..9019da51b3c5478c98681d6c62643f9e75f2ac8e 100644
+--- a/src/graphics/vulkan/render_target_cache.cpp
++++ b/src/graphics/vulkan/render_target_cache.cpp
+@@ -7138,22 +7138,32 @@ bool VulkanRenderTargetCache::Dbz3NativeLinearDepthReady(VulkanTextureCache& tex
+   if (!dbz3_native_ld::g_dest) {
+     return false;
+   }
+-  if (!Dbz3NativeLinearDepthSource(depth_base_tiles, pitch_tiles, height)) {
++  static uint64_t not_ready = 0;
++  auto no = [&](uint32_t why) {
++    if ((not_ready++ % 1200) == 0) {
++      REXGPU_INFO("dbz3: render nativo: profundidade linear ainda nao ({})", why);
++    }
+     return false;
++  };
++  if (!Dbz3NativeLinearDepthSource(depth_base_tiles, pitch_tiles, height)) {
++    return no(1);
+   }
+   void* found[4];
+   const uint32_t n = texture_cache.Dbz3FindResolveTextures(
+       dbz3_native_ld::g_dest, width, height, xenos::TextureFormat::k_32_FLOAT, true,
+       xenos::Endian::kNone, found, 4);
+   if (!n) {
+-    return false;
++    return no(2);
+   }
+   for (uint32_t i = 0; i < n; ++i) {
+     if (!texture_cache.Dbz3TextureHasStorage(found[i])) {
+-      return false;
++      return no(3);
+     }
+   }
+-  return Dbz3StoreInit() && Dbz3StorePipeline(6) != VK_NULL_HANDLE;
++  if (!Dbz3StoreInit() || Dbz3StorePipeline(6) == VK_NULL_HANDLE) {
++    return no(4);
++  }
++  return true;
+ }
+ 
+ bool VulkanRenderTargetCache::Dbz3NativeLinearDepthResolve(
+@@ -7174,7 +7184,7 @@ bool VulkanRenderTargetCache::Dbz3NativeLinearDepthResolve(
+   if (dbz3_native_ld::g_learn) {
+     // Primeira vez: so aprende o destino; este resolve segue o caminho normal.
+     dbz3_native_ld::g_learn = false;
+-    if (matches) {
++    if (matches && dbz3_native_ld::g_dest != resolve_info.copy_dest_base) {
+       dbz3_native_ld::g_dest = resolve_info.copy_dest_base;
+       REXGPU_INFO("dbz3: render nativo: profundidade linear -> {:08X}",
+                   resolve_info.copy_dest_base);
+diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
+index 767566b7a5b31ab86246c158cb2c43a8983b2cba..5736fda02dd76de4be80a929210d2a742c83a5f2 100644
+--- a/src/graphics/vulkan/texture_cache.cpp
++++ b/src/graphics/vulkan/texture_cache.cpp
+@@ -1933,6 +1933,14 @@ void* VulkanTextureCache::Dbz3FindResolveTexture(uint32_t base, uint32_t width,
+     }
+     return texture;
+   }
++  if (format == xenos::TextureFormat::k_32_FLOAT) {
++    // Dragon Burst: profundidade linear (render nativo, passo 2), R32_SFLOAT direto.
++    if (host_format_pair.format_unsigned.format != VK_FORMAT_R32_SFLOAT ||
++        host_format_pair.format_unsigned.load_shader != kLoadShaderIndex32bpb) {
++      return nullptr;
++    }
++    return texture;
++  }
+   if (host_format_pair.format_unsigned.format != VK_FORMAT_R8G8B8A8_UNORM ||
+       host_format_pair.format_unsigned.load_shader != kLoadShaderIndex32bpb) {
+     return nullptr;

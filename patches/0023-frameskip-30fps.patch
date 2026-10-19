@@ -1,5 +1,5 @@
 diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
-index 0ebf3ee..7214a62 100644
+index 1a5a036668a036e2fc506c5a5ddc92db76eb1e7c..cb28c6fdf8ce05efb0783e3e914217375998e133 100644
 --- a/src/graphics/vulkan/command_processor.cpp
 +++ b/src/graphics/vulkan/command_processor.cpp
 @@ -10,6 +10,7 @@
@@ -10,7 +10,7 @@ index 0ebf3ee..7214a62 100644
  #include <array>
  #include <cstdint>
  #include <cstring>
-@@ -77,6 +78,17 @@ REXCVAR_DECLARE(double, dbz3_rim_light_scale);  // src/graphics/command_processo
+@@ -75,6 +76,17 @@ REXCVAR_DEFINE_BOOL(vulkan_dynamic_rendering, true, "GPU/Vulkan",
  
  namespace rex::graphics::vulkan {
  
@@ -28,7 +28,7 @@ index 0ebf3ee..7214a62 100644
  namespace {
  
  // glslang default built-in resource limits.
-@@ -654,7 +666,8 @@ void VulkanCommandProcessor::InitializeShaderStorage(const std::filesystem::path
+@@ -652,7 +664,8 @@ void VulkanCommandProcessor::InitializeShaderStorage(const std::filesystem::path
  
  bool VulkanCommandProcessor::ExecutePacketType3_EVENT_WRITE_ZPD(memory::RingBuffer* reader,
                                                                  uint32_t packet, uint32_t count) {
@@ -38,7 +38,7 @@ index 0ebf3ee..7214a62 100644
      return CommandProcessor::ExecutePacketType3_EVENT_WRITE_ZPD(reader, packet, count);
    }
  
-@@ -2612,6 +2625,19 @@ void VulkanCommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontb
+@@ -2610,6 +2623,19 @@ void VulkanCommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontb
    dbz3_gpuprof::Zone<DeferredCommandBuffer> dbz3_zone(deferred_command_buffer_,
                                                        dbz3_gpuprof::kSwap);
  
@@ -58,7 +58,7 @@ index 0ebf3ee..7214a62 100644
    bool skip_present_due_async_placeholder = REXCVAR_GET(async_shader_compilation) &&
                                              REXCVAR_GET(vulkan_async_skip_incomplete_frames) &&
                                              frame_used_async_placeholder_pipeline_;
-@@ -3918,6 +3944,9 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+@@ -3916,6 +3942,9 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
    SCOPE_profile_cpu_f("gpu");
  #endif  // XE_GPU_FINE_GRAINED_DRAW_SCOPES
    dbz3_gpuprof::CountDraw();
@@ -68,7 +68,7 @@ index 0ebf3ee..7214a62 100644
  
    const RegisterFile& regs = *register_file_;
    (void)index_buffer_info;
-@@ -4710,6 +4739,9 @@ bool VulkanCommandProcessor::IssueCopy() {
+@@ -4708,6 +4737,9 @@ bool VulkanCommandProcessor::IssueCopy() {
  #if XE_GPU_FINE_GRAINED_DRAW_SCOPES
    SCOPE_profile_cpu_f("gpu");
  #endif  // XE_GPU_FINE_GRAINED_DRAW_SCOPES
@@ -79,10 +79,10 @@ index 0ebf3ee..7214a62 100644
    if (!BeginSubmission(true)) {
      return false;
 diff --git a/src/ui/vulkan/vulkan_presenter.cpp b/src/ui/vulkan/vulkan_presenter.cpp
-index 3ecc146..47c388f 100644
+index afe20632cac2c4912ad26f78cd21062891f217bc..887e0647f878ac8fcf212d54528f8f4d459bf6c2 100644
 --- a/src/ui/vulkan/vulkan_presenter.cpp
 +++ b/src/ui/vulkan/vulkan_presenter.cpp
-@@ -64,6 +64,10 @@ REXCVAR_DEFINE_INT32(dbz3_direct_resolve_texture, 0, "GPU",
+@@ -62,6 +62,10 @@ REXCVAR_DEFINE_INT32(dbz3_direct_resolve_texture, 0, "GPU",
                       "para a textura (0 desligado, 1 ligado, 2 ligado com R/B invertido)")
      .range(0, 2)
      .lifecycle(rex::cvar::Lifecycle::kHotReload);

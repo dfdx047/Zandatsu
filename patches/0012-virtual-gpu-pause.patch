@@ -1,5 +1,5 @@
 diff --git a/include/rex/graphics/graphics_system.h b/include/rex/graphics/graphics_system.h
-index ac6b056..85d7218 100644
+index ac6b056e5b4d43b07b148f5e26764970f9150db0..85d72189744039aace5b942dbb9867ffbb48a3c9 100644
 --- a/include/rex/graphics/graphics_system.h
 +++ b/include/rex/graphics/graphics_system.h
 @@ -84,8 +84,8 @@ class GraphicsSystem : public system::IGraphicsSystem {
@@ -14,7 +14,7 @@ index ac6b056..85d7218 100644
    bool Save(::rex::stream::ByteStream* stream);
    bool Restore(::rex::stream::ByteStream* stream);
 diff --git a/include/rex/system/interfaces/graphics.h b/include/rex/system/interfaces/graphics.h
-index d54df86..86c3496 100644
+index d54df8669311a6f6518eab2477bf166008a25775..86c349624dd66544e762a166b6a6a889462ebe04 100644
 --- a/include/rex/system/interfaces/graphics.h
 +++ b/include/rex/system/interfaces/graphics.h
 @@ -50,6 +50,12 @@ class IGraphicsSystem {

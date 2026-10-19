@@ -1,8 +1,8 @@
 diff --git a/src/graphics/pipeline/render_target/cache.cpp b/src/graphics/pipeline/render_target/cache.cpp
-index 7acaf4b..83c2fb9 100644
+index ad7fed204753e6dbe98713e824c35017f1ff5cb7..083ba75f35c5ceb1ab233480c7f04dbae4a542b2 100644
 --- a/src/graphics/pipeline/render_target/cache.cpp
 +++ b/src/graphics/pipeline/render_target/cache.cpp
-@@ -1278,10 +1278,25 @@ bool RenderTargetCache::Dbz3DirectAllowsTransfer(RenderTargetKey source, RenderT
+@@ -1394,10 +1394,25 @@ bool RenderTargetCache::Dbz3DirectAllowsTransfer(RenderTargetKey source, RenderT
    if (!REXCVAR_GET(dbz3_rt_direct)) {
      return true;
    }

@@ -1,0 +1,136 @@
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index a10db657bb8c90bee6d3d085ba4ff13071dd834a..9e94fed3b164b0fbf69d679505b293f08e4694b6 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -91,6 +91,12 @@ REXCVAR_DEFINE_BOOL(dbz3_bl_native_post_lite, true, "GPU/Vulkan",
+                     "29D1F5CC913EBB07) e o resolve dela")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ 
++REXCVAR_DEFINE_BOOL(dbz3_discard_full_overwrite, true, "GPU/Vulkan",
++                    "Passe que comeca com um quad opaco que cobre o alvo todo (pos-processamento): "
++                    "a cor nao e carregada da memoria (loadOp DONT_CARE, area = scissor). Menos "
++                    "banda nas GPUs tiler (Mali, Adreno)")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++
+ REXCVAR_DEFINE_BOOL(vulkan_async_skip_incomplete_frames, true, "GPU/Vulkan",
+                     "When async shader compilation is enabled, skip presenting frames that "
+                     "used placeholder pipelines to avoid visible flashing")
+@@ -211,6 +217,16 @@ extern float g_a;
+ extern float g_b;
+ }  // namespace dbz3_native_ld
+ 
++// Dragon Burst (dbz3_discard_full_overwrite): o draw que vai abrir o passe sobrescreve a cor
++// toda? Entao o passe nao carrega a cor (DONT_CARE) e a area de render fica no scissor.
++namespace dbz3_discard {
++bool g_want = false;
++VkRect2D g_draw_area = {};
++bool g_pass_limited = false;
++VkRect2D g_pass_area = {};
++uint64_t g_passes = 0;
++}  // namespace dbz3_discard
++
+ namespace dbz3_frameskip {
+ bool g_skip_frame = false;
+ uint32_t g_counter = 0;
+@@ -3710,9 +3726,17 @@ void VulkanCommandProcessor::SubmitBarriersAndEnterRenderTargetCacheRenderPass(
+   bool use_dynamic_rendering =
+       REXCVAR_GET(vulkan_dynamic_rendering) && vulkan_device->properties().dynamicRendering;
+ 
++  // Passe aberto so na area do scissor (dbz3_discard): um draw que sai dela recomeca o passe.
++  const VkRect2D& da = dbz3_discard::g_draw_area;
++  const VkRect2D& pa = dbz3_discard::g_pass_area;
++  const bool outside_limited_area =
++      dbz3_discard::g_pass_limited &&
++      (da.offset.x < pa.offset.x || da.offset.y < pa.offset.y ||
++       da.offset.x + int32_t(da.extent.width) > pa.offset.x + int32_t(pa.extent.width) ||
++       da.offset.y + int32_t(da.extent.height) > pa.offset.y + int32_t(pa.extent.height));
+   if (use_dynamic_rendering) {
+     if (in_render_pass_ && current_framebuffer_ == framebuffer &&
+-        current_render_pass_ == VK_NULL_HANDLE) {
++        current_render_pass_ == VK_NULL_HANDLE && !outside_limited_area) {
+       return;
+     }
+   } else {
+@@ -3756,6 +3780,28 @@ void VulkanCommandProcessor::SubmitBarriersAndEnterRenderTargetCacheRenderPass(
+     rendering_info.renderArea.offset.x = 0;
+     rendering_info.renderArea.offset.y = 0;
+     rendering_info.renderArea.extent = framebuffer->host_extent;
++    // Dragon Burst (dbz3_discard_full_overwrite): so a cor 0, sem as outras.
++    dbz3_discard::g_pass_limited = false;
++    if (dbz3_discard::g_want && color_attachment_count == 1 &&
++        color_attachments[0].sType == VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO) {
++      VkRect2D area = dbz3_discard::g_draw_area;
++      const int32_t w = int32_t(framebuffer->host_extent.width);
++      const int32_t h = int32_t(framebuffer->host_extent.height);
++      const int32_t x1 = std::min(area.offset.x + int32_t(area.extent.width), w);
++      const int32_t y1 = std::min(area.offset.y + int32_t(area.extent.height), h);
++      if (area.offset.x >= 0 && area.offset.y >= 0 && x1 > area.offset.x && y1 > area.offset.y) {
++        area.extent.width = uint32_t(x1 - area.offset.x);
++        area.extent.height = uint32_t(y1 - area.offset.y);
++        color_attachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
++        rendering_info.renderArea = area;
++        dbz3_discard::g_pass_limited = true;
++        dbz3_discard::g_pass_area = area;
++        if ((dbz3_discard::g_passes++ % 30000) == 0) {
++          REXGPU_INFO("dbz3: passe sem carregar a cor ({}x{} em {}x{}; {} ate agora)",
++                      area.extent.width, area.extent.height, w, h, dbz3_discard::g_passes);
++        }
++      }
++    }
+     rendering_info.layerCount = 1;
+     rendering_info.viewMask = 0;
+     rendering_info.colorAttachmentCount = color_attachment_count;
+@@ -3791,8 +3837,9 @@ void VulkanCommandProcessor::SubmitBarriersAndEnterRenderTargetCacheRenderPass(
+       REXCVAR_GET(vulkan_dynamic_rendering) && vulkan_device->properties().dynamicRendering;
+ 
+   if (use_dynamic_rendering) {
++    // Transferencias desenham fora do scissor: nunca dentro de um passe limitado (dbz3_discard).
+     if (in_render_pass_ && current_framebuffer_ == framebuffer &&
+-        current_render_pass_ == VK_NULL_HANDLE) {
++        current_render_pass_ == VK_NULL_HANDLE && !dbz3_discard::g_pass_limited) {
+       return;
+     }
+   } else {
+@@ -3856,6 +3903,7 @@ void VulkanCommandProcessor::SubmitBarriersAndEnterRenderTargetCacheRenderPass(
+     rendering_info.renderArea.offset.x = 0;
+     rendering_info.renderArea.offset.y = 0;
+     rendering_info.renderArea.extent = framebuffer->host_extent;
++    dbz3_discard::g_pass_limited = false;
+     rendering_info.layerCount = 1;
+     rendering_info.viewMask = 0;
+     rendering_info.colorAttachmentCount = transfer_dest_is_depth ? 0 : 1;
+@@ -5245,12 +5293,34 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+     shared_memory_->Use(VulkanSharedMemory::Usage::kRead);
+   }
+ 
++  // Dragon Burst (dbz3_discard_full_overwrite): este draw cobre o alvo todo com cor opaca?
++  {
++    const uint32_t tl = regs[XE_GPU_REG_PA_SC_WINDOW_SCISSOR_TL];
++    const uint32_t br = regs[XE_GPU_REG_PA_SC_WINDOW_SCISSOR_BR];
++    const uint32_t sx = texture_cache_->draw_resolution_scale_x();
++    const uint32_t sy = texture_cache_->draw_resolution_scale_y();
++    const int32_t x0 = int32_t(tl & 0x7FFF), y0 = int32_t((tl >> 16) & 0x7FFF);
++    const int32_t x1 = int32_t(br & 0x7FFF), y1 = int32_t((br >> 16) & 0x7FFF);
++    dbz3_discard::g_draw_area.offset = {x0 * int32_t(sx), y0 * int32_t(sy)};
++    dbz3_discard::g_draw_area.extent = {uint32_t(std::max(x1 - x0, 0)) * sx,
++                                        uint32_t(std::max(y1 - y0, 0)) * sy};
++    const auto cc = regs.Get<reg::RB_COLORCONTROL>();
++    dbz3_discard::g_want =
++        REXCVAR_GET(dbz3_discard_full_overwrite) && pixel_shader && !pixel_shader->kills_pixels() &&
++        !pixel_shader->writes_depth() && !memexport_used_vertex && !memexport_used_pixel &&
++        ((prim_type == xenos::PrimitiveType::kQuadList && index_count == 4) ||
++         (prim_type == xenos::PrimitiveType::kRectangleList && index_count == 3)) &&
++        regs[XE_GPU_REG_RB_COLOR_MASK] == 0xF &&
++        (regs[XE_GPU_REG_RB_BLENDCONTROL0] & 0x1FFF1FFF) == 0x00010001 && !cc.alpha_test_enable &&
++        !cc.alpha_to_mask_enable && regs[XE_GPU_REG_PA_SC_WINDOW_OFFSET] == 0 && x1 > x0 && y1 > y0;
++  }
+   // After all commands that may dispatch, copy or insert barriers, submit
+   // the barriers (may end the render pass), and (re)enter the render pass
+   // before drawing.
+   SubmitBarriersAndEnterRenderTargetCacheRenderPass(
+       render_target_cache_->last_update_render_pass(),
+       render_target_cache_->last_update_framebuffer());
++  dbz3_discard::g_want = false;
+ 
+   // Draw.
+   if (primitive_processing_result.index_buffer_type ==

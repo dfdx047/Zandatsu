@@ -1,15 +1,15 @@
 diff --git a/include/rex/ui/flags.h b/include/rex/ui/flags.h
-index fa2ef60..1b056b8 100644
+index 53723830a212f6ae0081e67bf007ae5bf59511c3..4b425308325225d8991c6dd3b4fe2efa6c7552b3 100644
 --- a/include/rex/ui/flags.h
 +++ b/include/rex/ui/flags.h
-@@ -62,4 +62,5 @@ REXCVAR_DECLARE(bool, vulkan_require_geometry_shader);
+@@ -63,4 +63,5 @@ REXCVAR_DECLARE(bool, vulkan_require_geometry_shader);
  REXCVAR_DECLARE(bool, vulkan_require_fragment_stores_and_atomics);
  REXCVAR_DECLARE(bool, vulkan_require_vertex_pipeline_stores_and_atomics);
  REXCVAR_DECLARE(bool, vulkan_require_fill_mode_non_solid);
 +REXCVAR_DECLARE(std::string, vulkan_mask_features);
  #endif  // REX_HAS_VULKAN
 diff --git a/src/graphics/vulkan/pipeline_cache.cpp b/src/graphics/vulkan/pipeline_cache.cpp
-index 7ac0551..68b7bfa 100644
+index 7ac05514a67018565b9921e192e9bdfc26a61b26..68b7bfa4d1cb749d907f2f6fb300ee05406d2b1d 100644
 --- a/src/graphics/vulkan/pipeline_cache.cpp
 +++ b/src/graphics/vulkan/pipeline_cache.cpp
 @@ -544,6 +544,10 @@ void VulkanPipelineCache::InitializeShaderStorage(const std::filesystem::path& c
@@ -32,7 +32,7 @@ index 7ac0551..68b7bfa 100644
      uint32_t magic;
      uint32_t version_swapped;
 diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
-index 4c77499..9b9d38e 100644
+index 4c77499f6101797ecbf073b5c9ae92d93c24c70b..9b9d38e07556b2b58e84f5b49353e438c26d8e94 100644
 --- a/src/graphics/vulkan/render_target_cache.cpp
 +++ b/src/graphics/vulkan/render_target_cache.cpp
 @@ -40,6 +40,13 @@
@@ -61,10 +61,10 @@ index 4c77499..9b9d38e 100644
    ifn.vkGetPhysicalDeviceFormatProperties(physical_device, VK_FORMAT_R16G16_SNORM,
                                            &color_rg16_snorm_properties);
 diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
-index 58de055..38de4a2 100644
+index 8ef9c0d85552304fab5d9252e6bb87035ad96ecc..83fa6933d0c153e16a9ce413cd9eb1d603fbd58b 100644
 --- a/src/graphics/vulkan/texture_cache.cpp
 +++ b/src/graphics/vulkan/texture_cache.cpp
-@@ -2872,7 +2872,11 @@ bool VulkanTextureCache::Initialize() {
+@@ -2556,7 +2556,11 @@ bool VulkanTextureCache::Initialize() {
        host_format.unsigned_signed_compatible = false;
      }
    }
@@ -77,7 +77,7 @@ index 58de055..38de4a2 100644
    // Not checking the textureCompressionBC feature because its availability
    // means that all BC formats are supported, however, the device may expose
    // some BC formats without this feature. Xenia doesn't use BC6H and BC7 at
-@@ -2885,6 +2889,7 @@ bool VulkanTextureCache::Initialize() {
+@@ -2569,6 +2573,7 @@ bool VulkanTextureCache::Initialize() {
    assert_true(host_format_dxt1.format_unsigned.format == VK_FORMAT_BC1_RGBA_UNORM_BLOCK);
    ifn.vkGetPhysicalDeviceFormatProperties(physical_device, VK_FORMAT_BC1_RGBA_UNORM_BLOCK,
                                            &format_properties);
@@ -85,7 +85,7 @@ index 58de055..38de4a2 100644
    if ((format_properties.optimalTilingFeatures & kLinearFilterFeatures) != kLinearFilterFeatures) {
      host_format_dxt1.format_unsigned.load_shader = kLoadShaderIndexDXT1ToRGBA8;
      host_format_dxt1.format_unsigned.format = VK_FORMAT_R8G8B8A8_UNORM;
-@@ -2895,6 +2900,7 @@ bool VulkanTextureCache::Initialize() {
+@@ -2579,6 +2584,7 @@ bool VulkanTextureCache::Initialize() {
    assert_true(host_format_dxt2_3.format_unsigned.format == VK_FORMAT_BC2_UNORM_BLOCK);
    ifn.vkGetPhysicalDeviceFormatProperties(physical_device, VK_FORMAT_BC2_UNORM_BLOCK,
                                            &format_properties);
@@ -93,7 +93,7 @@ index 58de055..38de4a2 100644
    if ((format_properties.optimalTilingFeatures & kLinearFilterFeatures) != kLinearFilterFeatures) {
      host_format_dxt2_3.format_unsigned.load_shader = kLoadShaderIndexDXT3ToRGBA8;
      host_format_dxt2_3.format_unsigned.format = VK_FORMAT_R8G8B8A8_UNORM;
-@@ -2905,6 +2911,7 @@ bool VulkanTextureCache::Initialize() {
+@@ -2589,6 +2595,7 @@ bool VulkanTextureCache::Initialize() {
    assert_true(host_format_dxt4_5.format_unsigned.format == VK_FORMAT_BC3_UNORM_BLOCK);
    ifn.vkGetPhysicalDeviceFormatProperties(physical_device, VK_FORMAT_BC3_UNORM_BLOCK,
                                            &format_properties);
@@ -101,7 +101,7 @@ index 58de055..38de4a2 100644
    if ((format_properties.optimalTilingFeatures & kLinearFilterFeatures) != kLinearFilterFeatures) {
      host_format_dxt4_5.format_unsigned.load_shader = kLoadShaderIndexDXT5ToRGBA8;
      host_format_dxt4_5.format_unsigned.format = VK_FORMAT_R8G8B8A8_UNORM;
-@@ -2915,6 +2922,7 @@ bool VulkanTextureCache::Initialize() {
+@@ -2599,6 +2606,7 @@ bool VulkanTextureCache::Initialize() {
    assert_true(host_format_dxn.format_unsigned.format == VK_FORMAT_BC5_UNORM_BLOCK);
    ifn.vkGetPhysicalDeviceFormatProperties(physical_device, VK_FORMAT_BC5_UNORM_BLOCK,
                                            &format_properties);
@@ -109,7 +109,7 @@ index 58de055..38de4a2 100644
    if ((format_properties.optimalTilingFeatures & kLinearFilterFeatures) != kLinearFilterFeatures) {
      host_format_dxn.format_unsigned.load_shader = kLoadShaderIndexDXNToRG8;
      host_format_dxn.format_unsigned.format = VK_FORMAT_R8G8_UNORM;
-@@ -2924,6 +2932,7 @@ bool VulkanTextureCache::Initialize() {
+@@ -2608,6 +2616,7 @@ bool VulkanTextureCache::Initialize() {
    assert_true(host_format_dxt5a.format_unsigned.format == VK_FORMAT_BC4_UNORM_BLOCK);
    ifn.vkGetPhysicalDeviceFormatProperties(physical_device, VK_FORMAT_BC4_UNORM_BLOCK,
                                            &format_properties);
@@ -118,7 +118,7 @@ index 58de055..38de4a2 100644
      host_format_dxt5a.format_unsigned.load_shader = kLoadShaderIndexDXT5AToR8;
      host_format_dxt5a.format_unsigned.format = VK_FORMAT_R8_UNORM;
 diff --git a/src/ui/vulkan/vulkan_device.cpp b/src/ui/vulkan/vulkan_device.cpp
-index 8197bb4..6a5c853 100644
+index 8197bb4610dcc3e53946a84864e4b936af21d0f0..6a5c853d041c9118fd9ef15fdd1f3d6ca0bb80cf 100644
 --- a/src/ui/vulkan/vulkan_device.cpp
 +++ b/src/ui/vulkan/vulkan_device.cpp
 @@ -41,6 +41,18 @@ REXCVAR_DEFINE_BOOL(vulkan_require_fill_mode_non_solid, !REX_PLATFORM_MAC, "UI/V
@@ -212,10 +212,10 @@ index 8197bb4..6a5c853 100644
          if (!*requested_extension_it->second) {
            enabled_extensions.emplace_back(requested_extension_it->first.c_str());
 diff --git a/src/ui/vulkan/vulkan_presenter.cpp b/src/ui/vulkan/vulkan_presenter.cpp
-index 47c388f..a42a91b 100644
+index 887e0647f878ac8fcf212d54528f8f4d459bf6c2..0af97aabb534dfd8dd086819d24dbc0a0822bca7 100644
 --- a/src/ui/vulkan/vulkan_presenter.cpp
 +++ b/src/ui/vulkan/vulkan_presenter.cpp
-@@ -1899,6 +1899,13 @@ Presenter::PaintResult VulkanPresenter::PaintAndPresentImpl(bool execute_ui_draw
+@@ -1867,6 +1867,13 @@ Presenter::PaintResult VulkanPresenter::PaintAndPresentImpl(bool execute_ui_draw
                  swapchain_effect, paint_context_.swapchain_render_pass);
              if (swapchain_effect_pipeline.swapchain_pipeline == VK_NULL_HANDLE) {
                guest_output_flow.effect_count = 0;

@@ -1,5 +1,5 @@
 diff --git a/include/rex/graphics/vulkan/command_processor.h b/include/rex/graphics/vulkan/command_processor.h
-index fcb282a..8ea3b09 100644
+index 617602d8e2e99dc25e5c8501fa817f844fd3575a..b88c26d4a9ed0c65a55304ec57729646a51902e6 100644
 --- a/include/rex/graphics/vulkan/command_processor.h
 +++ b/include/rex/graphics/vulkan/command_processor.h
 @@ -210,6 +210,10 @@ class VulkanCommandProcessor : public CommandProcessor {
@@ -14,7 +14,7 @@ index fcb282a..8ea3b09 100644
      return in_render_pass_ ? render_pass_begin_position_ : SIZE_MAX;
    }
 diff --git a/include/rex/graphics/vulkan/dbz3_capture.h b/include/rex/graphics/vulkan/dbz3_capture.h
-index aefae74..95edea0 100644
+index aefae7410c6d975996050953a3c2627e484e0349..95edea01020aed10852a88e38b07cd8fc49e4c66 100644
 --- a/include/rex/graphics/vulkan/dbz3_capture.h
 +++ b/include/rex/graphics/vulkan/dbz3_capture.h
 @@ -59,6 +59,7 @@ struct State {
@@ -34,7 +34,7 @@ index aefae74..95edea0 100644
    if (!st.file) {
      REXLOG_WARN("dbz3: captura: nao consegui criar {}", path);
 diff --git a/src/graphics/pipeline/render_target/cache.cpp b/src/graphics/pipeline/render_target/cache.cpp
-index a68f79e..2ea8140 100644
+index e496b42b90ac4fcc103f77941e4c43673f40ffa3..f2ef9477d6630913a3c753b6eb9703e72fda53dc 100644
 --- a/src/graphics/pipeline/render_target/cache.cpp
 +++ b/src/graphics/pipeline/render_target/cache.cpp
 @@ -51,7 +51,7 @@ REXCVAR_DEFINE_STRING(dbz3_rt_restore_shaders, "6E57A6E305D5D69B,ADCA7FBBCBF53B5
@@ -47,10 +47,10 @@ index a68f79e..2ea8140 100644
                      "resolves que so serviam para eles")
      .lifecycle(rex::cvar::Lifecycle::kHotReload);
 diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
-index 65e2287..b17d5a5 100644
+index 39dc58eb322a3c39b15a4617294a5b4b201490d3..cb5256ebda2b2766f02f0b09b9b21fa872b438ac 100644
 --- a/src/graphics/vulkan/command_processor.cpp
 +++ b/src/graphics/vulkan/command_processor.cpp
-@@ -2553,6 +2553,26 @@ std::string TakeWindowSummary() {
+@@ -2551,6 +2551,26 @@ std::string TakeWindowSummary() {
  }
  }  // namespace dbz3_gputime
  
@@ -77,7 +77,7 @@ index 65e2287..b17d5a5 100644
  // DBZ3 (v1.4.1): la misma telemetria que en D3D12 para Vulkan (y por tanto Linux): fps
  // del guest cada 5 s con `dbz3_perf_logging`, y lineas `tiron` (frames de mas de 50 ms,
  // siempre, maximo 30 por sesion) con la espera del command processor al guest.
-@@ -2642,8 +2662,22 @@ void VulkanCommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontb
+@@ -2640,8 +2660,22 @@ void VulkanCommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontb
    Dbz3LogGuestPerformanceVulkan();
    SCOPE_profile_cpu_f("gpu");
    if (!dbz3_frameskip::g_skip_frame) {
@@ -100,7 +100,7 @@ index 65e2287..b17d5a5 100644
      if (render_target_cache_) {
        render_target_cache_->Dbz3ElisionFrameEnd();
      }
-@@ -4030,6 +4064,118 @@ Shader* VulkanCommandProcessor::LoadShader(xenos::ShaderType shader_type, uint32
+@@ -4028,6 +4062,118 @@ Shader* VulkanCommandProcessor::LoadShader(xenos::ShaderType shader_type, uint32
    return pipeline_cache_->LoadShader(shader_type, host_address, dword_count);
  }
  
@@ -219,7 +219,7 @@ index 65e2287..b17d5a5 100644
  bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t index_count,
                                         IndexBufferInfo* index_buffer_info,
                                         bool major_mode_explicit) {
-@@ -4044,6 +4190,7 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+@@ -4042,6 +4188,7 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
    const RegisterFile& regs = *register_file_;
    (void)index_buffer_info;
    if (dbz3_capture::Active()) {
@@ -228,7 +228,7 @@ index 65e2287..b17d5a5 100644
                           index_buffer_info ? index_buffer_info->format : xenos::IndexFormat::kInt16,
                           index_buffer_info ? index_buffer_info->endianness : xenos::Endian::kNone,
 diff --git a/src/graphics/vulkan/shared_memory.cpp b/src/graphics/vulkan/shared_memory.cpp
-index 09eff19..74befed 100644
+index 09eff19acaf8222e133070eff254acf88070a60b..74befed8a87c3bfedc52ada5c2fea2a633d25dee 100644
 --- a/src/graphics/vulkan/shared_memory.cpp
 +++ b/src/graphics/vulkan/shared_memory.cpp
 @@ -27,7 +27,7 @@ REXCVAR_DEFINE_BOOL(vulkan_sparse_shared_memory, true, "GPU/Vulkan",

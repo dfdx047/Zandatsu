@@ -1,0 +1,133 @@
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 982f00ba31bc14a7a38e90ea7ce9419ab6622d31..a10db657bb8c90bee6d3d085ba4ff13071dd834a 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -181,9 +181,26 @@ extern bool g_dirty;
+ extern bool g_skip_next_resolve;
+ extern uint64_t g_null_draws;
+ void MarkRead(uint32_t address);
++void MarkSkippedRead(uint32_t address);
+ void LogFrame();
+ }  // namespace dbz3_resolve_dedupe
+ 
++namespace {
++// Passo 3: as texturas que um draw (feito ou saltado) amostra.
++template <typename F>
++void Dbz3ForEachSampled(const RegisterFile& regs, Shader* vs, Shader* ps, F&& f) {
++  for (Shader* shader : {vs, ps}) {
++    if (!shader) continue;
++    for (const Shader::TextureBinding& binding : shader->texture_bindings()) {
++      const xenos::xe_gpu_texture_fetch_t fetch = regs.GetTextureFetch(binding.fetch_constant);
++      if (fetch.type == xenos::FetchConstantType::kTexture) {
++        f((uint32_t(fetch.base_address) << 12) & 0x1FFFFFFF);
++      }
++    }
++  }
++}
++}  // namespace
++
+ // Dragon Burst: render nativo, passo 2 (definido em render_target_cache.cpp).
+ namespace dbz3_native_ld {
+ extern bool g_pending;
+@@ -4433,6 +4450,9 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+         pixel_shader_draw_override =
+             rex::graphics::FindPixelShaderDrawOverride(pixel_shader->ucode_data_hash());
+         if (pixel_shader_draw_override && pixel_shader_draw_override->skip) {
++          // Passo 3: leitor saltado (o destino que so ele le pode deixar de ser resolvido).
++          Dbz3ForEachSampled(regs, vertex_shader, pixel_shader,
++                             [](uint32_t a) { dbz3_resolve_dedupe::MarkSkippedRead(a); });
+           DBZ3_DRAW_RET(true);
+         }
+       }
+@@ -4517,6 +4537,8 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+         dbz3_native_ld::g_pitch_tiles = ld_pitch_tiles;
+         dbz3_native_ld::g_a = ld_c255[0];
+         dbz3_native_ld::g_b = ld_c255[1];
++        Dbz3ForEachSampled(regs, vertex_shader, pixel_shader,
++                           [](uint32_t a) { dbz3_resolve_dedupe::MarkSkippedRead(a); });
+         DBZ3_DRAW_RET(true);
+       }
+       // Ainda nao: o draw segue normal e o resolve seguinte ensina o destino.
+@@ -5298,15 +5320,8 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+ 
+   // Passo 3: o draw foi feito - o render target mudou e as texturas que leu foram lidas.
+   dbz3_resolve_dedupe::g_dirty = true;
+-  for (Shader* dedupe_shader : {static_cast<Shader*>(vertex_shader), static_cast<Shader*>(pixel_shader)}) {
+-    if (!dedupe_shader) continue;
+-    for (const Shader::TextureBinding& binding : dedupe_shader->texture_bindings()) {
+-      const xenos::xe_gpu_texture_fetch_t fetch = regs.GetTextureFetch(binding.fetch_constant);
+-      if (fetch.type == xenos::FetchConstantType::kTexture) {
+-        dbz3_resolve_dedupe::MarkRead((uint32_t(fetch.base_address) << 12) & 0x1FFFFFFF);
+-      }
+-    }
+-  }
++  Dbz3ForEachSampled(regs, vertex_shader, pixel_shader,
++                     [](uint32_t a) { dbz3_resolve_dedupe::MarkRead(a); });
+   DBZ3_DRAW_RET(true);
+ }
+ 
+diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
+index aefdbac88b736343057553dde8329043aec6b10c..a61b650359dca5acfd321b6bf0280418a25732bd 100644
+--- a/src/graphics/vulkan/render_target_cache.cpp
++++ b/src/graphics/vulkan/render_target_cache.cpp
+@@ -7276,11 +7276,12 @@ bool VulkanRenderTargetCache::Dbz3NativeLinearDepthResolve(
+ // 1) Repetido: sem draws desde o ultimo resolve e com os mesmos parametros, o render
+ //    target tem o mesmo conteudo - se o destino ja o recebeu, nao ha nada a copiar (o BL
+ //    resolve a mesma imagem duas vezes quando o desfoque esta desligado).
+-// 2) Sem leitor: um destino cujas escritas ninguem le antes da escrita seguinte (nenhum
+-//    draw feito o amostra, nem o presenter) durante 120 escritas seguidas deixa de ser
+-//    resolvido. Se um draw o voltar a ler, volta a ser resolvido (e esse frame usa o
+-//    conteudo antigo). Com os efeitos desligados o BL tem varios: os passes saltados pelos
+-//    draw overrides eram os unicos leitores.
++// 2) Sem leitor: um destino cujas escritas so sao lidas por draws saltados (draw overrides
++//    dos efeitos desligados, o quad da profundidade linear do passo 2) durante 120 escritas
++//    seguidas deixa de ser resolvido. Escritas sem leitor nenhum nao contam (ex.: o brilho
++//    entre rounds, quando a composicao nao corre - os logs de 16/10 07:32 mostraram que
++//    "nenhum leitor" sozinho apanhava destinos que voltam a ser lidos). Se um draw feito o
++//    voltar a ler, volta a ser resolvido (esse frame usa o conteudo antigo).
+ // ---------------------------------------------------------------------------
+ namespace dbz3_resolve_dedupe {
+ bool g_dirty = true;
+@@ -7299,6 +7300,7 @@ struct Entry {
+   uint32_t streak = 0;
+   bool written = false;
+   bool read = false;
++  bool skipped_read = false;
+   bool dead = false;
+ };
+ std::vector<Entry> g_entries;
+@@ -7321,6 +7323,12 @@ void MarkRead(uint32_t address) {
+   }
+ }
+ 
++void MarkSkippedRead(uint32_t address) {
++  for (Entry& e : g_entries) {
++    if (address >= e.start && address < e.start + e.length) e.skipped_read = true;
++  }
++}
++
+ void LogFrame() {
+   if ((++g_frames % 3000) == 1) {
+     uint32_t dead = 0;
+@@ -7360,8 +7368,12 @@ bool Resolve(const draw_util::ResolveInfo& ri, bool may_skip) {
+   }
+   e->length = std::max(e->length, length);
+   if (e->written) {
+-    if (e->read) {
++    if (e->read || !e->skipped_read) {
+       e->streak = 0;
++      if (e->dead && !e->read) {
++        // Sem leitor nenhum desta vez: fica como esta (nao conta para nenhum lado).
++        e->streak = kDeadStreak;
++      }
+     } else if (++e->streak >= kDeadStreak && !e->dead) {
+       e->dead = true;
+       REXGPU_INFO("dbz3: resolves: {:08X} ({} KB) sem leitor ha {} escritas, deixa de ser resolvido",
+@@ -7370,6 +7382,7 @@ bool Resolve(const draw_util::ResolveInfo& ri, bool may_skip) {
+   }
+   e->written = true;
+   e->read = false;
++  e->skipped_read = false;
+   // Quem tem agora o conteudo do render target (para o caso 1).
+   if (!same_content) {
+     g_holders.clear();

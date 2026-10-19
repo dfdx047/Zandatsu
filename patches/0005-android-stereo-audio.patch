@@ -1,6 +1,8 @@
+diff --git a/src/audio/sdl/sdl_audio_driver.cpp b/src/audio/sdl/sdl_audio_driver.cpp
+index 20a2cd8490e80653a50f1590e447eb3c536cdf30..f803e03d2b7258bfc9651135c052ca55231b77bd 100644
 --- a/src/audio/sdl/sdl_audio_driver.cpp
 +++ b/src/audio/sdl/sdl_audio_driver.cpp
-@@ -87,7 +87,11 @@
+@@ -75,7 +75,11 @@ bool SDLAudioDriver::Initialize() {
  
    // A 1-channel device gets the stereo fold too, then SDL collapses to mono.
    // Handing it a 6ch stream instead would use SDL's own downmix.

@@ -1,0 +1,22 @@
+diff --git a/src/graphics/pipeline/render_target/cache.cpp b/src/graphics/pipeline/render_target/cache.cpp
+index 862e5abffa17400dcbec0c6e240a7de3d1b352a6..b1c840c35e6df8e6523d9a64b62aa96089bb24a9 100644
+--- a/src/graphics/pipeline/render_target/cache.cpp
++++ b/src/graphics/pipeline/render_target/cache.cpp
+@@ -94,13 +94,15 @@ REXCVAR_DEFINE_BOOL(dbz3_rt_keep_dc, true, "GPU",
+ // 0078: dos pares profundidade -> cor (todos ligados por omissao), qual faz falta ao desfoque?
+ // O autoteste desliga um de cada vez; os que nao mudarem a imagem podem ficar desligados (cada
+ // um e uma transferencia de ecra inteiro: ~8 ms no Mali os tres).
+-REXCVAR_DEFINE_BOOL(dbz3_rt_dc_base0_to_pitch13, true, "GPU",
++// 0079: desligado - o autoteste de 17/10 00:42 (RP5) so muda a imagem sem o par D@0 -> C pitch 16.
++REXCVAR_DEFINE_BOOL(dbz3_rt_dc_base0_to_pitch13, false, "GPU",
+                     "Dragon Burst: transferencia D@0 -> C@0 pitch 13 (1040)")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ REXCVAR_DEFINE_BOOL(dbz3_rt_dc_base0_to_pitch16, true, "GPU",
+                     "Dragon Burst: transferencia D@0 -> C@0 pitch 16 (1280)")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+-REXCVAR_DEFINE_BOOL(dbz3_rt_dc_other, true, "GPU",
++// 0079: desligado - o autoteste de 17/10 00:42 (RP5) so muda a imagem sem o par D@0 -> C pitch 16.
++REXCVAR_DEFINE_BOOL(dbz3_rt_dc_other, false, "GPU",
+                     "Dragon Burst: as outras transferencias profundidade -> cor (ex. D@720)")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ REXCVAR_DEFINE_BOOL(dbz3_rt_keep_cc, false, "GPU",

@@ -1,0 +1,150 @@
+diff --git a/include/rex/graphics/command_processor.h b/include/rex/graphics/command_processor.h
+index da8e4324702a7df4bc6d04f9ec01f3df0c57318d..28f21021783b4b6a106f7e59ef4ba14ba25bb391 100644
+--- a/include/rex/graphics/command_processor.h
++++ b/include/rex/graphics/command_processor.h
+@@ -36,6 +36,10 @@ class ByteStream;
+ 
+ namespace rex::graphics {
+ 
++// DBZ3 (v1.4.1): tiempo total (us) del command processor dormido en WAIT_REG_MEM.
++// Dragon Burst: lo lee la linea `perf` del backend Vulkan (Android).
++extern std::atomic<uint64_t> g_dbz3_regmem_wait_us;
++
+ class GraphicsSystem;
+ class Shader;
+ 
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+index 4e5827dd1316e35cb509389751c99f048b12ca1a..b5a1ac17f14c85081b09ac9366446a406cc1dc95 100644
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -10,6 +10,8 @@
+  */
+ 
+ #include <algorithm>
++#include <atomic>
++#include <chrono>
+ #include <cinttypes>
+ #include <cmath>
+ #include <cstring>
+@@ -85,6 +87,10 @@ REXCVAR_DEFINE_BOOL(async_shader_compilation, true, "GPU",
+ 
+ namespace rex::graphics {
+ 
++// DBZ3 (v1.4.1): microssegundos que o command processor passa a dormir em WAIT_REG_MEM
++// (a espera de que o guest escreva um registo/memoria). Lido pela linha `perf`.
++std::atomic<uint64_t> g_dbz3_regmem_wait_us{0};
++
+ using namespace rex::graphics::xenos;
+ 
+ namespace {
+@@ -1037,6 +1043,7 @@ bool CommandProcessor::ExecutePacketType3_WAIT_REG_MEM(memory::RingBuffer* reade
+     if (!matched) {
+       // Wait.
+       if (wait >= 0x100) {
++        const auto dbz3_wait_start = std::chrono::steady_clock::now();
+         PrepareForWait();
+         if (!REXCVAR_GET(vsync)) {
+           // User wants it fast and dangerous.
+@@ -1046,6 +1053,11 @@ bool CommandProcessor::ExecutePacketType3_WAIT_REG_MEM(memory::RingBuffer* reade
+         }
+         rex::thread::SyncMemory();
+         ReturnFromWait();
++        g_dbz3_regmem_wait_us.fetch_add(
++            uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(
++                         std::chrono::steady_clock::now() - dbz3_wait_start)
++                         .count()),
++            std::memory_order_relaxed);
+ 
+         if (!worker_running_) {
+           // Short-circuited exit.
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 001f36b9824fa575468fe96615020cd3a9ab1a76..eab44619e00703214131187d79e4a6e38037ddfe 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -23,6 +23,8 @@
+ 
+ #include <SPIRV/GlslangToSpv.h>
+ #include <glslang/Public/ShaderLang.h>
++#include <chrono>
++#include <atomic>
+ #include <rex/assert.h>
+ #include <rex/cvar.h>
+ #include <rex/dbg.h>
+@@ -2269,8 +2271,56 @@ void VulkanCommandProcessor::OnGammaRampPWLValueWritten() {
+   gamma_ramp_pwl_current_frame_ = UINT32_MAX;
+ }
+ 
++// DBZ3 (v1.4.1): la misma telemetria que en D3D12 para Vulkan (y por tanto Linux): fps
++// del guest cada 5 s con `dbz3_perf_logging`, y lineas `tiron` (frames de mas de 50 ms,
++// siempre, maximo 30 por sesion) con la espera del command processor al guest.
++static void Dbz3LogGuestPerformanceVulkan() {
++  static std::chrono::steady_clock::time_point window_start;
++  static std::chrono::steady_clock::time_point last_frame;
++  static uint32_t frames_in_window = 0;
++  static double max_frame_ms = 0.0;
++  static uint64_t cp_last_window = 0, cp_last_frame = 0;
++  static uint32_t hitches_logged = 0;
++  const auto now = std::chrono::steady_clock::now();
++  const uint64_t cp_now = rex::graphics::g_dbz3_regmem_wait_us.load(std::memory_order_relaxed);
++  if (last_frame.time_since_epoch().count() != 0) {
++    const double frame_ms = std::chrono::duration<double, std::milli>(now - last_frame).count();
++    max_frame_ms = std::max(max_frame_ms, frame_ms);
++    if (frame_ms > 50.0 && hitches_logged < 30) {
++      ++hitches_logged;
++      REXGPU_INFO("dbz3: tiron {:.0f} ms (vulkan cp_wait {:.1f} ms)", frame_ms,
++                  double(cp_now - cp_last_frame) / 1000.0);
++    }
++  }
++  cp_last_frame = cp_now;
++  last_frame = now;
++  if (window_start.time_since_epoch().count() == 0) {
++    window_start = now;
++    cp_last_window = cp_now;
++    return;
++  }
++  ++frames_in_window;
++  const double elapsed_s = std::chrono::duration<double>(now - window_start).count();
++  if (elapsed_s < 5.0) return;
++  if (rex::cvar::GetFlagByName("dbz3_perf_logging") == "true") {
++    REXGPU_INFO(
++        "dbz3: perf fps={:.1f} frames={} window={:.2f}s max_frame_ms={:.1f} backend=vulkan "
++        "cfg=scale:{}x{} msaa:{} cp_wait={:.1f}ms/f",
++        double(frames_in_window) / elapsed_s, frames_in_window, elapsed_s, max_frame_ms,
++        rex::cvar::GetFlagByName("draw_resolution_scale_x"),
++        rex::cvar::GetFlagByName("draw_resolution_scale_y"),
++        rex::cvar::GetFlagByName("native_2x_msaa"),
++        double(cp_now - cp_last_window) / 1000.0 / double(frames_in_window ? frames_in_window : 1));
++  }
++  cp_last_window = cp_now;
++  window_start = now;
++  frames_in_window = 0;
++  max_frame_ms = 0.0;
++}
++
+ void VulkanCommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontbuffer_width,
+                                        uint32_t frontbuffer_height) {
++  Dbz3LogGuestPerformanceVulkan();
+   SCOPE_profile_cpu_f("gpu");
+   vertex_buffers_in_sync_[0] = 0;
+   vertex_buffers_in_sync_[1] = 0;
+diff --git a/src/ui/vulkan/vulkan_presenter.cpp b/src/ui/vulkan/vulkan_presenter.cpp
+index 23645effaa5b659471aae7375b3b0fd48f41c35e..4b1112fabc600616f52b361320facc1b9b1f7a0e 100644
+--- a/src/ui/vulkan/vulkan_presenter.cpp
++++ b/src/ui/vulkan/vulkan_presenter.cpp
+@@ -49,10 +49,14 @@
+ REXCVAR_DEFINE_BOOL(present_render_pass_clear, true, "UI/Presenter",
+                     "Clear render pass during presentation");
+ 
+-REXCVAR_DEFINE_BOOL(vulkan_allow_present_mode_immediate, true, "UI/Vulkan",
++// REXGLUE_DBZ3_VULKAN_PRESENT_FIX
++// Keep FIFO as the safe default on composited Linux desktops. Immediate and
++// mailbox can create an unbounded present loop, which is especially expensive
++// when MangoHud or Steam hooks every vkQueuePresentKHR call.
++REXCVAR_DEFINE_BOOL(vulkan_allow_present_mode_immediate, false, "UI/Vulkan",
+                     "Allow immediate present mode (no vsync)");
+ 
+-REXCVAR_DEFINE_BOOL(vulkan_allow_present_mode_mailbox, true, "UI/Vulkan",
++REXCVAR_DEFINE_BOOL(vulkan_allow_present_mode_mailbox, false, "UI/Vulkan",
+                     "Allow mailbox present mode (triple buffering)");
+ 
+ REXCVAR_DEFINE_BOOL(vulkan_allow_present_mode_fifo_relaxed, true, "UI/Vulkan",

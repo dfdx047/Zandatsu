@@ -1,0 +1,199 @@
+diff --git a/src/core/threading_posix.cpp b/src/core/threading_posix.cpp
+index e95e78ceea23bf893b48d9ea7b91c7ec0887869a..1d0234864b620db01c7de941366d926cf4abef81 100644
+--- a/src/core/threading_posix.cpp
++++ b/src/core/threading_posix.cpp
+@@ -312,9 +312,26 @@ class PosixConditionBase {
+     state.cv.notify_all();
+   }
+ 
+-  WaitResult Wait(std::chrono::milliseconds timeout) {
++  // Dragon Burst (0054): espera "registada". Um PulseEvent so acorda quem ja esta a
++  // espera; no Windows o SignalObjectAndWait solta o mutex e comeca a esperar num so
++  // passo, por isso um pulso nunca cai no meio. Aqui o SignalAndWait regista-se no
++  // objeto da espera ANTES de sinalizar o outro (BeginWait), e o pulso acorda todos
++  // os registados (ver PosixCondition<Event>::Pulse). Sem isto o Burst Limit encrava
++  // no arranque: mutex + evento como variavel de condicao, acordados por pulso.
++  uint64_t BeginWait() {
++    std::lock_guard<std::mutex> lock(mutex_);
++    ++waiters_;
++    return pulse_gen_;
++  }
++
++  void EndWait() {
++    std::lock_guard<std::mutex> lock(mutex_);
++    --waiters_;
++  }
++
++  WaitResult WaitRegistered(uint64_t ticket, std::chrono::milliseconds timeout) {
+     bool executed;
+-    auto predicate = [this] { return this->signaled(); };
++    auto predicate = [this, ticket] { return this->TryAcquire(ticket); };
+ #if REX_PLATFORM_LINUX && !REX_PLATFORM_ANDROID
+     auto native_mutex = static_cast<pthread_mutex_t*>(mutex_.native_handle());
+     int lock_result = pthread_mutex_lock(native_mutex);
+@@ -337,12 +354,14 @@ class PosixConditionBase {
+         executed = cond_.wait_for(lock, timeout, predicate);
+       }
+     }
+-    if (executed) {
+-      post_execution();
+-      return WaitResult::kSuccess;
+-    } else {
+-      return WaitResult::kTimeout;
+-    }
++    return executed ? WaitResult::kSuccess : WaitResult::kTimeout;
++  }
++
++  WaitResult Wait(std::chrono::milliseconds timeout) {
++    const uint64_t ticket = BeginWait();
++    const WaitResult result = WaitRegistered(ticket, timeout);
++    EndWait();
++    return result;
+   }
+ 
+   static std::pair<WaitResult, size_t> WaitMultiple(std::vector<PosixConditionBase*>&& handles,
+@@ -494,6 +513,19 @@ class PosixConditionBase {
+  protected:
+   inline virtual bool signaled() const = 0;
+   inline virtual void post_execution() = 0;
++  // Com mutex_ trancado: true se esta espera pode acabar agora (e consome o sinal).
++  // `ticket`: o pulse_gen_ quando a espera se registou (so os eventos o usam).
++  virtual bool TryAcquire(uint64_t ticket) {
++    (void)ticket;
++    if (!signaled()) {
++      return false;
++    }
++    post_execution();
++    return true;
++  }
++  // Esperas registadas (BeginWait/EndWait) e pulsos dados (0054); sob mutex_.
++  uint32_t waiters_ = 0;
++  uint64_t pulse_gen_ = 0;
+   // Quantos WaitMultiple estao a espera deste objeto (DBZ3-Android, 0011).
+   std::atomic<uint32_t> multi_waiters_{0};
+   std::condition_variable cond_;
+@@ -527,6 +559,23 @@ class PosixCondition<Event> : public PosixConditionBase {
+     signal_ = false;
+   }
+ 
++  // PulseEvent: acorda quem esta a espera NESTE momento (todos num evento manual,
++  // um num automatico) e deixa o evento como estava. Retorna se havia alguem.
++  bool Pulse() {
++    auto lock = std::unique_lock<std::mutex>(mutex_);
++    if (waiters_ == 0) {
++      return false;
++    }
++    ++pulse_gen_;
++    if (!manual_reset_) {
++      ++pulse_credit_;
++    }
++    cond_.notify_all();
++    return true;
++  }
++
++  bool has_multi_waiters() const { return multi_waiters_.load(std::memory_order_seq_cst) != 0; }
++
+  private:
+   inline bool signaled() const override { return signal_; }
+   inline void post_execution() override {
+@@ -534,8 +583,26 @@ class PosixCondition<Event> : public PosixConditionBase {
+       signal_ = false;
+     }
+   }
++  bool TryAcquire(uint64_t ticket) override {
++    if (signal_) {
++      post_execution();
++      return true;
++    }
++    // Registada antes de um pulso: esse pulso e para ela.
++    if (ticket != pulse_gen_) {
++      if (manual_reset_) {
++        return true;
++      }
++      if (pulse_credit_ > 0) {
++        --pulse_credit_;
++        return true;
++      }
++    }
++    return false;
++  }
+   bool signal_;
+   const bool manual_reset_;
++  uint32_t pulse_credit_ = 0;  // eventos automaticos: pulsos ainda por entregar
+ };
+ 
+ template <>
+@@ -1240,6 +1307,13 @@ WaitResult Wait(WaitHandle* wait_handle, bool is_alertable, std::chrono::millise
+   ScopedAlertableState alertable_state_guard(true);
+   auto deadline = ComputeAlertableDeadline(timeout);
+ 
++  // Uma so espera registada durante todos os pedacos (0054).
++  auto& condition = posix_wait_handle->condition();
++  const uint64_t ticket = condition.BeginWait();
++  struct EndWaitGuard {
++    PosixConditionBase& c;
++    ~EndWaitGuard() { c.EndWait(); }
++  } end_wait{condition};
+   while (true) {
+     if (DispatchCurrentThreadUserCallback()) {
+       return WaitResult::kUserCallback;
+@@ -1247,7 +1321,7 @@ WaitResult Wait(WaitHandle* wait_handle, bool is_alertable, std::chrono::millise
+     if (HasAlertableTimeoutElapsed(deadline)) {
+       return WaitResult::kTimeout;
+     }
+-    auto result = posix_wait_handle->condition().Wait(ComputeAlertableWaitTimeout(deadline));
++    auto result = condition.WaitRegistered(ticket, ComputeAlertableWaitTimeout(deadline));
+     if (result != WaitResult::kTimeout) {
+       return result;
+     }
+@@ -1262,12 +1336,20 @@ WaitResult SignalAndWait(WaitHandle* wait_handle_to_signal, WaitHandle* wait_han
+   if (posix_wait_handle_to_signal == nullptr || posix_wait_handle_to_wait_on == nullptr) {
+     return WaitResult::kFailed;
+   }
++  // Ja conta como a espera antes de soltar o outro objeto (0054): um PulseEvent
++  // entre o sinal e a espera e para esta thread, como no SignalObjectAndWait.
++  auto& wait_condition = posix_wait_handle_to_wait_on->condition();
++  const uint64_t ticket = wait_condition.BeginWait();
++  struct EndWaitGuard {
++    PosixConditionBase& c;
++    ~EndWaitGuard() { c.EndWait(); }
++  } end_wait{wait_condition};
+   if (!posix_wait_handle_to_signal->condition().Signal()) {
+     return WaitResult::kFailed;
+   }
+ 
+   if (!is_alertable) {
+-    return posix_wait_handle_to_wait_on->condition().Wait(timeout);
++    return wait_condition.WaitRegistered(ticket, timeout);
+   }
+ 
+   ScopedAlertableState alertable_state_guard(true);
+@@ -1279,7 +1361,7 @@ WaitResult SignalAndWait(WaitHandle* wait_handle_to_signal, WaitHandle* wait_han
+     if (HasAlertableTimeoutElapsed(deadline)) {
+       return WaitResult::kTimeout;
+     }
+-    result = posix_wait_handle_to_wait_on->condition().Wait(ComputeAlertableWaitTimeout(deadline));
++    result = wait_condition.WaitRegistered(ticket, ComputeAlertableWaitTimeout(deadline));
+     if (result != WaitResult::kTimeout) {
+       return result;
+     }
+@@ -1328,10 +1410,15 @@ class PosixEvent : public PosixConditionHandle<Event> {
+   void Reset() override { handle_.Reset(); }
+   void Pulse() override {
+     using namespace std::chrono_literals;
+-    handle_.Signal();
+-    MaybeYield();
+-    Sleep(10us);
+-    handle_.Reset();
++    // Esperas simples e SignalAndWait (registadas): exatas (0054).
++    handle_.Pulse();
++    // WaitMultiple nao se regista: para esses fica o comportamento antigo.
++    if (handle_.has_multi_waiters()) {
++      handle_.Signal();
++      MaybeYield();
++      Sleep(10us);
++      handle_.Reset();
++    }
+   }
+ };
+ 

@@ -1,0 +1,560 @@
+diff --git a/include/rex/graphics/pipeline/shader/spirv_translator.h b/include/rex/graphics/pipeline/shader/spirv_translator.h
+index 89e1623cf567b6c413fcad90c7d59cde9c73e584..471e86e594a30fa09e956e78fcd5007a691e7387 100644
+--- a/include/rex/graphics/pipeline/shader/spirv_translator.h
++++ b/include/rex/graphics/pipeline/shader/spirv_translator.h
+@@ -394,6 +394,12 @@ class SpirvShaderTranslator : public ShaderTranslator {
+   void Dbz3SetImplicitLod(bool enabled) { dbz3_implicit_lod_ = enabled; }
+   // Dragon Burst (diagnostico): ignora o LOD bias do fetch constant (bits 12:21 da word 4).
+   void Dbz3SetIgnoreFetchLodBias(bool enabled) { dbz3_ignore_fetch_lod_bias_ = enabled; }
++  // Rendering below 1x (draw_resolution_percent of the render target cache, as
++  // DxbcShaderTranslator::SetDrawResolutionPercent): host pixel positions are
++  // that percent of the guest ones. Before translating any shader.
++  void SetDrawResolutionPercent(uint32_t percent) {
++    draw_resolution_percent_ = (percent && percent < 100) ? percent : 100;
++  }
+ 
+   struct Features {
+     explicit Features(const ui::vulkan::VulkanDevice* vulkan_device);
+@@ -995,6 +1001,7 @@ class SpirvShaderTranslator : public ShaderTranslator {
+   bool dbz3_spec_texture_signs_ = false;
+   bool dbz3_implicit_lod_ = false;
+   bool dbz3_ignore_fetch_lod_bias_ = false;
++  uint32_t draw_resolution_percent_ = 100;
+   spv::Id dbz3_texture_signs_spec_[32];
+   spv::Id Dbz3TextureSignsSpecConstant(uint32_t fetch_constant_index);
+   // float3.
+diff --git a/include/rex/graphics/vulkan/render_target_cache.h b/include/rex/graphics/vulkan/render_target_cache.h
+index dd56fb6874a55c31bffa5b5f0a014e15c8a110e2..9796b04e711cf8037a9e82c18a30dd4cc5dea461 100644
+--- a/include/rex/graphics/vulkan/render_target_cache.h
++++ b/include/rex/graphics/vulkan/render_target_cache.h
+@@ -167,6 +167,13 @@ class VulkanRenderTargetCache final : public RenderTargetCache {
+       xenos::MsaaSamples msaa_samples = xenos::MsaaSamples::k1X,
+       bool* is_integer_out = nullptr) const;
+ 
++  // Dragon Burst: os passos do render nativo que substituem passes do jogo por computes e
++  // texturas de 1280x720 (passos 2, 3b e 4, imagem final direta, atalho resolve -> textura)
++  // so correm a 1x exato: nem com escala (2x/3x) nem abaixo de 1x (draw_resolution_percent).
++  bool Dbz3NativeResolution() const {
++    return !IsDrawResolutionScaled() && !IsDrawResolutionDownscaled();
++  }
++
+   // Dragon Burst: render nativo, passo 2 - o quad da profundidade linear pode ser saltado
+   // (destino ja conhecido, texturas com imageStore, profundidade num so render target)?
+   bool Dbz3NativeLinearDepthReady(VulkanTextureCache& texture_cache, uint32_t depth_base_tiles,
+diff --git a/include/rex/graphics/vulkan/texture_cache.h b/include/rex/graphics/vulkan/texture_cache.h
+index 65d4e00a0abb14fcc9f4f85b0dc41b7f9b09ab54..ff984d03084457f7729335c51e72da83b02499bd 100644
+--- a/include/rex/graphics/vulkan/texture_cache.h
++++ b/include/rex/graphics/vulkan/texture_cache.h
+@@ -178,6 +178,7 @@ class VulkanTextureCache final : public TextureCache {
+  protected:
+   bool IsSignedVersionSeparateForFormat(TextureKey key) const override;
+   bool IsScaledResolveSupportedForFormat(TextureKey key) const override;
++  bool IsDownscaledResolveSupportedForFormat(TextureKey key) const override;
+   uint32_t GetHostFormatSwizzle(TextureKey key) const override;
+ 
+   uint32_t GetMaxHostTextureWidthHeight(xenos::DataDimension dimension) const override;
+diff --git a/src/graphics/pipeline/shader/spirv_translator.cpp b/src/graphics/pipeline/shader/spirv_translator.cpp
+index 32750e3a3c05d97338a3b231107aff3173fcb9cb..d8ec93055a3c15d2a70e4c17bba0fea74228eac2 100644
+--- a/src/graphics/pipeline/shader/spirv_translator.cpp
++++ b/src/graphics/pipeline/shader/spirv_translator.cpp
+@@ -3219,6 +3219,12 @@ void SpirvShaderTranslator::StartFragmentShaderInMain() {
+           spv::OpFMul, type_float_, param_gen_x,
+           builder_->makeFloatConstant(1.0f / float(draw_resolution_scale_x_)));
+     }
++    if (draw_resolution_percent_ < 100) {
++      // Below 1x, the guest pixel of the host one.
++      param_gen_x = builder_->createNoContractionBinOp(
++          spv::OpFMul, type_float_, param_gen_x,
++          builder_->makeFloatConstant(100.0f / float(draw_resolution_percent_)));
++    }
+     param_gen_x = builder_->createUnaryBuiltinCall(type_float_, ext_inst_glsl_std_450_,
+                                                    GLSLstd450FAbs, param_gen_x);
+     if (!modification.pixel.param_gen_point) {
+@@ -3255,6 +3261,12 @@ void SpirvShaderTranslator::StartFragmentShaderInMain() {
+           spv::OpFMul, type_float_, param_gen_y,
+           builder_->makeFloatConstant(1.0f / float(draw_resolution_scale_y_)));
+     }
++    if (draw_resolution_percent_ < 100) {
++      // Below 1x, the guest pixel of the host one.
++      param_gen_y = builder_->createNoContractionBinOp(
++          spv::OpFMul, type_float_, param_gen_y,
++          builder_->makeFloatConstant(100.0f / float(draw_resolution_percent_)));
++    }
+     param_gen_y = builder_->createUnaryBuiltinCall(type_float_, ext_inst_glsl_std_450_,
+                                                    GLSLstd450FAbs, param_gen_y);
+     if (modification.pixel.param_gen_point) {
+diff --git a/src/graphics/pipeline/texture/cache.cpp b/src/graphics/pipeline/texture/cache.cpp
+index c61be0b29cd93e804bdf6fb193f86d8ac7f44508..19182f4c84f24ceeb4cc9830a18fe1063488f1a7 100644
+--- a/src/graphics/pipeline/texture/cache.cpp
++++ b/src/graphics/pipeline/texture/cache.cpp
+@@ -107,7 +107,7 @@ REXCVAR_DEFINE_INT32(resolution_scale, 1, "GPU",
+                      "draw_resolution_scale_x and draw_resolution_scale_y)")
+     .range(1, 8);
+ 
+-// Applies live on D3D12 like the scale (Vulkan ignores it).
++// Applies live on D3D12 like the scale; on Vulkan, at startup (the caches are made once).
+ REXCVAR_DEFINE_INT32(draw_resolution_percent, 100, "GPU",
+                      "Render below 1x, for slow GPUs: with a draw resolution scale of 1, the game "
+                      "renders at this percent of its resolution (100 = 1280x720, 75 = 960x540, "
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index d425d5fa0588ad6c9564aaefe6f173349e34ab7f..0a55e97624a94d80390985930408dafff47ed59d 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -156,6 +156,7 @@ REXCVAR_DEFINE_BOOL(dbz3_clear_to_1x, true, "GPU",
+ REXCVAR_DEFINE_BOOL(dbz3_skip_msaa_prepass, false, "GPU",
+                     "DBZ3-Android: salta o pre-passo 4x MSAA (pitch 640) do inicio do frame");
+ REXCVAR_DECLARE(bool, dbz3_rt_direct);
++REXCVAR_DECLARE(int32_t, draw_resolution_percent);
+ 
+ namespace rex::graphics::vulkan {
+ 
+@@ -1546,6 +1547,14 @@ bool VulkanCommandProcessor::SetupContext() {
+     REXGPU_ERROR("Failed to initialize the render target cache");
+     return false;
+   }
++  // Rendering below 1x (draw_resolution_percent, as on D3D12): the render targets keep their
++  // 1x size and the game is drawn into their top-left part - host pixel (x, y) stays EDRAM
++  // pixel (x, y). Fixed for the lifetime of the caches (Vulkan doesn't recreate them live), and
++  // before the pipeline cache, whose shader translator needs it.
++  const uint32_t draw_resolution_percent = TextureCache::GetConfigDrawResolutionPercent(
++      render_target_cache_->draw_resolution_scale_x(),
++      render_target_cache_->draw_resolution_scale_y());
++  render_target_cache_->SetDrawResolutionPercent(draw_resolution_percent);
+ 
+   // Shared memory and EDRAM descriptor set layout.
+   bool edram_fragment_shader_interlock =
+@@ -1603,6 +1612,37 @@ bool VulkanCommandProcessor::SetupContext() {
+     return false;
+   }
+   pipeline_cache_->Dbz3SetTextureCache(texture_cache_.get());
++  texture_cache_->SetDrawResolutionPercent(draw_resolution_percent);
++  rex::perf::SetDrawResolutionPercent(draw_resolution_percent);
++  {
++    const int32_t config_percent = REXCVAR_GET(draw_resolution_percent);
++    if (draw_resolution_percent < 100) {
++      REXGPU_INFO("Rendering below 1x: {}% ({}x{} of 1280x720)", draw_resolution_percent,
++                  TextureCache::DownscaleCeil(1280, draw_resolution_percent),
++                  TextureCache::DownscaleCeil(720, draw_resolution_percent));
++    } else if (config_percent < 100) {
++      REXGPU_WARN(
++          "draw_resolution_percent = {} ignored (only at a draw resolution scale of 1x, "
++          "without DLSS/FSR scene modes): rendering at {}x{}",
++          config_percent, 1280 * draw_resolution_scale_x, 720 * draw_resolution_scale_y);
++    }
++    REXGPU_INFO("dbz3: resolucao interna {}x{} (escala {}x{}, {}%)",
++                draw_resolution_percent < 100
++                    ? TextureCache::DownscaleCeil(1280, draw_resolution_percent)
++                    : 1280 * draw_resolution_scale_x,
++                draw_resolution_percent < 100
++                    ? TextureCache::DownscaleCeil(720, draw_resolution_percent)
++                    : 720 * draw_resolution_scale_y,
++                draw_resolution_scale_x, draw_resolution_scale_y, draw_resolution_percent);
++    if (!render_target_cache_->Dbz3NativeResolution()) {
++      REXGPU_INFO(
++          "dbz3: render nativo: fora de 1x ficam desligados a imagem final direta, a "
++          "profundidade linear (passo 2), o contorno e o brilho por compute (passo 3b), os "
++          "passes direto na textura (passo 4) e o atalho resolve -> textura; continuam os "
++          "resolves repetidos/sem leitor (passo 3), os draws nulos, o descarte do passe e os "
++          "efeitos desligaveis");
++    }
++  }
+ 
+   // Shared memory and EDRAM common bindings.
+   VkDescriptorPoolSize descriptor_pool_sizes[1];
+@@ -5078,7 +5118,10 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+   }
+   // Dragon Burst: render nativo, passo 2 - profundidade linear (ver dbz3_native_ld em
+   // render_target_cache.cpp). O quad e saltado e o resolve seguinte e feito por compute.
+-  if (pixel_shader && REXCVAR_GET(dbz3_bl_native_linear_depth) &&
++  // Fora de 1x (escala ou draw_resolution_percent) os passos que substituem passes do jogo
++  // ficam desligados (ver VulkanRenderTargetCache::Dbz3NativeResolution).
++  const bool dbz3_native_resolution = render_target_cache_->Dbz3NativeResolution();
++  if (pixel_shader && dbz3_native_resolution && REXCVAR_GET(dbz3_bl_native_linear_depth) &&
+       pixel_shader->ucode_data_hash() == UINT64_C(0xD9872B5AFB5E0BEC) &&
+       vertex_shader->ucode_data_hash() == UINT64_C(0x36FB87D39CDD870F) &&
+       prim_type == xenos::PrimitiveType::kQuadList && index_count == 4) {
+@@ -5119,7 +5162,7 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+   // dbz3_native_contour em render_target_cache.cpp). O quad e saltado e o resolve seguinte e
+   // feito por compute. Durante a leitura de volta de uma captura corre o caminho normal (a
+   // captura fica com a imagem original do passe).
+-  if (pixel_shader && REXCVAR_GET(dbz3_bl_native_contour) &&
++  if (pixel_shader && dbz3_native_resolution && REXCVAR_GET(dbz3_bl_native_contour) &&
+       pixel_shader->ucode_data_hash() == UINT64_C(0xABBFE80C449D5F12) &&
+       vertex_shader->ucode_data_hash() == UINT64_C(0x7358C5B40024B42B) &&
+       prim_type == xenos::PrimitiveType::kQuadList && index_count == 4 &&
+@@ -5143,8 +5186,8 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+   // dbz3_native_post em render_target_cache.cpp). Como o contorno: o quad e saltado e o(s)
+   // resolve(s) que o fecham sao feitos por compute; capturas com leitura de volta: normal.
+   render_target_cache_->Dbz3NativePostSeeDraw();
+-  if (pixel_shader && prim_type == xenos::PrimitiveType::kQuadList && index_count == 4 &&
+-      !dbz3_capture::WantsResolveReadback()) {
++  if (pixel_shader && dbz3_native_resolution && prim_type == xenos::PrimitiveType::kQuadList &&
++      index_count == 4 && !dbz3_capture::WantsResolveReadback()) {
+     const uint64_t post_ps = pixel_shader->ucode_data_hash();
+     const uint64_t post_vs = vertex_shader->ucode_data_hash();
+     for (const Dbz3PostSpec& spec : kDbz3PostSpecs) {
+@@ -5167,7 +5210,7 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+     }
+   }
+   // Dragon Burst: render nativo, copia final do frame (ver dbz3_native_present).
+-  if (pixel_shader && REXCVAR_GET(dbz3_bl_native_present) &&
++  if (pixel_shader && dbz3_native_resolution && REXCVAR_GET(dbz3_bl_native_present) &&
+       pixel_shader->ucode_data_hash() == UINT64_C(0xEC9B52789DD888F2) &&
+       vertex_shader->ucode_data_hash() == UINT64_C(0x4666C5A9092B03DD) &&
+       prim_type == xenos::PrimitiveType::kQuadList && index_count == 4) {
+@@ -5877,6 +5920,16 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+     dbz3_discard::g_draw_area.offset = {x0 * int32_t(sx), y0 * int32_t(sy)};
+     dbz3_discard::g_draw_area.extent = {uint32_t(std::max(x1 - x0, 0)) * sx,
+                                         uint32_t(std::max(y1 - y0, 0)) * sy};
++    // Abaixo de 1x: em pixeis do host, como o scissor (para fora).
++    const uint32_t da_percent = render_target_cache_->draw_resolution_percent();
++    if (da_percent < 100 && x1 > x0 && y1 > y0) {
++      const int32_t hx0 = int32_t(uint64_t(x0) * da_percent / 100);
++      const int32_t hy0 = int32_t(uint64_t(y0) * da_percent / 100);
++      const int32_t hx1 = int32_t((uint64_t(x1) * da_percent + 99) / 100);
++      const int32_t hy1 = int32_t((uint64_t(y1) * da_percent + 99) / 100);
++      dbz3_discard::g_draw_area.offset = {hx0, hy0};
++      dbz3_discard::g_draw_area.extent = {uint32_t(hx1 - hx0), uint32_t(hy1 - hy0)};
++    }
+     const auto cc = regs.Get<reg::RB_COLORCONTROL>();
+     dbz3_discard::g_want =
+         REXCVAR_GET(dbz3_discard_full_overwrite) && pixel_shader && !pixel_shader->kills_pixels() &&
+@@ -6803,6 +6856,12 @@ uint64_t VulkanCommandProcessor::NormalizeOcclusionSamples(uint64_t samples) con
+   uint64_t scale_x = texture_cache_->draw_resolution_scale_x();
+   uint64_t scale_y = texture_cache_->draw_resolution_scale_y();
+   uint64_t scale = scale_x * scale_y;
++  // Below 1x, fewer samples are drawn (percent^2 / 10000 of them).
++  const uint64_t percent =
++      render_target_cache_ ? render_target_cache_->draw_resolution_percent() : 100;
++  if (percent < 100) {
++    return (samples * 10000 + ((percent * percent) >> 1)) / (percent * percent);
++  }
+   if (scale <= 1) {
+     return samples;
+   }
+@@ -7574,7 +7633,6 @@ void VulkanCommandProcessor::UpdateDynamicState(const draw_util::ViewportInfo& v
+   }
+   viewport.minDepth = viewport_info.z_min;
+   viewport.maxDepth = viewport_info.z_max;
+-  SetViewport(viewport);
+ 
+   // Scissor.
+   draw_util::Scissor scissor;
+@@ -7588,6 +7646,35 @@ void VulkanCommandProcessor::UpdateDynamicState(const draw_util::ViewportInfo& v
+   scissor_rect.offset.y = int32_t(scissor.offset[1]);
+   scissor_rect.extent.width = scissor.extent[0];
+   scissor_rect.extent.height = scissor.extent[1];
++
++  // Below 1x (draw_resolution_percent, as D3D12CommandProcessor::UpdateFixedFunctionState):
++  // everything the game draws goes into the top-left part of the render targets - guest pixel
++  // position p is host position p * percent / 100 (the half-pixel offset included, which then
++  // still lands on texel centers of the textures made at that size).
++  const uint32_t draw_resolution_percent = render_target_cache_->draw_resolution_percent();
++  if (draw_resolution_percent < 100) {
++    if (viewport_info.xy_extent[0] && viewport_info.xy_extent[1]) {
++      const float fraction = float(draw_resolution_percent) * 0.01f;
++      viewport.x *= fraction;
++      viewport.y *= fraction;
++      viewport.width = std::max(viewport.width * fraction, 1.0f);
++      viewport.height = std::max(viewport.height * fraction, 1.0f);
++    }
++    // Outwards - pixels outside the triangles aren't covered anyway.
++    const uint64_t scissor_left = uint64_t(scissor.offset[0]);
++    const uint64_t scissor_top = uint64_t(scissor.offset[1]);
++    const uint64_t scissor_right = scissor_left + scissor.extent[0];
++    const uint64_t scissor_bottom = scissor_top + scissor.extent[1];
++    const uint32_t left = uint32_t(scissor_left * draw_resolution_percent / 100);
++    const uint32_t top = uint32_t(scissor_top * draw_resolution_percent / 100);
++    const uint32_t right = uint32_t((scissor_right * draw_resolution_percent + 99) / 100);
++    const uint32_t bottom = uint32_t((scissor_bottom * draw_resolution_percent + 99) / 100);
++    scissor_rect.offset.x = int32_t(left);
++    scissor_rect.offset.y = int32_t(top);
++    scissor_rect.extent.width = right - left;
++    scissor_rect.extent.height = bottom - top;
++  }
++  SetViewport(viewport);
+   SetScissor(scissor_rect);
+ 
+   if (render_target_cache_->GetPath() == RenderTargetCache::Path::kHostRenderTargets) {
+diff --git a/src/graphics/vulkan/pipeline_cache.cpp b/src/graphics/vulkan/pipeline_cache.cpp
+index 581ee536baf3d56b3824996b66626283d3aaaa83..ac4d1dbaf84e88bd2b4a30a2c0d3f44c8871252d 100644
+--- a/src/graphics/vulkan/pipeline_cache.cpp
++++ b/src/graphics/vulkan/pipeline_cache.cpp
+@@ -418,6 +418,9 @@ bool VulkanPipelineCache::Initialize() {
+       render_target_cache_.msaa_2x_no_attachments_supported(), edram_fragment_shader_interlock,
+       render_target_cache_.draw_resolution_scale_x(),
+       render_target_cache_.draw_resolution_scale_y());
++  // Below 1x (draw_resolution_percent): set by the command processor on the render target
++  // cache before the pipeline cache is made.
++  shader_translator_->SetDrawResolutionPercent(render_target_cache_.draw_resolution_percent());
+   shader_translator_->Dbz3SetSpecTextureSigns(REXCVAR_GET(dbz3_spec_texture_signs));
+   shader_translator_->Dbz3SetImplicitLod(REXCVAR_GET(dbz3_tex_implicit_lod));
+   shader_translator_->Dbz3SetIgnoreFetchLodBias(REXCVAR_GET(dbz3_ignore_fetch_lod_bias));
+diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
+index 9a4a79474f85cff47a79033775eaffb67c169882..687e0aa38ca9a4467e67af9e77098bf2832b0bd2 100644
+--- a/src/graphics/vulkan/render_target_cache.cpp
++++ b/src/graphics/vulkan/render_target_cache.cpp
+@@ -1199,9 +1199,13 @@ bool VulkanRenderTargetCache::Resolve(const memory::Memory& memory,
+   draw_util::ResolveInfo resolve_info;
+   if (!draw_util::GetResolveInfo(register_file(), memory, draw_resolution_scale_x(),
+                                  draw_resolution_scale_y(), IsFixedRG16TruncatedToMinus1To1(),
+-                                 IsFixedRGBA16TruncatedToMinus1To1(), resolve_info)) {
++                                 IsFixedRGBA16TruncatedToMinus1To1(), resolve_info,
++                                 draw_resolution_percent())) {
+     return false;
+   }
++  // Dragon Burst: abaixo de 1x (draw_resolution_percent) ou com escala, os passos do render
++  // nativo que escrevem texturas de 1x diretamente ficam desligados (ver Dbz3NativeResolution).
++  const bool dbz3_native_resolution = Dbz3NativeResolution();
+ 
+   dbz3_gpuprof::CountResolve(uint32_t(resolve_info.coordinate_info.width_div_8) * 8,
+                              resolve_info.height_div_8 * 8);
+@@ -1244,7 +1248,8 @@ bool VulkanRenderTargetCache::Resolve(const memory::Memory& memory,
+   // Dragon Burst: render nativo, passo 3b (0080) - a mascara do contorno por compute. Antes
+   // do passo 4: quando o draw corre normal (a aprender) o passe pode ir direto para a textura
+   // e o resolve nunca chegaria aqui; quando o draw foi saltado nao ha passe para o passo 4.
+-  if (dbz3_native_contour::g_pending || dbz3_native_contour::g_learn) {
++  if (dbz3_native_resolution &&
++      (dbz3_native_contour::g_pending || dbz3_native_contour::g_learn)) {
+     if (Dbz3NativeContourResolve(resolve_info, texture_cache)) {
+       written_address_out = 0;
+       written_length_out = 0;
+@@ -1253,7 +1258,7 @@ bool VulkanRenderTargetCache::Resolve(const memory::Memory& memory,
+   }
+   // Dragon Burst: render nativo, passo 3b (0083+) - reducao/desfoque/composicao do brilho por
+   // compute (mesma ordem que o contorno: antes do passo 4).
+-  if (dbz3_native_post::g_pending || dbz3_native_post::g_learn) {
++  if (dbz3_native_resolution && (dbz3_native_post::g_pending || dbz3_native_post::g_learn)) {
+     if (Dbz3NativePostResolve(resolve_info, texture_cache)) {
+       written_address_out = 0;
+       written_length_out = 0;
+@@ -1261,7 +1266,7 @@ bool VulkanRenderTargetCache::Resolve(const memory::Memory& memory,
+     }
+   }
+   // Dragon Burst: render nativo, passo 4 - o passe desenhou direto na textura de destino.
+-  if (dbz3_rit::Resolve(*this, resolve_info, texture_cache)) {
++  if (dbz3_native_resolution && dbz3_rit::Resolve(*this, resolve_info, texture_cache)) {
+     written_address_out = 0;
+     written_length_out = 0;
+     return true;
+@@ -1278,7 +1283,7 @@ bool VulkanRenderTargetCache::Resolve(const memory::Memory& memory,
+     }
+   }
+   // Dragon Burst: render nativo, passo 2 (profundidade linear calculada por compute).
+-  if (dbz3_native_ld::g_pending || dbz3_native_ld::g_learn) {
++  if (dbz3_native_resolution && (dbz3_native_ld::g_pending || dbz3_native_ld::g_learn)) {
+     if (Dbz3NativeLinearDepthResolve(resolve_info, texture_cache)) {
+       written_address_out = 0;
+       written_length_out = 0;
+@@ -1318,7 +1323,7 @@ bool VulkanRenderTargetCache::Resolve(const memory::Memory& memory,
+   // A memoria fica com o conteudo antigo; so outra textura com outro formato no
+   // mesmo endereco (ou o CPU) o veriam, e no Budokai 3 ninguem le estes destinos
+   // de outra forma (logs de 2026-10-12/13).
+-  if (resolve_info.copy_dest_extent_length && !draw_resolution_scaled && !dbz3_capture_readback &&
++  if (resolve_info.copy_dest_extent_length && dbz3_native_resolution && !dbz3_capture_readback &&
+       rex::cvar::GetFlagByName("dbz3_direct_resolve_skip_memory") == "true") {
+     uint32_t dump_base, dump_row_length_used, dump_rows, dump_pitch;
+     resolve_info.GetCopyEdramTileSpan(dump_base, dump_row_length_used, dump_rows, dump_pitch);
+@@ -1469,7 +1474,7 @@ bool VulkanRenderTargetCache::Resolve(const memory::Memory& memory,
+           // DBZ3-Android: a memoria do guest fica correta (resolve normal acima) e,
+           // se a textura que o jogo vai ler deste destino ja existir, e preenchida
+           // logo a partir do render target, sem a carga/untile seguinte.
+-          if (!draw_resolution_scaled) {
++          if (dbz3_native_resolution) {
+             Dbz3TryResolveToTexture(resolve_info, texture_cache, false);
+           }
+           written_address_out = resolve_info.copy_dest_extent_start;
+@@ -7208,7 +7213,7 @@ bool VulkanRenderTargetCache::Dbz3NativeLinearDepthReady(VulkanTextureCache& tex
+                                                          uint32_t depth_base_tiles,
+                                                          uint32_t pitch_tiles, uint32_t width,
+                                                          uint32_t height) {
+-  if (!dbz3_native_ld::g_dest) {
++  if (!dbz3_native_ld::g_dest || !Dbz3NativeResolution()) {
+     return false;
+   }
+   static uint64_t not_ready = 0;
+@@ -7666,7 +7671,7 @@ VkImageView VulkanRenderTargetCache::Dbz3RitBegin(VulkanTextureCache& texture_ca
+                                                   const uint32_t* sampled, uint32_t sampled_count,
+                                                   uint32_t color_base_tiles, uint32_t pitch_tiles) {
+   using namespace dbz3_rit;
+-  if (g_active || !signature || IsDrawResolutionScaled() ||
++  if (g_active || !signature || !Dbz3NativeResolution() ||
+       rex::cvar::GetFlagByName("dbz3_render_into_texture") != "true" ||
+       dbz3_capture::WantsResolveReadback()) {
+     return VK_NULL_HANDLE;
+@@ -8024,7 +8029,7 @@ bool VulkanRenderTargetCache::Dbz3NativeContourBegin(VulkanTextureCache& texture
+   // 0082: os parametros do quad servem tambem para aprender o destino no resolve seguinte (sem
+   // isto o resolve comparava com largura 0 e o destino nunca era aprendido; RP5 17/10 03:24).
+   nc::g_params = params;
+-  if (GetPath() != Path::kHostRenderTargets || IsDrawResolutionScaled()) {
++  if (GetPath() != Path::kHostRenderTargets || !Dbz3NativeResolution()) {
+     return nc::NotYet(0);
+   }
+   if (!nc::g_dest) {
+@@ -8603,7 +8608,7 @@ bool VulkanRenderTargetCache::Dbz3NativePostBegin(VulkanTextureCache& texture_ca
+     np::g_params.kind = 0;
+     return np::NotYet(7);
+   }
+-  if (GetPath() != Path::kHostRenderTargets || IsDrawResolutionScaled()) {
++  if (GetPath() != Path::kHostRenderTargets || !Dbz3NativeResolution()) {
+     return np::NotYet(0);
+   }
+   const np::Slot* slot = np::FindSlot(params.key, false);
+diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
+index 53ef7e48c55a9bf743f5441c47cf174fb867a15b..cb79ea7b8e269aaea29e83c4df0b20b31e243f1b 100644
+--- a/src/graphics/vulkan/texture_cache.cpp
++++ b/src/graphics/vulkan/texture_cache.cpp
+@@ -1101,8 +1101,14 @@ VkImageView VulkanTextureCache::RequestSwapTexture(uint32_t& width_scaled_out,
+   if (height_unscaled_out) {
+     *height_unscaled_out = key.GetHeight();
+   }
+-  width_scaled_out = key.GetWidth() * (key.scaled_resolve ? draw_resolution_scale_x() : 1);
+-  height_scaled_out = key.GetHeight() * (key.scaled_resolve ? draw_resolution_scale_y() : 1);
++  if (key.scaled_resolve && IsDrawResolutionDownscaled()) {
++    // Below 1x: made from the top-left part at the lower resolution.
++    width_scaled_out = DownscaleCeil(key.GetWidth(), draw_resolution_percent());
++    height_scaled_out = DownscaleCeil(key.GetHeight(), draw_resolution_percent());
++  } else {
++    width_scaled_out = key.GetWidth() * (key.scaled_resolve ? draw_resolution_scale_x() : 1);
++    height_scaled_out = key.GetHeight() * (key.scaled_resolve ? draw_resolution_scale_y() : 1);
++  }
+   format_out = key.format;
+   return texture_view;
+ }
+@@ -1117,6 +1123,33 @@ bool VulkanTextureCache::IsSignedVersionSeparateForFormat(TextureKey key) const
+   return !host_format_pair.unsigned_signed_compatible;
+ }
+ 
++bool VulkanTextureCache::IsDownscaledResolveSupportedForFormat(TextureKey key) const {
++  // As D3D12TextureCache: loaded from the top-left part of the guest data with the regular
++  // (unscaled) shaders - whole blocks only (resolve formats are 1x1 anyway).
++  if (!IsDrawResolutionDownscaled()) {
++    return false;
++  }
++  const FormatInfo* format_info = FormatInfo::Get(key.format);
++  if (format_info->block_width != 1 || format_info->block_height != 1) {
++    return false;
++  }
++  const HostFormatPair& host_format_pair = GetHostFormatPair(key);
++  bool host_format_is_signed;
++  if (IsSignedVersionSeparateForFormat(key)) {
++    host_format_is_signed = bool(key.signed_separate);
++  } else {
++    host_format_is_signed = host_format_pair.format_unsigned.load_shader == kLoadShaderIndexUnknown;
++  }
++  const HostFormat& host_format =
++      host_format_is_signed ? host_format_pair.format_signed : host_format_pair.format_unsigned;
++  if (host_format.load_shader == kLoadShaderIndexUnknown ||
++      load_pipelines_[host_format.load_shader] == VK_NULL_HANDLE) {
++    return false;
++  }
++  // The float16 fallback converts in a second pass with the same shaders.
++  return true;
++}
++
+ bool VulkanTextureCache::IsScaledResolveSupportedForFormat(TextureKey key) const {
+   if (!IsDrawResolutionScaled()) {
+     return false;
+@@ -1229,8 +1262,14 @@ std::unique_ptr<TextureCache::Texture> VulkanTextureCache::CreateTexture(Texture
+   image_create_info.extent.width = key.GetWidth();
+   image_create_info.extent.height = key.GetHeight();
+   if (key.scaled_resolve) {
+-    image_create_info.extent.width *= draw_resolution_scale_x();
+-    image_create_info.extent.height *= draw_resolution_scale_y();
++    if (IsDrawResolutionDownscaled()) {
++      // Below 1x: the top-left part of the guest data, at the lower resolution.
++      image_create_info.extent.width = DownscaleCeil(key.GetWidth(), draw_resolution_percent());
++      image_create_info.extent.height = DownscaleCeil(key.GetHeight(), draw_resolution_percent());
++    } else {
++      image_create_info.extent.width *= draw_resolution_scale_x();
++      image_create_info.extent.height *= draw_resolution_scale_y();
++    }
+   }
+   image_create_info.extent.depth = is_3d ? depth_or_array_size : 1;
+   image_create_info.mipLevels = key.mip_max_level + 1;
+@@ -1427,8 +1466,13 @@ bool VulkanTextureCache::LoadTextureDataFromResidentMemoryImpl(Texture& texture,
+   if (load_shader == kLoadShaderIndexUnknown) {
+     return false;
+   }
+-  VkPipeline pipeline = texture_key.scaled_resolve ? load_pipelines_scaled_[load_shader]
+-                                                   : load_pipelines_[load_shader];
++  // Below 1x, a texture made from resolved data is loaded from the top-left part of its guest
++  // data in the shared memory, at the smaller size, with the regular shaders (see
++  // TextureCache::FindOrCreateTexture - single-level, not packed, 1x1 blocks).
++  const bool texture_downscaled = texture_key.scaled_resolve && IsDrawResolutionDownscaled();
++  const bool texture_resolution_scaled = texture_key.scaled_resolve && !texture_downscaled;
++  VkPipeline pipeline = texture_resolution_scaled ? load_pipelines_scaled_[load_shader]
++                                                  : load_pipelines_[load_shader];
+   if (pipeline == VK_NULL_HANDLE) {
+     return false;
+   }
+@@ -1451,7 +1495,7 @@ bool VulkanTextureCache::LoadTextureDataFromResidentMemoryImpl(Texture& texture,
+   const LoadShaderInfo* load_shader_info_float_convert = nullptr;
+   VkPipeline pipeline_float_convert = VK_NULL_HANDLE;
+   if (load_shader_float_convert != kLoadShaderIndexUnknown) {
+-    pipeline_float_convert = texture_key.scaled_resolve
++    pipeline_float_convert = texture_resolution_scaled
+                                  ? load_pipelines_scaled_[load_shader_float_convert]
+                                  : load_pipelines_[load_shader_float_convert];
+     if (pipeline_float_convert == VK_NULL_HANDLE) {
+@@ -1467,6 +1511,10 @@ bool VulkanTextureCache::LoadTextureDataFromResidentMemoryImpl(Texture& texture,
+   bool is_3d_tiling = is_3d || vulkan_texture.force_load_3d_tiling();
+   uint32_t width = texture_key.GetWidth();
+   uint32_t height = texture_key.GetHeight();
++  if (texture_downscaled) {
++    width = DownscaleCeil(width, draw_resolution_percent());
++    height = DownscaleCeil(height, draw_resolution_percent());
++  }
+   uint32_t depth_or_array_size = texture_key.GetDepthOrArraySize();
+   uint32_t depth = is_3d ? depth_or_array_size : 1;
+   uint32_t array_size = is_3d ? 1 : depth_or_array_size;
+@@ -1481,8 +1529,8 @@ bool VulkanTextureCache::LoadTextureDataFromResidentMemoryImpl(Texture& texture,
+   uint32_t level_packed = guest_layout.packed_level;
+   uint32_t level_stored_first = std::min(level_first, level_packed);
+   uint32_t level_stored_last = std::min(level_last, level_packed);
+-  uint32_t texture_resolution_scale_x = texture_key.scaled_resolve ? draw_resolution_scale_x() : 1;
+-  uint32_t texture_resolution_scale_y = texture_key.scaled_resolve ? draw_resolution_scale_y() : 1;
++  uint32_t texture_resolution_scale_x = texture_resolution_scaled ? draw_resolution_scale_x() : 1;
++  uint32_t texture_resolution_scale_y = texture_resolution_scaled ? draw_resolution_scale_y() : 1;
+ 
+   // The loop counter can mean two things depending on whether the packed mip
+   // tail is stored as mip 0, because in this case, it would be ambiguous since
+@@ -1618,7 +1666,7 @@ bool VulkanTextureCache::LoadTextureDataFromResidentMemoryImpl(Texture& texture,
+     uint32_t source_base_start_unscaled = texture_key.base_page << 12;
+     uint64_t source_base_start;
+     uint64_t source_base_range;
+-    if (texture_key.scaled_resolve) {
++    if (texture_resolution_scaled) {
+       if (!GetScaledResolveRange(source_base_start_unscaled, vulkan_texture.GetGuestBaseSize(),
+                                  load_shader_info.source_bpe_log2, source_base_start,
+                                  source_base_range)) {
+@@ -1658,7 +1706,7 @@ bool VulkanTextureCache::LoadTextureDataFromResidentMemoryImpl(Texture& texture,
+     uint32_t source_mips_start_unscaled = texture_key.mip_page << 12;
+     uint64_t source_mips_start;
+     uint64_t source_mips_range;
+-    if (texture_key.scaled_resolve) {
++    if (texture_resolution_scaled) {
+       if (!GetScaledResolveRange(source_mips_start_unscaled, vulkan_texture.GetGuestMipsSize(),
+                                  load_shader_info.source_bpe_log2, source_mips_start,
+                                  source_mips_range)) {
+@@ -1693,7 +1741,7 @@ bool VulkanTextureCache::LoadTextureDataFromResidentMemoryImpl(Texture& texture,
+     dfn.vkUpdateDescriptorSets(device, write_descriptor_set_count, write_descriptor_sets.data(), 0,
+                                nullptr);
+   }
+-  if (texture_key.scaled_resolve) {
++  if (texture_resolution_scaled) {
+     UseScaledResolveBufferForRead();
+   } else {
+     vulkan_shared_memory.Use(VulkanSharedMemory::Usage::kRead);
+@@ -1984,7 +2032,10 @@ bool VulkanTextureCache::LoadTextureDataFromResidentMemoryImpl(Texture& texture,
+ void* VulkanTextureCache::Dbz3FindResolveTexture(uint32_t base, uint32_t width, uint32_t height,
+                                                  xenos::Endian endian,
+                                                  xenos::TextureFormat format) {
+-  if (IsDrawResolutionScaled() || !width || !height || (base & 0xFFF)) {
++  // Dragon Burst: com escala ou abaixo de 1x as texturas de resolve nao tem o tamanho de 1x
++  // que os atalhos do render nativo escrevem (ver VulkanRenderTargetCache::Dbz3NativeResolution).
++  if (IsDrawResolutionScaled() || IsDrawResolutionDownscaled() || !width || !height ||
++      (base & 0xFFF)) {
+     return nullptr;
+   }
+   TextureKey key;

@@ -1,0 +1,336 @@
+diff --git a/include/rex/graphics/vulkan/dbz3_capture.h b/include/rex/graphics/vulkan/dbz3_capture.h
+index d47009203bab3ac6fe7dc801e4b4d068fb9cd5af..3c716eddf8a8e1ab26c4ab768e961f9132eb313a 100644
+--- a/include/rex/graphics/vulkan/dbz3_capture.h
++++ b/include/rex/graphics/vulkan/dbz3_capture.h
+@@ -23,6 +23,7 @@
+ //             offline a imagem de cada passe, que no Vulkan nunca chega a memoria do guest.
+ //   9 TEX     u32 tipo (1 carga, 2 invalidacao), u32 base, u32 w, u32 h, u32 formato, u32 flags
+ //             (flags: bit 0 base, 1 mips, 2 substituicao, 3 scaled; invalidacao: bit 4 pela GPU)
++//  10 OUTCOME u32 draw_index (o ultimo DRAW), u32 linha do return em IssueDraw, u32 resultado
+ // Tudo corre na thread do command processor.
+ 
+ #include <cstdint>
+@@ -53,6 +54,7 @@ enum RecordType : uint32_t {
+   kInfo = 7,
+   kResolveData = 8,
+   kTexEvent = 9,
++  kDrawOutcome = 10,
+ };
+ 
+ struct State {
+@@ -152,6 +154,13 @@ inline void WriteResolveData(const void* data, uint32_t addr, uint32_t len) {
+   st.resolve_bytes += len;
+ }
+ 
++inline void WriteDrawOutcome(uint32_t line, bool result) {
++  if (!g_state.file) return;
++  const uint32_t rec[3] = {g_state.draw_index ? g_state.draw_index - 1 : 0, line,
++                           result ? 1u : 0u};
++  WriteRecord(kDrawOutcome, rec, sizeof(rec));
++}
++
+ inline void WriteTexEvent(uint32_t kind, uint32_t base, uint32_t w, uint32_t h, uint32_t fmt,
+                           uint32_t flags) {
+   if (!g_state.file) return;
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 54187e7adbf6b44849553c8cf2f7403065d3fd8f..40159156d80a9c23af9965380f8ae6ac2769ff22 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -4246,6 +4246,16 @@ void VulkanCommandProcessor::Dbz3DrawTimingReadback() {
+   }
+ }
+ 
++// Dragon Burst: na captura, onde cada draw acabou (linha do return; registo 10).
++#define DBZ3_DRAW_RET(v)                                            \
++  do {                                                              \
++    const bool dbz3_draw_ret_ = (v);                                \
++    if (dbz3_capture::Active()) {                                   \
++      dbz3_capture::WriteDrawOutcome(uint32_t(__LINE__), dbz3_draw_ret_); \
++    }                                                               \
++    return dbz3_draw_ret_;                                          \
++  } while (0)
++
+ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t index_count,
+                                        IndexBufferInfo* index_buffer_info,
+                                        bool major_mode_explicit) {
+@@ -4254,7 +4264,7 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+ #endif  // XE_GPU_FINE_GRAINED_DRAW_SCOPES
+   dbz3_gpuprof::CountDraw();
+   if (dbz3_frameskip::g_skip_frame) {
+-    return true;
++    DBZ3_DRAW_RET(true);
+   }
+ 
+   const RegisterFile& regs = *register_file_;
+@@ -4279,7 +4289,7 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+         uint32_t(regs.Get<reg::VGT_OUTPUT_PATH_CNTL>().path_select),
+         uint32_t(regs.Get<reg::VGT_HOS_CNTL>().tess_mode),
+         uint32_t(regs.Get<reg::RB_MODECONTROL>().edram_mode));
+-    return false;
++    DBZ3_DRAW_RET(false);
+   };
+ 
+   xenos::EdramMode edram_mode = regs.Get<reg::RB_MODECONTROL>().edram_mode;
+@@ -4298,7 +4308,7 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+   auto vertex_shader = static_cast<VulkanShader*>(active_vertex_shader());
+   if (!vertex_shader) {
+     // Always need a vertex shader.
+-    return draw_fail("missing_vertex_shader");
++    DBZ3_DRAW_RET(draw_fail("missing_vertex_shader"));
+   }
+   pipeline_cache_->AnalyzeShaderUcode(*vertex_shader);
+   bool memexport_used_vertex = vertex_shader->memexport_eM_written() != 0;
+@@ -4307,7 +4317,7 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+       REXGPU_ERROR(
+           "Vertex shader memexport draw encountered without "
+           "vertexPipelineStoresAndAtomics support");
+-      return true;
++      DBZ3_DRAW_RET(true);
+     }
+     draw_util::AddMemExportRanges(regs, *vertex_shader, memexport_ranges_);
+   }
+@@ -4318,7 +4328,7 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+   if (surface_pitch_is_zero && is_rasterization_done) {
+     // Doesn't actually draw.
+     // Unlikely that zero would even really be legal though.
+-    return true;
++    DBZ3_DRAW_RET(true);
+   }
+   VulkanShader* pixel_shader = nullptr;
+   // Dragon Burst: overrides por pixel shader pedidos pelo jogo (Burst Limit: desligar
+@@ -4333,7 +4343,7 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+         pixel_shader_draw_override =
+             rex::graphics::FindPixelShaderDrawOverride(pixel_shader->ucode_data_hash());
+         if (pixel_shader_draw_override && pixel_shader_draw_override->skip) {
+-          return true;
++          DBZ3_DRAW_RET(true);
+         }
+       }
+       if (pixel_shader) {
+@@ -4348,7 +4358,7 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+     // cache.
+     if (!memexport_used_vertex) {
+       // This draw has no effect.
+-      return true;
++      DBZ3_DRAW_RET(true);
+     }
+   }
+   // Dragon Burst (rex::graphics::SetHideHudDraws, modo foto do Burst Limit): sem o que
+@@ -4360,7 +4370,7 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+     if (hud_depth_control.z_enable &&
+         hud_depth_control.zfunc == xenos::CompareFunction::kAlways && frontbuffer_width &&
+         regs.Get<reg::RB_SURFACE_INFO>().surface_pitch >= frontbuffer_width) {
+-      return true;
++      DBZ3_DRAW_RET(true);
+     }
+   }
+   bool memexport_used_pixel = pixel_shader && (pixel_shader->memexport_eM_written() != 0);
+@@ -4369,7 +4379,7 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+       REXGPU_ERROR(
+           "Pixel shader memexport draw encountered without "
+           "fragmentStoresAndAtomics support");
+-      return false;
++      DBZ3_DRAW_RET(false);
+     }
+     draw_util::AddMemExportRanges(regs, *pixel_shader, memexport_ranges_);
+   }
+@@ -4382,7 +4392,7 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+     const auto surface_info = regs.Get<reg::RB_SURFACE_INFO>();
+     if (surface_info.msaa_samples == xenos::MsaaSamples::k4X &&
+         surface_info.surface_pitch == 640) {
+-      return true;
++      DBZ3_DRAW_RET(true);
+     }
+   }
+   // DBZ3-Android: efeitos de pos-processamento do jogo que podem ser desligados (opcoes do
+@@ -4416,7 +4426,7 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+       }
+     }
+     if (fx_skip) {
+-      return true;
++      DBZ3_DRAW_RET(true);
+     }
+   }
+   // DBZ3-Android (dbz3_skip_depth_restore): depois de cada passe de 512x512 (silhueta do
+@@ -4438,7 +4448,7 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+           REXGPU_INFO("dbz3: restauro da profundidade via cor (base {}) saltado",
+                       uint32_t(depth_info.depth_base));
+         }
+-        return true;
++        DBZ3_DRAW_RET(true);
+       }
+     }
+   }
+@@ -4563,7 +4573,7 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+     if (render_target_cache_->Dbz3IsRedundantRestore(sampled_bases, sampled_count, index_count,
+                                                      pixel_shader->ucode_data_hash(),
+                                                      dbz3_identity_copy)) {
+-      return true;
++      DBZ3_DRAW_RET(true);
+     }
+   }
+   reg::RB_DEPTHCONTROL normalized_depth_control = draw_util::GetNormalizedDepthControl(regs);
+@@ -4591,16 +4601,16 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+   // CompletedSubmissionUpdated.
+   for (uint32_t i = 0; i < 2; ++i) {
+     if (!BeginSubmission(true)) {
+-      return draw_fail("begin_submission");
++      DBZ3_DRAW_RET(draw_fail("begin_submission"));
+     }
+ 
+     // Process primitives.
+     if (!primitive_processor_->Process(primitive_processing_result)) {
+-      return draw_fail("primitive_processing");
++      DBZ3_DRAW_RET(draw_fail("primitive_processing"));
+     }
+     if (!primitive_processing_result.host_draw_vertex_count) {
+       // Nothing to draw.
+-      return true;
++      DBZ3_DRAW_RET(true);
+     }
+     if (primitive_processing_result.host_primitive_type == xenos::PrimitiveType::kTriangleFan) {
+       // Vulkan uses the same fan-to-list conversion policy as D3D12.
+@@ -4608,7 +4618,7 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+           "PrimitiveProcessor returned triangle fan for Vulkan draw; expected "
+           "triangle list conversion for D3D12 parity");
+       assert_always();
+-      return false;
++      DBZ3_DRAW_RET(false);
+     }
+     // Tessellation and rectangle expansion variants for rasterization are
+     // produced by the primitive processor and are handled by the Vulkan
+@@ -4621,7 +4631,7 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+         !Shader::IsHostVertexShaderTypeDomain(host_vertex_shader_type)) {
+       REXGPU_ERROR("Unsupported Vulkan host vertex shader type {}",
+                    uint32_t(host_vertex_shader_type));
+-      return false;
++      DBZ3_DRAW_RET(false);
+     }
+ 
+     // Shader modifications.
+@@ -4642,7 +4652,7 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+                      : nullptr;
+     if (!pipeline_cache_->EnsureShadersTranslated(vertex_shader_translation,
+                                                   pixel_shader_translation)) {
+-      return draw_fail("shader_translation");
++      DBZ3_DRAW_RET(draw_fail("shader_translation"));
+     }
+ 
+     // Obtain the samplers. Note that the bindings don't depend on the shader
+@@ -4690,7 +4700,7 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+             // anymore (would enter an infinite loop otherwise if the number of
+             // attempts was not limited to 2). Possibly too many unique samplers
+             // in one draw, or failed to await submission completion.
+-            return draw_fail("sampler_acquisition");
++            DBZ3_DRAW_RET(draw_fail("sampler_acquisition"));
+           }
+           ++samplers_overflowed_count;
+         }
+@@ -4728,7 +4738,7 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+   // Set up the render targets - this may perform dispatches and draws.
+   if (!render_target_cache_->Update(is_rasterization_done, normalized_depth_control,
+                                     normalized_color_mask, *vertex_shader)) {
+-    return draw_fail("render_target_update");
++    DBZ3_DRAW_RET(draw_fail("render_target_update"));
+   }
+ 
+   // Create the pipeline (for this, need the render pass from the render target
+@@ -4741,7 +4751,7 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+                                           normalized_color_mask,
+                                           render_target_cache_->last_update_render_pass_key(),
+                                           pipeline, pipeline_layout_provider, &pipeline_handle)) {
+-    return draw_fail("configure_pipeline");
++    DBZ3_DRAW_RET(draw_fail("configure_pipeline"));
+   }
+   bool pipeline_is_placeholder = false;
+   // Reload the current handle state to observe async hot-swap completions that
+@@ -4750,10 +4760,10 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+                                                 &pipeline_is_placeholder);
+   if (REXCVAR_GET(async_shader_compilation) && pipeline_is_placeholder) {
+     frame_used_async_placeholder_pipeline_ = true;
+-    return true;
++    DBZ3_DRAW_RET(true);
+   }
+   if (pipeline == VK_NULL_HANDLE || pipeline_layout_provider == nullptr) {
+-    return draw_fail("pipeline_lookup");
++    DBZ3_DRAW_RET(draw_fail("pipeline_lookup"));
+   }
+   if (current_guest_graphics_pipeline_ != pipeline) {
+     deferred_command_buffer_.CmdVkBindPipeline(VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+@@ -4902,7 +4912,7 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+   // Update uniform buffers and descriptor sets after binding the pipeline with
+   // the new layout.
+   if (!UpdateBindings(vertex_shader, pixel_shader)) {
+-    return draw_fail("update_bindings");
++    DBZ3_DRAW_RET(draw_fail("update_bindings"));
+   }
+ 
+   // Ensure vertex buffers are resident.
+@@ -4931,11 +4941,11 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+               "is incorrect behavior, but you can try bypassing this by "
+               "launching Xenia with --gpu_allow_invalid_fetch_constants=true.",
+               vfetch_index, vfetch_constant.dword_0, vfetch_constant.dword_1);
+-          return false;
++          DBZ3_DRAW_RET(false);
+         default:
+           REXGPU_WARN("Vertex fetch constant {} ({:08X} {:08X}) is completely invalid!",
+                       vfetch_index, vfetch_constant.dword_0, vfetch_constant.dword_1);
+-          return false;
++          DBZ3_DRAW_RET(false);
+       }
+       VertexBufferState& state = vertex_buffer_states_[vfetch_index];
+       if (state.address == vfetch_constant.address && state.size == vfetch_constant.size) {
+@@ -4947,7 +4957,7 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+             "Failed to request vertex buffer at 0x{:08X} (size {}) in the shared "
+             "memory",
+             vfetch_constant.address << 2, vfetch_constant.size << 2);
+-        return false;
++        DBZ3_DRAW_RET(false);
+       }
+       state.address = vfetch_constant.address;
+       state.size = vfetch_constant.size;
+@@ -4965,7 +4975,7 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+           "Failed to request memexport stream at 0x{:08X} (size {}) in the "
+           "shared memory",
+           memexport_range_base_bytes, memexport_range.size_bytes);
+-      return false;
++      DBZ3_DRAW_RET(false);
+     }
+     memexport_extent_start = std::min(memexport_extent_start, memexport_range_base_bytes);
+     memexport_extent_end =
+@@ -4976,7 +4986,7 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+       REXGPU_ERROR(
+           "Failed to request full shared memory residency for unresolved "
+           "memexport destinations");
+-      return false;
++      DBZ3_DRAW_RET(false);
+     }
+   }
+ 
+@@ -4996,7 +5006,7 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+       guest_dma_index_scratch_buffer = AcquireScratchGpuBuffer(
+           guest_dma_index_size, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT);
+       if (guest_dma_index_scratch_buffer.buffer() == VK_NULL_HANDLE) {
+-        return draw_fail("guest_dma_index_scratch_buffer");
++        DBZ3_DRAW_RET(draw_fail("guest_dma_index_scratch_buffer"));
+       }
+ 
+       shared_memory_->Use(VulkanSharedMemory::Usage::kRead);
+@@ -5071,7 +5081,7 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+         break;
+       default:
+         assert_unhandled_case(primitive_processing_result.index_buffer_type);
+-        return draw_fail("unexpected_index_buffer_type");
++        DBZ3_DRAW_RET(draw_fail("unexpected_index_buffer_type"));
+     }
+     deferred_command_buffer_.CmdVkBindIndexBuffer(
+         index_buffer.first, index_buffer.second,
+@@ -5109,7 +5119,7 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+     }
+   }
+ 
+-  return true;
++  DBZ3_DRAW_RET(true);
+ }
+ 
+ bool VulkanCommandProcessor::IssueDraw_MemexportReadbackFullPath(uint32_t total_size) {

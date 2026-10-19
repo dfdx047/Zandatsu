@@ -1,0 +1,40 @@
+diff --git a/src/graphics/pipeline/render_target/cache.cpp b/src/graphics/pipeline/render_target/cache.cpp
+index 71fe6bfe65b931121b8dfe6f5d3e44295043b58b..5dd00a8438e05a2aabdded3f066d93483de1f431 100644
+--- a/src/graphics/pipeline/render_target/cache.cpp
++++ b/src/graphics/pipeline/render_target/cache.cpp
+@@ -76,6 +76,23 @@ REXCVAR_DEFINE_BOOL(dbz3_rt_direct_clear_siblings, true, "GPU",
+                     "imagens com a mesma base")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ 
++// Dragon Burst (0075): no RP5 (16/10 21:08) fazer todas as transferencias muda 22% da imagem (o
++// desfoque do fundo), como desligar o modo direto: alguma das saltadas faz falta. Estas quatro
++// mantem so um tipo (origem -> destino), para o autoteste dizer qual.
++REXCVAR_DEFINE_BOOL(dbz3_rt_keep_dd, false, "GPU",
++                    "Dragon Burst: com dbz3_rt_direct, mantem as transferencias profundidade -> "
++                    "profundidade")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++REXCVAR_DEFINE_BOOL(dbz3_rt_keep_cd, false, "GPU",
++                    "Dragon Burst: com dbz3_rt_direct, mantem as transferencias cor -> profundidade")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++REXCVAR_DEFINE_BOOL(dbz3_rt_keep_dc, false, "GPU",
++                    "Dragon Burst: com dbz3_rt_direct, mantem as transferencias profundidade -> cor")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++REXCVAR_DEFINE_BOOL(dbz3_rt_keep_cc, false, "GPU",
++                    "Dragon Burst: com dbz3_rt_direct, mantem as transferencias cor -> cor")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++
+ namespace rex::graphics {
+ 
+ void RenderTargetCache::GetPSIColorFormatInfo(xenos::ColorRenderTargetFormat format,
+@@ -1431,7 +1448,10 @@ bool RenderTargetCache::Dbz3DirectAllowsTransfer(RenderTargetKey source, RenderT
+                     source.is_depth == dest.is_depth &&
+                     source.resource_format == dest.resource_format &&
+                     source.msaa_samples != dest.msaa_samples;
+-  const bool allowed = kept || !REXCVAR_GET(dbz3_rt_direct_drop_transfers);
++  const bool keep_kind = source.is_depth
++                             ? (dest.is_depth ? REXCVAR_GET(dbz3_rt_keep_dd) : REXCVAR_GET(dbz3_rt_keep_dc))
++                             : (dest.is_depth ? REXCVAR_GET(dbz3_rt_keep_cd) : REXCVAR_GET(dbz3_rt_keep_cc));
++  const bool allowed = kept || keep_kind || !REXCVAR_GET(dbz3_rt_direct_drop_transfers);
+   // Diagnostico: cada par origem -> destino diferente uma vez (antes eram as 120 primeiras,
+   // todas do mesmo par), para ver que passes dependem de conteudo herdado.
+   static std::unordered_set<uint64_t> logged_pairs;

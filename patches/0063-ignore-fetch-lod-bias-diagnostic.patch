@@ -1,0 +1,78 @@
+diff --git a/include/rex/graphics/pipeline/shader/spirv_translator.h b/include/rex/graphics/pipeline/shader/spirv_translator.h
+index 8ac0d25e7032550dd17db67660ad5b7537d16f42..89e1623cf567b6c413fcad90c7d59cde9c73e584 100644
+--- a/include/rex/graphics/pipeline/shader/spirv_translator.h
++++ b/include/rex/graphics/pipeline/shader/spirv_translator.h
+@@ -392,6 +392,8 @@ class SpirvShaderTranslator : public ShaderTranslator {
+   // Bias) em vez de gradientes explicitos (OpDPdxCoarse + Grad), que em Adreno e Mali correm a
+   // fracao da taxa normal da unidade de texturas.
+   void Dbz3SetImplicitLod(bool enabled) { dbz3_implicit_lod_ = enabled; }
++  // Dragon Burst (diagnostico): ignora o LOD bias do fetch constant (bits 12:21 da word 4).
++  void Dbz3SetIgnoreFetchLodBias(bool enabled) { dbz3_ignore_fetch_lod_bias_ = enabled; }
+ 
+   struct Features {
+     explicit Features(const ui::vulkan::VulkanDevice* vulkan_device);
+@@ -992,6 +994,7 @@ class SpirvShaderTranslator : public ShaderTranslator {
+   // DBZ3-Android: specialization constants dos sinais por fetch constant (NoResult se ainda nao).
+   bool dbz3_spec_texture_signs_ = false;
+   bool dbz3_implicit_lod_ = false;
++  bool dbz3_ignore_fetch_lod_bias_ = false;
+   spv::Id dbz3_texture_signs_spec_[32];
+   spv::Id Dbz3TextureSignsSpecConstant(uint32_t fetch_constant_index);
+   // float3.
+diff --git a/src/graphics/pipeline/shader/spirv_translator_fetch.cpp b/src/graphics/pipeline/shader/spirv_translator_fetch.cpp
+index 4c3c2dec0d72b65d491d7a72aec27d35cec7e5d9..4f0236033a328136a5a452a727546dfff443de84 100644
+--- a/src/graphics/pipeline/shader/spirv_translator_fetch.cpp
++++ b/src/graphics/pipeline/shader/spirv_translator_fetch.cpp
+@@ -1449,14 +1449,18 @@ void SpirvShaderTranslator::ProcessTextureFetchInstruction(
+         // specification order: specified LOD + sampler LOD bias + instruction
+         // LOD bias).
+         // Fetch constant LOD (bits 12:21 of the word 4).
+-        spv::Id lod = builder_->createNoContractionBinOp(
+-            spv::OpFMul, type_float_,
+-            builder_->createUnaryOp(
+-                spv::OpConvertSToF, type_float_,
+-                builder_->createTriOp(spv::OpBitFieldSExtract, type_int_,
+-                                      fetch_constant_word_4_signed, builder_->makeUintConstant(12),
+-                                      builder_->makeUintConstant(10))),
+-            builder_->makeFloatConstant(1.0f / 32.0f));
++        spv::Id lod =
++            dbz3_ignore_fetch_lod_bias_
++                ? const_float_0_
++                : builder_->createNoContractionBinOp(
++                      spv::OpFMul, type_float_,
++                      builder_->createUnaryOp(
++                          spv::OpConvertSToF, type_float_,
++                          builder_->createTriOp(spv::OpBitFieldSExtract, type_int_,
++                                                fetch_constant_word_4_signed,
++                                                builder_->makeUintConstant(12),
++                                                builder_->makeUintConstant(10))),
++                      builder_->makeFloatConstant(1.0f / 32.0f));
+         // Register LOD.
+         if (instr.attributes.use_register_lod) {
+           lod = builder_->createNoContractionBinOp(
+diff --git a/src/graphics/vulkan/pipeline_cache.cpp b/src/graphics/vulkan/pipeline_cache.cpp
+index b7a41b2a79e4cf2b7cdf49c7ca03fe8ee00a43e2..d65fe955713fb5bc877b6da7358b2ac3ccbf15fd 100644
+--- a/src/graphics/vulkan/pipeline_cache.cpp
++++ b/src/graphics/vulkan/pipeline_cache.cpp
+@@ -69,6 +69,10 @@ REXCVAR_DEFINE_BOOL(dbz3_tex_implicit_lod, true, "GPU/Vulkan",
+                     "gradientes explicitos")
+     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+ 
++REXCVAR_DEFINE_BOOL(dbz3_ignore_fetch_lod_bias, false, "GPU/Vulkan",
++                    "Dragon Burst (diagnostico): ignora o LOD bias dos fetch constants das texturas")
++    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
++
+ REXCVAR_DEFINE_BOOL(vulkan_tessellation_wireframe, false, "GPU/Vulkan",
+                     "Render tessellation as wireframe")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+@@ -416,6 +420,10 @@ bool VulkanPipelineCache::Initialize() {
+       render_target_cache_.draw_resolution_scale_y());
+   shader_translator_->Dbz3SetSpecTextureSigns(REXCVAR_GET(dbz3_spec_texture_signs));
+   shader_translator_->Dbz3SetImplicitLod(REXCVAR_GET(dbz3_tex_implicit_lod));
++  shader_translator_->Dbz3SetIgnoreFetchLodBias(REXCVAR_GET(dbz3_ignore_fetch_lod_bias));
++  if (REXCVAR_GET(dbz3_ignore_fetch_lod_bias)) {
++    REXGPU_INFO("dbz3: LOD bias dos fetch constants ignorado (diagnostico)");
++  }
+   REXGPU_INFO("dbz3: sinais de textura como spec constants: {}, LOD implicito: {}",
+               REXCVAR_GET(dbz3_spec_texture_signs), REXCVAR_GET(dbz3_tex_implicit_lod));
+ 

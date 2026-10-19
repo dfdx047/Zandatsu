@@ -1,8 +1,8 @@
 diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
-index fccb1b1..cf5e781 100644
+index cba942139f3c52cbd4d4049c8efd6dbe229d98c5..182facb341ffa70de95347b68525d4484bb4db1a 100644
 --- a/src/graphics/vulkan/command_processor.cpp
 +++ b/src/graphics/vulkan/command_processor.cpp
-@@ -3498,7 +3498,28 @@ bool VulkanCommandProcessor::SubmitBarriers(bool force_end_render_pass) {
+@@ -3496,7 +3496,28 @@ bool VulkanCommandProcessor::SubmitBarriers(bool force_end_render_pass) {
    if (in_render_pass_) {
      const char* reason = "barreira (outra)";
      if (!pending_barriers_image_memory_barriers_.empty()) {
@@ -33,20 +33,20 @@ index fccb1b1..cf5e781 100644
        const VkBufferMemoryBarrier& b = pending_barriers_buffer_memory_barriers_.front();
        reason = (b.dstAccessMask & VK_ACCESS_TRANSFER_WRITE_BIT) ? "barreira de buffer (upload)"
 diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
-index 564af6e..55f7777 100644
+index 8ad045f5f1e74ecb869994e06fe056cd81d92a6c..60daf51591480f6048028128bcec109d3eb87acb 100644
 --- a/src/graphics/vulkan/texture_cache.cpp
 +++ b/src/graphics/vulkan/texture_cache.cpp
-@@ -38,6 +38,9 @@
- // DBZ3 HD Collection: packs de texturas (modulo comun a D3D12 y Vulkan).
- #include "../dbz3_texture_pack.h"
+@@ -35,6 +35,9 @@
+ #include <rex/ui/vulkan/util.h>
  
+ REXCVAR_DEFINE_BOOL(non_seamless_cube_map, false, "GPU", "Use non-seamless cube map sampling");
 +REXCVAR_DEFINE_BOOL(dbz3_resolve_early_transition, true, "GPU",
 +                    "DBZ3: a textura resolvida passa logo para leitura no fim do resolve "
 +                    "(evita fechar o passe quando e amostrada)");
- REXCVAR_DEFINE_BOOL(non_seamless_cube_map, false, "GPU", "Use non-seamless cube map sampling");
  
  namespace rex::graphics::vulkan {
-@@ -2059,6 +2062,26 @@ void VulkanTextureCache::Dbz3EndStorageWrite(void* texture_opaque) {
+ 
+@@ -2016,6 +2019,26 @@ void VulkanTextureCache::Dbz3EndStorageWrite(void* texture_opaque) {
    VulkanTexture& vulkan_texture =
        *static_cast<VulkanTexture*>(static_cast<Texture*>(texture_opaque));
    Dbz3MarkTextureLoaded(vulkan_texture);
@@ -72,4 +72,4 @@ index 564af6e..55f7777 100644
 +  }
  }
  
- // DBZ3 HD Collection: packs de texturas (ver dbz3_texture_pack.h).
+ void VulkanTextureCache::UpdateTextureBindingsImpl(uint32_t fetch_constant_mask) {

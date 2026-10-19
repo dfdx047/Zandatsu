@@ -1,0 +1,420 @@
+diff --git a/include/rex/graphics/vulkan/render_target_cache.h b/include/rex/graphics/vulkan/render_target_cache.h
+index 1ecb6a922e165e73bdb3acfaed1c750037a02bb3..e341f186b65d8897a5534e43754b64a78b09917e 100644
+--- a/include/rex/graphics/vulkan/render_target_cache.h
++++ b/include/rex/graphics/vulkan/render_target_cache.h
+@@ -186,13 +186,15 @@ class VulkanRenderTargetCache final : public RenderTargetCache {
+     kDbz3StepResolveToTexture = 1u << 7,   // atalho resolve -> textura (e o modo sem memoria)
+     kDbz3StepAll = (1u << 8) - 1,
+   };
++  // Os tamanhos do pos do Burst Limit (1280x720 e 640x360) exatos a esta percentagem.
++  static bool Dbz3PostSizesExactAtPercent(uint32_t percent) {
++    return (1280 * percent) % 100 == 0 && (720 * percent) % 100 == 0 &&
++           (640 * percent) % 100 == 0 && (360 * percent) % 100 == 0;
++  }
+   static uint32_t Dbz3NativeStepsAtPercent(uint32_t percent) {
+     if (percent >= 100) return kDbz3StepAll;
+     uint32_t steps = kDbz3StepRenderIntoTexture | kDbz3StepResolveToTexture;
+-    // Os tamanhos do pos do Burst Limit (1280x720 e 640x360) exatos a esta percentagem.
+-    const bool exact = (1280 * percent) % 100 == 0 && (720 * percent) % 100 == 0 &&
+-                       (640 * percent) % 100 == 0 && (360 * percent) % 100 == 0;
+-    if (!exact) return steps;
++    if (!Dbz3PostSizesExactAtPercent(percent)) return steps;
+     // 0094: sem o passo 1 (imagem final direta) nem a composicao do brilho abaixo de 1x.
+     // Autoteste de 17/10 13:06 (Galaxy M54, Exynos 1380 / Mali-G68, 75%): a imagem de
+     // referencia saiu espremida numa faixa no topo da tela; com o passo 1 desligado ficou certa.
+@@ -974,6 +976,17 @@ class VulkanRenderTargetCache final : public RenderTargetCache {
+   bool Dbz3BufferResolveToTexture(VulkanRenderTarget& rt, bool source_is_integer,
+                                   VulkanTextureCache& texture_cache, void* texture, uint32_t width,
+                                   uint32_t height, bool swap_rb);
++  // Dragon Burst (0095, dbz3_direct_resolve_draw): copia por desenho para uma textura 8888 sem
++  // STORAGE (no Mali todas, por causa da vista SNORM): um passe com a vista da textura como
++  // alvo de cor (0074) e um triangulo de ecra inteiro que le a origem texel a texel
++  // (texelFetch em gl_FragCoord). bgra: vista B8G8R8A8 (troca R/B, como o resolve). A origem e
++  // um descriptor set com o layout descriptor_set_layout_sampled_image_ (a imagem em (0,0)).
++  // Substitui compute -> buffer -> copia para a imagem (o dobro dos bytes e duas barreiras).
++  bool Dbz3DrawCopyInit();
++  bool Dbz3DrawCopyToTexture(VkDescriptorSet source_set, VulkanTextureCache& texture_cache,
++                             void* texture, uint32_t width, uint32_t height, bool bgra);
++  // Um descriptor set (anel de 64) com a vista amostrada de uma textura, para a copia acima.
++  VkDescriptorSet Dbz3DrawCopyTextureSet(VkImageView view);
+   bool Dbz3TryResolveDepthToTexture(const draw_util::ResolveInfo& resolve_info,
+                                     VulkanTextureCache& texture_cache, bool skip_memory);
+ 
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 37ac58c36664e68b1201f0b2944f08b2a818dfa8..fffafa1beb8ed4e4ab35a323a745d976ac9a77c0 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -1677,7 +1677,8 @@ bool VulkanCommandProcessor::SetupContext() {
+           "os draws nulos, o descarte do passe e os efeitos desligaveis",
+           draw_resolution_percent, on_text.empty() ? "nenhum" : on_text,
+           off_text.empty() ? "nenhum" : off_text,
+-          (on_steps & RTC::kDbz3StepPresent) ? "exatos" : "arredondados");
++          // 0095: a conta direta (o 0094 tirou o passo 1 abaixo de 1x, que servia de sinal).
++          RTC::Dbz3PostSizesExactAtPercent(draw_resolution_percent) ? "exatos" : "arredondados");
+     }
+   }
+ 
+diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
+index 35e026fc47bca8705906416a2134ae6a4c966b19..0e5e73bb90c374accc4c7f3f66ee5c61f6bef815 100644
+--- a/src/graphics/vulkan/render_target_cache.cpp
++++ b/src/graphics/vulkan/render_target_cache.cpp
+@@ -76,6 +76,12 @@ REXCVAR_DEFINE_STRING(render_target_path_vulkan, "", "GPU/Vulkan",
+ REXCVAR_DEFINE_INT32(dbz3_resolve_debug, 0, "GPU",
+                      "DBZ3-Android: 1 = resolves sem trabalho na GPU (so para medir o custo)");
+ 
++REXCVAR_DEFINE_BOOL(dbz3_direct_resolve_draw, false, "GPU/Vulkan",
++                    "Dragon Burst (0095): o atalho resolve -> textura escreve as texturas 8888 sem "
++                    "STORAGE (Mali) com um desenho (a textura como alvo de cor, texelFetch do "
++                    "render target) em vez de compute -> buffer -> copia")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++
+ namespace rex::graphics::vulkan {
+ 
+ // Dragon Burst: render nativo, passo 3 (definido no fim do ficheiro).
+@@ -6858,12 +6864,18 @@ bool VulkanRenderTargetCache::Dbz3TryResolveToTexture(const draw_util::ResolveIn
+                                       resolve_info.copy_dest_extent_length);
+     dbz3_gpuprof::CountSkippedMemory();
+   }
+-  // O render target fica pronto para leitura em compute.
++  // O render target fica pronto para leitura em compute (0095: e no fragment shader, com a
++  // copia por desenho).
++  const bool draw_copy =
++      REXCVAR_GET(dbz3_direct_resolve_draw) && samples == 1 && !source_is_integer;
++  const VkPipelineStageFlags rt_read_stages =
++      VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT |
++      (draw_copy ? VkPipelineStageFlags(VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT) : 0);
+   command_processor_.PushImageMemoryBarrier(
+       rt.image(), ui::vulkan::util::InitializeSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT),
+-      rt.current_stage_mask(), VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, rt.current_access_mask(),
++      rt.current_stage_mask(), rt_read_stages, rt.current_access_mask(),
+       VK_ACCESS_SHADER_READ_BIT, rt.current_layout(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+-  rt.SetUsage(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT,
++  rt.SetUsage(rt_read_stages, VK_ACCESS_SHADER_READ_BIT,
+               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+ 
+   bool any = false;
+@@ -6879,6 +6891,12 @@ bool VulkanRenderTargetCache::Dbz3TryResolveToTexture(const draw_util::ResolveIn
+         continue;
+       }
+     }
++    // 0095: sem STORAGE, a copia por desenho (se ligada e possivel); senao o buffer.
++    if (draw_copy && Dbz3DrawCopyToTexture(rt.GetDescriptorSetTransferSource(), texture_cache,
++                                           texture, tex_width, tex_height, swap_rb)) {
++      any = true;
++      continue;
++    }
+     if (!Dbz3BufferResolveToTexture(rt, source_is_integer, texture_cache, texture, tex_width,
+                                     tex_height, swap_rb)) {
+       return any;
+@@ -7002,6 +7020,311 @@ bool VulkanRenderTargetCache::Dbz3BufferResolveToTexture(VulkanRenderTarget& rt,
+   return true;
+ }
+ 
++// ---------------------------------------------------------------------------
++// Dragon Burst (0095): copia por desenho para uma textura 8888 (dbz3_direct_resolve_draw).
++// No Mali as texturas 8888 nao tem STORAGE (a vista SNORM nao o suporta e o STORAGE tiraria a
++// compressao AFBC), por isso o atalho resolve -> textura fazia compute (render target ->
++// buffer linear) + vkCmdCopyBufferToImage: ~8 MB de trafego por resolve de 960x540 (ler o
++// render target, escrever e ler o buffer, escrever a imagem) e duas barreiras compute ->
++// transfer -> leitura. Aqui: um passe com a vista da textura como alvo de cor (0074) e um
++// triangulo de ecra inteiro que le a origem texel a texel (texelFetch em gl_FragCoord): ~4 MB,
++// sem buffer. Exato: UNORM -> float -> UNORM devolve o mesmo byte; a troca R/B (copy_dest_swap)
++// e a vista B8G8R8A8, como no passo 4. Render pass proprio (vale com ou sem dynamic rendering).
++// ---------------------------------------------------------------------------
++namespace dbz3_draw_copy {
++constexpr uint32_t kSetRing = 64;
++struct State {
++  bool init_tried = false;
++  bool ok = false;
++  VkRenderPass render_pass[2] = {};  // 0: R8G8B8A8_UNORM, 1: B8G8R8A8_UNORM
++  VkPipelineLayout layout = VK_NULL_HANDLE;
++  VkPipeline pipeline[2] = {};
++  VkDescriptorPool pool = VK_NULL_HANDLE;
++  VkDescriptorSet sets[kSetRing] = {};
++  uint32_t next_set = 0;
++  std::vector<std::pair<uint64_t, VkFramebuffer>> old_framebuffers;
++  uint64_t done = 0;
++  uint64_t fail[3] = {};
++};
++State g_state;
++
++const char* kVertexSource = R"(#version 450
++void main() {
++  vec2 p = vec2(float((gl_VertexIndex << 1) & 2), float(gl_VertexIndex & 2));
++  gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
++}
++)";
++const char* kFragmentSource = R"(#version 450
++#extension GL_EXT_samplerless_texture_functions : require
++layout(set = 0, binding = 0) uniform texture2D src;
++layout(location = 0) out vec4 color;
++void main() { color = texelFetch(src, ivec2(gl_FragCoord.xy), 0); }
++)";
++
++void Fail(uint32_t why) {
++  if ((g_state.fail[why]++ % 600) == 0) {
++    REXGPU_INFO("dbz3: copia por desenho para a textura nao feita ({}; {} vezes), caminho antigo",
++                why, g_state.fail[why]);
++  }
++}
++}  // namespace dbz3_draw_copy
++
++bool VulkanRenderTargetCache::Dbz3DrawCopyInit() {
++  namespace dc = dbz3_draw_copy;
++  dc::State& st = dc::g_state;
++  if (st.init_tried) return st.ok;
++  st.init_tried = true;
++  const ui::vulkan::VulkanDevice* const vulkan_device = command_processor_.GetVulkanDevice();
++  const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
++  const VkDevice device = vulkan_device->device();
++  // Anel de descriptor sets para as origens que sao texturas (os render targets tem o seu).
++  VkDescriptorPoolSize pool_size = {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, dc::kSetRing};
++  VkDescriptorPoolCreateInfo pool_info = {};
++  pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
++  pool_info.maxSets = dc::kSetRing;
++  pool_info.poolSizeCount = 1;
++  pool_info.pPoolSizes = &pool_size;
++  if (dfn.vkCreateDescriptorPool(device, &pool_info, nullptr, &st.pool) != VK_SUCCESS) {
++    REXGPU_ERROR("dbz3: copia por desenho: vkCreateDescriptorPool falhou");
++    return false;
++  }
++  VkDescriptorSetLayout set_layouts[dc::kSetRing];
++  for (uint32_t i = 0; i < dc::kSetRing; ++i) set_layouts[i] = descriptor_set_layout_sampled_image_;
++  VkDescriptorSetAllocateInfo alloc_info = {};
++  alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
++  alloc_info.descriptorPool = st.pool;
++  alloc_info.descriptorSetCount = dc::kSetRing;
++  alloc_info.pSetLayouts = set_layouts;
++  if (dfn.vkAllocateDescriptorSets(device, &alloc_info, st.sets) != VK_SUCCESS) {
++    REXGPU_ERROR("dbz3: copia por desenho: vkAllocateDescriptorSets falhou");
++    return false;
++  }
++  VkPipelineLayoutCreateInfo layout_info = {};
++  layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
++  layout_info.setLayoutCount = 1;
++  layout_info.pSetLayouts = &descriptor_set_layout_sampled_image_;
++  if (dfn.vkCreatePipelineLayout(device, &layout_info, nullptr, &st.layout) != VK_SUCCESS) {
++    REXGPU_ERROR("dbz3: copia por desenho: vkCreatePipelineLayout falhou");
++    return false;
++  }
++  VkShaderModule modules[2] = {};
++  const VkShaderStageFlagBits stages[2] = {VK_SHADER_STAGE_VERTEX_BIT,
++                                           VK_SHADER_STAGE_FRAGMENT_BIT};
++  const char* sources[2] = {dc::kVertexSource, dc::kFragmentSource};
++  auto destroy_modules = [&] {
++    for (VkShaderModule m : modules) {
++      if (m != VK_NULL_HANDLE) dfn.vkDestroyShaderModule(device, m, nullptr);
++    }
++  };
++  for (uint32_t i = 0; i < 2; ++i) {
++    std::vector<uint32_t> spirv;
++    std::string error;
++    if (!command_processor_.CompileGlslToSpirv(stages[i], sources[i], spirv, error)) {
++      REXGPU_ERROR("dbz3: copia por desenho: shader {} nao compilou: {}", i, error);
++      destroy_modules();
++      return false;
++    }
++    VkShaderModuleCreateInfo module_info = {};
++    module_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
++    module_info.codeSize = spirv.size() * sizeof(uint32_t);
++    module_info.pCode = spirv.data();
++    if (dfn.vkCreateShaderModule(device, &module_info, nullptr, &modules[i]) != VK_SUCCESS) {
++      REXGPU_ERROR("dbz3: copia por desenho: vkCreateShaderModule falhou");
++      destroy_modules();
++      return false;
++    }
++  }
++  const VkFormat formats[2] = {VK_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_B8G8R8A8_UNORM};
++  for (uint32_t f = 0; f < 2; ++f) {
++    VkAttachmentDescription attachment = {};
++    attachment.format = formats[f];
++    attachment.samples = VK_SAMPLE_COUNT_1_BIT;
++    attachment.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
++    attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
++    attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
++    attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
++    attachment.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
++    attachment.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
++    VkAttachmentReference color_ref = {0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
++    VkSubpassDescription subpass = {};
++    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
++    subpass.colorAttachmentCount = 1;
++    subpass.pColorAttachments = &color_ref;
++    VkRenderPassCreateInfo render_pass_info = {};
++    render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
++    render_pass_info.attachmentCount = 1;
++    render_pass_info.pAttachments = &attachment;
++    render_pass_info.subpassCount = 1;
++    render_pass_info.pSubpasses = &subpass;
++    if (dfn.vkCreateRenderPass(device, &render_pass_info, nullptr, &st.render_pass[f]) !=
++        VK_SUCCESS) {
++      REXGPU_ERROR("dbz3: copia por desenho: vkCreateRenderPass falhou");
++      destroy_modules();
++      return false;
++    }
++    VkPipelineShaderStageCreateInfo stage_info[2] = {};
++    for (uint32_t i = 0; i < 2; ++i) {
++      stage_info[i].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
++      stage_info[i].stage = stages[i];
++      stage_info[i].module = modules[i];
++      stage_info[i].pName = "main";
++    }
++    VkPipelineVertexInputStateCreateInfo vertex_input = {};
++    vertex_input.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
++    VkPipelineInputAssemblyStateCreateInfo input_assembly = {};
++    input_assembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
++    input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
++    VkPipelineViewportStateCreateInfo viewport_state = {};
++    viewport_state.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
++    viewport_state.viewportCount = 1;
++    viewport_state.scissorCount = 1;
++    VkPipelineRasterizationStateCreateInfo rasterization = {};
++    rasterization.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
++    rasterization.polygonMode = VK_POLYGON_MODE_FILL;
++    rasterization.cullMode = VK_CULL_MODE_NONE;
++    rasterization.frontFace = VK_FRONT_FACE_CLOCKWISE;
++    rasterization.lineWidth = 1.0f;
++    VkPipelineMultisampleStateCreateInfo multisample = {};
++    multisample.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
++    multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
++    VkPipelineColorBlendAttachmentState blend_attachment = {};
++    blend_attachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
++                                      VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
++    VkPipelineColorBlendStateCreateInfo blend = {};
++    blend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
++    blend.attachmentCount = 1;
++    blend.pAttachments = &blend_attachment;
++    const VkDynamicState dynamic_states[2] = {VK_DYNAMIC_STATE_VIEWPORT,
++                                              VK_DYNAMIC_STATE_SCISSOR};
++    VkPipelineDynamicStateCreateInfo dynamic = {};
++    dynamic.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
++    dynamic.dynamicStateCount = 2;
++    dynamic.pDynamicStates = dynamic_states;
++    VkGraphicsPipelineCreateInfo pipeline_info = {};
++    pipeline_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
++    pipeline_info.stageCount = 2;
++    pipeline_info.pStages = stage_info;
++    pipeline_info.pVertexInputState = &vertex_input;
++    pipeline_info.pInputAssemblyState = &input_assembly;
++    pipeline_info.pViewportState = &viewport_state;
++    pipeline_info.pRasterizationState = &rasterization;
++    pipeline_info.pMultisampleState = &multisample;
++    pipeline_info.pColorBlendState = &blend;
++    pipeline_info.pDynamicState = &dynamic;
++    pipeline_info.layout = st.layout;
++    pipeline_info.renderPass = st.render_pass[f];
++    pipeline_info.subpass = 0;
++    if (dfn.vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeline_info, nullptr,
++                                      &st.pipeline[f]) != VK_SUCCESS) {
++      st.pipeline[f] = VK_NULL_HANDLE;
++      REXGPU_ERROR("dbz3: copia por desenho: vkCreateGraphicsPipelines falhou");
++      destroy_modules();
++      return false;
++    }
++  }
++  destroy_modules();
++  st.ok = true;
++  REXGPU_INFO("dbz3: copia por desenho para a textura ativa (atalho resolve -> textura sem buffer)");
++  return true;
++}
++
++VkDescriptorSet VulkanRenderTargetCache::Dbz3DrawCopyTextureSet(VkImageView view) {
++  namespace dc = dbz3_draw_copy;
++  if (view == VK_NULL_HANDLE || !Dbz3DrawCopyInit()) return VK_NULL_HANDLE;
++  dc::State& st = dc::g_state;
++  // Como o contorno: um anel de 64 (poucos por frame, muito mais que os frames em voo).
++  const VkDescriptorSet set = st.sets[st.next_set];
++  st.next_set = (st.next_set + 1) % dc::kSetRing;
++  const ui::vulkan::VulkanDevice* const vulkan_device = command_processor_.GetVulkanDevice();
++  VkDescriptorImageInfo image_info = {VK_NULL_HANDLE, view,
++                                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
++  VkWriteDescriptorSet write = {};
++  write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
++  write.dstSet = set;
++  write.dstBinding = 0;
++  write.descriptorCount = 1;
++  write.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
++  write.pImageInfo = &image_info;
++  vulkan_device->functions().vkUpdateDescriptorSets(vulkan_device->device(), 1, &write, 0,
++                                                    nullptr);
++  return set;
++}
++
++bool VulkanRenderTargetCache::Dbz3DrawCopyToTexture(VkDescriptorSet source_set,
++                                                    VulkanTextureCache& texture_cache,
++                                                    void* texture, uint32_t width,
++                                                    uint32_t height, bool bgra) {
++  namespace dc = dbz3_draw_copy;
++  if (source_set == VK_NULL_HANDLE || !width || !height || !Dbz3DrawCopyInit()) {
++    dc::Fail(0);
++    return false;
++  }
++  dc::State& st = dc::g_state;
++  if (!texture_cache.Dbz3TextureIsRenderable(texture)) {
++    dc::Fail(1);
++    return false;
++  }
++  const VkImageView view = texture_cache.Dbz3GetAttachmentView(texture, bgra);
++  if (view == VK_NULL_HANDLE) {
++    dc::Fail(2);
++    return false;
++  }
++  const ui::vulkan::VulkanDevice* const vulkan_device = command_processor_.GetVulkanDevice();
++  const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
++  const VkDevice device = vulkan_device->device();
++  // Framebuffers das copias anteriores cujas submissoes ja acabaram.
++  const uint64_t completed = command_processor_.GetCompletedSubmission();
++  auto end = std::remove_if(st.old_framebuffers.begin(), st.old_framebuffers.end(),
++                            [&](const std::pair<uint64_t, VkFramebuffer>& f) {
++                              if (f.first > completed) return false;
++                              dfn.vkDestroyFramebuffer(device, f.second, nullptr);
++                              return true;
++                            });
++  st.old_framebuffers.erase(end, st.old_framebuffers.end());
++  const uint32_t f = bgra ? 1 : 0;
++  VkFramebufferCreateInfo fb_info = {};
++  fb_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
++  fb_info.renderPass = st.render_pass[f];
++  fb_info.attachmentCount = 1;
++  fb_info.pAttachments = &view;
++  fb_info.width = width;
++  fb_info.height = height;
++  fb_info.layers = 1;
++  VkFramebuffer framebuffer;
++  if (dfn.vkCreateFramebuffer(device, &fb_info, nullptr, &framebuffer) != VK_SUCCESS) {
++    dc::Fail(0);
++    return false;
++  }
++  st.old_framebuffers.emplace_back(command_processor_.GetCurrentSubmission(), framebuffer);
++
++  // A textura passa a alvo de cor; as barreiras (e o fim do passe do jogo) antes do nosso.
++  texture_cache.Dbz3BeginAttachmentWrite(texture);
++  command_processor_.SubmitBarriers(true);
++  DeferredCommandBuffer& command_buffer = command_processor_.deferred_command_buffer();
++  VkRenderPassBeginInfo begin_info = {};
++  begin_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
++  begin_info.renderPass = st.render_pass[f];
++  begin_info.framebuffer = framebuffer;
++  begin_info.renderArea = {{0, 0}, {width, height}};
++  command_buffer.CmdVkBeginRenderPass(&begin_info, VK_SUBPASS_CONTENTS_INLINE);
++  // Pipeline externo: o processador volta a ligar o pipeline, o layout e os sets do jogo.
++  command_processor_.BindExternalGraphicsPipeline(st.pipeline[f]);
++  VkViewport viewport = {0.0f, 0.0f, float(width), float(height), 0.0f, 1.0f};
++  command_processor_.SetViewport(viewport);
++  command_processor_.SetScissor(VkRect2D{{0, 0}, {width, height}});
++  command_buffer.CmdVkBindDescriptorSets(VK_PIPELINE_BIND_POINT_GRAPHICS, st.layout, 0, 1,
++                                         &source_set, 0, nullptr);
++  command_buffer.CmdVkDraw(3, 1, 0, 0);
++  command_buffer.CmdVkEndRenderPass();
++  // Marca a textura como carregada e passa-a ja a leitura (fora de passes).
++  texture_cache.Dbz3EndAttachmentWrite(texture);
++  if ((st.done++ % 30000) == 0) {
++    REXGPU_INFO("dbz3: copia por desenho para a textura: {} ({}x{}, troca R/B {})", st.done, width,
++                height, bgra ? 1 : 0);
++  }
++  return true;
++}
++
+ bool VulkanRenderTargetCache::Dbz3TryResolveDepthToTexture(
+     const draw_util::ResolveInfo& resolve_info, VulkanTextureCache& texture_cache,
+     bool skip_memory) {

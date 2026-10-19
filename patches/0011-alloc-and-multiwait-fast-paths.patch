@@ -1,6 +1,8 @@
+diff --git a/src/core/memory_posix.cpp b/src/core/memory_posix.cpp
+index 7d082d7f983d18c6a18f446481ef4785d4332b2c..99319c39147fc05f5cf0708fec9ab6395595319d 100644
 --- a/src/core/memory_posix.cpp
 +++ b/src/core/memory_posix.cpp
-@@ -306,12 +306,23 @@
+@@ -306,12 +306,23 @@ void* AllocFixed(void* base_address, size_t length, AllocationType allocation_ty
    if (errno == EEXIST && base_address &&
        (allocation_type == AllocationType::kCommit ||
         allocation_type == AllocationType::kReserveCommit)) {
@@ -24,9 +26,11 @@
    }
  #endif
  
+diff --git a/src/core/threading_posix.cpp b/src/core/threading_posix.cpp
+index e48e6e3e284d5db02fdb3e6b9a09f665cc86d299..e95e78ceea23bf893b48d9ea7b91c7ec0887869a 100644
 --- a/src/core/threading_posix.cpp
 +++ b/src/core/threading_posix.cpp
-@@ -292,7 +292,18 @@
+@@ -292,7 +292,18 @@ class PosixConditionBase {
    // thread de audio. Agora qualquer sinal (Set/Release/fim de thread) avanca um
    // contador global e acorda quem esta em WaitMultiple, que dorme de verdade
    // entre verificacoes.
@@ -46,7 +50,7 @@
      auto& state = MultiWaitState();
      {
        std::lock_guard<std::mutex> guard(state.mutex);
-@@ -353,6 +364,22 @@
+@@ -353,6 +364,22 @@ class PosixConditionBase {
      std::vector<std::unique_lock<std::mutex>> locks;
      locks.reserve(handles.size());
  
@@ -69,7 +73,7 @@
      while (true) {
        size_t first_signaled = std::numeric_limits<size_t>::max();
        bool condition_met = false;
-@@ -467,6 +494,8 @@
+@@ -467,6 +494,8 @@ class PosixConditionBase {
   protected:
    inline virtual bool signaled() const = 0;
    inline virtual void post_execution() = 0;
@@ -78,7 +82,7 @@
    std::condition_variable cond_;
    std::mutex mutex_;
  };
-@@ -1494,7 +1523,7 @@
+@@ -1494,7 +1523,7 @@ void* PosixCondition<Thread>::ThreadStartRoutine(void* parameter) {
      thread->handle_.exit_code_ = 0;
      thread->handle_.signaled_ = true;
      thread->handle_.cond_.notify_all();

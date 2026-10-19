@@ -1,0 +1,896 @@
+diff --git a/include/rex/graphics/vulkan/render_target_cache.h b/include/rex/graphics/vulkan/render_target_cache.h
+index 7395929dca801b658b3b689acb11cc2a25d18929..bfc40f3538cf98e6847f4defbaf1df4cc70326f7 100644
+--- a/include/rex/graphics/vulkan/render_target_cache.h
++++ b/include/rex/graphics/vulkan/render_target_cache.h
+@@ -194,6 +194,34 @@ class VulkanRenderTargetCache final : public RenderTargetCache {
+   // Fim do frame (IssueSwap): limpa o estado pendente e escreve o contador.
+   void Dbz3NativeContourFrameEnd();
+ 
++  // Dragon Burst: render nativo, passo 3b (0083+) - os passes seguintes da cadeia do brilho
++  // do contorno por compute, com o mesmo esquema do 0080 (o quad e saltado, o resolve que o
++  // fecha e feito por um compute que escreve a(s) textura(s) do destino aprendido).
++  enum Dbz3PostKind : uint32_t {
++    kDbz3PostDownsample = 0,  // PS B0133EF80147AD50: 1280x720 -> 640x360 (0083)
++    kDbz3PostKindCount,
++  };
++  struct Dbz3PostParams {
++    uint32_t kind;
++    uint64_t key;               // instancia (tipo, VS, texturas): o destino aprendido e por chave
++    uint32_t width;             // alvo do passe (= tamanho do resolve)
++    uint32_t height;
++    uint32_t src_base[2];       // tf0 (e tf1), k_8_8_8_8
++    uint32_t src_endian[2];
++    uint32_t src_width[2];
++    uint32_t src_height[2];
++    uint32_t src_count;
++    uint32_t flags;             // bit 0/1: tf0/tf1 com a troca R/B no swizzle do fetch (BGRA)
++    float k[3][4];              // constantes por tipo (ver kSource em render_target_cache.cpp)
++    uint32_t color_base_tiles;  // render target 8888 1x do passe
++  };
++  // Como Dbz3NativeContourBegin: true = o draw pode ser saltado.
++  bool Dbz3NativePostBegin(VulkanTextureCache& texture_cache, const Dbz3PostParams& params);
++  // Para cada draw que chega ao reconhecimento (antes dele) e no fim de cada draw feito.
++  void Dbz3NativePostSeeDraw();
++  void Dbz3NativePostDrawDone();
++  void Dbz3NativePostFrameEnd();
++
+   // Dragon Burst: render nativo, passo 4 (dbz3_render_into_texture) - um passe que acaba num
+   // resolve de cor para uma textura desenha direto nessa textura (sem o resolve).
+   // Devolve a vista da textura para o alvo de cor (e poe-na em COLOR_ATTACHMENT_OPTIMAL) ou
+@@ -888,6 +916,10 @@ class VulkanRenderTargetCache final : public RenderTargetCache {
+   bool Dbz3NativeContourInit();
+   bool Dbz3NativeContourResolve(const draw_util::ResolveInfo& resolve_info,
+                                 VulkanTextureCache& texture_cache);
++  // Dragon Burst: render nativo, passo 3b (0083+): reducao/desfoque/composicao por compute.
++  bool Dbz3NativePostInit(uint32_t kind);
++  bool Dbz3NativePostResolve(const draw_util::ResolveInfo& resolve_info,
++                             VulkanTextureCache& texture_cache);
+   bool Dbz3BufferResolveToTexture(VulkanRenderTarget& rt, bool source_is_integer,
+                                   VulkanTextureCache& texture_cache, void* texture, uint32_t width,
+                                   uint32_t height, bool swap_rb);
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index d2bd6b49a750beb4053b74ec149dee1154c09fd1..e863e18936aecd713ea9c4d9bf27a450413b28f7 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -80,6 +80,11 @@ REXCVAR_DEFINE_BOOL(dbz3_bl_native_contour, true, "GPU/Vulkan",
+                     "ABBFE80C449D5F12) por compute em vez do quad de ecra inteiro + resolve")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ 
++REXCVAR_DEFINE_BOOL(dbz3_bl_native_downsample, true, "GPU/Vulkan",
++                    "Dragon Burst: faz a reducao 640x360 do brilho do contorno do Burst Limit (PS "
++                    "B0133EF80147AD50) por compute em vez do quad + resolve")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++
+ REXCVAR_DEFINE_BOOL(dbz3_skip_null_draws, true, "GPU/Vulkan",
+                     "Salta draws que nao escrevem nada (sem cor, sem profundidade/stencil, sem "
+                     "memexport, fora de consultas de oclusao): os 24 pontos de cada frame do BL")
+@@ -367,6 +372,186 @@ uint32_t Dbz3RecognizeContour(const RegisterFile& regs, const memory::Memory& me
+ uint64_t g_dbz3_contour_unrecognized[10] = {};
+ }  // namespace
+ 
++namespace {
++// Dragon Burst: render nativo, passo 3b (0083+) - os quads da cadeia do brilho do contorno.
++// Cada um e um quad de ecra inteiro (4 vertices: posicao +-0,5 e UV em pixeis) com VS do
++// mesmo molde (c0 = tamanho da textura lida, c1..c4 = matriz de ecra inteiro).
++struct Dbz3PostSpec {
++  uint32_t kind;
++  uint64_t ps;
++  uint64_t vs;
++  uint32_t width;        // alvo do passe
++  uint32_t height;
++  float uv_scale_x;      // UV dos vertices: (x + 0,5) * escala + desvio, (0,5 - y) * escala + desvio
++  float uv_scale_y;
++  float uv_offset;
++  uint32_t vs_c0[2];     // VS c0.xy (bits)
++  uint32_t src_count;
++  uint32_t src_width[2];
++  uint32_t src_height[2];
++  bool src_linear[2];    // filtro bilinear (senao ponto)
++};
++constexpr uint32_t kDbz3PostSpecCount = 1;
++const Dbz3PostSpec kDbz3PostSpecs[kDbz3PostSpecCount] = {
++    // Reducao 640: 0F0B9000 (1280x720, bilinear) -> alvo 640x360, UV 1..1281 x 1..721.
++    {VulkanRenderTargetCache::kDbz3PostDownsample, UINT64_C(0xB0133EF80147AD50),
++     UINT64_C(0x82BB812C66526343), 640, 360, 1280.0f, 720.0f, 1.0f, {0x44A00000, 0x44340000}, 1,
++     {1280, 0}, {720, 0}, {true, false}},
++};
++
++bool Dbz3PostEnabled(uint32_t kind) {
++  switch (kind) {
++    case VulkanRenderTargetCache::kDbz3PostDownsample:
++      return REXCVAR_GET(dbz3_bl_native_downsample);
++    default:
++      return false;
++  }
++}
++
++// 0 = o draw e exatamente o quad do passe (params preenchidos), senao o motivo. Tudo o que
++// muda o resultado e verificado: alvo, mistura, mascara, profundidade/stencil, scissor,
++// viewport, constantes do VS, os 4 vertices, as constantes do PS e os fetch constants
++// (formato, tamanho, filtro, bordas, swizzle, sinal, expoente, mips).
++uint32_t Dbz3RecognizePost(const RegisterFile& regs, const memory::Memory& memory,
++                           const VulkanShader& vertex_shader, bool indexed,
++                           const Dbz3PostSpec& spec,
++                           VulkanRenderTargetCache::Dbz3PostParams& out) {
++  const uint32_t kW = spec.width, kH = spec.height;
++  if (indexed) return 1;
++  const auto surface = regs.Get<reg::RB_SURFACE_INFO>();
++  const auto color = regs.Get<reg::RB_COLOR_INFO>(reg::RB_COLOR_INFO::rt_register_indices[0]);
++  if (surface.surface_pitch != kW || surface.msaa_samples != xenos::MsaaSamples::k1X ||
++      color.color_format != xenos::ColorRenderTargetFormat::k_8_8_8_8 || color.color_exp_bias != 0) {
++    return 2;
++  }
++  const auto colorcontrol = regs.Get<reg::RB_COLORCONTROL>();
++  const reg::RB_DEPTHCONTROL depth = draw_util::GetNormalizedDepthControl(regs);
++  if ((regs[XE_GPU_REG_RB_BLENDCONTROL0] & 0x1FFF1FFF) != 0x00010001 ||
++      (regs[XE_GPU_REG_RB_COLOR_MASK] & 0xF) != 0xF || colorcontrol.alpha_test_enable ||
++      colorcontrol.alpha_to_mask_enable || depth.stencil_enable ||
++      (depth.z_enable && (depth.z_write_enable || depth.zfunc != xenos::CompareFunction::kAlways))) {
++    return 3;
++  }
++  const uint32_t tl = regs[XE_GPU_REG_PA_SC_WINDOW_SCISSOR_TL];
++  const uint32_t br = regs[XE_GPU_REG_PA_SC_WINDOW_SCISSOR_BR];
++  const auto vte = regs.Get<reg::PA_CL_VTE_CNTL>();
++  auto rf = [&](uint32_t reg_index) {
++    float f;
++    std::memcpy(&f, &regs.values[reg_index], sizeof(f));
++    return f;
++  };
++  if ((tl & 0x7FFF7FFF) != 0 || (br & 0x7FFF) < kW || ((br >> 16) & 0x7FFF) < kH ||
++      regs[XE_GPU_REG_PA_SC_WINDOW_OFFSET] != 0 || !vte.vport_x_scale_ena ||
++      !vte.vport_x_offset_ena || !vte.vport_y_scale_ena || !vte.vport_y_offset_ena ||
++      vte.vtx_xy_fmt || rf(XE_GPU_REG_PA_CL_VPORT_XSCALE) != float(kW) * 0.5f ||
++      rf(XE_GPU_REG_PA_CL_VPORT_XOFFSET) != float(kW) * 0.5f ||
++      rf(XE_GPU_REG_PA_CL_VPORT_YSCALE) != float(kH) * -0.5f ||
++      rf(XE_GPU_REG_PA_CL_VPORT_YOFFSET) != float(kH) * 0.5f) {
++    return 4;
++  }
++  // c0 = tamanho da textura lida (os desvios de texel), c1..c4 = a matriz de ecra inteiro
++  // (c3.z = -1.0001, c4.z = 999.0999: o z fica dentro do volume de recorte), bit a bit.
++  const uint32_t vs_consts[5][4] = {{spec.vs_c0[0], spec.vs_c0[1], 0, 0},
++                                    {0x40000000, 0, 0, 0},
++                                    {0, 0x40000000, 0, 0},
++                                    {0, 0, 0xBF800347, 0xBF800000},
++                                    {0, 0, 0x4479C665, 0x447A0000}};
++  for (uint32_t n = 0; n < 5; ++n) {
++    for (uint32_t k = 0; k < 4; ++k) {
++      if (regs.values[XE_GPU_REG_SHADER_CONSTANT_000_X + n * 4 + k] != vs_consts[n][k]) {
++        return 5;
++      }
++    }
++  }
++  // Os 4 vertices: posicao (+-0,5, +-0,5) e UV em pixeis, um por canto.
++  if (vertex_shader.vertex_bindings().empty()) return 6;
++  const auto& vb = vertex_shader.vertex_bindings()[0];
++  const xenos::xe_gpu_vertex_fetch_t vf = regs.GetVertexFetch(vb.fetch_constant);
++  if (vf.type != xenos::FetchConstantType::kVertex || vb.stride_words != 4 ||
++      (vf.endian != xenos::Endian::k8in32 && vf.endian != xenos::Endian::kNone) ||
++      uint32_t(vf.size) < 16) {
++    return 6;
++  }
++  const uint8_t* data = memory.TranslatePhysical(uint32_t(vf.address) << 2);
++  if (!data) return 6;
++  uint32_t corners = 0;
++  for (uint32_t v = 0; v < 4; ++v) {
++    float f[4];
++    for (uint32_t k = 0; k < 4; ++k) {
++      uint32_t bits;
++      std::memcpy(&bits, data + (v * 4 + k) * 4, 4);
++      if (vf.endian == xenos::Endian::k8in32) bits = rex::byte_swap(bits);
++      std::memcpy(&f[k], &bits, 4);
++    }
++    if ((f[0] != -0.5f && f[0] != 0.5f) || (f[1] != -0.5f && f[1] != 0.5f) ||
++        f[2] != (f[0] + 0.5f) * spec.uv_scale_x + spec.uv_offset ||
++        f[3] != (0.5f - f[1]) * spec.uv_scale_y + spec.uv_offset) {
++      return 6;
++    }
++    corners |= 1u << ((f[0] > 0 ? 1 : 0) | (f[1] > 0 ? 2 : 0));
++  }
++  if (corners != 0xF) return 6;
++  // Constantes do PS (por tipo, ver kSource em render_target_cache.cpp).
++  auto psc = [&](uint32_t n, uint32_t k) { return rf(XE_GPU_REG_SHADER_CONSTANT_256_X + n * 4 + k); };
++  std::memset(out.k, 0, sizeof(out.k));
++  switch (spec.kind) {
++    case VulkanRenderTargetCache::kDbz3PostDownsample:
++      for (uint32_t k = 0; k < 4; ++k) {
++        out.k[0][k] = psc(0, k);  // caixa(0,0) * c0
++        out.k[1][k] = psc(1, k);  // + max(4 caixas) * c1
++      }
++      break;
++    default:
++      return 7;
++  }
++  for (uint32_t n = 0; n < 3; ++n) {
++    for (uint32_t k = 0; k < 4; ++k) {
++      if (!std::isfinite(out.k[n][k])) return 7;
++    }
++  }
++  // As texturas: 8888 2D tiled sem mips, sem sinal, sem expoente, swizzle RGBA ou BGRA, borda =
++  // aresta, o filtro e o tamanho do passe.
++  auto edge_clamp = [](xenos::ClampMode m) {
++    return m == xenos::ClampMode::kClampToEdge || m == xenos::ClampMode::kClampToHalfway;
++  };
++  out.src_count = spec.src_count;
++  out.flags = 0;
++  for (uint32_t i = 0; i < spec.src_count; ++i) {
++    const xenos::xe_gpu_texture_fetch_t t = regs.GetTextureFetch(i);
++    const xenos::TextureFilter filter =
++        spec.src_linear[i] ? xenos::TextureFilter::kLinear : xenos::TextureFilter::kPoint;
++    const uint32_t swizzle = t.swizzle & 0xFFF;
++    if (t.type != xenos::FetchConstantType::kTexture ||
++        t.dimension != xenos::DataDimension::k2DOrStacked ||
++        t.format != xenos::TextureFormat::k_8_8_8_8 || !t.tiled ||
++        uint32_t(t.size_2d.width) + 1 != spec.src_width[i] ||
++        uint32_t(t.size_2d.height) + 1 != spec.src_height[i] ||
++        t.sign_x != xenos::TextureSign::kUnsigned || t.sign_y != xenos::TextureSign::kUnsigned ||
++        t.sign_z != xenos::TextureSign::kUnsigned || t.sign_w != xenos::TextureSign::kUnsigned ||
++        t.num_format || t.exp_adjust != 0 || t.mag_filter != filter || t.min_filter != filter ||
++        t.aniso_filter != xenos::AnisoFilter::kDisabled || !edge_clamp(t.clamp_x) ||
++        !edge_clamp(t.clamp_y) || t.mip_max_level != 0 ||
++        (swizzle != 0x688 && swizzle != 0x60A)) {  // RGBA (0o3210) ou BGRA (0o3012)
++      return 8 + i;
++    }
++    out.src_base[i] = (uint32_t(t.base_address) << 12) & 0x1FFFFFFF;
++    out.src_endian[i] = uint32_t(t.endianness);
++    out.src_width[i] = spec.src_width[i];
++    out.src_height[i] = spec.src_height[i];
++    if (swizzle == 0x60A) out.flags |= 1u << i;
++  }
++  out.kind = spec.kind;
++  out.width = kW;
++  out.height = kH;
++  out.color_base_tiles = color.color_base;
++  out.key = spec.vs ^ (uint64_t(spec.kind) << 56) ^ (uint64_t(out.src_base[0]) << 3) ^
++            (spec.src_count > 1 ? uint64_t(out.src_base[1]) << 31 : 0);
++  return 0;
++}
++uint64_t g_dbz3_post_unrecognized[VulkanRenderTargetCache::kDbz3PostKindCount][10] = {};
++const char* const kDbz3PostNames[VulkanRenderTargetCache::kDbz3PostKindCount] = {"reducao 640"};
++}  // namespace
++
+ // Dragon Burst: render nativo, passo 3b (definido em render_target_cache.cpp).
+ namespace dbz3_native_contour {
+ extern bool g_pending;
+@@ -2947,6 +3132,7 @@ void VulkanCommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontb
+   dbz3_native_ld::g_pending = false;
+   dbz3_native_ld::g_learn = false;
+   render_target_cache_->Dbz3NativeContourFrameEnd();
++  render_target_cache_->Dbz3NativePostFrameEnd();
+   // Passo 3: o presenter le a imagem final (conta como leitura) e nada fica pendente.
+   dbz3_resolve_dedupe::g_skip_next_resolve = false;
+   dbz3_resolve_dedupe::MarkRead(frontbuffer_ptr & 0x1FFFFFFF);
+@@ -4893,6 +5079,33 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+       DBZ3_DRAW_RET(true);
+     }
+   }
++  // Dragon Burst: render nativo, passo 3b (0083+) - a cadeia do brilho do contorno (ver
++  // dbz3_native_post em render_target_cache.cpp). Como o contorno: o quad e saltado e o(s)
++  // resolve(s) que o fecham sao feitos por compute; capturas com leitura de volta: normal.
++  render_target_cache_->Dbz3NativePostSeeDraw();
++  if (pixel_shader && prim_type == xenos::PrimitiveType::kQuadList && index_count == 4 &&
++      !dbz3_capture::WantsResolveReadback()) {
++    const uint64_t post_ps = pixel_shader->ucode_data_hash();
++    const uint64_t post_vs = vertex_shader->ucode_data_hash();
++    for (const Dbz3PostSpec& spec : kDbz3PostSpecs) {
++      if (spec.ps != post_ps || spec.vs != post_vs || !Dbz3PostEnabled(spec.kind)) continue;
++      VulkanRenderTargetCache::Dbz3PostParams np_params = {};
++      const uint32_t np_why = Dbz3RecognizePost(regs, *memory_, *vertex_shader,
++                                                index_buffer_info != nullptr, spec, np_params);
++      if (np_why) {
++        if ((g_dbz3_post_unrecognized[spec.kind][np_why]++ % 600) == 0) {
++          REXGPU_INFO("dbz3: render nativo: {} ainda nao (quad diferente, {})",
++                      kDbz3PostNames[spec.kind], 10 + np_why);
++        }
++      } else if (render_target_cache_->Dbz3NativePostBegin(*texture_cache_, np_params)) {
++        // As texturas lidas pelo compute contam como lidas para o passo 3.
++        Dbz3ForEachSampled(regs, vertex_shader, pixel_shader,
++                           [](uint32_t a) { dbz3_resolve_dedupe::MarkRead(a); });
++        DBZ3_DRAW_RET(true);
++      }
++      break;
++    }
++  }
+   // Dragon Burst: render nativo, copia final do frame (ver dbz3_native_present).
+   if (pixel_shader && REXCVAR_GET(dbz3_bl_native_present) &&
+       pixel_shader->ucode_data_hash() == UINT64_C(0xEC9B52789DD888F2) &&
+@@ -5751,6 +5964,8 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+   dbz3_resolve_dedupe::g_dirty = true;
+   // Passo 3b: um draw entre o quad do contorno saltado e o resolve (nao devia acontecer).
+   if (dbz3_native_contour::g_pending) dbz3_native_contour::g_dirty = true;
++  // Passo 3b (0083+): um draw feito acaba o passe saltado e o ensino do destino.
++  render_target_cache_->Dbz3NativePostDrawDone();
+   Dbz3ForEachSampled(regs, vertex_shader, pixel_shader,
+                      [](uint32_t a) { dbz3_resolve_dedupe::MarkRead(a); });
+   DBZ3_DRAW_RET(true);
+diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
+index 564fa5f5315aca02b0355cce539b3c12038a1518..b073750d1dc8869ab069d2069739d67352a8fcca 100644
+--- a/src/graphics/vulkan/render_target_cache.cpp
++++ b/src/graphics/vulkan/render_target_cache.cpp
+@@ -104,6 +104,12 @@ extern bool g_pending;
+ extern bool g_learn;
+ }  // namespace dbz3_native_contour
+ 
++// Dragon Burst: render nativo, passo 3b (0083+, definido no fim do ficheiro).
++namespace dbz3_native_post {
++extern bool g_pending;
++extern bool g_learn;
++}  // namespace dbz3_native_post
++
+ // DBZ3-Android: cache de pipelines do driver (pipeline_cache.cpp).
+ VkPipelineCache Dbz3GetDriverPipelineCache();
+ void Dbz3MarkDriverPipelineCacheDirty();
+@@ -1245,6 +1251,15 @@ bool VulkanRenderTargetCache::Resolve(const memory::Memory& memory,
+       return true;
+     }
+   }
++  // Dragon Burst: render nativo, passo 3b (0083+) - reducao/desfoque/composicao do brilho por
++  // compute (mesma ordem que o contorno: antes do passo 4).
++  if (dbz3_native_post::g_pending || dbz3_native_post::g_learn) {
++    if (Dbz3NativePostResolve(resolve_info, texture_cache)) {
++      written_address_out = 0;
++      written_length_out = 0;
++      return true;
++    }
++  }
+   // Dragon Burst: render nativo, passo 4 - o passe desenhou direto na textura de destino.
+   if (dbz3_rit::Resolve(*this, resolve_info, texture_cache)) {
+     written_address_out = 0;
+@@ -8247,4 +8262,558 @@ bool VulkanRenderTargetCache::Dbz3NativeContourResolve(
+   return true;
+ }
+ 
++
++// ---------------------------------------------------------------------------
++// Dragon Burst: render nativo, passo 3b (0083+): a cadeia do brilho do contorno.
++// Depois da mascara do contorno (0080, -> 0F0B9000) o Burst Limit faz, em cada cadeia:
++//   reducao 640 (VS 82BB812C66526343, PS B0133EF80147AD50, alvo 640x360): le 0F0B9000
++//     (1280x720, bilinear, borda = aresta) com UV (1..1281, 1..721) / (1280, 720): cada amostra
++//     cai a meio de 2x2 texeis (media exata). oC0 = caixa(0,0) * c0 + max(caixa(0,0),
++//     caixa(1,0), caixa(0,1), caixa(1,1)) * c1, caixa(dx,dy) = media dos texeis
++//     (2x+dx..2x+dx+1, 2y+dy..2y+dy+1). Resolvido para 0FF19000.
++// Cada passe: o quad e saltado e o(s) resolve(s) que o fecham (ate ao draw seguinte) sao um
++// compute que escreve um buffer e o copia para a(s) textura(s) do destino aprendido (as 8888
++// do pos nao tem STORAGE), como no 0080. As texturas intermedias continuam a ser escritas: se
++// a cadeia parar a meio (um passe nao reconhecido ou sem destino), o passe seguinte pelo
++// caminho normal le-as atualizadas. Nas capturas nenhuma delas tem outro leitor.
++// Validado offline com as capturas (tools/ref_glow.py): ver docs/ESTADO.md.
++// ---------------------------------------------------------------------------
++namespace dbz3_native_post {
++bool g_pending = false;      // um quad foi saltado: os resolves ate ao draw seguinte sao nossos
++bool g_learn = false;        // o quad correu normal: os resolves ate ao draw seguinte ensinam
++bool g_learn_draw = false;   // o draw em curso e o que ensina (o fim dele nao acaba o ensino)
++bool g_dirty = false;        // houve um draw feito entre o quad saltado e o 1.o resolve
++uint32_t g_served = 0;       // resolves ja feitos por compute para o quad saltado
++VulkanRenderTargetCache::Dbz3PostParams g_params = {};
++uint64_t g_frames = 0;
++
++constexpr uint32_t kKinds = VulkanRenderTargetCache::kDbz3PostKindCount;
++const char* const kNames[kKinds] = {"reducao 640"};
++
++// Destinos aprendidos por instancia (um passe pode ser resolvido para mais de um destino).
++struct Slot {
++  uint64_t key = 0;
++  uint32_t count = 0;
++  uint32_t dest[4] = {};
++  uint32_t endian[4] = {};
++  bool swap[4] = {};
++};
++std::vector<Slot> g_slots;
++Slot* FindSlot(uint64_t key, bool create) {
++  for (Slot& slot : g_slots) {
++    if (slot.key == key) return &slot;
++  }
++  if (!create) return nullptr;
++  if (g_slots.size() >= 16) g_slots.erase(g_slots.begin());
++  g_slots.push_back(Slot{key});
++  return &g_slots.back();
++}
++
++struct Stats {
++  uint64_t done = 0;
++  uint64_t fail = 0;
++  uint64_t not_yet[8] = {};
++  uint64_t learn_miss = 0;
++  bool active_logged = false;
++};
++Stats g_stats[kKinds];
++
++constexpr uint32_t kSetRing = 256;
++struct State {
++  bool common_tried = false;
++  bool common_ok = false;
++  bool tried[kKinds] = {};
++  VkPipeline pipeline[kKinds] = {};
++  VkPipelineLayout layout = VK_NULL_HANDLE;
++  VkDescriptorPool pool = VK_NULL_HANDLE;
++  VkDescriptorSet sets[kSetRing] = {};
++  uint32_t next_set = 0;
++};
++State g_state;
++
++struct PushConstants {
++  float k[3][4];
++  uint32_t width;
++  uint32_t height;
++  uint32_t src_width;
++  uint32_t src_height;
++  uint32_t src1_width;
++  uint32_t src1_height;
++  uint32_t flags;  // bit 0/1: tf0/tf1 BGRA; bit 2: troca R/B no resolve (copy_dest_swap)
++  uint32_t pad;
++};
++static_assert(sizeof(PushConstants) == 80, "pos nativo: push constants");
++
++// As mesmas contas que os PS do jogo (traduzidos para SPIR-V com mul e add sem contracao:
++// aqui `precise`), na mesma ordem; a referencia em numpy (tools/ref_glow.py) faz estas contas.
++// A amostragem bilinear e feita a mao com texelFetch: os pesos dos passes sao exatos (0,5).
++// A conversao para 8 bits e a do render target: floor(clamp(v) * 255 + 0,5) em fp32.
++const char* kSource = R"(
++#extension GL_EXT_samplerless_texture_functions : require
++layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
++layout(set = 0, binding = 0, std430) writeonly buffer Dest { uint dest[]; };
++layout(set = 1, binding = 0) uniform texture2D tex0;
++layout(set = 1, binding = 1) uniform texture2D tex1;
++layout(push_constant) uniform Constants {
++  vec4 k0;
++  vec4 k1;
++  vec4 k2;
++  uint width;
++  uint height;
++  uint src_width;
++  uint src_height;
++  uint src1_width;
++  uint src1_height;
++  uint flags;
++  uint pad;
++} pc;
++vec4 T0(ivec2 p) {
++  p = clamp(p, ivec2(0), ivec2(int(pc.src_width) - 1, int(pc.src_height) - 1));
++  vec4 v = texelFetch(tex0, p, 0);
++  return (pc.flags & 1u) != 0u ? v.bgra : v;
++}
++vec4 T1(ivec2 p) {
++  p = clamp(p, ivec2(0), ivec2(int(pc.src1_width) - 1, int(pc.src1_height) - 1));
++  vec4 v = texelFetch(tex1, p, 0);
++  return (pc.flags & 2u) != 0u ? v.bgra : v;
++}
++uint Pack(vec4 v) {
++  precise vec4 s = clamp(v, 0.0, 1.0) * 255.0 + 0.5;
++  uvec4 u = uvec4(s);
++  if ((pc.flags & 4u) != 0u) u.rb = u.br;
++  return u.r | (u.g << 8u) | (u.b << 16u) | (u.a << 24u);
++}
++#if KIND == 0
++// Amostra bilinear a meio de 2x2 texeis (pesos 0,5): linha de cima, de baixo, media.
++vec4 Box(vec4 a, vec4 b, vec4 c, vec4 d) {
++  precise vec4 top = (a + b) * 0.5;
++  precise vec4 bottom = (c + d) * 0.5;
++  precise vec4 r = (top + bottom) * 0.5;
++  return r;
++}
++#endif
++void main() {
++  ivec2 p = ivec2(gl_GlobalInvocationID.xy);
++  if (uint(p.x) >= pc.width || uint(p.y) >= pc.height) return;
++#if KIND == 0
++  // Reducao 640 (B0133E...): oC0 = caixa(0,0) * c0 + max(4 caixas) * c1 (k0 = c0, k1 = c1).
++  ivec2 q = p * 2;
++  vec4 t00 = T0(q), t10 = T0(q + ivec2(1, 0)), t20 = T0(q + ivec2(2, 0));
++  vec4 t01 = T0(q + ivec2(0, 1)), t11 = T0(q + ivec2(1, 1)), t21 = T0(q + ivec2(2, 1));
++  vec4 t02 = T0(q + ivec2(0, 2)), t12 = T0(q + ivec2(1, 2)), t22 = T0(q + ivec2(2, 2));
++  vec4 b00 = Box(t00, t10, t01, t11);
++  vec4 b10 = Box(t10, t20, t11, t21);
++  vec4 b01 = Box(t01, t11, t02, t12);
++  vec4 b11 = Box(t11, t21, t12, t22);
++  vec4 m = max(max(max(b00, b10), b01), b11);
++  precise vec4 v = b00 * pc.k0 + m * pc.k1;
++#endif
++  dest[uint(p.y) * pc.width + uint(p.x)] = Pack(v);
++}
++)";
++
++bool NotYet(uint32_t why) {
++  const uint32_t kind = g_params.kind < kKinds ? g_params.kind : 0;
++  g_pending = false;
++  g_learn = true;
++  g_learn_draw = true;
++  if ((g_stats[kind].not_yet[why & 7]++ % 600) == 0) {
++    REXGPU_INFO("dbz3: render nativo: {} ainda nao ({})", kNames[kind], why);
++  }
++  return false;
++}
++
++// O resolve fecha o passe do quad: cor 0 8888 1x do render target do passe, sem limpeza, do
++// tamanho do alvo, de (0,0) a (0,0) do destino, 8888 sem expoente.
++bool Matches(const draw_util::ResolveInfo& ri, const VulkanRenderTargetCache::Dbz3PostParams& prm) {
++  const draw_util::ResolveEdramInfo& src = ri.color_edram_info;
++  return !ri.IsCopyingDepth() && !ri.IsClearingDepth() && !ri.IsClearingColor() &&
++         ri.copy_dest_extent_length && ri.rb_copy_control.copy_src_select == 0 &&
++         !src.format_is_64bpp &&
++         xenos::ColorRenderTargetFormat(src.format) == xenos::ColorRenderTargetFormat::k_8_8_8_8 &&
++         src.msaa_samples == xenos::MsaaSamples::k1X && prm.width &&
++         src.pitch_tiles == prm.width / 80 &&
++         (src.base_tiles == prm.color_base_tiles || ri.color_original_base == prm.color_base_tiles) &&
++         ri.copy_dest_info.copy_dest_format == xenos::ColorFormat::k_8_8_8_8 &&
++         ri.copy_dest_info.copy_dest_exp_bias == 0 &&
++         uint32_t(ri.copy_dest_info.copy_dest_endian) <= 3 &&
++         ri.coordinate_info.edram_offset_x_div_8 == 0 &&
++         ri.coordinate_info.edram_offset_y_div_8 == 0 &&
++         ri.copy_dest_coordinate_info.offset_x_div_8 == 0 &&
++         ri.copy_dest_coordinate_info.offset_y_div_8 == 0 &&
++         uint32_t(ri.copy_dest_coordinate_info.pitch_aligned_div_32) * 32 ==
++             ((prm.width + 31) & ~31u) &&
++         ri.copy_dest_base == ri.copy_dest_extent_start &&
++         uint32_t(ri.coordinate_info.width_div_8) * 8 == prm.width &&
++         ri.height_div_8 * 8 == prm.height;
++}
++
++void LogMiss(const draw_util::ResolveInfo& ri, const VulkanRenderTargetCache::Dbz3PostParams& prm) {
++  const uint32_t kind = prm.kind < kKinds ? prm.kind : 0;
++  if ((g_stats[kind].learn_miss++ % 600) != 0) return;
++  const draw_util::ResolveEdramInfo& src = ri.color_edram_info;
++  REXGPU_INFO(
++      "dbz3: render nativo: {}, resolve nao bate: depth {} clear {}/{} src_sel {} fmt {} 64bpp {} "
++      "msaa {} pitch {} (quer {}) base {}/{} (quer {}) dest_fmt {} bias {} endian {} off {},{} / "
++      "{},{} dest_pitch {} base {:08X} extent {:08X} {}x{} (quer {}x{})",
++      kNames[kind], ri.IsCopyingDepth(), ri.IsClearingDepth(), ri.IsClearingColor(),
++      uint32_t(ri.rb_copy_control.copy_src_select), uint32_t(src.format),
++      uint32_t(src.format_is_64bpp), uint32_t(src.msaa_samples), uint32_t(src.pitch_tiles),
++      prm.width / 80, uint32_t(src.base_tiles), ri.color_original_base, prm.color_base_tiles,
++      uint32_t(ri.copy_dest_info.copy_dest_format), int32_t(ri.copy_dest_info.copy_dest_exp_bias),
++      uint32_t(ri.copy_dest_info.copy_dest_endian),
++      uint32_t(ri.coordinate_info.edram_offset_x_div_8) * 8,
++      uint32_t(ri.coordinate_info.edram_offset_y_div_8) * 8,
++      uint32_t(ri.copy_dest_coordinate_info.offset_x_div_8) * 8,
++      uint32_t(ri.copy_dest_coordinate_info.offset_y_div_8) * 8,
++      uint32_t(ri.copy_dest_coordinate_info.pitch_aligned_div_32) * 32, ri.copy_dest_base,
++      ri.copy_dest_extent_start, uint32_t(ri.coordinate_info.width_div_8) * 8,
++      ri.height_div_8 * 8, prm.width, prm.height);
++}
++}  // namespace dbz3_native_post
++
++bool VulkanRenderTargetCache::Dbz3NativePostInit(uint32_t kind) {
++  namespace np = dbz3_native_post;
++  np::State& st = np::g_state;
++  if (kind >= np::kKinds) return false;
++  const ui::vulkan::VulkanDevice* const vulkan_device = command_processor_.GetVulkanDevice();
++  const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
++  const VkDevice device = vulkan_device->device();
++  if (!st.common_tried) {
++    st.common_tried = true;
++    VkDescriptorPoolSize pool_size = {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, np::kSetRing * 2};
++    VkDescriptorPoolCreateInfo pool_info = {};
++    pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
++    pool_info.maxSets = np::kSetRing;
++    pool_info.poolSizeCount = 1;
++    pool_info.pPoolSizes = &pool_size;
++    if (dfn.vkCreateDescriptorPool(device, &pool_info, nullptr, &st.pool) != VK_SUCCESS) {
++      REXGPU_ERROR("dbz3: render nativo: pos: vkCreateDescriptorPool falhou");
++      return false;
++    }
++    std::vector<VkDescriptorSetLayout> set_layouts(np::kSetRing,
++                                                   descriptor_set_layout_sampled_image_x2_);
++    VkDescriptorSetAllocateInfo alloc_info = {};
++    alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
++    alloc_info.descriptorPool = st.pool;
++    alloc_info.descriptorSetCount = np::kSetRing;
++    alloc_info.pSetLayouts = set_layouts.data();
++    if (dfn.vkAllocateDescriptorSets(device, &alloc_info, st.sets) != VK_SUCCESS) {
++      REXGPU_ERROR("dbz3: render nativo: pos: vkAllocateDescriptorSets falhou");
++      return false;
++    }
++    VkDescriptorSetLayout layouts[2] = {
++        command_processor_.GetSingleTransientDescriptorLayout(
++            VulkanCommandProcessor::SingleTransientDescriptorLayout::kStorageBufferCompute),
++        descriptor_set_layout_sampled_image_x2_};
++    VkPushConstantRange push_range = {VK_SHADER_STAGE_COMPUTE_BIT, 0,
++                                      uint32_t(sizeof(np::PushConstants))};
++    VkPipelineLayoutCreateInfo layout_info = {};
++    layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
++    layout_info.setLayoutCount = 2;
++    layout_info.pSetLayouts = layouts;
++    layout_info.pushConstantRangeCount = 1;
++    layout_info.pPushConstantRanges = &push_range;
++    if (dfn.vkCreatePipelineLayout(device, &layout_info, nullptr, &st.layout) != VK_SUCCESS) {
++      REXGPU_ERROR("dbz3: render nativo: pos: vkCreatePipelineLayout falhou");
++      return false;
++    }
++    st.common_ok = true;
++  }
++  if (!st.common_ok) return false;
++  if (st.tried[kind]) return st.pipeline[kind] != VK_NULL_HANDLE;
++  st.tried[kind] = true;
++  const std::string source =
++      "#version 450\n#define KIND " + std::to_string(kind) + "\n" + np::kSource;
++  std::vector<uint32_t> spirv;
++  std::string error;
++  if (!command_processor_.CompileGlslToSpirv(VK_SHADER_STAGE_COMPUTE_BIT, source, spirv, error)) {
++    REXGPU_ERROR("dbz3: render nativo: {}: shader nao compilou: {}", np::kNames[kind], error);
++    return false;
++  }
++  VkShaderModuleCreateInfo module_info = {};
++  module_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
++  module_info.codeSize = spirv.size() * sizeof(uint32_t);
++  module_info.pCode = spirv.data();
++  VkShaderModule module = VK_NULL_HANDLE;
++  if (dfn.vkCreateShaderModule(device, &module_info, nullptr, &module) != VK_SUCCESS) {
++    REXGPU_ERROR("dbz3: render nativo: {}: vkCreateShaderModule falhou", np::kNames[kind]);
++    return false;
++  }
++  VkComputePipelineCreateInfo pipeline_info = {};
++  pipeline_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
++  pipeline_info.stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
++  pipeline_info.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
++  pipeline_info.stage.module = module;
++  pipeline_info.stage.pName = "main";
++  pipeline_info.layout = st.layout;
++  VkPipeline pipeline = VK_NULL_HANDLE;
++  const VkResult result = dfn.vkCreateComputePipelines(device, Dbz3GetDriverPipelineCache(), 1,
++                                                       &pipeline_info, nullptr, &pipeline);
++  dfn.vkDestroyShaderModule(device, module, nullptr);
++  if (result != VK_SUCCESS) {
++    REXGPU_ERROR("dbz3: render nativo: {}: vkCreateComputePipelines falhou", np::kNames[kind]);
++    return false;
++  }
++  Dbz3MarkDriverPipelineCacheDirty();
++  st.pipeline[kind] = pipeline;
++  return true;
++}
++
++bool VulkanRenderTargetCache::Dbz3NativePostBegin(VulkanTextureCache& texture_cache,
++                                                  const Dbz3PostParams& params) {
++  namespace np = dbz3_native_post;
++  // Como no 0082: guardados ja, para o resolve que ensina comparar com os valores reais.
++  np::g_params = params;
++  if (params.kind >= np::kKinds) {
++    np::g_params.kind = 0;
++    return np::NotYet(7);
++  }
++  if (GetPath() != Path::kHostRenderTargets || IsDrawResolutionScaled()) {
++    return np::NotYet(0);
++  }
++  const np::Slot* slot = np::FindSlot(params.key, false);
++  if (!slot || !slot->count) {
++    return np::NotYet(1);  // o primeiro frame ensina o(s) destino(s)
++  }
++  for (uint32_t i = 0; i < slot->count; ++i) {
++    void* found[4];
++    if (!texture_cache.Dbz3FindResolveTextures(slot->dest[i], params.width, params.height,
++                                               xenos::TextureFormat::k_8_8_8_8, false,
++                                               xenos::Endian(slot->endian[i]), found, 4)) {
++      return np::NotYet(2);
++    }
++  }
++  for (uint32_t i = 0; i < params.src_count && i < 2; ++i) {
++    void* texture = texture_cache.Dbz3FindResolveTexture(
++        params.src_base[i], params.src_width[i], params.src_height[i],
++        xenos::Endian(params.src_endian[i]), xenos::TextureFormat::k_8_8_8_8);
++    if (!texture || !texture_cache.Dbz3TextureUpToDate(texture)) {
++      return np::NotYet(3 + i);
++    }
++    if (texture_cache.Dbz3GetSampledView(texture) == VK_NULL_HANDLE) {
++      return np::NotYet(5);
++    }
++  }
++  if (!Dbz3NativePostInit(params.kind)) {
++    return np::NotYet(6);
++  }
++  np::g_pending = true;
++  np::g_learn = false;
++  np::g_learn_draw = false;
++  np::g_dirty = false;
++  np::g_served = 0;
++  return true;
++}
++
++void VulkanRenderTargetCache::Dbz3NativePostSeeDraw() { dbz3_native_post::g_learn_draw = false; }
++
++void VulkanRenderTargetCache::Dbz3NativePostDrawDone() {
++  namespace np = dbz3_native_post;
++  // Um draw feito acaba o ensino (salvo o proprio quad que ensina) e o passe saltado: depois
++  // dele o render target ja nao e o do passe.
++  if (!np::g_learn_draw) np::g_learn = false;
++  np::g_learn_draw = false;
++  if (np::g_pending) {
++    if (np::g_served) {
++      np::g_pending = false;
++    } else {
++      np::g_dirty = true;  // um draw entre o quad saltado e o resolve (nao devia acontecer)
++    }
++  }
++}
++
++void VulkanRenderTargetCache::Dbz3NativePostFrameEnd() {
++  namespace np = dbz3_native_post;
++  np::g_pending = false;
++  np::g_learn = false;
++  np::g_learn_draw = false;
++  if ((++np::g_frames % 3000) != 0) return;
++  for (uint32_t kind = 0; kind < np::kKinds; ++kind) {
++    const np::Stats& s = np::g_stats[kind];
++    if (!s.done && !s.fail) continue;
++    REXGPU_INFO(
++        "dbz3: render nativo: {} por compute: {} passes, {} falhas, ainda nao "
++        "{}/{}/{}/{}/{}/{}/{} (frame {})",
++        np::kNames[kind], s.done, s.fail, s.not_yet[0], s.not_yet[1], s.not_yet[2],
++        s.not_yet[3], s.not_yet[4], s.not_yet[5], s.not_yet[6], np::g_frames);
++  }
++}
++
++bool VulkanRenderTargetCache::Dbz3NativePostResolve(const draw_util::ResolveInfo& resolve_info,
++                                                    VulkanTextureCache& texture_cache) {
++  namespace np = dbz3_native_post;
++  const Dbz3PostParams& prm = np::g_params;
++  const uint32_t kind = prm.kind < np::kKinds ? prm.kind : 0;
++  const bool matches = np::Matches(resolve_info, prm);
++  const uint32_t dest = resolve_info.copy_dest_base;
++  const uint32_t endian = uint32_t(resolve_info.copy_dest_info.copy_dest_endian);
++  const bool swap = resolve_info.copy_dest_info.copy_dest_swap != 0;
++  if (np::g_learn) {
++    // A aprender: este resolve segue o caminho normal (ou o do passo 4).
++    if (!matches) {
++      np::LogMiss(resolve_info, prm);
++      np::g_learn = false;
++      return false;
++    }
++    np::Slot* slot = np::FindSlot(prm.key, true);
++    bool known = false;
++    for (uint32_t i = 0; i < slot->count; ++i) {
++      known |= slot->dest[i] == dest && slot->endian[i] == endian && slot->swap[i] == swap;
++    }
++    if (!known) {
++      if (slot->count >= 4) slot->count = 0;
++      slot->dest[slot->count] = dest;
++      slot->endian[slot->count] = endian;
++      slot->swap[slot->count] = swap;
++      ++slot->count;
++      REXGPU_INFO("dbz3: render nativo: {} -> {:08X} (endian {}, troca R/B {}, {} destino(s))",
++                  np::kNames[kind], dest, endian, swap ? 1 : 0, slot->count);
++    }
++    return false;
++  }
++  if (!np::g_pending) {
++    return false;
++  }
++  np::Stats& stats = np::g_stats[kind];
++  auto fail = [&](uint32_t why) {
++    if ((stats.fail++ % 600) == 0) {
++      REXGPU_WARN("dbz3: render nativo: {} falhou ({}), volta ao caminho normal", np::kNames[kind],
++                  why);
++    }
++    np::g_pending = false;
++    if (np::Slot* slot = np::FindSlot(prm.key, false)) slot->count = 0;  // aprende de novo
++    return false;
++  };
++  if (!matches) {
++    if (np::g_served) {
++      np::g_pending = false;  // outro resolve depois dos do passe: ja nao e connosco
++      return false;
++    }
++    return fail(1);
++  }
++  const np::Slot* slot = np::FindSlot(prm.key, false);
++  bool known = false;
++  for (uint32_t i = 0; slot && i < slot->count; ++i) {
++    known |= slot->dest[i] == dest && slot->endian[i] == endian && slot->swap[i] == swap;
++  }
++  if (!known) {
++    return fail(8);
++  }
++  if (np::g_dirty) {
++    return fail(7);
++  }
++  const uint32_t width = prm.width;
++  const uint32_t height = prm.height;
++  void* found[4];
++  const uint32_t n = texture_cache.Dbz3FindResolveTextures(
++      dest, width, height, xenos::TextureFormat::k_8_8_8_8, false, xenos::Endian(endian), found, 4);
++  if (!n) {
++    return fail(2);
++  }
++  void* sources[2] = {};
++  VkImageView views[2] = {};
++  for (uint32_t i = 0; i < prm.src_count && i < 2; ++i) {
++    sources[i] = texture_cache.Dbz3FindResolveTexture(
++        prm.src_base[i], prm.src_width[i], prm.src_height[i], xenos::Endian(prm.src_endian[i]),
++        xenos::TextureFormat::k_8_8_8_8);
++    if (!sources[i] || !texture_cache.Dbz3TextureUpToDate(sources[i])) {
++      return fail(3);
++    }
++    views[i] = texture_cache.Dbz3GetSampledView(sources[i]);
++  }
++  if (!prm.src_count || views[0] == VK_NULL_HANDLE ||
++      (prm.src_count > 1 && views[1] == VK_NULL_HANDLE) ||
++      np::g_state.pipeline[kind] == VK_NULL_HANDLE) {
++    return fail(4);
++  }
++  if (prm.src_count < 2) {
++    views[1] = views[0];
++  }
++  const ui::vulkan::VulkanDevice* const vulkan_device = command_processor_.GetVulkanDevice();
++  const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
++  const VkDevice device = vulkan_device->device();
++  const VkDeviceSize buffer_size = VkDeviceSize(width) * height * 4;
++  VulkanCommandProcessor::ScratchBufferAcquisition scratch =
++      command_processor_.AcquireScratchGpuBuffer(buffer_size, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
++                                                 VK_ACCESS_SHADER_WRITE_BIT);
++  const VkBuffer scratch_buffer = scratch.buffer();
++  if (scratch_buffer == VK_NULL_HANDLE) {
++    return fail(5);
++  }
++  const VkDescriptorSet dest_set = command_processor_.AllocateSingleTransientDescriptor(
++      VulkanCommandProcessor::SingleTransientDescriptorLayout::kStorageBufferCompute);
++  if (dest_set == VK_NULL_HANDLE) {
++    return fail(6);
++  }
++  // A partir daqui o resolve e nosso: as outras texturas deste intervalo ficam invalidas e as
++  // do destino voltam a ficar carregadas na copia.
++  texture_cache.MarkRangeAsResolved(resolve_info.copy_dest_extent_start,
++                                    resolve_info.copy_dest_extent_length);
++  for (uint32_t i = 0; i < prm.src_count && i < 2; ++i) {
++    texture_cache.Dbz3BeginComputeRead(sources[i]);
++  }
++  // Anel de sets: ~9 passes por frame com a cadeia toda, um set so volta ~28 frames depois.
++  const VkDescriptorSet source_set = np::g_state.sets[np::g_state.next_set];
++  np::g_state.next_set = (np::g_state.next_set + 1) % np::kSetRing;
++  VkDescriptorImageInfo image_infos[2] = {
++      {VK_NULL_HANDLE, views[0], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
++      {VK_NULL_HANDLE, views[1], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL}};
++  VkDescriptorBufferInfo buffer_info = {scratch_buffer, 0, buffer_size};
++  VkWriteDescriptorSet writes[3] = {};
++  for (uint32_t i = 0; i < 2; ++i) {
++    writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
++    writes[i].dstSet = source_set;
++    writes[i].dstBinding = i;
++    writes[i].descriptorCount = 1;
++    writes[i].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
++    writes[i].pImageInfo = &image_infos[i];
++  }
++  writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
++  writes[2].dstSet = dest_set;
++  writes[2].dstBinding = 0;
++  writes[2].descriptorCount = 1;
++  writes[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
++  writes[2].pBufferInfo = &buffer_info;
++  dfn.vkUpdateDescriptorSets(device, 3, writes, 0, nullptr);
++
++  np::PushConstants pc = {};
++  std::memcpy(pc.k, prm.k, sizeof(pc.k));
++  pc.width = width;
++  pc.height = height;
++  pc.src_width = prm.src_width[0];
++  pc.src_height = prm.src_height[0];
++  pc.src1_width = prm.src_count > 1 ? prm.src_width[1] : prm.src_width[0];
++  pc.src1_height = prm.src_count > 1 ? prm.src_height[1] : prm.src_height[0];
++  pc.flags = (prm.flags & ~4u) | (swap ? 4u : 0u);
++  DeferredCommandBuffer& command_buffer = command_processor_.deferred_command_buffer();
++  command_processor_.BindExternalComputePipeline(np::g_state.pipeline[kind]);
++  VkDescriptorSet sets[2] = {dest_set, source_set};
++  command_buffer.CmdVkBindDescriptorSets(VK_PIPELINE_BIND_POINT_COMPUTE, np::g_state.layout, 0, 2,
++                                         sets, 0, nullptr);
++  command_buffer.CmdVkPushConstants(np::g_state.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pc),
++                                    &pc);
++  command_processor_.SubmitBarriers(true);
++  command_buffer.CmdVkDispatch((width + 7) / 8, (height + 7) / 8, 1);
++  for (uint32_t i = 0; i < n; ++i) {
++    const uint32_t tex_height = std::min(height, texture_cache.Dbz3TextureHeight(found[i]));
++    texture_cache.Dbz3CopyToResolveTexture(found[i], scratch_buffer, width, tex_height,
++                                           scratch.SetStageMask(VK_PIPELINE_STAGE_TRANSFER_BIT),
++                                           scratch.SetAccessMask(VK_ACCESS_TRANSFER_READ_BIT));
++  }
++  dbz3_resolve_dedupe::ForgetHolder(dest);
++  ++stats.done;
++  ++np::g_served;
++  if (!stats.active_logged) {
++    stats.active_logged = true;
++    REXGPU_INFO(
++        "dbz3: render nativo: {} por compute ativo ({:08X} <- {:08X}{}{}; {}x{}, {} textura(s), "
++        "troca R/B {})",
++        np::kNames[kind], dest, prm.src_base[0], prm.src_count > 1 ? " + " : "",
++        prm.src_count > 1 ? fmt::format("{:08X}", prm.src_base[1]) : std::string(), width,
++        height, n, swap ? 1 : 0);
++  }
++  return true;
++}
++
+ }  // namespace rex::graphics::vulkan

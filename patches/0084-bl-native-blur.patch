@@ -1,0 +1,182 @@
+diff --git a/include/rex/graphics/vulkan/render_target_cache.h b/include/rex/graphics/vulkan/render_target_cache.h
+index bfc40f3538cf98e6847f4defbaf1df4cc70326f7..bf59fcd311bbdddd5634cfa66e4c53a1d5789399 100644
+--- a/include/rex/graphics/vulkan/render_target_cache.h
++++ b/include/rex/graphics/vulkan/render_target_cache.h
+@@ -199,6 +199,7 @@ class VulkanRenderTargetCache final : public RenderTargetCache {
+   // fecha e feito por um compute que escreve a(s) textura(s) do destino aprendido).
+   enum Dbz3PostKind : uint32_t {
+     kDbz3PostDownsample = 0,  // PS B0133EF80147AD50: 1280x720 -> 640x360 (0083)
++    kDbz3PostBlur = 1,        // PS 97906B6915CE1A5E: desfoque 640x360 de 11 texeis, V ou H (0084)
+     kDbz3PostKindCount,
+   };
+   struct Dbz3PostParams {
+@@ -211,7 +212,8 @@ class VulkanRenderTargetCache final : public RenderTargetCache {
+     uint32_t src_width[2];
+     uint32_t src_height[2];
+     uint32_t src_count;
+-    uint32_t flags;             // bit 0/1: tf0/tf1 com a troca R/B no swizzle do fetch (BGRA)
++    uint32_t flags;             // bit 0/1: tf0/tf1 com a troca R/B no swizzle do fetch (BGRA);
++                                // bit 3: desfoque vertical
+     float k[3][4];              // constantes por tipo (ver kSource em render_target_cache.cpp)
+     uint32_t color_base_tiles;  // render target 8888 1x do passe
+   };
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index e863e18936aecd713ea9c4d9bf27a450413b28f7..5adcd072d8514345b3c2200cb0d86e1bb74b3361 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -85,6 +85,11 @@ REXCVAR_DEFINE_BOOL(dbz3_bl_native_downsample, true, "GPU/Vulkan",
+                     "B0133EF80147AD50) por compute em vez do quad + resolve")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ 
++REXCVAR_DEFINE_BOOL(dbz3_bl_native_blur, true, "GPU/Vulkan",
++                    "Dragon Burst: faz os dois desfoques 640x360 do brilho do contorno do Burst "
++                    "Limit (PS 97906B6915CE1A5E) por compute em vez do quad + resolve")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++
+ REXCVAR_DEFINE_BOOL(dbz3_skip_null_draws, true, "GPU/Vulkan",
+                     "Salta draws que nao escrevem nada (sem cor, sem profundidade/stencil, sem "
+                     "memexport, fora de consultas de oclusao): os 24 pontos de cada frame do BL")
+@@ -390,19 +395,35 @@ struct Dbz3PostSpec {
+   uint32_t src_width[2];
+   uint32_t src_height[2];
+   bool src_linear[2];    // filtro bilinear (senao ponto)
++  bool vs_extra;         // o VS usa c254 e c255 (os desvios do desfoque): verificados bit a bit
++  uint32_t vs_c254[4];
++  uint32_t vs_c255[4];
++  uint32_t flags;        // bit 3: desfoque vertical
+ };
+-constexpr uint32_t kDbz3PostSpecCount = 1;
++constexpr uint32_t kDbz3PostSpecCount = 3;
+ const Dbz3PostSpec kDbz3PostSpecs[kDbz3PostSpecCount] = {
+     // Reducao 640: 0F0B9000 (1280x720, bilinear) -> alvo 640x360, UV 1..1281 x 1..721.
+     {VulkanRenderTargetCache::kDbz3PostDownsample, UINT64_C(0xB0133EF80147AD50),
+      UINT64_C(0x82BB812C66526343), 640, 360, 1280.0f, 720.0f, 1.0f, {0x44A00000, 0x44340000}, 1,
+-     {1280, 0}, {720, 0}, {true, false}},
++     {1280, 0}, {720, 0}, {true, false}, false, {}, {}, 0},
++    // Desfoque 640 vertical: VS 66B048, c254 = (-6, 0, 2, 0), c255 = (5, 1, 3, 4); UV 0,5..640,5.
++    {VulkanRenderTargetCache::kDbz3PostBlur, UINT64_C(0x97906B6915CE1A5E),
++     UINT64_C(0x66B048B2F9FEDDB4), 640, 360, 640.0f, 360.0f, 0.5f, {0x44200000, 0x43B40000}, 1,
++     {640, 0}, {360, 0}, {true, false}, true, {0xC0C00000, 0, 0x40000000, 0},
++     {0x40A00000, 0x3F800000, 0x40400000, 0x40800000}, 8},
++    // Desfoque 640 horizontal: VS 4212920, c254 = (2, 0, -6, 0), c255 = (5, 1, 3, 4).
++    {VulkanRenderTargetCache::kDbz3PostBlur, UINT64_C(0x97906B6915CE1A5E),
++     UINT64_C(0x4212920CA5E1B3A8), 640, 360, 640.0f, 360.0f, 0.5f, {0x44200000, 0x43B40000}, 1,
++     {640, 0}, {360, 0}, {true, false}, true, {0x40000000, 0, 0xC0C00000, 0},
++     {0x40A00000, 0x3F800000, 0x40400000, 0x40800000}, 0},
+ };
+ 
+ bool Dbz3PostEnabled(uint32_t kind) {
+   switch (kind) {
+     case VulkanRenderTargetCache::kDbz3PostDownsample:
+       return REXCVAR_GET(dbz3_bl_native_downsample);
++    case VulkanRenderTargetCache::kDbz3PostBlur:
++      return REXCVAR_GET(dbz3_bl_native_blur);
+     default:
+       return false;
+   }
+@@ -463,6 +484,14 @@ uint32_t Dbz3RecognizePost(const RegisterFile& regs, const memory::Memory& memor
+       }
+     }
+   }
++  if (spec.vs_extra) {
++    for (uint32_t k = 0; k < 4; ++k) {
++      if (regs.values[XE_GPU_REG_SHADER_CONSTANT_000_X + 254 * 4 + k] != spec.vs_c254[k] ||
++          regs.values[XE_GPU_REG_SHADER_CONSTANT_000_X + 255 * 4 + k] != spec.vs_c255[k]) {
++        return 5;
++      }
++    }
++  }
+   // Os 4 vertices: posicao (+-0,5, +-0,5) e UV em pixeis, um por canto.
+   if (vertex_shader.vertex_bindings().empty()) return 6;
+   const auto& vb = vertex_shader.vertex_bindings()[0];
+@@ -501,6 +530,17 @@ uint32_t Dbz3RecognizePost(const RegisterFile& regs, const memory::Memory& memor
+         out.k[1][k] = psc(1, k);  // + max(4 caixas) * c1
+       }
+       break;
++    case VulkanRenderTargetCache::kDbz3PostBlur:
++      // Pesos dos pares +-1..+-5 e a escala final c0 * c255.z (o PS faz este mul em fp32).
++      out.k[0][0] = psc(255, 1);
++      out.k[0][1] = psc(254, 0);
++      out.k[0][2] = psc(254, 1);
++      out.k[0][3] = psc(255, 0);
++      out.k[1][0] = psc(255, 3);
++      for (uint32_t k = 0; k < 4; ++k) {
++        out.k[2][k] = psc(0, k) * psc(255, 2);
++      }
++      break;
+     default:
+       return 7;
+   }
+@@ -515,7 +555,7 @@ uint32_t Dbz3RecognizePost(const RegisterFile& regs, const memory::Memory& memor
+     return m == xenos::ClampMode::kClampToEdge || m == xenos::ClampMode::kClampToHalfway;
+   };
+   out.src_count = spec.src_count;
+-  out.flags = 0;
++  out.flags = spec.flags;
+   for (uint32_t i = 0; i < spec.src_count; ++i) {
+     const xenos::xe_gpu_texture_fetch_t t = regs.GetTextureFetch(i);
+     const xenos::TextureFilter filter =
+@@ -549,7 +589,8 @@ uint32_t Dbz3RecognizePost(const RegisterFile& regs, const memory::Memory& memor
+   return 0;
+ }
+ uint64_t g_dbz3_post_unrecognized[VulkanRenderTargetCache::kDbz3PostKindCount][10] = {};
+-const char* const kDbz3PostNames[VulkanRenderTargetCache::kDbz3PostKindCount] = {"reducao 640"};
++const char* const kDbz3PostNames[VulkanRenderTargetCache::kDbz3PostKindCount] = {"reducao 640",
++                                                                                 "desfoque 640"};
+ }  // namespace
+ 
+ // Dragon Burst: render nativo, passo 3b (definido em render_target_cache.cpp).
+diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
+index b073750d1dc8869ab069d2069739d67352a8fcca..17f1dcb884e8d03fbba2b4f46560935bb8d4a8ca 100644
+--- a/src/graphics/vulkan/render_target_cache.cpp
++++ b/src/graphics/vulkan/render_target_cache.cpp
+@@ -8271,6 +8271,13 @@ bool VulkanRenderTargetCache::Dbz3NativeContourResolve(
+ //     cai a meio de 2x2 texeis (media exata). oC0 = caixa(0,0) * c0 + max(caixa(0,0),
+ //     caixa(1,0), caixa(0,1), caixa(1,1)) * c1, caixa(dx,dy) = media dos texeis
+ //     (2x+dx..2x+dx+1, 2y+dy..2y+dy+1). Resolvido para 0FF19000.
++//   desfoque 640 (PS 97906B6915CE1A5E, alvo 640x360), duas vezes: VS 66B048B2F9FEDDB4 na
++//     vertical (0FF19000 -> 10009000) e VS 4212920CA5E1B3A8 na horizontal (10009000 ->
++//     100F9000). UV (0,5..640,5) / (640, 360): cada amostra cai no centro de um texel; os VS dao
++//     os desvios +1..+5 (c255.y, c254.z, c255.z, c255.w, c255.x) e o PS soma o desvio -6 (c254)
++//     a esses para os -5..-1. oC0 = c0 * c255.z * (T0 + (T+1 + T-1) * c255.y + (T+2 + T-2) *
++//     c254.x + (T+3 + T-3) * c254.y + (T+4 + T-4) * c255.x + (T+5 + T-5) * c255.w), por esta
++//     ordem (0,9/0,8/0,6/0,4/0,2, 1/6,8); borda = aresta.
+ // Cada passe: o quad e saltado e o(s) resolve(s) que o fecham (ate ao draw seguinte) sao um
+ // compute que escreve um buffer e o copia para a(s) textura(s) do destino aprendido (as 8888
+ // do pos nao tem STORAGE), como no 0080. As texturas intermedias continuam a ser escritas: se
+@@ -8288,7 +8295,7 @@ VulkanRenderTargetCache::Dbz3PostParams g_params = {};
+ uint64_t g_frames = 0;
+ 
+ constexpr uint32_t kKinds = VulkanRenderTargetCache::kDbz3PostKindCount;
+-const char* const kNames[kKinds] = {"reducao 640"};
++const char* const kNames[kKinds] = {"reducao 640", "desfoque 640"};
+ 
+ // Destinos aprendidos por instancia (um passe pode ser resolvido para mais de um destino).
+ struct Slot {
+@@ -8339,7 +8346,7 @@ struct PushConstants {
+   uint32_t src_height;
+   uint32_t src1_width;
+   uint32_t src1_height;
+-  uint32_t flags;  // bit 0/1: tf0/tf1 BGRA; bit 2: troca R/B no resolve (copy_dest_swap)
++  uint32_t flags;  // bit 0/1: tf0/tf1 BGRA; bit 2: troca R/B no resolve; bit 3: vertical
+   uint32_t pad;
+ };
+ static_assert(sizeof(PushConstants) == 80, "pos nativo: push constants");
+@@ -8407,6 +8414,17 @@ void main() {
+   vec4 b11 = Box(t11, t21, t12, t22);
+   vec4 m = max(max(max(b00, b10), b01), b11);
+   precise vec4 v = b00 * pc.k0 + m * pc.k1;
++#elif KIND == 1
++  // Desfoque 640 (97906B...): 11 texeis na direcao do passe. k0 = (c255.y, c254.x, c254.y,
++  // c255.x), k1.x = c255.w, k2 = c0 * c255.z; a ordem das somas e a do PS (mad a mad).
++  ivec2 d = (pc.flags & 8u) != 0u ? ivec2(0, 1) : ivec2(1, 0);
++  precise vec4 r = T0(p);
++  r = r + (T0(p + d) + T0(p - d)) * pc.k0.x;
++  r = r + (T0(p + 2 * d) + T0(p - 2 * d)) * pc.k0.y;
++  r = r + (T0(p + 3 * d) + T0(p - 3 * d)) * pc.k0.z;
++  r = r + (T0(p + 4 * d) + T0(p - 4 * d)) * pc.k0.w;
++  r = r + (T0(p + 5 * d) + T0(p - 5 * d)) * pc.k1.x;
++  precise vec4 v = pc.k2 * r;
+ #endif
+   dest[uint(p.y) * pc.width + uint(p.x)] = Pack(v);
+ }

@@ -1,0 +1,43 @@
+diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
+index 090261694084dc14d256ab1f47b39e2075f9b42d..ec188e1e3f13c67e025fe313406b8ebe0e982363 100644
+--- a/src/graphics/vulkan/render_target_cache.cpp
++++ b/src/graphics/vulkan/render_target_cache.cpp
+@@ -8075,7 +8075,8 @@ bool VulkanRenderTargetCache::Dbz3NativeContourResolve(
+       resolve_info.rb_copy_control.copy_src_select == 0 && !src.format_is_64bpp &&
+       xenos::ColorRenderTargetFormat(src.format) == xenos::ColorRenderTargetFormat::k_8_8_8_8 &&
+       src.msaa_samples == xenos::MsaaSamples::k1X && src.pitch_tiles == prm.width / 80 &&
+-      src.base_tiles == prm.color_base_tiles &&
++      (src.base_tiles == prm.color_base_tiles ||
++       resolve_info.color_original_base == prm.color_base_tiles) &&
+       resolve_info.copy_dest_info.copy_dest_format == xenos::ColorFormat::k_8_8_8_8 &&
+       resolve_info.copy_dest_info.copy_dest_exp_bias == 0 &&
+       uint32_t(resolve_info.copy_dest_info.copy_dest_endian) <= 3 &&
+@@ -8092,6 +8093,28 @@ bool VulkanRenderTargetCache::Dbz3NativeContourResolve(
+   if (nc::g_learn) {
+     // A aprender: este resolve segue o caminho normal (ou o do passo 4).
+     nc::g_learn = false;
++    // 0081: no RP5 (17/10 03:09) o destino nunca era aprendido ("ainda nao (1)"): diz porque.
++    static uint32_t learn_miss_logged = 0;
++    if (!matches && (learn_miss_logged++ % 600) == 0) {
++      REXGPU_INFO(
++          "dbz3: render nativo: contorno, resolve nao bate: depth {} clear {}/{} src_sel {} fmt {} "
++          "64bpp {} msaa {} pitch {} (quer {}) base {}/{} (quer {}) dest_fmt {} bias {} endian {} "
++          "off {},{} / {},{} dest_pitch {} base {:08X} extent {:08X} {}x{} (quer {}x{})",
++          resolve_info.IsCopyingDepth(), resolve_info.IsClearingDepth(),
++          resolve_info.IsClearingColor(), uint32_t(resolve_info.rb_copy_control.copy_src_select),
++          uint32_t(src.format), uint32_t(src.format_is_64bpp), uint32_t(src.msaa_samples),
++          uint32_t(src.pitch_tiles), prm.width / 80, uint32_t(src.base_tiles),
++          resolve_info.color_original_base, prm.color_base_tiles,
++          uint32_t(resolve_info.copy_dest_info.copy_dest_format),
++          int32_t(resolve_info.copy_dest_info.copy_dest_exp_bias), endian,
++          uint32_t(resolve_info.coordinate_info.edram_offset_x_div_8) * 8,
++          uint32_t(resolve_info.coordinate_info.edram_offset_y_div_8) * 8,
++          uint32_t(resolve_info.copy_dest_coordinate_info.offset_x_div_8) * 8,
++          uint32_t(resolve_info.copy_dest_coordinate_info.offset_y_div_8) * 8,
++          uint32_t(resolve_info.copy_dest_coordinate_info.pitch_aligned_div_32) * 32,
++          resolve_info.copy_dest_base, resolve_info.copy_dest_extent_start, width, height,
++          prm.width, prm.height);
++    }
+     if (matches && (nc::g_dest != resolve_info.copy_dest_base || nc::g_dest_endian != endian ||
+                     nc::g_dest_swap != swap)) {
+       nc::g_dest = resolve_info.copy_dest_base;

@@ -1,0 +1,19 @@
+diff --git a/src/graphics/pipeline/texture/cache.cpp b/src/graphics/pipeline/texture/cache.cpp
+index c43740af75a1fe89b62bbbc63ca4c3ca37e39f19..551a78d8bed6e3f0ad588d994dd7db6d913bc587 100644
+--- a/src/graphics/pipeline/texture/cache.cpp
++++ b/src/graphics/pipeline/texture/cache.cpp
+@@ -37,7 +37,14 @@
+ #include <rex/perf/frame_rate.h>
+ 
+ // d3d12/command_processor.cpp: also logs the texture loads.
++#if REX_PLATFORM_WIN32
+ REXCVAR_DECLARE(int32_t, gpu_debug_log_draws);
++#else
++// Dragon Burst: fora do Windows nao ha backend D3D12, que e quem define esta cvar
++// (d3d12/command_processor.cpp); sem isto o link falha (simbolo indefinido).
++REXCVAR_DEFINE_INT32(gpu_debug_log_draws, 0, "GPU/Debug",
++                     "Log the state of every draw for this many frames (counts down)");
++#endif
+ 
+ REXCVAR_DEFINE_INT32(texture_cache_memory_limit_render_to_texture, 24, "GPU",
+                      "Texture cache memory limit for render-to-texture (MB)")

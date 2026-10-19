@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Fundo do icone Project SwordMan: grafite com um brilho vermelho em baixo. Gerado por tools/icon_gen.py. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:pathData="M0,0 L108,0 L108,108 L0,108Z" android:fillColor="#FF0C0D10" />
+    <path android:pathData="M0,0 L108,0 L108,108 L0,108Z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="radial" android:centerX="54" android:centerY="92" android:gradientRadius="62">
+                <item android:offset="0.00" android:color="#8C6E101C" />
+                <item android:offset="0.45" android:color="#406E101C" />
+                <item android:offset="1.00" android:color="#006E101C" />
+            </gradient>
+        </aapt:attr>
+    </path>
+</vector>

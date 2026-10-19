@@ -1,3 +1,33 @@
+diff --git a/include/rex/ui/vulkan/functions/device_1_0.inc b/include/rex/ui/vulkan/functions/device_1_0.inc
+index aa55a4a284d966b2de2251a2c7aa595c741ca046..d9d6ed39380f54968d5cfbcdcf19672e70f6bbd0 100644
+--- a/include/rex/ui/vulkan/functions/device_1_0.inc
++++ b/include/rex/ui/vulkan/functions/device_1_0.inc
+@@ -43,6 +43,7 @@ XE_UI_VULKAN_FUNCTION(vkCreateFramebuffer)
+ XE_UI_VULKAN_FUNCTION(vkCreateGraphicsPipelines)
+ XE_UI_VULKAN_FUNCTION(vkCreateImage)
+ XE_UI_VULKAN_FUNCTION(vkCreateImageView)
++XE_UI_VULKAN_FUNCTION(vkCreatePipelineCache)
+ XE_UI_VULKAN_FUNCTION(vkCreatePipelineLayout)
+ XE_UI_VULKAN_FUNCTION(vkCreateQueryPool)
+ XE_UI_VULKAN_FUNCTION(vkCreateRenderPass)
+@@ -59,6 +60,7 @@ XE_UI_VULKAN_FUNCTION(vkDestroyFramebuffer)
+ XE_UI_VULKAN_FUNCTION(vkDestroyImage)
+ XE_UI_VULKAN_FUNCTION(vkDestroyImageView)
+ XE_UI_VULKAN_FUNCTION(vkDestroyPipeline)
++XE_UI_VULKAN_FUNCTION(vkDestroyPipelineCache)
+ XE_UI_VULKAN_FUNCTION(vkDestroyPipelineLayout)
+ XE_UI_VULKAN_FUNCTION(vkDestroyQueryPool)
+ XE_UI_VULKAN_FUNCTION(vkDestroyRenderPass)
+@@ -72,6 +74,7 @@ XE_UI_VULKAN_FUNCTION(vkGetBufferMemoryRequirements)
+ XE_UI_VULKAN_FUNCTION(vkGetDeviceQueue)
+ XE_UI_VULKAN_FUNCTION(vkGetFenceStatus)
+ XE_UI_VULKAN_FUNCTION(vkGetImageMemoryRequirements)
++XE_UI_VULKAN_FUNCTION(vkGetPipelineCacheData)
+ XE_UI_VULKAN_FUNCTION(vkInvalidateMappedMemoryRanges)
+ XE_UI_VULKAN_FUNCTION(vkMapMemory)
+ XE_UI_VULKAN_FUNCTION(vkResetCommandPool)
+diff --git a/src/graphics/vulkan/pipeline_cache.cpp b/src/graphics/vulkan/pipeline_cache.cpp
+index 91ac08f6c11d065793da02000b91057c73e2aa86..95599e93c7b45444631c5e05d61ac22a8addc796 100644
 --- a/src/graphics/vulkan/pipeline_cache.cpp
 +++ b/src/graphics/vulkan/pipeline_cache.cpp
 @@ -12,6 +12,10 @@
@@ -11,7 +41,7 @@
  #include <cstdint>
  #include <cstring>
  #include <memory>
-@@ -63,6 +67,109 @@
+@@ -63,6 +67,109 @@ namespace rex::graphics::vulkan {
  
  namespace {
  
@@ -121,7 +151,7 @@
  constexpr std::string_view kPlaceholderPixelShaderSource = R"(#version 460
  layout(location = 0) out vec4 oC0;
  void main() {
-@@ -411,6 +518,14 @@
+@@ -411,6 +518,14 @@ void VulkanPipelineCache::InitializeShaderStorage(const std::filesystem::path& c
    bool edram_fragment_shader_interlock =
        render_target_cache_.GetPath() == RenderTargetCache::Path::kPixelShaderInterlock;
  
@@ -136,7 +166,7 @@
    // Initialize the pipeline storage stream - read pipeline descriptions and
    // collect used shader modifications to translate.
    std::vector<PipelineStoredDescription> pipeline_stored_descriptions;
-@@ -789,6 +904,27 @@
+@@ -789,6 +904,27 @@ void VulkanPipelineCache::EndSubmission() {
    }
  
    ProcessDeferredPipelineDestructions(false);
@@ -164,7 +194,7 @@
  }
  
  void VulkanPipelineCache::Shutdown() {
-@@ -822,6 +958,19 @@
+@@ -822,6 +958,19 @@ void VulkanPipelineCache::Shutdown() {
    const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
    const VkDevice device = vulkan_device->device();
  
@@ -184,7 +214,7 @@
    ProcessDeferredPipelineDestructions(true);
  
    // Destroy all pipelines.
-@@ -3480,8 +3629,11 @@
+@@ -3480,8 +3629,11 @@ bool VulkanPipelineCache::EnsurePipelineCreated(const PipelineCreationArguments&
    const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
    const VkDevice device = vulkan_device->device();
    VkPipeline pipeline;
@@ -197,9 +227,11 @@
    if (create_result != VK_SUCCESS) {
      uint64_t ps_hash = creation_arguments.pixel_shader
                             ? creation_arguments.pixel_shader->shader().ucode_data_hash()
+diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
+index 0298f0628f59f75c020936e69a1043778d908270..4f28b46eb1c09e1f015041a6bb936f2a32c7cda8 100644
 --- a/src/graphics/vulkan/render_target_cache.cpp
 +++ b/src/graphics/vulkan/render_target_cache.cpp
-@@ -64,6 +64,10 @@
+@@ -64,6 +64,10 @@ REXCVAR_DEFINE_STRING(render_target_path_vulkan, "", "GPU/Vulkan",
  
  namespace rex::graphics::vulkan {
  
@@ -210,7 +242,7 @@
  // Generated with `xb buildshaders`.
  namespace shaders {
  #include "../shaders/vulkan_spirv/host_depth_store_1xmsaa_cs.h"
-@@ -4506,8 +4510,9 @@
+@@ -4506,8 +4510,9 @@ VkPipeline const* VulkanRenderTargetCache::GetTransferPipelines(TransferPipeline
    pipeline_create_info.subpass = 0;
    pipeline_create_info.basePipelineHandle = VK_NULL_HANDLE;
    pipeline_create_info.basePipelineIndex = -1;
@@ -222,7 +254,7 @@
      REXGPU_ERROR(
          "VulkanRenderTargetCache: Failed to create the render target ownership "
          "transfer pipeline for render pass 0x{:08X}, shader 0x{:08X}",
-@@ -4528,8 +4533,8 @@
+@@ -4528,8 +4533,8 @@ VkPipeline const* VulkanRenderTargetCache::GetTransferPipelines(TransferPipeline
            (dest_sample_count == 2 && !msaa_2x_attachments_supported_ && i == 1) ? 3 : i;
        sample_id_specialization_constant = host_sample_index;
        sample_mask = uint32_t(1) << host_sample_index;
@@ -233,29 +265,3 @@
          REXGPU_ERROR(
              "VulkanRenderTargetCache: Failed to create the render target "
              "ownership transfer pipeline for render pass 0x{:08X}, shader "
---- a/include/rex/ui/vulkan/functions/device_1_0.inc
-+++ b/include/rex/ui/vulkan/functions/device_1_0.inc
-@@ -43,6 +43,7 @@
- XE_UI_VULKAN_FUNCTION(vkCreateGraphicsPipelines)
- XE_UI_VULKAN_FUNCTION(vkCreateImage)
- XE_UI_VULKAN_FUNCTION(vkCreateImageView)
-+XE_UI_VULKAN_FUNCTION(vkCreatePipelineCache)
- XE_UI_VULKAN_FUNCTION(vkCreatePipelineLayout)
- XE_UI_VULKAN_FUNCTION(vkCreateQueryPool)
- XE_UI_VULKAN_FUNCTION(vkCreateRenderPass)
-@@ -59,6 +60,7 @@
- XE_UI_VULKAN_FUNCTION(vkDestroyImage)
- XE_UI_VULKAN_FUNCTION(vkDestroyImageView)
- XE_UI_VULKAN_FUNCTION(vkDestroyPipeline)
-+XE_UI_VULKAN_FUNCTION(vkDestroyPipelineCache)
- XE_UI_VULKAN_FUNCTION(vkDestroyPipelineLayout)
- XE_UI_VULKAN_FUNCTION(vkDestroyQueryPool)
- XE_UI_VULKAN_FUNCTION(vkDestroyRenderPass)
-@@ -72,6 +74,7 @@
- XE_UI_VULKAN_FUNCTION(vkGetDeviceQueue)
- XE_UI_VULKAN_FUNCTION(vkGetFenceStatus)
- XE_UI_VULKAN_FUNCTION(vkGetImageMemoryRequirements)
-+XE_UI_VULKAN_FUNCTION(vkGetPipelineCacheData)
- XE_UI_VULKAN_FUNCTION(vkInvalidateMappedMemoryRanges)
- XE_UI_VULKAN_FUNCTION(vkMapMemory)
- XE_UI_VULKAN_FUNCTION(vkResetCommandPool)

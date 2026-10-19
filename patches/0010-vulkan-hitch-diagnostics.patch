@@ -1,186 +1,6 @@
---- a/src/graphics/vulkan/command_processor.cpp
-+++ b/src/graphics/vulkan/command_processor.cpp
-@@ -36,6 +36,7 @@
- #include <rex/graphics/pipeline/shader/spirv_translator.h>
- #include <rex/graphics/registers.h>
- #include <rex/graphics/vulkan/command_processor.h>
-+#include <rex/graphics/vulkan/dbz3_hitch.h>
- #include <rex/graphics/vulkan/pipeline_cache.h>
- #include <rex/graphics/vulkan/render_target_cache.h>
- #include <rex/graphics/vulkan/shader.h>
-@@ -2283,15 +2284,48 @@
-   static double max_frame_ms = 0.0;
-   static uint64_t cp_last_window = 0, cp_last_frame = 0;
-   static uint32_t hitches_logged = 0;
-+  // DBZ3-Android: cada travao vem com o tempo gasto em cada operacao que pode
-+  // bloquear a thread da GPU (dbz3_hitch.h), e os frames escondidos por usarem
-+  // pipelines provisorios (compilacao async) tambem contam como travao.
-+  static dbz3_hitch::Snapshot frozen_stats;
-+  static uint32_t frozen_frames = 0;
-+  static double frozen_ms = 0.0;
-   const auto now = std::chrono::steady_clock::now();
-   const uint64_t cp_now = rex::graphics::g_dbz3_regmem_wait_us.load(std::memory_order_relaxed);
-+  const dbz3_hitch::Snapshot frame_stats = dbz3_hitch::TakeAndReset();
-+  const uint32_t skipped = dbz3_hitch::g_skipped_presents.exchange(0, std::memory_order_relaxed);
-+  auto format_stats = [](const dbz3_hitch::Snapshot& s) {
-+    return fmt::format(
-+        "shaders {}/{:.1f}ms pipelines {}/{:.1f}ms provisorios {}/{:.1f}ms rt_transfer {}/{:.1f}ms "
-+        "texturas {}/{:.1f}ms espera_gpu {}/{:.1f}ms",
-+        s.count[dbz3_hitch::kShaderTranslate], s.us[dbz3_hitch::kShaderTranslate] / 1000.0,
-+        s.count[dbz3_hitch::kPipelineSync], s.us[dbz3_hitch::kPipelineSync] / 1000.0,
-+        s.count[dbz3_hitch::kPipelinePlaceholder], s.us[dbz3_hitch::kPipelinePlaceholder] / 1000.0,
-+        s.count[dbz3_hitch::kRtTransferPipeline], s.us[dbz3_hitch::kRtTransferPipeline] / 1000.0,
-+        s.count[dbz3_hitch::kTextureLoad], s.us[dbz3_hitch::kTextureLoad] / 1000.0,
-+        s.count[dbz3_hitch::kFenceWait], s.us[dbz3_hitch::kFenceWait] / 1000.0);
-+  };
-   if (last_frame.time_since_epoch().count() != 0) {
-     const double frame_ms = std::chrono::duration<double, std::milli>(now - last_frame).count();
-     max_frame_ms = std::max(max_frame_ms, frame_ms);
--    if (frame_ms > 50.0 && hitches_logged < 30) {
-+    if (skipped) {
-+      frozen_frames += skipped;
-+      frozen_ms += frame_ms;
-+      frozen_stats.Add(frame_stats);
-+    } else if (frozen_frames) {
-+      if (hitches_logged < 300) {
-+        ++hitches_logged;
-+        REXGPU_INFO("dbz3: tiron congelado {} frames {:.0f} ms (async) | {}", frozen_frames,
-+                    frozen_ms, format_stats(frozen_stats));
-+      }
-+      frozen_frames = 0;
-+      frozen_ms = 0.0;
-+      frozen_stats.Clear();
-+    }
-+    if (frame_ms > 34.0 && hitches_logged < 300) {
-       ++hitches_logged;
--      REXGPU_INFO("dbz3: tiron {:.0f} ms (vulkan cp_wait {:.1f} ms)", frame_ms,
--                  double(cp_now - cp_last_frame) / 1000.0);
-+      REXGPU_INFO("dbz3: tiron {:.0f} ms (vulkan cp_wait {:.1f} ms) | {}", frame_ms,
-+                  double(cp_now - cp_last_frame) / 1000.0, format_stats(frame_stats));
-     }
-   }
-   cp_last_frame = cp_now;
-@@ -2345,6 +2379,7 @@
-                                             REXCVAR_GET(vulkan_async_skip_incomplete_frames) &&
-                                             frame_used_async_placeholder_pipeline_;
-   if (skip_present_due_async_placeholder) {
-+    dbz3_hitch::g_skipped_presents.fetch_add(1, std::memory_order_relaxed);
-     static bool skipped_incomplete_frame_logged = false;
-     if (!skipped_incomplete_frame_logged) {
-       skipped_incomplete_frame_logged = true;
-@@ -5022,6 +5057,7 @@
-     // defined by vkQueueSubmit additionally include in the first
-     // synchronization scope all commands that occur earlier in submission
-     // order."
-+    dbz3_hitch::Scope dbz3_scope(dbz3_hitch::kFenceWait);
-     VkResult wait_result =
-         dfn.vkWaitForFences(device, uint32_t(await_submission - submission_completed_),
-                             submissions_in_flight_fences_.data(), VK_TRUE, UINT64_MAX);
---- a/src/graphics/vulkan/pipeline_cache.cpp
-+++ b/src/graphics/vulkan/pipeline_cache.cpp
-@@ -44,6 +44,7 @@
- #include <rex/graphics/registers.h>
- #include <rex/graphics/util/draw.h>
- #include <rex/graphics/vulkan/command_processor.h>
-+#include <rex/graphics/vulkan/dbz3_hitch.h>
- #include <rex/graphics/vulkan/pipeline_cache.h>
- #include <rex/graphics/vulkan/shader.h>
- #include <rex/graphics/xenos.h>
-@@ -1168,6 +1169,7 @@
-                   xenos::VertexShaderExportMode::kPosition2VectorsEdgeKill);
-   assert_false(register_file_.Get<reg::SQ_PROGRAM_CNTL>().gen_index_vtx);
-   if (!vertex_shader->is_translated()) {
-+    dbz3_hitch::Scope dbz3_scope(dbz3_hitch::kShaderTranslate);
-     vertex_shader->shader().AnalyzeUcode(ucode_disasm_buffer_);
-     if (!TranslateAnalyzedShader(*shader_translator_, *vertex_shader)) {
-       REXGPU_ERROR("Failed to translate the vertex shader!");
-@@ -1180,6 +1182,7 @@
-   }
-   if (pixel_shader != nullptr) {
-     if (!pixel_shader->is_translated()) {
-+      dbz3_hitch::Scope dbz3_scope(dbz3_hitch::kShaderTranslate);
-       pixel_shader->shader().AnalyzeUcode(ucode_disasm_buffer_);
-       if (!TranslateAnalyzedShader(*shader_translator_, *pixel_shader)) {
-         REXGPU_ERROR("Failed to translate the pixel shader!");
-@@ -1278,6 +1281,7 @@
-   if (it != pipelines_.end()) {
-     VkPipeline found_pipeline = it->second.pipeline.load(std::memory_order_acquire);
-     if (found_pipeline == VK_NULL_HANDLE) {
-+      dbz3_hitch::Scope dbz3_scope(dbz3_hitch::kPipelineSync);
-       PipelineCreationArguments creation_arguments;
-       if (!TryGetPipelineCreationArgumentsForDescription(description, &*it, creation_arguments) ||
-           !EnsurePipelineCreated(creation_arguments)) {
-@@ -1312,7 +1316,13 @@
-     if (TryGetPipelineCreationArgumentsForDescription(description, &pipeline,
-                                                       creation_arguments_placeholder, true)) {
-       pipeline.second.is_placeholder.store(true, std::memory_order_release);
--      if (EnsurePipelineCreated(creation_arguments_placeholder, placeholder_pixel_shader_)) {
-+      bool dbz3_placeholder_created;
-+      {
-+        dbz3_hitch::Scope dbz3_scope(dbz3_hitch::kPipelinePlaceholder);
-+        dbz3_placeholder_created =
-+            EnsurePipelineCreated(creation_arguments_placeholder, placeholder_pixel_shader_);
-+      }
-+      if (dbz3_placeholder_created) {
-         {
-           std::lock_guard<std::mutex> lock(creation_request_lock_);
-           creation_queue_.push(creation_arguments_real);
-@@ -1325,9 +1335,16 @@
-     }
-   }
- 
--  if (!queued_async_creation && !EnsurePipelineCreated(creation_arguments_real)) {
--    pipelines_.erase(description);
--    return false;
-+  if (!queued_async_creation) {
-+    bool dbz3_created;
-+    {
-+      dbz3_hitch::Scope dbz3_scope(dbz3_hitch::kPipelineSync);
-+      dbz3_created = EnsurePipelineCreated(creation_arguments_real);
-+    }
-+    if (!dbz3_created) {
-+      pipelines_.erase(description);
-+      return false;
-+    }
-   }
-   if (!queued_async_creation) {
-     pipeline.second.is_placeholder.store(false, std::memory_order_release);
---- a/src/graphics/vulkan/texture_cache.cpp
-+++ b/src/graphics/vulkan/texture_cache.cpp
-@@ -26,6 +26,7 @@
- #include <rex/graphics/pipeline/texture/info.h>
- #include <rex/graphics/pipeline/texture/util.h>
- #include <rex/graphics/vulkan/command_processor.h>
-+#include <rex/graphics/vulkan/dbz3_hitch.h>
- #include <rex/graphics/vulkan/deferred_command_buffer.h>
- #include <rex/graphics/vulkan/texture_cache.h>
- #include <rex/logging.h>
-@@ -1249,6 +1250,7 @@
- 
- bool VulkanTextureCache::LoadTextureDataFromResidentMemoryImpl(Texture& texture, bool load_base,
-                                                                bool load_mips) {
-+  dbz3_hitch::Scope dbz3_scope(dbz3_hitch::kTextureLoad);
-   VulkanTexture& vulkan_texture = static_cast<VulkanTexture&>(texture);
-   TextureKey texture_key = vulkan_texture.key();
- 
---- a/src/graphics/vulkan/render_target_cache.cpp
-+++ b/src/graphics/vulkan/render_target_cache.cpp
-@@ -30,6 +30,7 @@
- #include <rex/graphics/registers.h>
- #include <rex/graphics/util/draw.h>
- #include <rex/graphics/vulkan/command_processor.h>
-+#include <rex/graphics/vulkan/dbz3_hitch.h>
- #include <rex/graphics/vulkan/deferred_command_buffer.h>
- #include <rex/graphics/vulkan/render_target_cache.h>
- #include <rex/graphics/xenos.h>
-@@ -4511,6 +4512,7 @@
-   pipeline_create_info.basePipelineHandle = VK_NULL_HANDLE;
-   pipeline_create_info.basePipelineIndex = -1;
-   Dbz3MarkDriverPipelineCacheDirty();
-+  dbz3_hitch::Scope dbz3_scope(dbz3_hitch::kRtTransferPipeline);
-   if (dfn.vkCreateGraphicsPipelines(device, Dbz3GetDriverPipelineCache(), 1, &pipeline_create_info,
-                                     nullptr, &pipelines[0]) != VK_SUCCESS) {
-     REXGPU_ERROR(
+diff --git a/include/rex/graphics/vulkan/dbz3_hitch.h b/include/rex/graphics/vulkan/dbz3_hitch.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..435383012426f55c26dae5b8cf09c9877c483353
 --- /dev/null
 +++ b/include/rex/graphics/vulkan/dbz3_hitch.h
 @@ -0,0 +1,77 @@
@@ -261,3 +81,194 @@
 +}
 +
 +}  // namespace rex::graphics::vulkan::dbz3_hitch
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index eab44619e00703214131187d79e4a6e38037ddfe..cdafe7e1cbcf34f23e73504710faf529fa25657e 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -36,6 +36,7 @@
+ #include <rex/graphics/pipeline/shader/spirv_translator.h>
+ #include <rex/graphics/registers.h>
+ #include <rex/graphics/vulkan/command_processor.h>
++#include <rex/graphics/vulkan/dbz3_hitch.h>
+ #include <rex/graphics/vulkan/pipeline_cache.h>
+ #include <rex/graphics/vulkan/render_target_cache.h>
+ #include <rex/graphics/vulkan/shader.h>
+@@ -2281,15 +2282,48 @@ static void Dbz3LogGuestPerformanceVulkan() {
+   static double max_frame_ms = 0.0;
+   static uint64_t cp_last_window = 0, cp_last_frame = 0;
+   static uint32_t hitches_logged = 0;
++  // DBZ3-Android: cada travao vem com o tempo gasto em cada operacao que pode
++  // bloquear a thread da GPU (dbz3_hitch.h), e os frames escondidos por usarem
++  // pipelines provisorios (compilacao async) tambem contam como travao.
++  static dbz3_hitch::Snapshot frozen_stats;
++  static uint32_t frozen_frames = 0;
++  static double frozen_ms = 0.0;
+   const auto now = std::chrono::steady_clock::now();
+   const uint64_t cp_now = rex::graphics::g_dbz3_regmem_wait_us.load(std::memory_order_relaxed);
++  const dbz3_hitch::Snapshot frame_stats = dbz3_hitch::TakeAndReset();
++  const uint32_t skipped = dbz3_hitch::g_skipped_presents.exchange(0, std::memory_order_relaxed);
++  auto format_stats = [](const dbz3_hitch::Snapshot& s) {
++    return fmt::format(
++        "shaders {}/{:.1f}ms pipelines {}/{:.1f}ms provisorios {}/{:.1f}ms rt_transfer {}/{:.1f}ms "
++        "texturas {}/{:.1f}ms espera_gpu {}/{:.1f}ms",
++        s.count[dbz3_hitch::kShaderTranslate], s.us[dbz3_hitch::kShaderTranslate] / 1000.0,
++        s.count[dbz3_hitch::kPipelineSync], s.us[dbz3_hitch::kPipelineSync] / 1000.0,
++        s.count[dbz3_hitch::kPipelinePlaceholder], s.us[dbz3_hitch::kPipelinePlaceholder] / 1000.0,
++        s.count[dbz3_hitch::kRtTransferPipeline], s.us[dbz3_hitch::kRtTransferPipeline] / 1000.0,
++        s.count[dbz3_hitch::kTextureLoad], s.us[dbz3_hitch::kTextureLoad] / 1000.0,
++        s.count[dbz3_hitch::kFenceWait], s.us[dbz3_hitch::kFenceWait] / 1000.0);
++  };
+   if (last_frame.time_since_epoch().count() != 0) {
+     const double frame_ms = std::chrono::duration<double, std::milli>(now - last_frame).count();
+     max_frame_ms = std::max(max_frame_ms, frame_ms);
+-    if (frame_ms > 50.0 && hitches_logged < 30) {
++    if (skipped) {
++      frozen_frames += skipped;
++      frozen_ms += frame_ms;
++      frozen_stats.Add(frame_stats);
++    } else if (frozen_frames) {
++      if (hitches_logged < 300) {
++        ++hitches_logged;
++        REXGPU_INFO("dbz3: tiron congelado {} frames {:.0f} ms (async) | {}", frozen_frames,
++                    frozen_ms, format_stats(frozen_stats));
++      }
++      frozen_frames = 0;
++      frozen_ms = 0.0;
++      frozen_stats.Clear();
++    }
++    if (frame_ms > 34.0 && hitches_logged < 300) {
+       ++hitches_logged;
+-      REXGPU_INFO("dbz3: tiron {:.0f} ms (vulkan cp_wait {:.1f} ms)", frame_ms,
+-                  double(cp_now - cp_last_frame) / 1000.0);
++      REXGPU_INFO("dbz3: tiron {:.0f} ms (vulkan cp_wait {:.1f} ms) | {}", frame_ms,
++                  double(cp_now - cp_last_frame) / 1000.0, format_stats(frame_stats));
+     }
+   }
+   cp_last_frame = cp_now;
+@@ -2343,6 +2377,7 @@ void VulkanCommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontb
+                                             REXCVAR_GET(vulkan_async_skip_incomplete_frames) &&
+                                             frame_used_async_placeholder_pipeline_;
+   if (skip_present_due_async_placeholder) {
++    dbz3_hitch::g_skipped_presents.fetch_add(1, std::memory_order_relaxed);
+     static bool skipped_incomplete_frame_logged = false;
+     if (!skipped_incomplete_frame_logged) {
+       skipped_incomplete_frame_logged = true;
+@@ -5020,6 +5055,7 @@ void VulkanCommandProcessor::CheckSubmissionFenceAndDeviceLoss(uint64_t await_su
+     // defined by vkQueueSubmit additionally include in the first
+     // synchronization scope all commands that occur earlier in submission
+     // order."
++    dbz3_hitch::Scope dbz3_scope(dbz3_hitch::kFenceWait);
+     VkResult wait_result =
+         dfn.vkWaitForFences(device, uint32_t(await_submission - submission_completed_),
+                             submissions_in_flight_fences_.data(), VK_TRUE, UINT64_MAX);
+diff --git a/src/graphics/vulkan/pipeline_cache.cpp b/src/graphics/vulkan/pipeline_cache.cpp
+index 95599e93c7b45444631c5e05d61ac22a8addc796..7ac05514a67018565b9921e192e9bdfc26a61b26 100644
+--- a/src/graphics/vulkan/pipeline_cache.cpp
++++ b/src/graphics/vulkan/pipeline_cache.cpp
+@@ -44,6 +44,7 @@
+ #include <rex/graphics/registers.h>
+ #include <rex/graphics/util/draw.h>
+ #include <rex/graphics/vulkan/command_processor.h>
++#include <rex/graphics/vulkan/dbz3_hitch.h>
+ #include <rex/graphics/vulkan/pipeline_cache.h>
+ #include <rex/graphics/vulkan/shader.h>
+ #include <rex/graphics/xenos.h>
+@@ -1168,6 +1169,7 @@ bool VulkanPipelineCache::EnsureShadersTranslated(VulkanShader::VulkanTranslatio
+                   xenos::VertexShaderExportMode::kPosition2VectorsEdgeKill);
+   assert_false(register_file_.Get<reg::SQ_PROGRAM_CNTL>().gen_index_vtx);
+   if (!vertex_shader->is_translated()) {
++    dbz3_hitch::Scope dbz3_scope(dbz3_hitch::kShaderTranslate);
+     vertex_shader->shader().AnalyzeUcode(ucode_disasm_buffer_);
+     if (!TranslateAnalyzedShader(*shader_translator_, *vertex_shader)) {
+       REXGPU_ERROR("Failed to translate the vertex shader!");
+@@ -1180,6 +1182,7 @@ bool VulkanPipelineCache::EnsureShadersTranslated(VulkanShader::VulkanTranslatio
+   }
+   if (pixel_shader != nullptr) {
+     if (!pixel_shader->is_translated()) {
++      dbz3_hitch::Scope dbz3_scope(dbz3_hitch::kShaderTranslate);
+       pixel_shader->shader().AnalyzeUcode(ucode_disasm_buffer_);
+       if (!TranslateAnalyzedShader(*shader_translator_, *pixel_shader)) {
+         REXGPU_ERROR("Failed to translate the pixel shader!");
+@@ -1278,6 +1281,7 @@ bool VulkanPipelineCache::ConfigurePipeline(
+   if (it != pipelines_.end()) {
+     VkPipeline found_pipeline = it->second.pipeline.load(std::memory_order_acquire);
+     if (found_pipeline == VK_NULL_HANDLE) {
++      dbz3_hitch::Scope dbz3_scope(dbz3_hitch::kPipelineSync);
+       PipelineCreationArguments creation_arguments;
+       if (!TryGetPipelineCreationArgumentsForDescription(description, &*it, creation_arguments) ||
+           !EnsurePipelineCreated(creation_arguments)) {
+@@ -1312,7 +1316,13 @@ bool VulkanPipelineCache::ConfigurePipeline(
+     if (TryGetPipelineCreationArgumentsForDescription(description, &pipeline,
+                                                       creation_arguments_placeholder, true)) {
+       pipeline.second.is_placeholder.store(true, std::memory_order_release);
+-      if (EnsurePipelineCreated(creation_arguments_placeholder, placeholder_pixel_shader_)) {
++      bool dbz3_placeholder_created;
++      {
++        dbz3_hitch::Scope dbz3_scope(dbz3_hitch::kPipelinePlaceholder);
++        dbz3_placeholder_created =
++            EnsurePipelineCreated(creation_arguments_placeholder, placeholder_pixel_shader_);
++      }
++      if (dbz3_placeholder_created) {
+         {
+           std::lock_guard<std::mutex> lock(creation_request_lock_);
+           creation_queue_.push(creation_arguments_real);
+@@ -1325,9 +1335,16 @@ bool VulkanPipelineCache::ConfigurePipeline(
+     }
+   }
+ 
+-  if (!queued_async_creation && !EnsurePipelineCreated(creation_arguments_real)) {
+-    pipelines_.erase(description);
+-    return false;
++  if (!queued_async_creation) {
++    bool dbz3_created;
++    {
++      dbz3_hitch::Scope dbz3_scope(dbz3_hitch::kPipelineSync);
++      dbz3_created = EnsurePipelineCreated(creation_arguments_real);
++    }
++    if (!dbz3_created) {
++      pipelines_.erase(description);
++      return false;
++    }
+   }
+   if (!queued_async_creation) {
+     pipeline.second.is_placeholder.store(false, std::memory_order_release);
+diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
+index 4f28b46eb1c09e1f015041a6bb936f2a32c7cda8..a5baf4c42900a6f20942c0ac19ac62d97a63f019 100644
+--- a/src/graphics/vulkan/render_target_cache.cpp
++++ b/src/graphics/vulkan/render_target_cache.cpp
+@@ -30,6 +30,7 @@
+ #include <rex/graphics/registers.h>
+ #include <rex/graphics/util/draw.h>
+ #include <rex/graphics/vulkan/command_processor.h>
++#include <rex/graphics/vulkan/dbz3_hitch.h>
+ #include <rex/graphics/vulkan/deferred_command_buffer.h>
+ #include <rex/graphics/vulkan/render_target_cache.h>
+ #include <rex/graphics/xenos.h>
+@@ -4511,6 +4512,7 @@ VkPipeline const* VulkanRenderTargetCache::GetTransferPipelines(TransferPipeline
+   pipeline_create_info.basePipelineHandle = VK_NULL_HANDLE;
+   pipeline_create_info.basePipelineIndex = -1;
+   Dbz3MarkDriverPipelineCacheDirty();
++  dbz3_hitch::Scope dbz3_scope(dbz3_hitch::kRtTransferPipeline);
+   if (dfn.vkCreateGraphicsPipelines(device, Dbz3GetDriverPipelineCache(), 1, &pipeline_create_info,
+                                     nullptr, &pipelines[0]) != VK_SUCCESS) {
+     REXGPU_ERROR(
+diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
+index ecbd940d8fa4dac148808f8d88ca0dd1967b6e1c..9c8b7e8dcbb250ebec3c0d32f832697c015df777 100644
+--- a/src/graphics/vulkan/texture_cache.cpp
++++ b/src/graphics/vulkan/texture_cache.cpp
+@@ -25,6 +25,7 @@
+ #include <rex/graphics/pipeline/texture/info.h>
+ #include <rex/graphics/pipeline/texture/util.h>
+ #include <rex/graphics/vulkan/command_processor.h>
++#include <rex/graphics/vulkan/dbz3_hitch.h>
+ #include <rex/graphics/vulkan/deferred_command_buffer.h>
+ #include <rex/graphics/vulkan/texture_cache.h>
+ #include <rex/logging.h>
+@@ -1215,6 +1216,7 @@ bool VulkanTextureCache::EnsureScaledResolveMemoryCommitted(uint32_t start_unsca
+ 
+ bool VulkanTextureCache::LoadTextureDataFromResidentMemoryImpl(Texture& texture, bool load_base,
+                                                                bool load_mips) {
++  dbz3_hitch::Scope dbz3_scope(dbz3_hitch::kTextureLoad);
+   VulkanTexture& vulkan_texture = static_cast<VulkanTexture&>(texture);
+   TextureKey texture_key = vulkan_texture.key();
+ 

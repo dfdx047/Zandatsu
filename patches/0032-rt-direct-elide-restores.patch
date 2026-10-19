@@ -1,8 +1,8 @@
 diff --git a/include/rex/graphics/pipeline/render_target/cache.h b/include/rex/graphics/pipeline/render_target/cache.h
-index 11d9f60..80ffbe5 100644
+index 82b5c36ae3653ec2a4fd239e1b788f64fd233b5a..605012c79bd00f0de0d0e00bc5774d4a4562de01 100644
 --- a/include/rex/graphics/pipeline/render_target/cache.h
 +++ b/include/rex/graphics/pipeline/render_target/cache.h
-@@ -15,6 +15,7 @@
+@@ -16,6 +16,7 @@
  #include <functional>
  #include <map>
  #include <unordered_map>
@@ -10,7 +10,7 @@ index 11d9f60..80ffbe5 100644
  #include <utility>
  #include <vector>
  
-@@ -304,6 +305,26 @@ class RenderTargetCache {
+@@ -315,6 +316,26 @@ class RenderTargetCache {
    // DBZ3-Android (dbz3_rt_direct): render targets com a mesma base que o ultimo
    // PrepareHostRenderTargetsResolveClear tambem deve limpar (true = profundidade).
    static bool Dbz3DirectAllowsTransfer(RenderTargetKey source, RenderTargetKey dest);
@@ -37,7 +37,7 @@ index 11d9f60..80ffbe5 100644
    const std::vector<std::pair<RenderTarget*, bool>>& dbz3_direct_clear_siblings() const {
      return dbz3_direct_clear_siblings_;
    }
-@@ -662,6 +683,21 @@ class RenderTargetCache {
+@@ -697,6 +718,21 @@ class RenderTargetCache {
    // DBZ3-Android (dbz3_rt_direct): render targets com a mesma base que o ultimo
    // PrepareHostRenderTargetsResolveClear tambem deve limpar (true = profundidade).
    std::vector<std::pair<RenderTarget*, bool>> dbz3_direct_clear_siblings_;
@@ -60,7 +60,7 @@ index 11d9f60..80ffbe5 100644
    // Map of host render targets currently containing the most up-to-date version
    // of the tile. Has no gaps, unused parts are represented by empty render
 diff --git a/src/graphics/pipeline/render_target/cache.cpp b/src/graphics/pipeline/render_target/cache.cpp
-index 83c2fb9..675a359 100644
+index 083ba75f35c5ceb1ab233480c7f04dbae4a542b2..521125166f7c38113f1376ffaef21bf2960f4533 100644
 --- a/src/graphics/pipeline/render_target/cache.cpp
 +++ b/src/graphics/pipeline/render_target/cache.cpp
 @@ -47,6 +47,10 @@ REXCVAR_DEFINE_BOOL(direct_host_resolve, true, "GPU",
@@ -87,7 +87,7 @@ index 83c2fb9..675a359 100644
  
    return true;
  }
-@@ -1133,6 +1143,8 @@ bool RenderTargetCache::PrepareHostRenderTargetsResolveClear(
+@@ -1249,6 +1259,8 @@ bool RenderTargetCache::PrepareHostRenderTargetsResolveClear(
      ChangeOwnership(color_render_target_key, color_clear_start_tiles_base_relative,
                      color_clear_length_tiles, &color_transfers_out, &clear_rectangle);
    }
@@ -96,7 +96,7 @@ index 83c2fb9..675a359 100644
    // DBZ3-Android (modo direto): as outras imagens com a mesma base (outro pitch/MSAA, ex. o
    // passe de 512x512 do Budokai 3 que usa a mesma profundidade) tambem sao limpas, porque
    // sem transferencias nada lhes traria a limpeza.
-@@ -1448,4 +1460,106 @@ void RenderTargetCache::ChangeOwnership(RenderTargetKey dest, uint32_t start_til
+@@ -1564,4 +1576,106 @@ void RenderTargetCache::ChangeOwnership(RenderTargetKey dest, uint32_t start_til
    }
  }
  
@@ -204,10 +204,10 @@ index 83c2fb9..675a359 100644
 +
  }  // namespace rex::graphics
 diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
-index b6ffd64..57d2a7c 100644
+index 4b19cc5ed5c706d9117d512d583fc136e6257b10..30b1feb0e095bae01de393596331cf2302d892f8 100644
 --- a/src/graphics/vulkan/command_processor.cpp
 +++ b/src/graphics/vulkan/command_processor.cpp
-@@ -2609,6 +2609,9 @@ void VulkanCommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontb
+@@ -2607,6 +2607,9 @@ void VulkanCommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontb
    if (!dbz3_frameskip::g_skip_frame) {
      dbz3_capture::OnSwap(*register_file_, *memory_, frontbuffer_ptr, frontbuffer_width,
                           frontbuffer_height);
@@ -217,7 +217,7 @@ index b6ffd64..57d2a7c 100644
    }
    vertex_buffers_in_sync_[0] = 0;
    vertex_buffers_in_sync_[1] = 0;
-@@ -4046,6 +4049,21 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+@@ -4044,6 +4047,21 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
      }
      draw_util::AddMemExportRanges(regs, *pixel_shader, memexport_ranges_);
    }
@@ -240,7 +240,7 @@ index b6ffd64..57d2a7c 100644
  
    uint32_t ps_param_gen_pos = UINT32_MAX;
 diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
-index 2bd6a2a..ed36f6a 100644
+index 2bd6a2a088a9014a75f2e6dd92195952428ce30f..ed36f6ad98a5f0ce3e9905fbe1c199ef5c1da0e3 100644
 --- a/src/graphics/vulkan/render_target_cache.cpp
 +++ b/src/graphics/vulkan/render_target_cache.cpp
 @@ -1206,6 +1206,23 @@ bool VulkanRenderTargetCache::Resolve(const memory::Memory& memory,

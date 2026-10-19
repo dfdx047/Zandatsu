@@ -1,6 +1,8 @@
+diff --git a/include/rex/chrono/chrono.h b/include/rex/chrono/chrono.h
+index d876846ab6ee5ba09dd481a59e99a052ac2ac03f..d9ff0040fa0e7cede146e95fa1197929fe85e4d1 100644
 --- a/include/rex/chrono/chrono.h
 +++ b/include/rex/chrono/chrono.h
-@@ -116,8 +116,9 @@
+@@ -116,8 +116,9 @@ using XSystemClock = detail::NtSystemClock<detail::Domain::Guest>;
  
  namespace std::chrono {
  

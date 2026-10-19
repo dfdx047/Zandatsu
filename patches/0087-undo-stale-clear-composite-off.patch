@@ -1,0 +1,40 @@
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index dcbcdab4fbde105917ba99b093487a5cbdcd4331..d425d5fa0588ad6c9564aaefe6f173349e34ab7f 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -90,7 +90,10 @@ REXCVAR_DEFINE_BOOL(dbz3_bl_native_blur, true, "GPU/Vulkan",
+                     "Limit (PS 97906B6915CE1A5E) por compute em vez do quad + resolve")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ 
+-REXCVAR_DEFINE_BOOL(dbz3_bl_native_glow_composite, true, "GPU/Vulkan",
++// 0087: desligado por omissao. No RP5 (17/10 04:58) com o passo 4 a imagem final ficava so com o
++// brilho desfocado: o quad da composicao tambem deixa a imagem no render target de 1280, que o
++// passe seguinte (HUD) carrega; saltado, esse render target fica com outra imagem.
++REXCVAR_DEFINE_BOOL(dbz3_bl_native_glow_composite, false, "GPU/Vulkan",
+                     "Dragon Burst: faz a composicao do brilho do contorno na cena do Burst Limit (PS "
+                     "F59256F3F90DE9FF) por compute em vez do quad + resolves")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
+index 9dca2cd830afe2818c4bffb9e50c271468284043..9a4a79474f85cff47a79033775eaffb67c169882 100644
+--- a/src/graphics/vulkan/render_target_cache.cpp
++++ b/src/graphics/vulkan/render_target_cache.cpp
+@@ -8637,15 +8637,10 @@ bool VulkanRenderTargetCache::Dbz3NativePostBegin(VulkanTextureCache& texture_ca
+   np::g_learn_draw = false;
+   np::g_dirty = false;
+   np::g_served = 0;
+-  // 0086: o quad saltado e um passe opaco de ecra inteiro; no caminho normal o inicio dele
+-  // (sobrescreve tudo, Dbz3RitNormalPassStart) esquecia o "render target sem a imagem" do passo 4
+-  // deste alvo. Sem isto, com a composicao saltada, o draw seguinte que carrega o alvo de 1280
+-  // (depois do Clear 4x) bania o passe anterior desenhado direto na textura.
+-  if (dbz3_rit::g_stale_sig && dbz3_rit::g_stale_base == params.color_base_tiles &&
+-      dbz3_rit::g_stale_pitch == params.width / 80) {
+-    dbz3_rit::g_stale_sig = 0;
+-    dbz3_rit::g_stale_fb = nullptr;
+-  }
++  // 0087: o 0086 apagava aqui a marca do passo 4 ("render target sem a imagem") e assim o passe
++  // seguinte que carrega esse render target ja nao banía o passe desenhado na textura: no RP5
++  // (17/10 04:58) a imagem final ficou so com o brilho desfocado. A marca fica; se um passe
++  // carregar o alvo, o passo 4 desiste desse passe, como antes.
+   return true;
+ }
+ 

@@ -1,5 +1,7 @@
-diff -ruN '--exclude=.git' sdk-orig/include/rex/main_android.h sdk/include/rex/main_android.h
---- a/include/rex/main_android.h
+diff --git a/include/rex/main_android.h b/include/rex/main_android.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..22fa876b077a34d1d09ede370620ba780812bf63
+--- /dev/null
 +++ b/include/rex/main_android.h
 @@ -0,0 +1,30 @@
 +#pragma once
@@ -32,7 +34,8 @@ diff -ruN '--exclude=.git' sdk-orig/include/rex/main_android.h sdk/include/rex/m
 +void ShutdownAndroidRuntime();
 +
 +}  // namespace rex
-diff -ruN '--exclude=.git' sdk-orig/include/rex/string/numeric.h sdk/include/rex/string/numeric.h
+diff --git a/include/rex/string/numeric.h b/include/rex/string/numeric.h
+index 85994c7197e390037bd980dd57f15659bb6b1eed..29ad60355259f56410bd5afced2d8198ae0a19a1 100644
 --- a/include/rex/string/numeric.h
 +++ b/include/rex/string/numeric.h
 @@ -26,7 +26,7 @@
@@ -44,7 +47,7 @@ diff -ruN '--exclude=.git' sdk-orig/include/rex/string/numeric.h sdk/include/rex
  #include <locale.h>
  #endif
  
-@@ -114,7 +114,7 @@
+@@ -114,7 +114,7 @@ inline T ifs(const std::string_view value, bool force_hex) {
    return result;
  }
  
@@ -53,7 +56,7 @@ diff -ruN '--exclude=.git' sdk-orig/include/rex/string/numeric.h sdk/include/rex
  template <typename T>
  inline std::from_chars_result portable_float_from_chars(const char* first, const char* last,
                                                          T& value) {
-@@ -189,7 +189,7 @@
+@@ -189,7 +189,7 @@ inline T fpfs(const std::string_view value, bool force_hex) {
      }
      std::memcpy(&result, &pun, sizeof(PUN));
    } else {
@@ -62,7 +65,7 @@ diff -ruN '--exclude=.git' sdk-orig/include/rex/string/numeric.h sdk/include/rex
      auto [p, error] = portable_float_from_chars(range.data(), range.data() + range.size(), result);
  #else
      auto [p, error] = std::from_chars(range.data(), range.data() + range.size(), result,
-@@ -316,7 +316,7 @@
+@@ -316,7 +316,7 @@ inline vec128_t from_string<vec128_t>(const std::string_view value, bool force_h
          assert_always();
          return vec128_t();
        }
@@ -71,7 +74,8 @@ diff -ruN '--exclude=.git' sdk-orig/include/rex/string/numeric.h sdk/include/rex
        auto result = detail::portable_float_from_chars(p, end, v.f32[i]);
  #else
        auto result = std::from_chars(p, end, v.f32[i], std::chars_format::general);
-diff -ruN '--exclude=.git' sdk-orig/include/rex/thread/fiber.h sdk/include/rex/thread/fiber.h
+diff --git a/include/rex/thread/fiber.h b/include/rex/thread/fiber.h
+index 352af6743089638f7b48ade2b48ea6d26deb1008..677cd85bcbb6fd8f2cd73461e5e0e38c8f0bec24 100644
 --- a/include/rex/thread/fiber.h
 +++ b/include/rex/thread/fiber.h
 @@ -14,7 +14,12 @@
@@ -88,7 +92,7 @@ diff -ruN '--exclude=.git' sdk-orig/include/rex/thread/fiber.h sdk/include/rex/t
  #if REX_PLATFORM_MAC && !defined(_XOPEN_SOURCE)
  // Darwin hides the deprecated ucontext APIs unless _XOPEN_SOURCE is defined
  // before including <ucontext.h>.
-@@ -56,6 +61,23 @@
+@@ -56,6 +61,23 @@ struct Fiber {
  #if REX_PLATFORM_WIN32
    void* handle_ = nullptr;
    bool is_thread_fiber_ = false;
@@ -112,8 +116,10 @@ diff -ruN '--exclude=.git' sdk-orig/include/rex/thread/fiber.h sdk/include/rex/t
  #elif REX_PLATFORM_LINUX || REX_PLATFORM_MAC
    ucontext_t context_{};
    std::vector<uint8_t> stack_;
-diff -ruN '--exclude=.git' sdk-orig/include/rex/ui/surface_android.h sdk/include/rex/ui/surface_android.h
---- a/include/rex/ui/surface_android.h
+diff --git a/include/rex/ui/surface_android.h b/include/rex/ui/surface_android.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..f921b7e659494aea2f624b163623e84946506ed1
+--- /dev/null
 +++ b/include/rex/ui/surface_android.h
 @@ -0,0 +1,34 @@
 +#pragma once
@@ -150,10 +156,11 @@ diff -ruN '--exclude=.git' sdk-orig/include/rex/ui/surface_android.h sdk/include
 +
 +}  // namespace ui
 +}  // namespace rex
-diff -ruN '--exclude=.git' sdk-orig/src/core/CMakeLists.txt sdk/src/core/CMakeLists.txt
+diff --git a/src/core/CMakeLists.txt b/src/core/CMakeLists.txt
+index 04b954d24280d29265214af4abeca868a9f851bf..480b80229f06d1bbeb2d461e449100756094eea2 100644
 --- a/src/core/CMakeLists.txt
 +++ b/src/core/CMakeLists.txt
-@@ -25,7 +25,9 @@
+@@ -27,7 +27,9 @@ add_library(rexcore OBJECT
  )
  add_library(rex::core ALIAS rexcore)
  
@@ -164,7 +171,7 @@ diff -ruN '--exclude=.git' sdk-orig/src/core/CMakeLists.txt sdk/src/core/CMakeLi
      # Apple's libc++ still gates std::jthread/std::stop_token behind the
      # experimental-library feature flag. Only timer_queue.cpp uses them, and
      # neither type crosses a header boundary.
-@@ -75,6 +77,10 @@
+@@ -77,6 +79,10 @@ elseif(UNIX)
          system_posix.cpp
          threading_posix.cpp
      )
@@ -175,7 +182,7 @@ diff -ruN '--exclude=.git' sdk-orig/src/core/CMakeLists.txt sdk/src/core/CMakeLi
  endif()
  
  # Xenos data-format layer (stateless; headers under include/rex/graphics/).
-@@ -101,6 +107,8 @@
+@@ -103,6 +109,8 @@ target_include_directories(rexcore PRIVATE
  
  if(APPLE)
      target_link_libraries(rexcore PRIVATE pthread)
@@ -184,7 +191,8 @@ diff -ruN '--exclude=.git' sdk-orig/src/core/CMakeLists.txt sdk/src/core/CMakeLi
  elseif(UNIX)
      target_link_libraries(rexcore PRIVATE pthread rt dl)
  endif()
-diff -ruN '--exclude=.git' sdk-orig/src/core/fiber_posix.cpp sdk/src/core/fiber_posix.cpp
+diff --git a/src/core/fiber_posix.cpp b/src/core/fiber_posix.cpp
+index 4fe1ca6fbd74729b64d9571852761fa1ddbf31e9..c8b9b01557a946a1f629c83ac1f3ceddb915f912 100644
 --- a/src/core/fiber_posix.cpp
 +++ b/src/core/fiber_posix.cpp
 @@ -17,7 +17,119 @@
@@ -308,10 +316,11 @@ diff -ruN '--exclude=.git' sdk-orig/src/core/fiber_posix.cpp sdk/src/core/fiber_
  
  #include <rex/thread/fiber.h>
  
-diff -ruN '--exclude=.git' sdk-orig/src/core/filesystem_posix.cpp sdk/src/core/filesystem_posix.cpp
+diff --git a/src/core/filesystem_posix.cpp b/src/core/filesystem_posix.cpp
+index ef5bdf4e6e352848cf40798c6e4ff32b8b6f4be1..a977cce24f8b3b26c0ec9e066a2735ad6f8cabbc 100644
 --- a/src/core/filesystem_posix.cpp
 +++ b/src/core/filesystem_posix.cpp
-@@ -100,10 +100,23 @@
+@@ -100,10 +100,23 @@ std::filesystem::path GetExecutablePath() {
  }
  
  std::filesystem::path GetExecutableFolder() {
@@ -335,10 +344,11 @@ diff -ruN '--exclude=.git' sdk-orig/src/core/filesystem_posix.cpp sdk/src/core/f
    // get preferred data home
    if (auto xdg = rex::platform::env::get("XDG_DATA_HOME")) {
      return std::filesystem::path(*xdg);
-diff -ruN '--exclude=.git' sdk-orig/src/core/logging.cpp sdk/src/core/logging.cpp
+diff --git a/src/core/logging.cpp b/src/core/logging.cpp
+index e8de147920f72490c2ca3d94a907f0a73c4b92b1..28e65b680c40f5c7b7d2ce6a886359ab127b03a0 100644
 --- a/src/core/logging.cpp
 +++ b/src/core/logging.cpp
-@@ -29,6 +29,9 @@
+@@ -32,6 +32,9 @@
  
  #if REX_PLATFORM_WIN32
  #include <spdlog/sinks/msvc_sink.h>
@@ -348,7 +358,7 @@ diff -ruN '--exclude=.git' sdk-orig/src/core/logging.cpp sdk/src/core/logging.cp
  #else
  #include <spdlog/sinks/stdout_sinks.h>
  #endif
-@@ -170,6 +173,8 @@
+@@ -192,6 +195,8 @@ void InitLoggingEarly() {
  
  #if REX_PLATFORM_WIN32
    auto sink = std::make_shared<spdlog::sinks::msvc_sink_mt>();
@@ -357,7 +367,7 @@ diff -ruN '--exclude=.git' sdk-orig/src/core/logging.cpp sdk/src/core/logging.cp
  #else
    auto sink = std::make_shared<spdlog::sinks::stdout_sink_mt>();
  #endif
-@@ -218,7 +223,7 @@
+@@ -240,7 +245,7 @@ void InitLogging(const LogConfig& config) {
    //     apps and does not conflict with the stdout console sink, so keep it.
    //   Non-Windows: drop the early stdout sink unconditionally so file-only
    //     configs don't leak to stdout and console configs don't duplicate.
@@ -366,8 +376,10 @@ diff -ruN '--exclude=.git' sdk-orig/src/core/logging.cpp sdk/src/core/logging.cp
    if (g_early_sink) {
      for (auto& entry : g_registry) {
        if (entry.logger)
-diff -ruN '--exclude=.git' sdk-orig/src/core/main_android.cpp sdk/src/core/main_android.cpp
---- a/src/core/main_android.cpp
+diff --git a/src/core/main_android.cpp b/src/core/main_android.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..563a62f2e5efd564849a5587225393d3ed5d4083
+--- /dev/null
 +++ b/src/core/main_android.cpp
 @@ -0,0 +1,82 @@
 +/**
@@ -452,7 +464,8 @@ diff -ruN '--exclude=.git' sdk-orig/src/core/main_android.cpp sdk/src/core/main_
 +}  // namespace rex
 +
 +#endif  // REX_PLATFORM_ANDROID
-diff -ruN '--exclude=.git' sdk-orig/src/core/memory_posix.cpp sdk/src/core/memory_posix.cpp
+diff --git a/src/core/memory_posix.cpp b/src/core/memory_posix.cpp
+index b52bf39c927a03b6b03c4ede083adc5b0ae50809..7d082d7f983d18c6a18f446481ef4785d4332b2c 100644
 --- a/src/core/memory_posix.cpp
 +++ b/src/core/memory_posix.cpp
 @@ -53,6 +53,8 @@
@@ -464,7 +477,8 @@ diff -ruN '--exclude=.git' sdk-orig/src/core/memory_posix.cpp sdk/src/core/memor
  // TODO(tomc): Android or maybe na. idk
  // #include "xenia/base/main_android.h"
  #endif
-diff -ruN '--exclude=.git' sdk-orig/src/system/gpu_plugin_loader.cpp sdk/src/system/gpu_plugin_loader.cpp
+diff --git a/src/system/gpu_plugin_loader.cpp b/src/system/gpu_plugin_loader.cpp
+index 754fa13832016ae37164d2bd72f334f7d4e3c046..a9f4589ab1b937e3a56c38f50180bc855888bcc2 100644
 --- a/src/system/gpu_plugin_loader.cpp
 +++ b/src/system/gpu_plugin_loader.cpp
 @@ -9,6 +9,7 @@
@@ -475,7 +489,7 @@ diff -ruN '--exclude=.git' sdk-orig/src/system/gpu_plugin_loader.cpp sdk/src/sys
  #include <rex/system/gpu_plugin.h>
  
  #include <filesystem>
-@@ -55,7 +56,18 @@
+@@ -55,7 +56,18 @@ std::vector<platform::DynamicLibrary>& LoadedPlugins() {
  }  // namespace
  
  std::unique_ptr<IGraphicsSystem> LoadGpuPlugin(std::string_view name, std::string_view backend) {
@@ -494,10 +508,11 @@ diff -ruN '--exclude=.git' sdk-orig/src/system/gpu_plugin_loader.cpp sdk/src/sys
    if (!std::filesystem::exists(path)) {
      REXSYS_ERROR(
          "GPU plugin '{}' not found at {}. Stage it next to the executable "
-diff -ruN '--exclude=.git' sdk-orig/src/ui/CMakeLists.txt sdk/src/ui/CMakeLists.txt
+diff --git a/src/ui/CMakeLists.txt b/src/ui/CMakeLists.txt
+index e2a413a627d0927295cc3e69bbfb5a03117c21d6..531b494e74a0c3d690e844cd574664aad7673d67 100644
 --- a/src/ui/CMakeLists.txt
 +++ b/src/ui/CMakeLists.txt
-@@ -74,6 +74,10 @@
+@@ -77,6 +77,10 @@ elseif(APPLE)
      set(REXUI_PLATFORM_SOURCES
          surface_mac.cpp
      )
@@ -508,7 +523,7 @@ diff -ruN '--exclude=.git' sdk-orig/src/ui/CMakeLists.txt sdk/src/ui/CMakeLists.
  else()
      set(REXUI_PLATFORM_SOURCES
          surface_gnulinux.cpp
-@@ -162,7 +166,9 @@
+@@ -151,7 +155,9 @@ if(REXGLUE_USE_VULKAN)
  endif()
  
  # Platform-specific dependencies
@@ -519,8 +534,10 @@ diff -ruN '--exclude=.git' sdk-orig/src/ui/CMakeLists.txt sdk/src/ui/CMakeLists.
      find_package(PkgConfig REQUIRED)
      pkg_check_modules(X11_XCB REQUIRED x11-xcb)
      # Required, not optional: vulkan/api.h pulls in <wayland-client.h> on every
-diff -ruN '--exclude=.git' sdk-orig/src/ui/surface_android.cpp sdk/src/ui/surface_android.cpp
---- a/src/ui/surface_android.cpp
+diff --git a/src/ui/surface_android.cpp b/src/ui/surface_android.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..5c712dc9df655c18ffced92713f7338d6c8b8ffb
+--- /dev/null
 +++ b/src/ui/surface_android.cpp
 @@ -0,0 +1,37 @@
 +/**
@@ -560,10 +577,11 @@ diff -ruN '--exclude=.git' sdk-orig/src/ui/surface_android.cpp sdk/src/ui/surfac
 +
 +}  // namespace ui
 +}  // namespace rex
-diff -ruN '--exclude=.git' sdk-orig/src/ui/window_sdl.cpp sdk/src/ui/window_sdl.cpp
+diff --git a/src/ui/window_sdl.cpp b/src/ui/window_sdl.cpp
+index 6782cce1b3539bfd8650ae6c5e25932a10163572..42a1d74bf9e2d787adbadb64f1564678d2ec7a17 100644
 --- a/src/ui/window_sdl.cpp
 +++ b/src/ui/window_sdl.cpp
-@@ -35,6 +35,8 @@
+@@ -34,6 +34,8 @@
  #include <SDL3/SDL_metal.h>
  
  #include <rex/ui/surface_mac.h>
@@ -572,7 +590,7 @@ diff -ruN '--exclude=.git' sdk-orig/src/ui/window_sdl.cpp sdk/src/ui/window_sdl.
  #else
  #include <X11/Xlib-xcb.h>
  #include <rex/ui/surface_gnulinux.h>
-@@ -398,6 +400,15 @@
+@@ -447,6 +449,15 @@ std::unique_ptr<Surface> WindowSDL::CreateSurfaceImpl(Surface::TypeFlags allowed
        SDL_Metal_DestroyView(metal_view);
      }
    }
@@ -588,7 +606,8 @@ diff -ruN '--exclude=.git' sdk-orig/src/ui/window_sdl.cpp sdk/src/ui/window_sdl.
  #else
    SDL_PropertiesID props = SDL_GetWindowProperties(sdl_window_);
    if (allowed_types & Surface::kTypeFlag_WaylandSurface) {
-diff -ruN '--exclude=.git' sdk-orig/src/ui/windowed_app_main_sdl.cpp sdk/src/ui/windowed_app_main_sdl.cpp
+diff --git a/src/ui/windowed_app_main_sdl.cpp b/src/ui/windowed_app_main_sdl.cpp
+index 77bb1dc202ee1ae78649f9701c7a1ad408e85c5c..f5c21d80e9157034cea1c4034696b0c40836405b 100644
 --- a/src/ui/windowed_app_main_sdl.cpp
 +++ b/src/ui/windowed_app_main_sdl.cpp
 @@ -22,6 +22,17 @@
@@ -609,7 +628,7 @@ diff -ruN '--exclude=.git' sdk-orig/src/ui/windowed_app_main_sdl.cpp sdk/src/ui/
  #if REX_PLATFORM_WIN32
  #ifndef WIN32_LEAN_AND_MEAN
  #define WIN32_LEAN_AND_MEAN
-@@ -124,6 +135,26 @@
+@@ -124,6 +135,26 @@ int WINAPI wWinMain(HINSTANCE hinstance, HINSTANCE hinstance_prev, LPWSTR comman
    return RunWindowedApp(static_cast<int>(argv_ptrs.size()), argv_ptrs.data());
  }
  
@@ -636,10 +655,11 @@ diff -ruN '--exclude=.git' sdk-orig/src/ui/windowed_app_main_sdl.cpp sdk/src/ui/
  #else
  
  int main(int argc, char* argv[]) {
-diff -ruN '--exclude=.git' sdk-orig/thirdparty/CMakeLists.txt sdk/thirdparty/CMakeLists.txt
+diff --git a/thirdparty/CMakeLists.txt b/thirdparty/CMakeLists.txt
+index b1481282c538a28f6bef8271372609c2ba8b9a60..a224eb1093ca69144b200d09802b1a4fd52d1b06 100644
 --- a/thirdparty/CMakeLists.txt
 +++ b/thirdparty/CMakeLists.txt
-@@ -290,7 +290,7 @@
+@@ -322,7 +322,7 @@ set(SDL_DUMMYVIDEO OFF CACHE BOOL "" FORCE)
  
  # Linux video and audio backends. Both video drivers are always built so the
  # one in use stays a runtime choice.
@@ -648,7 +668,7 @@ diff -ruN '--exclude=.git' sdk-orig/thirdparty/CMakeLists.txt sdk/thirdparty/CMa
      set(SDL_X11               ON  CACHE BOOL "" FORCE)
      set(SDL_WAYLAND           ON  CACHE BOOL "" FORCE)
      set(SDL_ALSA              ON  CACHE BOOL "" FORCE)
-@@ -301,6 +301,23 @@
+@@ -333,6 +333,23 @@ if(UNIX AND NOT APPLE)
      set(SDL_PIPEWIRE_SHARED   ON  CACHE BOOL "" FORCE)
  endif()
  

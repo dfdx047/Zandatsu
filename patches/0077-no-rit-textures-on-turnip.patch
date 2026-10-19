@@ -1,0 +1,51 @@
+diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
+index b31ca9c3d96434dceb28883cffbbfd76643f6ec4..5bbf2bf08a2c0ee519412b52c428efb1368a1ec7 100644
+--- a/src/graphics/vulkan/texture_cache.cpp
++++ b/src/graphics/vulkan/texture_cache.cpp
+@@ -42,6 +42,13 @@ REXCVAR_DEFINE_BOOL(dbz3_resolve_early_transition, true, "GPU",
+                     "(evita fechar o passe quando e amostrada)")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ 
++REXCVAR_DEFINE_BOOL(dbz3_rit_textures, true, "GPU",
++                    "Dragon Burst: texturas 8888 criadas para poderem ser alvo de cor (passo 4)")
++    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
++REXCVAR_DEFINE_BOOL(dbz3_rit_textures_turnip, false, "GPU",
++                    "Dragon Burst: o mesmo no Turnip (desligado: la as cores saiam trocadas)")
++    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
++
+ namespace rex::graphics::vulkan {
+ 
+ // Generated with `xb buildshaders`.
+@@ -1254,6 +1261,14 @@ std::unique_ptr<TextureCache::Texture> VulkanTextureCache::CreateTexture(Texture
+   bool dbz3_storage = false;
+   bool dbz3_renderable = false;
+   bool dbz3_bgra_ok = false;
++  // Dragon Burst (0077): no Turnip (RP5, 16/10 22:22 e 22:45) as 8888 com MUTABLE_FORMAT e a
++  // lista {R8G8B8A8, B8G8R8A8} das texturas do passo 4 saem com R e B trocados e o pos fica com a
++  // imagem errada em todos os estados do autoteste (mesmo tudo desligado: cores R/B trocadas).
++  // Sem o passo 4 nesse driver as texturas ficam como o Xenia as cria.
++  const bool dbz3_rit_textures =
++      REXCVAR_GET(dbz3_rit_textures) &&
++      (vulkan_device->properties().driverID != VK_DRIVER_ID_MESA_TURNIP ||
++       REXCVAR_GET(dbz3_rit_textures_turnip));
+   // Passo 4 (render nativo): vistas R8G8B8A8 (amostrar, compute) e B8G8R8A8 (desenhar com
+   // a troca R/B do resolve). Fica aqui para viver ate ao vmaCreateImage.
+   static const VkFormat kDbz3RitFormats[2] = {VK_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_B8G8R8A8_UNORM};
+@@ -1277,7 +1292,7 @@ std::unique_ptr<TextureCache::Texture> VulkanTextureCache::CreateTexture(Texture
+         dbz3_storage = true;
+         image_create_info.usage |= VK_IMAGE_USAGE_STORAGE_BIT;
+         // Render nativo, passo 4: as 8888 tambem podem ser o alvo de cor de um passe.
+-        if (key.format == xenos::TextureFormat::k_8_8_8_8 &&
++        if (dbz3_rit_textures && key.format == xenos::TextureFormat::k_8_8_8_8 &&
+             (format_properties.optimalTilingFeatures & VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT)) {
+           image_create_info.usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+           dbz3_renderable = true;
+@@ -1308,7 +1323,7 @@ std::unique_ptr<TextureCache::Texture> VulkanTextureCache::CreateTexture(Texture
+   // ja e MUTABLE_FORMAT, falta COLOR_ATTACHMENT e a vista B8G8R8A8 na lista de formatos. So se
+   // a vista com sinal tambem suportar ser alvo de cor (as vistas herdam o uso da imagem).
+   VkFormat dbz3_view_formats[3] = {formats[0], formats[1], VK_FORMAT_B8G8R8A8_UNORM};
+-  if (!dbz3_renderable && !is_3d && key.dimension == xenos::DataDimension::k2DOrStacked &&
++  if (dbz3_rit_textures && !dbz3_renderable && !is_3d && key.dimension == xenos::DataDimension::k2DOrStacked &&
+       !key.scaled_resolve && key.mip_max_level == 0 && depth_or_array_size == 1 &&
+       key.format == xenos::TextureFormat::k_8_8_8_8 && formats[0] == VK_FORMAT_R8G8B8A8_UNORM &&
+       (formats[1] == VK_FORMAT_UNDEFINED || formats[1] == VK_FORMAT_R8G8B8A8_SNORM)) {

@@ -1,0 +1,17 @@
+diff --git a/include/rex/graphics/vulkan/render_target_cache.h b/include/rex/graphics/vulkan/render_target_cache.h
+index d59020b8a9c23e84906b009f2ccc4e2e11de0061..1ecb6a922e165e73bdb3acfaed1c750037a02bb3 100644
+--- a/include/rex/graphics/vulkan/render_target_cache.h
++++ b/include/rex/graphics/vulkan/render_target_cache.h
+@@ -193,7 +193,11 @@ class VulkanRenderTargetCache final : public RenderTargetCache {
+     const bool exact = (1280 * percent) % 100 == 0 && (720 * percent) % 100 == 0 &&
+                        (640 * percent) % 100 == 0 && (360 * percent) % 100 == 0;
+     if (!exact) return steps;
+-    steps |= kDbz3StepPresent | kDbz3StepLinearDepth | kDbz3StepGlowComposite;
++    // 0094: sem o passo 1 (imagem final direta) nem a composicao do brilho abaixo de 1x.
++    // Autoteste de 17/10 13:06 (Galaxy M54, Exynos 1380 / Mali-G68, 75%): a imagem de
++    // referencia saiu espremida numa faixa no topo da tela; com o passo 1 desligado ficou certa.
++    // A composicao ficou desligada por padrao no 0093 (imagem errada no S20 FE a 1x).
++    steps |= kDbz3StepLinearDepth;
+     // Contorno: o vizinho a 1 texel do guest (f = p/100 texels do host, amostra de ponto) e o
+     // texel ao lado no host so com 0,5 < f < 1,5.
+     if (percent > 50) steps |= kDbz3StepContour;

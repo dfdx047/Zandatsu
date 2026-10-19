@@ -1,6 +1,8 @@
+diff --git a/src/core/threading_posix.cpp b/src/core/threading_posix.cpp
+index 9ac8d15f97755399a7fe9e0e1c3ec62c61f0b504..8efef929f757be0d1018ad141a490925c85a3a55 100644
 --- a/src/core/threading_posix.cpp
 +++ b/src/core/threading_posix.cpp
-@@ -270,7 +270,7 @@
+@@ -270,7 +270,7 @@ static sem_t* RexCreateAnonymousSemaphore() {
  class PosixConditionBase {
   public:
    PosixConditionBase() {
@@ -9,7 +11,7 @@
      // Use robust mutexes so waits can recover if owner thread terminates.
      pthread_mutexattr_t attr;
      if (pthread_mutexattr_init(&attr) == 0) {
-@@ -290,7 +290,7 @@
+@@ -290,7 +290,7 @@ class PosixConditionBase {
    WaitResult Wait(std::chrono::milliseconds timeout) {
      bool executed;
      auto predicate = [this] { return this->signaled(); };
@@ -18,7 +20,7 @@
      auto native_mutex = static_cast<pthread_mutex_t*>(mutex_.native_handle());
      int lock_result = pthread_mutex_lock(native_mutex);
      if (lock_result == EOWNERDEAD) {
-@@ -344,7 +344,7 @@
+@@ -344,7 +344,7 @@ class PosixConditionBase {
        locks.reserve(handles.size());
  
        for (size_t i = 0; i < handles.size(); ++i) {

@@ -1,11 +1,11 @@
 diff --git a/src/input/sdl/sdl_input_driver.cpp b/src/input/sdl/sdl_input_driver.cpp
-index f11a16c..759a137 100644
+index db7b918e9b41acc6878c53f2cdcbd49550d2ecee..c553a982d06b42457414d939d9b897e97b1b552a 100644
 --- a/src/input/sdl/sdl_input_driver.cpp
 +++ b/src/input/sdl/sdl_input_driver.cpp
-@@ -180,7 +180,11 @@ void SDLInputDriver::EnumerateDevices(std::vector<DeviceInfo>& out) {
-     SDL_GUIDToString(SDL_GetJoystickGUID(SDL_GetGamepadJoystick(controller.sdl)), guid_text,
-                      static_cast<int>(sizeof(guid_text)));
+@@ -302,7 +302,11 @@ void SDLInputDriver::EnumerateDevices(std::vector<DeviceInfo>& out) {
      info.guid = guid_text;
+     info.subtype = GamepadSubType(controller.sdl);
+     info.gamepad_type = static_cast<uint8_t>(SDL_GetGamepadType(controller.sdl));
 -    info.synthetic = false;
 +    // DBZ3-Android: os controles por toque do Dragon Fury sao um comando virtual
 +    // do SDL (VID 0x1209 / PID 0xDF03). Como sintetico vai sempre para o jogador 1,

@@ -1,5 +1,5 @@
 diff --git a/src/audio/xma_decoder.cpp b/src/audio/xma_decoder.cpp
-index a0a178d..95ff214 100644
+index a0a178dfa284034891ed3df62aa86d10f1207ab7..95ff2142b5fbe83c484a3cdc7cdbb5e40eddd010 100644
 --- a/src/audio/xma_decoder.cpp
 +++ b/src/audio/xma_decoder.cpp
 @@ -342,10 +342,10 @@ void XmaDecoder::WriteRegister(uint32_t addr, uint32_t value) {
@@ -16,10 +16,10 @@ index a0a178d..95ff214 100644
          break;
        }
 diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
-index 0943763..1415fe3 100644
+index cdafe7e1cbcf34f23e73504710faf529fa25657e..dfbf7d22052b1e9f065f073714c9e73aadb8223a 100644
 --- a/src/graphics/vulkan/command_processor.cpp
 +++ b/src/graphics/vulkan/command_processor.cpp
-@@ -2482,7 +2482,7 @@ void VulkanCommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontb
+@@ -2480,7 +2480,7 @@ void VulkanCommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontb
            frontbuffer_width_scaled, frontbuffer_height_scaled);
      }
    }

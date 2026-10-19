@@ -1,8 +1,8 @@
 diff --git a/include/rex/graphics/pipeline/texture/cache.h b/include/rex/graphics/pipeline/texture/cache.h
-index d26cd4f..4489181 100644
+index ebe345b0443accf152eabec106e977b7f96406f6..78abccdc1a11143b1697fd613fd7d13a031a254d 100644
 --- a/include/rex/graphics/pipeline/texture/cache.h
 +++ b/include/rex/graphics/pipeline/texture/cache.h
-@@ -547,6 +547,12 @@ class TextureCache {
+@@ -611,6 +611,12 @@ class TextureCache {
    // implementation to update the internal dependencies of the binding.
    virtual void UpdateTextureBindingsImpl(uint32_t /*fetch_constant_mask*/) {}
  
@@ -16,7 +16,7 @@ index d26cd4f..4489181 100644
    struct PendingTextureLoad {
      Texture* texture = nullptr;
 diff --git a/include/rex/graphics/vulkan/dbz3_gpuprof.h b/include/rex/graphics/vulkan/dbz3_gpuprof.h
-index bf5cc17..d6c158a 100644
+index bf5cc1748e3aa2595d5b2503947788baeed0164b..d6c158a3a99403124608ac7cebde9de90e518046 100644
 --- a/include/rex/graphics/vulkan/dbz3_gpuprof.h
 +++ b/include/rex/graphics/vulkan/dbz3_gpuprof.h
 @@ -74,6 +74,7 @@ struct State {
@@ -54,7 +54,7 @@ index bf5cc17..d6c158a 100644
    st.win_load_sizes.clear();
    return text;
 diff --git a/include/rex/graphics/vulkan/render_target_cache.h b/include/rex/graphics/vulkan/render_target_cache.h
-index 34f7033..1dc3ab2 100644
+index 34f703370fc9df2ba68875f4ed28e5beff893230..1dc3ab2c2aa58bbd616490083c9cd9d878b3f353 100644
 --- a/include/rex/graphics/vulkan/render_target_cache.h
 +++ b/include/rex/graphics/vulkan/render_target_cache.h
 @@ -805,6 +805,9 @@ class VulkanRenderTargetCache final : public RenderTargetCache {
@@ -68,10 +68,10 @@ index 34f7033..1dc3ab2 100644
    // Writes contents of host render targets within rectangles from
    // ResolveInfo::GetCopyEdramTileSpan to edram_buffer_.
 diff --git a/include/rex/graphics/vulkan/texture_cache.h b/include/rex/graphics/vulkan/texture_cache.h
-index ee3e2b2..bffc40c 100644
+index 04856ee7e87ecedf646c9d51f85e448ef75aa5ff..964bd77c0cdd59e0c0319805100469fe79789ee8 100644
 --- a/include/rex/graphics/vulkan/texture_cache.h
 +++ b/include/rex/graphics/vulkan/texture_cache.h
-@@ -37,6 +37,16 @@ class VulkanCommandProcessor;
+@@ -28,6 +28,16 @@ class VulkanCommandProcessor;
  
  class VulkanTextureCache final : public TextureCache {
   public:
@@ -89,10 +89,10 @@ index ee3e2b2..bffc40c 100644
    // for checking whether samplers bindings are up to date.
    union SamplerParameters {
 diff --git a/src/graphics/pipeline/texture/cache.cpp b/src/graphics/pipeline/texture/cache.cpp
-index a2d464d..669474e 100644
+index 40ada59bdd0d08638f8189a037e6959b257bcc7c..ac13acfd4b265a1ee02b3a2a31b3505706f3312c 100644
 --- a/src/graphics/pipeline/texture/cache.cpp
 +++ b/src/graphics/pipeline/texture/cache.cpp
-@@ -748,6 +748,15 @@ TextureCache::Texture::~Texture() {
+@@ -1120,6 +1120,15 @@ TextureCache::Texture::~Texture() {
    texture_cache_.UpdateTexturesTotalHostMemoryUsage(0, host_memory_usage_);
  }
  
@@ -109,7 +109,7 @@ index a2d464d..669474e 100644
      const std::unique_lock<std::recursive_mutex>& global_lock) {
    SharedMemory& shared_memory = texture_cache().shared_memory();
 diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
-index 3511f9f..6773aff 100644
+index 3511f9f92b4f7bcac6d87d527391a6b0a82fd164..6773affd7a6d428728dcdf778677bd8a80a0d02d 100644
 --- a/src/graphics/vulkan/render_target_cache.cpp
 +++ b/src/graphics/vulkan/render_target_cache.cpp
 @@ -13,6 +13,8 @@
@@ -367,10 +367,10 @@ index 3511f9f..6773aff 100644
 +
  }  // namespace rex::graphics::vulkan
 diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
-index 8682540..58de055 100644
+index 436004f4c93543bb8004a350320c1701c31c9d11..8ef9c0d85552304fab5d9252e6bb87035ad96ecc 100644
 --- a/src/graphics/vulkan/texture_cache.cpp
 +++ b/src/graphics/vulkan/texture_cache.cpp
-@@ -1856,6 +1856,82 @@ bool VulkanTextureCache::LoadTextureDataFromResidentMemoryImpl(Texture& texture,
+@@ -1814,6 +1814,81 @@ bool VulkanTextureCache::LoadTextureDataFromResidentMemoryImpl(Texture& texture,
    return true;
  }
  
@@ -395,9 +395,8 @@ index 8682540..58de055 100644
 +  key.signed_separate = 0;
 +  key.scaled_resolve = 0;
 +  key.is_valid = 1;
-+  if (IsTexturePackReplaced(key)) {
-+    return nullptr;
-+  }
++  // Dragon Burst: texturas substituidas por um pack (replacement.cpp do Burst Limit)
++  // nunca sao destino de resolves; o caminho direto nao precisa de as excluir aqui.
 +  Texture* texture = Dbz3FindTexture(key);
 +  if (!texture) {
 +    return nullptr;
@@ -450,14 +449,14 @@ index 8682540..58de055 100644
 +  Dbz3MarkTextureLoaded(vulkan_texture);
 +}
 +
- // DBZ3 HD Collection: packs de texturas (ver dbz3_texture_pack.h).
- 
- bool VulkanTextureCache::LinearizeGuestTexture(
+ void VulkanTextureCache::UpdateTextureBindingsImpl(uint32_t fetch_constant_mask) {
+   uint32_t bindings_remaining = fetch_constant_mask;
+   uint32_t binding_index;
 diff --git a/src/ui/vulkan/vulkan_presenter.cpp b/src/ui/vulkan/vulkan_presenter.cpp
-index f6a3509..9257887 100644
+index 690b01fcaa5628ae984a4f892ad47d8aa4385adb..ffeb03e456b6ab06d76bc28ead2c8f2d6969d0cd 100644
 --- a/src/ui/vulkan/vulkan_presenter.cpp
 +++ b/src/ui/vulkan/vulkan_presenter.cpp
-@@ -58,6 +58,12 @@ REXCVAR_DEFINE_BOOL(present_render_pass_clear, true, "UI/Presenter",
+@@ -56,6 +56,12 @@ REXCVAR_DEFINE_BOOL(present_render_pass_clear, true, "UI/Presenter",
  REXCVAR_DEFINE_BOOL(dbz3_perf_logging, false, "UI/Presenter",
                      "DBZ3: log FPS/frame stats every 5 seconds (diagnostics)")
      .lifecycle(rex::cvar::Lifecycle::kHotReload);

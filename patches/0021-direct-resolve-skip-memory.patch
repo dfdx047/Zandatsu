@@ -1,5 +1,5 @@
 diff --git a/include/rex/graphics/vulkan/dbz3_gpuprof.h b/include/rex/graphics/vulkan/dbz3_gpuprof.h
-index d6c158a..c35f306 100644
+index d6c158a3a99403124608ac7cebde9de90e518046..c35f306075bbb1839c311463bc1d541e42e3aca3 100644
 --- a/include/rex/graphics/vulkan/dbz3_gpuprof.h
 +++ b/include/rex/graphics/vulkan/dbz3_gpuprof.h
 @@ -75,6 +75,7 @@ struct State {
@@ -39,7 +39,7 @@ index d6c158a..c35f306 100644
    st.win_load_sizes.clear();
    return text;
 diff --git a/include/rex/graphics/vulkan/render_target_cache.h b/include/rex/graphics/vulkan/render_target_cache.h
-index 1dc3ab2..8141699 100644
+index 1dc3ab2c2aa58bbd616490083c9cd9d878b3f353..81416999abb8d31f15a3a61bf4c06e838a73dd58 100644
 --- a/include/rex/graphics/vulkan/render_target_cache.h
 +++ b/include/rex/graphics/vulkan/render_target_cache.h
 @@ -807,7 +807,7 @@ class VulkanRenderTargetCache final : public RenderTargetCache {
@@ -52,7 +52,7 @@ index 1dc3ab2..8141699 100644
    // Writes contents of host render targets within rectangles from
    // ResolveInfo::GetCopyEdramTileSpan to edram_buffer_.
 diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
-index 6773aff..4c77499 100644
+index 6773affd7a6d428728dcdf778677bd8a80a0d02d..4c77499f6101797ecbf073b5c9ae92d93c24c70b 100644
 --- a/src/graphics/vulkan/render_target_cache.cpp
 +++ b/src/graphics/vulkan/render_target_cache.cpp
 @@ -1195,7 +1195,25 @@ bool VulkanRenderTargetCache::Resolve(const memory::Memory& memory,
@@ -116,10 +116,10 @@ index 6773aff..4c77499 100644
    VulkanCommandProcessor::ScratchBufferAcquisition scratch = command_processor_.AcquireScratchGpuBuffer(
        buffer_size, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_WRITE_BIT);
 diff --git a/src/ui/vulkan/vulkan_presenter.cpp b/src/ui/vulkan/vulkan_presenter.cpp
-index 9257887..3ecc146 100644
+index ffeb03e456b6ab06d76bc28ead2c8f2d6969d0cd..afe20632cac2c4912ad26f78cd21062891f217bc 100644
 --- a/src/ui/vulkan/vulkan_presenter.cpp
 +++ b/src/ui/vulkan/vulkan_presenter.cpp
-@@ -64,6 +64,10 @@ REXCVAR_DEFINE_INT32(dbz3_direct_resolve_texture, 0, "GPU",
+@@ -62,6 +62,10 @@ REXCVAR_DEFINE_INT32(dbz3_direct_resolve_texture, 0, "GPU",
                       "para a textura (0 desligado, 1 ligado, 2 ligado com R/B invertido)")
      .range(0, 2)
      .lifecycle(rex::cvar::Lifecycle::kHotReload);

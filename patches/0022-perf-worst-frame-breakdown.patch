@@ -1,8 +1,8 @@
 diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
-index 5347bf0..0ebf3ee 100644
+index 8d57698d1a17fffcb275463658c68a0e5b92b5f8..1a5a036668a036e2fc506c5a5ddc92db76eb1e7c 100644
 --- a/src/graphics/vulkan/command_processor.cpp
 +++ b/src/graphics/vulkan/command_processor.cpp
-@@ -2305,6 +2305,8 @@ struct Reader {
+@@ -2303,6 +2303,8 @@ struct Reader {
    uint32_t win_over_16 = 0;
    uint32_t win_over_20 = 0;
    std::array<double, prof::kCount> win_cat{};
@@ -11,7 +11,7 @@ index 5347bf0..0ebf3ee 100644
  };
  Reader g_reader;
  
-@@ -2407,7 +2409,10 @@ void FinishFrame(Reader& rd) {
+@@ -2405,7 +2407,10 @@ void FinishFrame(Reader& rd) {
    }
    ++rd.win_frames;
    rd.win_sum_ms += rd.acc_ms;
@@ -23,7 +23,7 @@ index 5347bf0..0ebf3ee 100644
    if (rd.acc_ms > 16.7) ++rd.win_over_16;
    if (rd.acc_ms > 20.0) ++rd.win_over_20;
    for (uint32_t i = 0; i < prof::kCount; ++i) {
-@@ -2479,8 +2484,11 @@ std::string TakeWindowSummary() {
+@@ -2477,8 +2482,11 @@ std::string TakeWindowSummary() {
          text += fmt::format("/{:.0f}p", double(st.win_passes[i]) / cpu_frames);
        }
      }
@@ -37,7 +37,7 @@ index 5347bf0..0ebf3ee 100644
    }
    rd.win_frames = 0;
    rd.win_sum_ms = 0.0;
-@@ -2488,6 +2496,7 @@ std::string TakeWindowSummary() {
+@@ -2486,6 +2494,7 @@ std::string TakeWindowSummary() {
    rd.win_over_16 = 0;
    rd.win_over_20 = 0;
    rd.win_cat.fill(0.0);

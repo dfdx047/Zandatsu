@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Aplica os patches Android (patches/NNNN-*.patch, por ordem) ao SDK em
-# external/rexglue-sdk-0.10 (preparado por tools/setup-sdk.sh).
+# external/rexglue-sdk (preparado por tools/setup-sdk.sh, que chama este script).
 #
-# 0001-0048 sao os patches do DBZ3-Android (Dragon Fury), sobre o ReXGlue v0.10.0
-# com o overlay de sdk/overlay. Os do MGR comecam no 0100.
+# 0000-0098 sao os patches do Dragon Burst (com os do Dragon Fury refeitos sobre
+# este SDK). Os do MGR comecam no 0100.
 # Pode ser executado sempre que houver patches novos: os ja aplicados sao saltados.
 #
 # Regra: nunca alterar um patch ja publicado. Uma correcao entra sempre num patch novo
@@ -14,9 +14,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SDK="$ROOT/external/rexglue-sdk-0.10"
+SDK="$ROOT/external/rexglue-sdk"
 
-if [ ! -d "$SDK/src" ] || [ ! -f "$SDK/.swordman-overlay" ]; then
+if [ ! -d "$SDK/src" ] || [ ! -f "$SDK/thirdparty/sdl3/CMakeLists.txt" ]; then
   echo "ERRO: SDK nao preparado em $SDK. Corre primeiro: bash tools/setup-sdk.sh" >&2
   exit 1
 fi
@@ -53,4 +53,4 @@ for PATCH in "$ROOT"/patches/[0-9][0-9][0-9][0-9]-*.patch; do
   echo "$NAME" >> "$STAMP"
   echo "aplicado:    $NAME"
 done
-echo "Patches aplicados. Proximo passo: abrir o projeto no Android Studio (ou ./gradlew assembleRelease)."
+echo "Patches aplicados. Proximo passo: bash tools/codegen.sh (so na primeira vez ou com o default.xex novo)."

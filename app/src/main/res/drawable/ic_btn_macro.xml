@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Icone de botao por toque (original, Project SwordMan). Branco: a cor e aplicada no desenho. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <path android:fillColor="#FFFFFFFF" android:fillType="nonZero"
+        android:pathData="M4,4 H10 V10 H4 Z M14,4 H20 V10 H14 Z M10.5,6 H13.5 V8 H10.5 Z M9,13 H15 L12,20 Z" />
+</vector>

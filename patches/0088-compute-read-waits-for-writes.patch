@@ -1,0 +1,22 @@
+diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
+index 51450f4acbe5220449947c8e8ee28f028a6f5654..53ef7e48c55a9bf743f5441c47cf174fb867a15b 100644
+--- a/src/graphics/vulkan/texture_cache.cpp
++++ b/src/graphics/vulkan/texture_cache.cpp
+@@ -2270,9 +2270,14 @@ void VulkanTextureCache::Dbz3BeginComputeRead(void* texture_opaque) {
+   GetTextureUsageMasks(old_usage, src_stage, src_access, old_layout);
+   GetTextureUsageMasks(VulkanTexture::Usage::kDbz3ComputeSampled, dst_stage, dst_access,
+                        new_layout);
+-  if (!src_stage) {
+-    src_stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+-  }
++  // 0088: a textura pode ter sido escrita pelo passo 4 (alvo de cor) ou por uma copia/compute ha
++  // pouco e a ultima transicao so a deixou visivel aos shaders de graficos. O compute do 3b le-a
++  // logo a seguir: espera por qualquer escrita anterior (no RP5, com o contorno pelo caminho
++  // normal + passo 4 e a reducao por compute, a imagem saia amarela, 17/10 05:09).
++  src_stage |= VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT |
++               VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
++  src_access |= VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT |
++                VK_ACCESS_SHADER_WRITE_BIT;
+   command_processor_.PushImageMemoryBarrier(vulkan_texture.image(),
+                                             ui::vulkan::util::InitializeSubresourceRange(),
+                                             src_stage, dst_stage, src_access, dst_access,

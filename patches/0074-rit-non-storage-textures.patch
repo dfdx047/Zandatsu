@@ -1,0 +1,176 @@
+diff --git a/include/rex/graphics/vulkan/texture_cache.h b/include/rex/graphics/vulkan/texture_cache.h
+index f69768ade6907c61d4af8f5364206e43d10710da..258bea351067a54a5db5297ef2cb5a3501e8b7f7 100644
+--- a/include/rex/graphics/vulkan/texture_cache.h
++++ b/include/rex/graphics/vulkan/texture_cache.h
+@@ -267,7 +267,8 @@ class VulkanTextureCache final : public TextureCache {
+       dbz3_renderable_ = renderable;
+       dbz3_bgra_ok_ = bgra_ok;
+     }
+-    VkImageView Dbz3GetBgraAttachmentView();
++    // Vista so de alvo de cor (bgra: B8G8R8A8, senao R8G8B8A8), criada a primeira vez.
++    VkImageView Dbz3GetAttachmentView(bool bgra);
+     VkImageView GetOrCreate3DAs2DImageView(bool is_signed, uint32_t host_swizzle);
+ 
+    private:
+@@ -325,6 +326,7 @@ class VulkanTextureCache final : public TextureCache {
+     bool dbz3_renderable_ = false;
+     bool dbz3_bgra_ok_ = false;
+     VkImageView dbz3_bgra_view_ = VK_NULL_HANDLE;
++    VkImageView dbz3_rgba_view_ = VK_NULL_HANDLE;
+ 
+     Usage usage_ = Usage::kUndefined;
+ 
+diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
+index 2d43240c69ad1b8da240d60217203a57f8a549e4..b8b3fbc16defc39dbd38d80853608a723605caf0 100644
+--- a/src/graphics/vulkan/render_target_cache.cpp
++++ b/src/graphics/vulkan/render_target_cache.cpp
+@@ -7458,7 +7458,7 @@ uint64_t g_stale_bans = 0;
+ uint64_t g_ok = 0;
+ uint64_t g_abort = 0;
+ uint64_t g_learn_fail[2] = {};
+-uint64_t g_begin_fail[6] = {};
++uint64_t g_begin_fail[7] = {};
+ uint64_t g_frames = 0;
+ 
+ void BanStale(const char* why) {
+@@ -7587,10 +7587,10 @@ void VulkanRenderTargetCache::Dbz3RitLogFrame() {
+   }
+   REXGPU_INFO("dbz3: passo 4: {} assinaturas ({} prontas, {} banidas), {} feitos, {} desistencias; "
+               "aprender falhou: resolve diferente {}, outro alvo {}; inicio falhou: sem previsao {}, "
+-              "banida {}, a aprender {}, area {}, texturas {}, nao renderizavel {}",
++              "banida {}, a aprender {}, area {}, texturas {}, nao renderizavel {}, vista {}",
+               g_table.size(), ready, banned, g_ok, g_abort, g_learn_fail[0], g_learn_fail[1],
+               g_begin_fail[0], g_begin_fail[1], g_begin_fail[2], g_begin_fail[3], g_begin_fail[4],
+-              g_begin_fail[5]);
++              g_begin_fail[5], g_begin_fail[6]);
+ }
+ 
+ void VulkanRenderTargetCache::Dbz3RitPassStart(uint64_t signature, uint32_t color_base_tiles,
+@@ -7647,7 +7647,7 @@ VkImageView VulkanRenderTargetCache::Dbz3RitBegin(VulkanTextureCache& texture_ca
+   }
+   VkImageView view = texture_cache.Dbz3GetAttachmentView(found[0], p.swap);
+   if (view == VK_NULL_HANDLE) {
+-    ++g_begin_fail[5];
++    ++g_begin_fail[6];
+     return VK_NULL_HANDLE;
+   }
+   texture_cache.Dbz3BeginAttachmentWrite(found[0]);
+diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
+index c6809e9c290e9716175863b24d6224973df687b4..b31ca9c3d96434dceb28883cffbbfd76643f6ec4 100644
+--- a/src/graphics/vulkan/texture_cache.cpp
++++ b/src/graphics/vulkan/texture_cache.cpp
+@@ -1302,6 +1302,45 @@ std::unique_ptr<TextureCache::Texture> VulkanTextureCache::CreateTexture(Texture
+       }
+     }
+   }
++  // Dragon Burst (passo 4, 0074): as texturas do pos do BL nao sao de STORAGE (a 8888 tem a
++  // vista com sinal R8G8B8A8_SNORM, formats[1]) e recebem o resolve pelo caminho do buffer; no
++  // Mali "nao renderizavel" 15402 vezes (16/10 20:30). Tambem podem ser alvo de cor: a imagem
++  // ja e MUTABLE_FORMAT, falta COLOR_ATTACHMENT e a vista B8G8R8A8 na lista de formatos. So se
++  // a vista com sinal tambem suportar ser alvo de cor (as vistas herdam o uso da imagem).
++  VkFormat dbz3_view_formats[3] = {formats[0], formats[1], VK_FORMAT_B8G8R8A8_UNORM};
++  if (!dbz3_renderable && !is_3d && key.dimension == xenos::DataDimension::k2DOrStacked &&
++      !key.scaled_resolve && key.mip_max_level == 0 && depth_or_array_size == 1 &&
++      key.format == xenos::TextureFormat::k_8_8_8_8 && formats[0] == VK_FORMAT_R8G8B8A8_UNORM &&
++      (formats[1] == VK_FORMAT_UNDEFINED || formats[1] == VK_FORMAT_R8G8B8A8_SNORM)) {
++    const ui::vulkan::VulkanInstance::Functions& ifn =
++        vulkan_device->vulkan_instance()->functions();
++    auto color_ok = [&](VkFormat f) {
++      VkFormatProperties p;
++      ifn.vkGetPhysicalDeviceFormatProperties(vulkan_device->physical_device(), f, &p);
++      return (p.optimalTilingFeatures & VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT) != 0;
++    };
++    if (color_ok(VK_FORMAT_R8G8B8A8_UNORM) && color_ok(VK_FORMAT_B8G8R8A8_UNORM) &&
++        (formats[1] == VK_FORMAT_UNDEFINED || color_ok(VK_FORMAT_R8G8B8A8_SNORM))) {
++      image_create_info.usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
++      image_create_info.flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
++      dbz3_renderable = true;
++      dbz3_bgra_ok = true;
++      if (vulkan_device->extensions().ext_1_2_KHR_image_format_list) {
++        if (formats[1] != VK_FORMAT_UNDEFINED) {
++          // A lista {com sinal, sem sinal} ja esta na cadeia: passa a ter tambem a BGRA.
++          image_format_list_create_info.viewFormatCount = 3;
++          image_format_list_create_info.pViewFormats = dbz3_view_formats;
++        } else {
++          dbz3_format_list.sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO;
++          dbz3_format_list.pNext = nullptr;
++          dbz3_format_list.viewFormatCount = 2;
++          dbz3_format_list.pViewFormats = kDbz3RitFormats;
++          image_create_info_last->pNext = &dbz3_format_list;
++          image_create_info_last = reinterpret_cast<VkImageCreateInfo*>(&dbz3_format_list);
++        }
++      }
++    }
++  }
+ 
+   VkImage image;
+   VmaAllocation allocation;
+@@ -2094,9 +2133,10 @@ VkImageView VulkanTextureCache::VulkanTexture::Dbz3GetStorageView() {
+   return dbz3_storage_view_;
+ }
+ 
+-VkImageView VulkanTextureCache::VulkanTexture::Dbz3GetBgraAttachmentView() {
+-  if (dbz3_bgra_view_ != VK_NULL_HANDLE || !dbz3_bgra_ok_) {
+-    return dbz3_bgra_view_;
++VkImageView VulkanTextureCache::VulkanTexture::Dbz3GetAttachmentView(bool bgra) {
++  VkImageView& cached = bgra ? dbz3_bgra_view_ : dbz3_rgba_view_;
++  if (cached != VK_NULL_HANDLE || (bgra && !dbz3_bgra_ok_) || !dbz3_renderable_) {
++    return cached;
+   }
+   const VulkanTextureCache& vulkan_texture_cache =
+       static_cast<const VulkanTextureCache&>(texture_cache());
+@@ -2112,22 +2152,26 @@ VkImageView VulkanTextureCache::VulkanTexture::Dbz3GetBgraAttachmentView() {
+   view_info.pNext = &usage_info;
+   view_info.image = image_;
+   view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+-  view_info.format = VK_FORMAT_B8G8R8A8_UNORM;
++  view_info.format = bgra ? VK_FORMAT_B8G8R8A8_UNORM : VK_FORMAT_R8G8B8A8_UNORM;
+   view_info.components = {VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY,
+                           VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY};
+   view_info.subresourceRange = ui::vulkan::util::InitializeSubresourceRange();
+-  if (dfn.vkCreateImageView(vulkan_device->device(), &view_info, nullptr, &dbz3_bgra_view_) !=
++  if (dfn.vkCreateImageView(vulkan_device->device(), &view_info, nullptr, &cached) !=
+       VK_SUCCESS) {
+-    dbz3_bgra_view_ = VK_NULL_HANDLE;
+-    dbz3_bgra_ok_ = false;
++    cached = VK_NULL_HANDLE;
++    if (bgra) dbz3_bgra_ok_ = false;
++    static uint32_t logged = 0;
++    if (logged++ < 4) {
++      REXGPU_WARN("dbz3: passo 4: vista {} da textura falhou", bgra ? "B8G8R8A8" : "R8G8B8A8");
++    }
+   }
+-  return dbz3_bgra_view_;
++  return cached;
+ }
+ 
+ VkImageView VulkanTextureCache::Dbz3GetAttachmentView(void* texture, bool bgra) {
+   auto* t = static_cast<VulkanTexture*>(static_cast<Texture*>(texture));
+   if (!t->dbz3_renderable()) return VK_NULL_HANDLE;
+-  return bgra ? t->Dbz3GetBgraAttachmentView() : t->Dbz3GetStorageView();
++  return t->Dbz3GetAttachmentView(bgra);
+ }
+ 
+ VkImageView VulkanTextureCache::Dbz3GetStorageView(void* texture) {
+@@ -2189,8 +2233,9 @@ void VulkanTextureCache::Dbz3EndStorageWrite(void* texture_opaque) {
+ 
+ bool VulkanTextureCache::Dbz3TextureIsRenderable(void* texture_opaque) const {
+   const auto& t = *static_cast<VulkanTexture*>(static_cast<Texture*>(texture_opaque));
+-  return t.dbz3_storage() && t.dbz3_renderable() &&
+-         t.key().format == xenos::TextureFormat::k_8_8_8_8 && !t.key().scaled_resolve;
++  // 0074: nao precisa de STORAGE (o pos do BL usa texturas sem ele).
++  return t.dbz3_renderable() && t.key().format == xenos::TextureFormat::k_8_8_8_8 &&
++         !t.key().scaled_resolve;
+ }
+ 
+ void VulkanTextureCache::Dbz3BeginAttachmentWrite(void* texture_opaque) {
+@@ -2431,6 +2476,9 @@ VulkanTextureCache::VulkanTexture::~VulkanTexture() {
+   if (dbz3_bgra_view_ != VK_NULL_HANDLE) {
+     dfn.vkDestroyImageView(device, dbz3_bgra_view_, nullptr);
+   }
++  if (dbz3_rgba_view_ != VK_NULL_HANDLE) {
++    dfn.vkDestroyImageView(device, dbz3_rgba_view_, nullptr);
++  }
+   vmaDestroyImage(vulkan_texture_cache.vma_allocator_, image_, allocation_);
+ }
+ 

@@ -1,0 +1,23 @@
+diff --git a/src/ui/overlay/overlay_text.cpp b/src/ui/overlay/overlay_text.cpp
+index 08f62b7e8fb433b276fca3443115049ab6a788b9..3519f39b86e10ac3b6915c4f7a7a5d562f678a1e 100644
+--- a/src/ui/overlay/overlay_text.cpp
++++ b/src/ui/overlay/overlay_text.cpp
+@@ -63,7 +63,17 @@ void AddFonts(ImFontAtlas* atlas) {
+     font_paths.push_back(std::string("Z:") + path);
+   }
+ #else
+-  font_paths.assign(std::begin(kLinuxFontPaths), std::end(kLinuxFontPaths));
++#if REX_PLATFORM_ANDROID
++  // Dragon Burst: as fontes do sistema Android (Roboto/Noto; os nomes mudam entre
++  // versoes e fabricantes, a primeira que existir serve).
++  font_paths = {
++      "/system/fonts/Roboto-Bold.ttf",       "/system/fonts/RobotoStatic-Bold.ttf",
++      "/system/fonts/NotoSans-Bold.ttf",     "/system/fonts/DroidSans-Bold.ttf",
++      "/system/fonts/Roboto-Regular.ttf",    "/system/fonts/RobotoStatic-Regular.ttf",
++      "/system/fonts/NotoSans-Regular.ttf",  "/system/fonts/DroidSans.ttf",
++  };
++#endif
++  font_paths.insert(font_paths.end(), std::begin(kLinuxFontPaths), std::end(kLinuxFontPaths));
+   font_paths.push_back("/System/Library/Fonts/Supplemental/Arial Bold.ttf");
+ #endif
+   for (const std::string& font_path : font_paths) {

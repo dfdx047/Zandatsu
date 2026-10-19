@@ -8,33 +8,45 @@
     <uses-feature android:name="android.hardware.usb.host" android:required="false" />
 
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Drivers, verificacao de atualizacoes e download do APK novo. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Instalar a atualizacao descarregada (o sistema pede confirmacao). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
+        android:name=".SwordManApp"
         android:label="@string/app_name"
-        android:icon="@drawable/ic_launcher"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:allowBackup="false"
         android:extractNativeLibs="true"
         android:hardwareAccelerated="true"
         android:isGame="true"
         android:appCategory="game"
+        android:localeConfig="@xml/locales_config"
         android:theme="@style/Theme.SwordMan">
 
         <!-- Permite medir o desempenho com o simpleperf tambem no APK de release. -->
         <profileable android:shell="true" />
 
+        <!-- Launcher (Jetpack Compose): retrato e paisagem. -->
         <activity
             android:name=".LauncherActivity"
             android:exported="true"
-            android:launchMode="singleTask">
+            android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
 
-        <!-- Jogo (SDLActivity), num processo proprio como no Dragon Fury. -->
+        <!-- Jogo (SDLActivity). Exportada para o atalho da tela inicial. A
+             orientacao final (paisagem, invertida ou automatica) e escolhida
+             no launcher e aplicada no onCreate. -->
         <activity
-            android:name=".GameActivity"
+            android:name=".game.GameActivity"
             android:process=":game"
             android:label="@string/app_name"
             android:exported="true"
@@ -52,5 +64,34 @@
                 <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
             </intent-filter>
         </activity>
+
+        <!-- Editor do layout dos controles por toque (sempre em paisagem, como o jogo). -->
+        <activity
+            android:name=".controls.ControlsEditorActivity"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape"
+            android:theme="@style/Theme.SwordMan.Editor"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden" />
+
+        <!-- Partilha do APK descarregado com o instalador do sistema. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
+        <!-- Idioma por app em Android < 13 (AppCompat guarda a escolha). -->
+        <service
+            android:name="androidx.appcompat.app.AppLocalesMetadataHolderService"
+            android:enabled="false"
+            android:exported="false">
+            <meta-data
+                android:name="autoStoreLocales"
+                android:value="true" />
+        </service>
     </application>
 </manifest>

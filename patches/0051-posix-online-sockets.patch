@@ -1,0 +1,49 @@
+diff --git a/src/kernel/xam/xam_net.cpp b/src/kernel/xam/xam_net.cpp
+index fa7f6623d67e92614f37925496aafb9c38a316ff..864407b8e0336882f83a98f5955d6d3304c1bae7 100644
+--- a/src/kernel/xam/xam_net.cpp
++++ b/src/kernel/xam/xam_net.cpp
+@@ -53,7 +53,16 @@
+ #include <arpa/inet.h>
+ #include <netinet/in.h>
+ #include <netinet/ip.h>
++#include <sys/select.h>
+ #include <sys/socket.h>
++
++#include <cerrno>
++// Dragon Burst (Android/POSIX): o codigo de rede do Burst Limit usa os nomes do
++// Winsock para o ultimo erro e para o retorno de erro.
++static inline int WSAGetLastError() { return errno; }
++#ifndef SOCKET_ERROR
++#define SOCKET_ERROR (-1)
++#endif
+ #endif
+ 
+ namespace rex {
+@@ -398,7 +407,11 @@ u32 NetDll_WSARecvFrom_entry(u32 caller, u32 socket, ppc_ptr_t<XWSABUF> buffers_
+     std::vector<uint8_t> packet(total_size);
+ 
+     sockaddr_in sender = {};
++#if REX_PLATFORM_WIN32
+     int sender_len = sizeof(sender);
++#else
++    socklen_t sender_len = sizeof(sender);
++#endif
+ 
+     const int received = recvfrom(
+         native_socket, reinterpret_cast<char*>(packet.data()),
+diff --git a/src/system/xsocket.cpp b/src/system/xsocket.cpp
+index f77289546a81f029a3fd90873487000beb4d230f..dc98fa2b01b0e67d6b66e8cfeb68cf30ac7b382b 100644
+--- a/src/system/xsocket.cpp
++++ b/src/system/xsocket.cpp
+@@ -31,6 +31,11 @@
+ #include <netinet/in.h>
+ #include <netinet/ip.h>
+ #include <sys/socket.h>
++
++#include <cerrno>
++// Dragon Burst (Android/POSIX): o codigo de rede do Burst Limit usa os nomes do
++// Winsock para o ultimo erro.
++static inline int WSAGetLastError() { return errno; }
+ #endif
+ 
+ namespace rex::system {

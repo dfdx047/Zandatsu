@@ -1,5 +1,5 @@
 diff --git a/include/rex/graphics/pipeline/shader/spirv_translator.h b/include/rex/graphics/pipeline/shader/spirv_translator.h
-index dce3dbf..9462989 100644
+index dce3dbfee110954fc89f9df28d5a0b31c8a04f68..946298951747825fd1cf2f652d04e0e5c0fd9a49 100644
 --- a/include/rex/graphics/pipeline/shader/spirv_translator.h
 +++ b/include/rex/graphics/pipeline/shader/spirv_translator.h
 @@ -223,6 +223,12 @@ class SpirvShaderTranslator : public ShaderTranslator {

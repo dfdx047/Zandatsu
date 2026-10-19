@@ -1,5 +1,5 @@
 diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
-index 4aa3b87..3511f9f 100644
+index 4aa3b878a616445d2ac3440fbb91310b4cd3f11e..3511f9f92b4f7bcac6d87d527391a6b0a82fd164 100644
 --- a/src/graphics/vulkan/render_target_cache.cpp
 +++ b/src/graphics/vulkan/render_target_cache.cpp
 @@ -1149,6 +1149,38 @@ bool VulkanRenderTargetCache::Resolve(const memory::Memory& memory,
@@ -42,10 +42,10 @@ index 4aa3b87..3511f9f 100644
    if (!resolve_info.coordinate_info.width_div_8 || !resolve_info.height_div_8) {
      return true;
 diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
-index 4faaf54..8682540 100644
+index 9549c1805a04097bb30c0398f45656cebdddb220..436004f4c93543bb8004a350320c1701c31c9d11 100644
 --- a/src/graphics/vulkan/texture_cache.cpp
 +++ b/src/graphics/vulkan/texture_cache.cpp
-@@ -1257,6 +1257,28 @@ bool VulkanTextureCache::LoadTextureDataFromResidentMemoryImpl(Texture& texture,
+@@ -1223,6 +1223,28 @@ bool VulkanTextureCache::LoadTextureDataFromResidentMemoryImpl(Texture& texture,
    TextureKey texture_key = vulkan_texture.key();
    dbz3_gpuprof::CountLoad(&texture, texture_key.GetWidth(), texture_key.GetHeight(),
                            texture_key.GetDepthOrArraySize(), uint32_t(texture_key.format));
@@ -72,5 +72,5 @@ index 4faaf54..8682540 100644
 +    }
 +  }
  
-   // DBZ3: si la textura esta en un pack, se sube la imagen del pack (RGBA8 con
-   // mips) y se omite la carga estandar. Si la subida falla, se sigue con el
+   // Get the pipeline.
+   const HostFormatPair& host_format_pair = GetHostFormatPair(texture_key);

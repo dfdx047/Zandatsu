@@ -1,0 +1,14 @@
+diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
+index ec188e1e3f13c67e025fe313406b8ebe0e982363..564fa5f5315aca02b0355cce539b3c12038a1518 100644
+--- a/src/graphics/vulkan/render_target_cache.cpp
++++ b/src/graphics/vulkan/render_target_cache.cpp
+@@ -8006,6 +8006,9 @@ bool VulkanRenderTargetCache::Dbz3NativeContourInit() {
+ bool VulkanRenderTargetCache::Dbz3NativeContourBegin(VulkanTextureCache& texture_cache,
+                                                      const Dbz3ContourParams& params) {
+   namespace nc = dbz3_native_contour;
++  // 0082: os parametros do quad servem tambem para aprender o destino no resolve seguinte (sem
++  // isto o resolve comparava com largura 0 e o destino nunca era aprendido; RP5 17/10 03:24).
++  nc::g_params = params;
+   if (GetPath() != Path::kHostRenderTargets || IsDrawResolutionScaled()) {
+     return nc::NotYet(0);
+   }

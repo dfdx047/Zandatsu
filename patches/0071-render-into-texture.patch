@@ -1,0 +1,543 @@
+diff --git a/include/rex/graphics/vulkan/render_target_cache.h b/include/rex/graphics/vulkan/render_target_cache.h
+index 3294389a903c62c4360e5b2b6a6a05873b40b612..8b98b0a6af3cbdb69370e6d5ed48fa978ebdd4bf 100644
+--- a/include/rex/graphics/vulkan/render_target_cache.h
++++ b/include/rex/graphics/vulkan/render_target_cache.h
+@@ -169,6 +169,28 @@ class VulkanRenderTargetCache final : public RenderTargetCache {
+   bool Dbz3NativeLinearDepthReady(VulkanTextureCache& texture_cache, uint32_t depth_base_tiles,
+                                   uint32_t pitch_tiles, uint32_t width, uint32_t height);
+ 
++  // Dragon Burst: render nativo, passo 4 (dbz3_render_into_texture) - um passe que acaba num
++  // resolve de cor para uma textura desenha direto nessa textura (sem o resolve).
++  // Devolve a vista da textura para o alvo de cor (e poe-na em COLOR_ATTACHMENT_OPTIMAL) ou
++  // VK_NULL_HANDLE. framebuffer identifica o passe.
++  VkImageView Dbz3RitBegin(VulkanTextureCache& texture_cache, uint64_t signature,
++                           const void* framebuffer, uint32_t area_right, uint32_t area_bottom,
++                           const uint32_t* sampled, uint32_t sampled_count,
++                           uint32_t color_base_tiles, uint32_t pitch_tiles);
++  // Um passe normal vai abrir neste framebuffer: se o render target ficou sem a imagem (ela
++  // foi para a textura) e o passe nao o sobrescreve todo, essa assinatura e banida.
++  void Dbz3RitNormalPassStart(const void* framebuffer, bool full_overwrite);
++  // Ja ativo para este framebuffer: a vista para continuar (com LOAD).
++  VkImageView Dbz3RitContinue(const void* framebuffer) const;
++  bool Dbz3RitActive() const;
++  // Desiste (previsao errada): fecha o passe, devolve a textura a leitura e bane a assinatura.
++  void Dbz3RitAbort(VulkanTextureCache& texture_cache, const char* why);
++  void Dbz3RitFinish(VulkanTextureCache& texture_cache, const draw_util::ResolveInfo& ri);
++  // Um draw vai amostrar este endereco (alimentacao: a textura e o proprio alvo).
++  void Dbz3RitOnSample(VulkanTextureCache& texture_cache, uint32_t address);
++  // Inicio de um passe normal: sig != 0 se comecou com um quad opaco a cobrir o scissor.
++  void Dbz3RitPassStart(uint64_t signature, uint32_t color_base_tiles, uint32_t pitch_tiles);
++
+  protected:
+   uint32_t GetMaxRenderTargetWidth() const override;
+   uint32_t GetMaxRenderTargetHeight() const override;
+diff --git a/include/rex/graphics/vulkan/texture_cache.h b/include/rex/graphics/vulkan/texture_cache.h
+index 627167648fe0682ca64fdf2e3c70bb32a485c33c..619554725ebbf30fc91d48c675e3be47a6bd89c2 100644
+--- a/include/rex/graphics/vulkan/texture_cache.h
++++ b/include/rex/graphics/vulkan/texture_cache.h
+@@ -51,6 +51,11 @@ class VulkanTextureCache final : public TextureCache {
+   // SHADER_READ_ONLY em RequestTextures. Dbz3EndStorageWrite marca-a como carregada.
+   void Dbz3BeginStorageWrite(void* texture);
+   void Dbz3EndStorageWrite(void* texture);
++  // Dragon Burst (render nativo, passo 4): a textura como alvo de cor de um passe
++  // (COLOR_ATTACHMENT_OPTIMAL) e depois marcada como carregada e pronta para leitura.
++  bool Dbz3TextureIsRenderable(void* texture) const;
++  void Dbz3BeginAttachmentWrite(void* texture);
++  void Dbz3EndAttachmentWrite(void* texture);
+   void Dbz3CopyToResolveTexture(void* texture, VkBuffer buffer, uint32_t width, uint32_t height,
+                                 VkPipelineStageFlags buffer_src_stage,
+                                 VkAccessFlags buffer_src_access);
+@@ -227,6 +232,8 @@ class VulkanTextureCache final : public TextureCache {
+       kGuestShaderSampled,
+       kSwapSampled,
+       kDbz3StorageWrite,
++      // Dragon Burst (render nativo, passo 4): o passe desenha direto na textura.
++      kDbz3AttachmentWrite,
+     };
+ 
+     // Takes ownership of the image and its memory.
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 9e94fed3b164b0fbf69d679505b293f08e4694b6..9000575807d11f3da43969e2fdd9457be4fba4fd 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -97,6 +97,12 @@ REXCVAR_DEFINE_BOOL(dbz3_discard_full_overwrite, true, "GPU/Vulkan",
+                     "banda nas GPUs tiler (Mali, Adreno)")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ 
++REXCVAR_DEFINE_BOOL(dbz3_render_into_texture, true, "GPU/Vulkan",
++                    "Render nativo, passo 4: um passe que acaba num resolve de cor para uma "
++                    "textura desenha direto nela (aprendido; sem o resolve). So com dynamic "
++                    "rendering (Mali, Adreno com drivers novos)")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++
+ REXCVAR_DEFINE_BOOL(vulkan_async_skip_incomplete_frames, true, "GPU/Vulkan",
+                     "When async shader compilation is enabled, skip presenting frames that "
+                     "used placeholder pipelines to avoid visible flashing")
+@@ -221,6 +227,11 @@ extern float g_b;
+ // toda? Entao o passe nao carrega a cor (DONT_CARE) e a area de render fica no scissor.
+ namespace dbz3_discard {
+ bool g_want = false;
++uint64_t g_sig = 0;
++uint32_t g_color_base = 0;
++uint32_t g_pitch_tiles = 0;
++uint32_t g_sampled[32] = {};
++uint32_t g_sampled_count = 0;
+ VkRect2D g_draw_area = {};
+ bool g_pass_limited = false;
+ VkRect2D g_pass_area = {};
+@@ -2782,6 +2793,9 @@ void VulkanCommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontb
+     dbz3_resolve_dedupe::MarkRead((dbz3_native_present::g_fetch[1] & 0xFFFFF000u) & 0x1FFFFFFF);
+   }
+   dbz3_resolve_dedupe::LogFrame();
++  if (render_target_cache_->Dbz3RitActive()) {
++    render_target_cache_->Dbz3RitAbort(*texture_cache_, "fim do frame");
++  }
+   Dbz3LogGuestPerformanceVulkan();
+   SCOPE_profile_cpu_f("gpu");
+   if (!dbz3_frameskip::g_skip_frame) {
+@@ -3780,9 +3794,50 @@ void VulkanCommandProcessor::SubmitBarriersAndEnterRenderTargetCacheRenderPass(
+     rendering_info.renderArea.offset.x = 0;
+     rendering_info.renderArea.offset.y = 0;
+     rendering_info.renderArea.extent = framebuffer->host_extent;
++    // Dragon Burst, passo 4 (dbz3_render_into_texture): o passe desenha direto na textura.
++    VkImageView rit_view = render_target_cache_->Dbz3RitContinue(framebuffer);
++    if (rit_view != VK_NULL_HANDLE && outside_limited_area) {
++      render_target_cache_->Dbz3RitAbort(*texture_cache_, "draw fora da area");
++      SubmitBarriers(false);
++      rit_view = VK_NULL_HANDLE;
++    }
++    const bool rit_continue = rit_view != VK_NULL_HANDLE;
++    if (!rit_continue && render_target_cache_->Dbz3RitActive()) {
++      render_target_cache_->Dbz3RitAbort(*texture_cache_, "outro alvo antes do resolve");
++      SubmitBarriers(false);
++    }
++    if (!rit_continue && dbz3_discard::g_want && color_attachment_count == 1 &&
++        color_attachments[0].sType == VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO) {
++      const VkRect2D& a = dbz3_discard::g_draw_area;
++      if (a.offset.x >= 0 && a.offset.y >= 0) {
++        rit_view = render_target_cache_->Dbz3RitBegin(
++            *texture_cache_, dbz3_discard::g_sig, framebuffer,
++            uint32_t(a.offset.x) + a.extent.width, uint32_t(a.offset.y) + a.extent.height,
++            dbz3_discard::g_sampled, dbz3_discard::g_sampled_count, dbz3_discard::g_color_base,
++            dbz3_discard::g_pitch_tiles);
++        if (rit_view != VK_NULL_HANDLE) {
++          SubmitBarriers(false);
++          dbz3_discard::g_pass_area = a;
++        }
++      }
++    }
++    if (rit_view != VK_NULL_HANDLE) {
++      color_attachments[0].imageView = rit_view;
++      color_attachments[0].imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
++      color_attachments[0].loadOp =
++          rit_continue ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_DONT_CARE;
++      color_attachments[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
++      rendering_info.renderArea = dbz3_discard::g_pass_area;
++      dbz3_discard::g_pass_limited = true;
++    } else {
++      render_target_cache_->Dbz3RitNormalPassStart(framebuffer, dbz3_discard::g_want);
++      // Passe normal: para aprender para onde vai (se abriu com um quad a cobrir o scissor).
++      render_target_cache_->Dbz3RitPassStart(dbz3_discard::g_want ? dbz3_discard::g_sig : 0,
++                                             dbz3_discard::g_color_base, dbz3_discard::g_pitch_tiles);
++    }
+     // Dragon Burst (dbz3_discard_full_overwrite): so a cor 0, sem as outras.
+-    dbz3_discard::g_pass_limited = false;
+-    if (dbz3_discard::g_want && color_attachment_count == 1 &&
++    if (rit_view == VK_NULL_HANDLE) dbz3_discard::g_pass_limited = false;
++    if (rit_view == VK_NULL_HANDLE && dbz3_discard::g_want && color_attachment_count == 1 &&
+         color_attachments[0].sType == VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO) {
+       VkRect2D area = dbz3_discard::g_draw_area;
+       const int32_t w = int32_t(framebuffer->host_extent.width);
+@@ -5313,6 +5368,24 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+         regs[XE_GPU_REG_RB_COLOR_MASK] == 0xF &&
+         (regs[XE_GPU_REG_RB_BLENDCONTROL0] & 0x1FFF1FFF) == 0x00010001 && !cc.alpha_test_enable &&
+         !cc.alpha_to_mask_enable && regs[XE_GPU_REG_PA_SC_WINDOW_OFFSET] == 0 && x1 > x0 && y1 > y0;
++    // Passo 4: assinatura do quad que abre o passe e o que ele amostra.
++    const auto rit_surface = regs.Get<reg::RB_SURFACE_INFO>();
++    const auto rit_color = regs.Get<reg::RB_COLOR_INFO>(reg::RB_COLOR_INFO::rt_register_indices[0]);
++    dbz3_discard::g_color_base = rit_color.color_base;
++    dbz3_discard::g_pitch_tiles = uint32_t(rit_surface.surface_pitch) / 80;
++    dbz3_discard::g_sig = 0;
++    if (dbz3_discard::g_want) {
++      uint64_t h = pixel_shader->ucode_data_hash() * UINT64_C(0x9E3779B97F4A7C15);
++      h ^= vertex_shader->ucode_data_hash() + (h << 6) + (h >> 2);
++      h ^= (uint64_t(rit_surface.value) << 32 | rit_color.value) + (h << 6) + (h >> 2);
++      h ^= (uint64_t(tl) << 32 | br) + (h << 6) + (h >> 2);
++      dbz3_discard::g_sig = h ? h : 1;
++    }
++    dbz3_discard::g_sampled_count = 0;
++    Dbz3ForEachSampled(regs, vertex_shader, pixel_shader, [&](uint32_t a) {
++      if (dbz3_discard::g_sampled_count < 32) dbz3_discard::g_sampled[dbz3_discard::g_sampled_count++] = a;
++      render_target_cache_->Dbz3RitOnSample(*texture_cache_, a);
++    });
+   }
+   // After all commands that may dispatch, copy or insert barriers, submit
+   // the barriers (may end the render pass), and (re)enter the render pass
+diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
+index a61b650359dca5acfd321b6bf0280418a25732bd..b21f10727fdc4792acc27c822ab013da634e0e78 100644
+--- a/src/graphics/vulkan/render_target_cache.cpp
++++ b/src/graphics/vulkan/render_target_cache.cpp
+@@ -81,8 +81,15 @@ namespace rex::graphics::vulkan {
+ // Dragon Burst: render nativo, passo 3 (definido no fim do ficheiro).
+ namespace dbz3_resolve_dedupe {
+ bool Resolve(const draw_util::ResolveInfo& resolve_info, bool may_skip);
++extern bool g_dirty;
+ }  // namespace dbz3_resolve_dedupe
+ 
++// Dragon Burst: render nativo, passo 4 (definido no fim do ficheiro).
++namespace dbz3_rit {
++bool Resolve(VulkanRenderTargetCache& cache, const draw_util::ResolveInfo& resolve_info,
++             VulkanTextureCache& texture_cache);
++}  // namespace dbz3_rit
++
+ // Dragon Burst: render nativo, passo 2 (definido no fim do ficheiro).
+ namespace dbz3_native_ld {
+ extern bool g_pending;
+@@ -1213,6 +1220,12 @@ bool VulkanRenderTargetCache::Resolve(const memory::Memory& memory,
+   if (!resolve_info.coordinate_info.width_div_8 || !resolve_info.height_div_8) {
+     return true;
+   }
++  // Dragon Burst: render nativo, passo 4 - o passe desenhou direto na textura de destino.
++  if (dbz3_rit::Resolve(*this, resolve_info, texture_cache)) {
++    written_address_out = 0;
++    written_length_out = 0;
++    return true;
++  }
+   // Dragon Burst: render nativo, passo 3 - resolves repetidos ou sem leitor (dbz3_resolve_dedupe).
+   // Os que limpam o render target fazem-se sempre (e contam como mudanca dele).
+   if (resolve_info.copy_dest_extent_length &&
+@@ -7400,4 +7413,249 @@ bool Resolve(const draw_util::ResolveInfo& ri, bool may_skip) {
+ }
+ }  // namespace dbz3_resolve_dedupe
+ 
++// ---------------------------------------------------------------------------
++// Dragon Burst: render nativo, passo 4 (dbz3_render_into_texture).
++// O pos-processamento do BL e uma cadeia de "quad de ecra inteiro -> resolve para uma
++// textura -> o quad seguinte le essa textura". O resolve custa um fim de passe e uma copia
++// de 3,7 MB (no Mali ~0,8 ms cada, ~17 por frame). Aqui aprende-se, por assinatura do quad
++// que abre o passe (shaders, alvo, scissor), para que textura o passe acaba resolvido; com 3
++// frames iguais, o passe seguinte com essa assinatura desenha direto nessa textura e o
++// resolve e saltado. Se algo nao bater (outro resolve, a textura amostrada no proprio passe,
++// outro alvo antes do resolve, o fim do frame), desiste-se e a assinatura fica banida.
++// ---------------------------------------------------------------------------
++namespace dbz3_rit {
++struct Prediction {
++  uint32_t dest = 0;
++  uint32_t endian = 0;
++  uint32_t width = 0;
++  uint32_t height = 0;
++  uint32_t hits = 0;
++  bool banned = false;
++};
++std::unordered_map<uint64_t, Prediction> g_table;
++// Passe normal em curso (para aprender).
++uint64_t g_pass_sig = 0;
++uint32_t g_pass_base = 0;
++uint32_t g_pass_pitch = 0;
++// Passe a desenhar na textura.
++bool g_active = false;
++uint64_t g_sig = 0;
++const void* g_fb = nullptr;
++void* g_tex = nullptr;
++uint32_t g_dest = 0;
++VkImageView g_view = VK_NULL_HANDLE;
++uint32_t g_base = 0;
++uint32_t g_pitch = 0;
++// Render target que ficou sem a imagem de um passe desenhado na textura.
++uint64_t g_stale_sig = 0;
++const void* g_stale_fb = nullptr;
++uint32_t g_stale_base = 0;
++uint32_t g_stale_pitch = 0;
++uint64_t g_stale_bans = 0;
++uint64_t g_ok = 0;
++uint64_t g_abort = 0;
++
++void BanStale(const char* why) {
++  auto it = g_table.find(g_stale_sig);
++  if (it != g_table.end()) it->second.banned = true;
++  if ((g_stale_bans++ % 64) == 0) {
++    REXGPU_WARN("dbz3: render nativo: o render target ainda era preciso depois do passe {:016X} "
++                "({}); fica banido",
++                g_stale_sig, why);
++  }
++  g_stale_sig = 0;
++  g_stale_fb = nullptr;
++}
++constexpr uint32_t kHitsNeeded = 3;
++
++bool Matches(const draw_util::ResolveInfo& ri, uint32_t& width, uint32_t& height) {
++  if (ri.IsCopyingDepth() || ri.IsClearingDepth() || ri.IsClearingColor() ||
++      !ri.copy_dest_extent_length) {
++    return false;
++  }
++  const draw_util::ResolveEdramInfo& src = ri.color_edram_info;
++  if (src.msaa_samples != xenos::MsaaSamples::k1X ||
++      xenos::ColorRenderTargetFormat(src.format) != xenos::ColorRenderTargetFormat::k_8_8_8_8 ||
++      uint32_t(ri.copy_dest_info.copy_dest_format) != uint32_t(xenos::ColorFormat::k_8_8_8_8) ||
++      ri.copy_dest_info.copy_dest_exp_bias != 0 || ri.copy_dest_info.copy_dest_swap != 0 ||
++      ri.coordinate_info.edram_offset_x_div_8 != 0 || ri.coordinate_info.edram_offset_y_div_8 != 0 ||
++      ri.copy_dest_coordinate_info.offset_x_div_8 != 0 ||
++      ri.copy_dest_coordinate_info.offset_y_div_8 != 0) {
++    return false;
++  }
++  width = uint32_t(ri.coordinate_info.width_div_8) * 8;
++  height = ri.height_div_8 * 8;
++  return width >= 8 && height >= 8 &&
++         uint32_t(ri.copy_dest_coordinate_info.pitch_aligned_div_32) * 32 == ((width + 31) & ~31u);
++}
++
++void End(VulkanTextureCache& texture_cache) {
++  texture_cache.Dbz3EndAttachmentWrite(g_tex);
++  g_active = false;
++  g_tex = nullptr;
++  g_fb = nullptr;
++  g_view = VK_NULL_HANDLE;
++}
++
++bool Resolve(VulkanRenderTargetCache& cache, const draw_util::ResolveInfo& ri,
++             VulkanTextureCache& texture_cache) {
++  uint32_t width = 0, height = 0;
++  const bool matches = Matches(ri, width, height);
++  if (!g_active && g_stale_sig && !ri.IsCopyingDepth() &&
++      ri.color_edram_info.base_tiles == g_stale_base &&
++      ri.color_edram_info.pitch_tiles == g_stale_pitch) {
++    BanStale("resolvido outra vez");
++  }
++  if (g_active) {
++    if (matches && (ri.copy_dest_base & 0x1FFFFFFF) == g_dest) {
++      // O passe ja desenhou na textura: fecha-o, marca a memoria e a textura.
++      cache.Dbz3RitFinish(texture_cache, ri);
++      return true;
++    }
++    cache.Dbz3RitAbort(texture_cache, "outro resolve");
++    return false;
++  }
++  // Aprender: o passe atual (aberto por um quad a cobrir o scissor) acaba aqui.
++  if (g_pass_sig && matches && ri.color_edram_info.base_tiles == g_pass_base &&
++      ri.color_edram_info.pitch_tiles == g_pass_pitch &&
++      !dbz3_capture::WantsResolveReadback()) {
++    Prediction& p = g_table[g_pass_sig];
++    const uint32_t dest = ri.copy_dest_base & 0x1FFFFFFF;
++    const uint32_t endian = uint32_t(ri.copy_dest_info.copy_dest_endian);
++    if (p.dest == dest && p.endian == endian && p.width == width && p.height == height) {
++      ++p.hits;
++    } else {
++      p.dest = dest;
++      p.endian = endian;
++      p.width = width;
++      p.height = height;
++      p.hits = 1;
++    }
++  }
++  g_pass_sig = 0;
++  return false;
++}
++}  // namespace dbz3_rit
++
++void VulkanRenderTargetCache::Dbz3RitNormalPassStart(const void* framebuffer,
++                                                     bool full_overwrite) {
++  using namespace dbz3_rit;
++  if (!g_stale_sig || g_stale_fb != framebuffer) return;
++  if (full_overwrite) {
++    g_stale_sig = 0;  // sobrescrito: o conteudo antigo ja nao interessa
++    g_stale_fb = nullptr;
++  } else {
++    BanStale("passe que o carrega");
++  }
++}
++
++void VulkanRenderTargetCache::Dbz3RitPassStart(uint64_t signature, uint32_t color_base_tiles,
++                                               uint32_t pitch_tiles) {
++  dbz3_rit::g_pass_sig = signature;
++  dbz3_rit::g_pass_base = color_base_tiles;
++  dbz3_rit::g_pass_pitch = pitch_tiles;
++}
++
++bool VulkanRenderTargetCache::Dbz3RitActive() const { return dbz3_rit::g_active; }
++
++VkImageView VulkanRenderTargetCache::Dbz3RitContinue(const void* framebuffer) const {
++  return dbz3_rit::g_active && dbz3_rit::g_fb == framebuffer ? dbz3_rit::g_view : VK_NULL_HANDLE;
++}
++
++VkImageView VulkanRenderTargetCache::Dbz3RitBegin(VulkanTextureCache& texture_cache,
++                                                  uint64_t signature, const void* framebuffer,
++                                                  uint32_t area_right, uint32_t area_bottom,
++                                                  const uint32_t* sampled, uint32_t sampled_count,
++                                                  uint32_t color_base_tiles, uint32_t pitch_tiles) {
++  using namespace dbz3_rit;
++  if (g_active || !signature || IsDrawResolutionScaled() ||
++      rex::cvar::GetFlagByName("dbz3_render_into_texture") != "true" ||
++      dbz3_capture::WantsResolveReadback()) {
++    return VK_NULL_HANDLE;
++  }
++  auto it = g_table.find(signature);
++  if (it == g_table.end() || it->second.banned || it->second.hits < kHitsNeeded) {
++    return VK_NULL_HANDLE;
++  }
++  const Prediction& p = it->second;
++  if (area_right > p.width || area_bottom > p.height) {
++    return VK_NULL_HANDLE;
++  }
++  for (uint32_t i = 0; i < sampled_count; ++i) {
++    if (sampled[i] == p.dest) {
++      it->second.banned = true;  // o quad le o proprio destino
++      return VK_NULL_HANDLE;
++    }
++  }
++  void* found[4];
++  const uint32_t n = texture_cache.Dbz3FindResolveTextures(
++      p.dest, p.width, p.height, xenos::TextureFormat::k_8_8_8_8, false, xenos::Endian(p.endian),
++      found, 4);
++  if (n != 1 || !texture_cache.Dbz3TextureIsRenderable(found[0])) {
++    return VK_NULL_HANDLE;
++  }
++  VkImageView view = texture_cache.Dbz3GetStorageView(found[0]);
++  if (view == VK_NULL_HANDLE) {
++    return VK_NULL_HANDLE;
++  }
++  texture_cache.Dbz3BeginAttachmentWrite(found[0]);
++  g_active = true;
++  g_sig = signature;
++  g_fb = framebuffer;
++  g_tex = found[0];
++  g_dest = p.dest;
++  g_view = view;
++  g_pass_sig = 0;
++  g_base = color_base_tiles;
++  g_pitch = pitch_tiles;
++  return view;
++}
++
++void VulkanRenderTargetCache::Dbz3RitFinish(VulkanTextureCache& texture_cache,
++                                            const draw_util::ResolveInfo& ri) {
++  using namespace dbz3_rit;
++  command_processor_.EndRenderPass();
++  texture_cache.MarkRangeAsResolved(ri.copy_dest_extent_start, ri.copy_dest_extent_length);
++  g_stale_sig = g_sig;
++  g_stale_fb = g_fb;
++  g_stale_base = g_base;
++  g_stale_pitch = g_pitch;
++  End(texture_cache);
++  // O render target nao tem esta imagem: nada de "resolve repetido" a partir dele.
++  dbz3_resolve_dedupe::g_dirty = true;
++  if ((g_ok++ % 6000) == 0) {
++    REXGPU_INFO("dbz3: render nativo: passes desenhados direto na textura: {} ({} desistencias, "
++                "{} assinaturas)",
++                g_ok, g_abort, g_table.size());
++  }
++}
++
++void VulkanRenderTargetCache::Dbz3RitAbort(VulkanTextureCache& texture_cache, const char* why) {
++  using namespace dbz3_rit;
++  if (!g_active) return;
++  command_processor_.EndRenderPass();
++  auto it = g_table.find(g_sig);
++  if (it != g_table.end()) it->second.banned = true;
++  if ((g_abort++ % 64) == 0) {
++    REXGPU_WARN("dbz3: render nativo: desenho direto na textura {:08X} abandonado ({}); "
++                "assinatura {:016X} banida",
++                g_dest, why, g_sig);
++  }
++  End(texture_cache);
++}
++
++void VulkanRenderTargetCache::Dbz3RitOnSample(VulkanTextureCache& texture_cache,
++                                              uint32_t address) {
++  using namespace dbz3_rit;
++  if (g_active) {
++    if (address == g_dest) Dbz3RitAbort(texture_cache, "a textura e lida no proprio passe");
++    return;
++  }
++  // A aprender: um draw do passe le o destino previsto -> nunca desenhar direto.
++  if (g_pass_sig) {
++    auto it = g_table.find(g_pass_sig);
++    if (it != g_table.end() && it->second.dest == address) it->second.banned = true;
++  }
++}
++
+ }  // namespace rex::graphics::vulkan
+diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
+index 5736fda02dd76de4be80a929210d2a742c83a5f2..56ab5505798963ee0b05992224fab2947f07f6c1 100644
+--- a/src/graphics/vulkan/texture_cache.cpp
++++ b/src/graphics/vulkan/texture_cache.cpp
+@@ -1269,6 +1269,11 @@ std::unique_ptr<TextureCache::Texture> VulkanTextureCache::CreateTexture(Texture
+       if (format_properties.optimalTilingFeatures & VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT) {
+         dbz3_storage = true;
+         image_create_info.usage |= VK_IMAGE_USAGE_STORAGE_BIT;
++        // Render nativo, passo 4: as 8888 tambem podem ser o alvo de cor de um passe.
++        if (key.format == xenos::TextureFormat::k_8_8_8_8 &&
++            (format_properties.optimalTilingFeatures & VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT)) {
++          image_create_info.usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
++        }
+       }
+     }
+   }
+@@ -2120,6 +2125,56 @@ void VulkanTextureCache::Dbz3EndStorageWrite(void* texture_opaque) {
+   }
+ }
+ 
++bool VulkanTextureCache::Dbz3TextureIsRenderable(void* texture_opaque) const {
++  const auto& t = *static_cast<VulkanTexture*>(static_cast<Texture*>(texture_opaque));
++  return t.dbz3_storage() && t.key().format == xenos::TextureFormat::k_8_8_8_8 &&
++         !t.key().scaled_resolve;
++}
++
++void VulkanTextureCache::Dbz3BeginAttachmentWrite(void* texture_opaque) {
++  VulkanTexture& vulkan_texture =
++      *static_cast<VulkanTexture*>(static_cast<Texture*>(texture_opaque));
++  vulkan_texture.MarkAsUsed();
++  const VulkanTexture::Usage old_usage =
++      vulkan_texture.SetUsage(VulkanTexture::Usage::kDbz3AttachmentWrite);
++  VkPipelineStageFlags src_stage, dst_stage;
++  VkAccessFlags src_access, dst_access;
++  VkImageLayout old_layout, new_layout;
++  GetTextureUsageMasks(old_usage, src_stage, src_access, old_layout);
++  GetTextureUsageMasks(VulkanTexture::Usage::kDbz3AttachmentWrite, dst_stage, dst_access,
++                       new_layout);
++  if (!src_stage) {
++    src_stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
++  }
++  command_processor_.PushImageMemoryBarrier(vulkan_texture.image(),
++                                            ui::vulkan::util::InitializeSubresourceRange(),
++                                            src_stage, dst_stage, src_access, dst_access,
++                                            old_layout, new_layout);
++}
++
++void VulkanTextureCache::Dbz3EndAttachmentWrite(void* texture_opaque) {
++  VulkanTexture& vulkan_texture =
++      *static_cast<VulkanTexture*>(static_cast<Texture*>(texture_opaque));
++  Dbz3MarkTextureLoaded(vulkan_texture);
++  const VulkanTexture::Usage old_usage =
++      vulkan_texture.SetUsage(VulkanTexture::Usage::kGuestShaderSampled);
++  if (old_usage != VulkanTexture::Usage::kGuestShaderSampled) {
++    VkPipelineStageFlags src_stage, dst_stage;
++    VkAccessFlags src_access, dst_access;
++    VkImageLayout old_layout, new_layout;
++    GetTextureUsageMasks(old_usage, src_stage, src_access, old_layout);
++    GetTextureUsageMasks(VulkanTexture::Usage::kGuestShaderSampled, dst_stage, dst_access,
++                         new_layout);
++    if (!src_stage) {
++      src_stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
++    }
++    command_processor_.PushImageMemoryBarrier(vulkan_texture.image(),
++                                              ui::vulkan::util::InitializeSubresourceRange(),
++                                              src_stage, dst_stage, src_access, dst_access,
++                                              old_layout, new_layout);
++  }
++}
++
+ bool VulkanTextureCache::LoadTextureDataFromReplacementImpl(Texture& texture,
+                                                             const TextureReplacementData& data) {
+   VulkanTexture& vulkan_texture = static_cast<VulkanTexture&>(texture);
+@@ -3697,6 +3752,11 @@ void VulkanTextureCache::GetTextureUsageMasks(VulkanTexture::Usage usage,
+       access_mask = VK_ACCESS_SHADER_WRITE_BIT;
+       layout = VK_IMAGE_LAYOUT_GENERAL;
+       break;
++    case VulkanTexture::Usage::kDbz3AttachmentWrite:
++      stage_mask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
++      access_mask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
++      layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
++      break;
+     case VulkanTexture::Usage::kSwapSampled:
+       // The swap texture is likely to be used only for the presentation
+       // post-processing passes, and not during emulation where it'd be used in

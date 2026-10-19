@@ -1,8 +1,8 @@
 diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
-index 2930155..bd88336 100644
+index 309bc517caa9618caec8d6fec70aae723b39f18a..81cd6b4b54dbc5c9eb526239c5a786aa401fd11a 100644
 --- a/src/graphics/vulkan/command_processor.cpp
 +++ b/src/graphics/vulkan/command_processor.cpp
-@@ -985,10 +985,10 @@ bool VulkanCommandProcessor::SetupContext() {
+@@ -983,10 +983,10 @@ bool VulkanCommandProcessor::SetupContext() {
      return false;
    }
    if (!device_properties.vertexPipelineStoresAndAtomics) {
@@ -17,7 +17,7 @@ index 2930155..bd88336 100644
    }
    if (!device_properties.geometryShader) {
      if (REXCVAR_GET(vulkan_require_geometry_shader)) {
-@@ -4238,7 +4238,7 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+@@ -4236,7 +4236,7 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
        REXGPU_ERROR(
            "Vertex shader memexport draw encountered without "
            "vertexPipelineStoresAndAtomics support");
@@ -27,7 +27,7 @@ index 2930155..bd88336 100644
      draw_util::AddMemExportRanges(regs, *vertex_shader, memexport_ranges_);
    }
 diff --git a/src/ui/vulkan/vulkan_device.cpp b/src/ui/vulkan/vulkan_device.cpp
-index 22a80b7..63ef2b5 100644
+index 22a80b7d93eb4df772ed12ba2029fc4fc6047005..63ef2b50d881f2b708a0231dd19c663f703855f1 100644
 --- a/src/ui/vulkan/vulkan_device.cpp
 +++ b/src/ui/vulkan/vulkan_device.cpp
 @@ -156,11 +156,13 @@ std::unique_ptr<VulkanDevice> VulkanDevice::CreateIfSupported(

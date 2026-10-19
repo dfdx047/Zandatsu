@@ -1,0 +1,228 @@
+// Project SwordMan - estado do jogo e comandos ao vivo para o app (NativeGameState.kt).
+//
+// A mesma interface JNI do Dragon Burst, para o launcher, o menu do jogo e os controles
+// por toque. O que dependia de enderecos do Burst Limit (lado do P1, luta/menus) ainda
+// nao tem equivalente no MGR e devolve "desconhecido": os controles ficam no layout
+// escolhido a mao (botao de troca no menu) ate se mapear onde o MGR guarda o estado
+// "jogo/menu" (ver mgr_state.h quando existir).
+//
+// Nao escreve nada na memoria do jogo.
+
+#include <jni.h>
+
+#include <atomic>
+#include <condition_variable>
+#include <cstdint>
+#include <cstdio>
+#include <mutex>
+#include <string>
+
+#include <rex/audio/audio_system.h>
+#include <rex/audio/downmix.h>
+#include <rex/cvar.h>
+#include <rex/filesystem.h>
+#include <rex/logging.h>
+#include <rex/perf/frame_rate.h>
+#include <rex/runtime.h>
+#include <rex/ui/overlay/quick_menu.h>
+
+// android_hooks.cpp: pausa do jogo no VdSwap.
+extern std::atomic<bool> g_swordman_pause;
+extern std::mutex g_swordman_pause_mu;
+extern std::condition_variable g_swordman_pause_cv;
+extern std::atomic<uint64_t> g_swordman_ticks;
+
+namespace {
+
+// O runtime le e grava as cvars neste ficheiro (ReXApp: <pasta do exe>/<nome>.toml; no
+// Android a pasta do exe e a pasta do app, filesystem_posix.cpp).
+constexpr const char* kConfigName = "mgr.toml";
+
+std::mutex g_pause_mu;
+bool g_paused = false;
+
+}  // namespace
+
+// Lado do P1 (Dragon Burst). Sem sentido no MGR: sempre desconhecido.
+extern "C" JNIEXPORT jint JNICALL
+Java_com_dfdx047_swordman_game_NativeGameState_nativeP1Side(JNIEnv*, jclass) {
+  return 0;
+}
+
+// ---------------------------------------------------------------------------
+// Pausa do jogo enquanto um menu do app esta aberto (menu do jogo, editor dos
+// controles). O jogo para no VdSwap (android_hooks.cpp) e o audio com
+// AudioSystem::Pause(). O Kotlin chama isto a cada tick do HelperEngine (60 Hz).
+// ---------------------------------------------------------------------------
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_dfdx047_swordman_game_NativeGameState_nativeSyncPause(JNIEnv*, jclass, jboolean overlay_open,
+                                                               jboolean pause_quick_menu) {
+  std::lock_guard<std::mutex> lock(g_pause_mu);
+  auto* rt = rex::Runtime::instance();
+  if (!rt || !rt->memory()) return JNI_FALSE;
+  const bool want = overlay_open || (pause_quick_menu && rex::ui::QuickMenuDialog::IsOpen());
+  if (want == g_paused) return g_paused ? JNI_TRUE : JNI_FALSE;
+
+  auto* audio = static_cast<rex::audio::AudioSystem*>(rt->audio_system());
+  if (want) {
+    g_swordman_pause.store(true, std::memory_order_release);
+    if (audio) audio->Pause();
+    REXLOG_INFO("swordman: pausa (menu do app)");
+  } else {
+    if (audio) audio->Resume();
+    {
+      std::lock_guard<std::mutex> l(g_swordman_pause_mu);
+      g_swordman_pause.store(false, std::memory_order_release);
+    }
+    g_swordman_pause_cv.notify_all();
+    REXLOG_INFO("swordman: retoma");
+  }
+  g_paused = want;
+  return g_paused ? JNI_TRUE : JNI_FALSE;
+}
+
+/** Ao sair do jogo: nunca deixar a thread do jogo presa na pausa. */
+extern "C" JNIEXPORT void JNICALL
+Java_com_dfdx047_swordman_game_NativeGameState_nativeForceResume(JNIEnv*, jclass) {
+  {
+    std::lock_guard<std::mutex> l(g_swordman_pause_mu);
+    g_swordman_pause.store(false, std::memory_order_release);
+  }
+  g_swordman_pause_cv.notify_all();
+}
+
+// ---------------------------------------------------------------------------
+// Jogo ou menus (troca do layout dos controles). 1 = jogo, 0 = menus, -1 = desconhecido.
+// No MGR ainda nao se sabe: -1 sempre que o jogo corre (o layout fica o escolhido).
+// ---------------------------------------------------------------------------
+extern "C" JNIEXPORT jint JNICALL
+Java_com_dfdx047_swordman_game_NativeGameState_nativeFightFlag(JNIEnv*, jclass) {
+  return -1;
+}
+
+// Camara livre / modo foto (Dragon Burst). Nao existe no MGR.
+extern "C" JNIEXPORT jint JNICALL
+Java_com_dfdx047_swordman_game_NativeGameState_nativeMapFlag(JNIEnv*, jclass) {
+  return rex::Runtime::instance() ? 0 : -1;
+}
+
+// Diagnostico para logs/controles.log: frames apresentados e se esta pausado.
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_dfdx047_swordman_game_NativeGameState_nativeBattleDebug(JNIEnv* env, jclass) {
+  if (!rex::Runtime::instance()) return env->NewStringUTF("sem jogo");
+  char text[160];
+  std::snprintf(text, sizeof(text), "frames=%llu pausa=%d",
+                static_cast<unsigned long long>(g_swordman_ticks.load(std::memory_order_relaxed)),
+                g_swordman_pause.load(std::memory_order_relaxed) ? 1 : 0);
+  return env->NewStringUTF(text);
+}
+
+// Frames apresentados (VdSwap) desde o arranque: o app marca a sessao como "a correr".
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_dfdx047_swordman_game_NativeGameState_nativeFrames(JNIEnv*, jclass) {
+  return static_cast<jlong>(g_swordman_ticks.load(std::memory_order_relaxed));
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_dfdx047_swordman_game_NativeGameState_nativeDumpFight(JNIEnv*, jclass, jstring, jint, jlong) {
+  return JNI_FALSE;
+}
+
+// ---------------------------------------------------------------------------
+// Menu do jogo do app (InGameMenu.kt / AndroidMenu.kt): muda cvars ao vivo e grava o
+// mgr.toml, para o launcher ver as mesmas opcoes na proxima abertura.
+// ---------------------------------------------------------------------------
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_dfdx047_swordman_game_NativeGameState_nativeSetCvars(JNIEnv* env, jclass, jobjectArray names,
+                                                              jobjectArray values) {
+  if (!rex::Runtime::instance()) return JNI_FALSE;
+  const jsize n = env->GetArrayLength(names);
+  bool ok = true;
+  std::string changed;
+  for (jsize i = 0; i < n; ++i) {
+    auto jn = static_cast<jstring>(env->GetObjectArrayElement(names, i));
+    auto jv = static_cast<jstring>(env->GetObjectArrayElement(values, i));
+    const char* cn = env->GetStringUTFChars(jn, nullptr);
+    const char* cv = env->GetStringUTFChars(jv, nullptr);
+    const bool set = rex::cvar::SetFlagByName(cn, cv);
+    ok = set && ok;
+    if (!changed.empty()) changed += ", ";
+    changed += std::string(cn) + "=" + cv + (set ? "" : " (falhou)");
+    env->ReleaseStringUTFChars(jn, cn);
+    env->ReleaseStringUTFChars(jv, cv);
+    env->DeleteLocalRef(jn);
+    env->DeleteLocalRef(jv);
+  }
+  REXLOG_INFO("swordman: cvars ao vivo: {}", changed);
+  rex::cvar::SaveConfig(rex::filesystem::GetExecutableFolder() / kConfigName);
+  return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_dfdx047_swordman_game_NativeGameState_nativeGetCvar(JNIEnv* env, jclass, jstring name) {
+  if (!rex::Runtime::instance()) return env->NewStringUTF("");
+  const char* cn = env->GetStringUTFChars(name, nullptr);
+  const std::string value = rex::cvar::GetFlagByName(cn);
+  env->ReleaseStringUTFChars(name, cn);
+  return env->NewStringUTF(value.c_str());
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_dfdx047_swordman_game_NativeGameState_nativeInvokeCommand(JNIEnv* env, jclass, jstring name,
+                                                                   jstring args) {
+  if (!rex::Runtime::instance()) return JNI_FALSE;
+  const char* cn = env->GetStringUTFChars(name, nullptr);
+  const char* ca = env->GetStringUTFChars(args, nullptr);
+  const bool ok = rex::cvar::InvokeCommand(cn, ca);
+  REXLOG_INFO("swordman: comando {} {} -> {}", cn, ca, ok ? "ok" : "falhou");
+  env->ReleaseStringUTFChars(name, cn);
+  env->ReleaseStringUTFChars(args, ca);
+  return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+// Sons de menu do proprio jogo (Dragon Burst). O MGR ainda nao: o menu do app fica mudo.
+extern "C" JNIEXPORT void JNICALL
+Java_com_dfdx047_swordman_game_NativeGameState_nativeMenuSound(JNIEnv*, jclass, jint) {}
+
+// Linha no log do jogo (autoteste do render, menu do app, controles).
+extern "C" JNIEXPORT void JNICALL
+Java_com_dfdx047_swordman_game_NativeGameState_nativeLogLine(JNIEnv* env, jclass, jstring line) {
+  const char* c = env->GetStringUTFChars(line, nullptr);
+  REXLOG_INFO("swordman: {}", c);
+  env->ReleaseStringUTFChars(line, c);
+}
+
+// ---------------------------------------------------------------------------
+// Volume geral (0-100) do menu do app e do launcher. Ganho linear do SDK
+// (rex::audio::SetOutputGain), aplicado ao som que sai para o Android. Pode ser
+// chamado antes de o jogo arrancar (o ganho e global).
+// ---------------------------------------------------------------------------
+extern "C" JNIEXPORT void JNICALL
+Java_com_dfdx047_swordman_game_NativeGameState_nativeSetVolume(JNIEnv*, jclass, jint percent) {
+  const int p = percent < 0 ? 0 : (percent > 100 ? 100 : percent);
+  // Curva quadratica: o meio do controlo soa a "metade" (o ouvido e logaritmico).
+  const float linear = (p / 100.0f) * (p / 100.0f);
+  rex::audio::SetOutputGain(linear);
+  if (rex::Runtime::instance()) {
+    REXLOG_INFO("swordman: volume {}%", p);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Patch 0092 (120 FPS): taxa real da tela para o presenter e a linha "como os quadros
+// chegam a tela" do autoteste.
+// ---------------------------------------------------------------------------
+extern "C" JNIEXPORT void JNICALL
+Java_com_dfdx047_swordman_game_NativeGameState_nativeSetDisplayHz(JNIEnv*, jclass, jfloat hz) {
+  static std::atomic<int> logged_hz{-1};
+  rex::perf::SetDisplayRefreshRate(hz);
+  const int rounded = int(hz + 0.5f);
+  if (rex::Runtime::instance() && logged_hz.exchange(rounded) != rounded) {
+    REXLOG_INFO("swordman: tela a {:.2f} Hz", hz);
+  }
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_dfdx047_swordman_game_NativeGameState_nativePresentInfo(JNIEnv* env, jclass) {
+  return env->NewStringUTF(rex::perf::GetPresentInfo().c_str());
+}

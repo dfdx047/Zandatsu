@@ -1,0 +1,260 @@
+diff --git a/include/rex/system/xobject.h b/include/rex/system/xobject.h
+index 0a43f07e52e94b957e74ab29dd31c368354fb035..1084d180c5709b82019474047c6b8462e42c990e 100644
+--- a/include/rex/system/xobject.h
++++ b/include/rex/system/xobject.h
+@@ -161,6 +161,11 @@ class XObject {
+   const std::string& name() const { return name_; }
+   uint32_t guest_object() const { return guest_object_ptr_; }
+ 
++  // Dragon Burst (0056): quantas vezes este objeto foi sinalizado (Set/Pulse de
++  // evento, Release de semaforo/mutex, disparo de timer) - so diagnostico.
++  void Dbz3CountSignal() { dbz3_signals_.fetch_add(1, std::memory_order_relaxed); }
++  uint32_t dbz3_signals() const { return dbz3_signals_.load(std::memory_order_relaxed); }
++
+   // Has this object been created for use by the host?
+   // Host objects are persisted through reloads/etc.
+   bool is_host_object() const { return host_object_; }
+@@ -237,6 +242,7 @@ class XObject {
+   std::atomic<int32_t> pointer_ref_count_;
+ 
+   Type type_;
++  std::atomic<uint32_t> dbz3_signals_{0};
+   std::vector<X_HANDLE> handles_;
+   std::string name_;  // May be zero length.
+ 
+@@ -377,6 +383,11 @@ object_ref<T> XObject::GetNativeObject(KernelState* kernel_state, void* native_p
+       reinterpret_cast<T*>(GetNativeObject(kernel_state, native_ptr, as_type).release()));
+ }
+ 
++// Dragon Burst (0056): regista as threads do guest em espera de objetos do kernel
++// e escreve no log as que esperam ha pelo menos `min_seconds` (o objeto, o tipo e
++// quantas vezes foi sinalizado). Chamado pelo "dbz3: gpu-diag".
++void Dbz3LogKernelWaits(double min_seconds);
++
+ }  // namespace rex::system
+ 
+ // fmt formatter for XObject::Type - format as underlying uint32_t
+diff --git a/src/graphics/graphics_system.cpp b/src/graphics/graphics_system.cpp
+index a70088d31c42b791e840dc11514a3b5c818c2c24..f4d5163d491114fb47be4bbba0ea4e102c6e45bb 100644
+--- a/src/graphics/graphics_system.cpp
++++ b/src/graphics/graphics_system.cpp
+@@ -30,6 +30,7 @@
+ #include <rex/logging.h>
+ #include <rex/stream.h>
+ #include <rex/system/kernel_state.h>
++#include <rex/system/xobject.h>
+ #include <rex/system/xthread.h>
+ #include <rex/ui/graphics_provider.h>
+ #include <rex/ui/window.h>
+@@ -195,6 +196,10 @@ X_STATUS GraphicsSystem::SetupGuestGpu(runtime::FunctionDispatcher* function_dis
+                 command_processor_ ? command_processor_->dbz3_read_ptr() : 0,
+                 command_processor_ ? command_processor_->dbz3_write_ptr() : 0,
+                 rex::graphics::GetGuestVblankRate());
++            // (0056) quem do guest esta preso numa espera, e em que objeto.
++            if (since.count() == 10 || since.count() == 20) {
++              rex::system::Dbz3LogKernelWaits(3.0);
++            }
+           }
+           uint64_t current_time = chrono::Clock::QueryGuestTickCount();
+           const double game_rate_hz = rex::graphics::GetGuestVblankRate();
+diff --git a/src/kernel/xboxkrnl/xboxkrnl_video.cpp b/src/kernel/xboxkrnl/xboxkrnl_video.cpp
+index ee1bd52100296cb5c664c5dea650d796ee42c715..1ebb09eb758be20a2a6c038a2ad2326fc3381703 100644
+--- a/src/kernel/xboxkrnl/xboxkrnl_video.cpp
++++ b/src/kernel/xboxkrnl/xboxkrnl_video.cpp
+@@ -429,7 +429,7 @@ void VdSwap_entry(mapped_void buffer_ptr,      // ptr into primary ringbuffer
+     static std::atomic<uint32_t> dbz3_vdswaps{0};
+     const uint32_t n = dbz3_vdswaps.fetch_add(1, std::memory_order_relaxed) + 1;
+     if (n <= 5 || n == 60 || n == 600) {
+-      REXKRNL_INFO("dbz3: VdSwap #{} ({}x{})", n, uint32_t(width), uint32_t(height));
++      REXKRNL_INFO("dbz3: VdSwap #{}", n);
+     }
+   }
+   // All of these parameters are REQUIRED.
+diff --git a/src/system/xevent.cpp b/src/system/xevent.cpp
+index c24fbd13e119282028453920069e6b7a43d044c1..0c1959733c6c67c7e43cb9b604aeb812c999420f 100644
+--- a/src/system/xevent.cpp
++++ b/src/system/xevent.cpp
+@@ -74,11 +74,13 @@ void XEvent::Query(uint32_t* out_type, uint32_t* out_state) {
+ }
+ 
+ int32_t XEvent::Set(uint32_t priority_increment, bool wait) {
++  Dbz3CountSignal();
+   event_->Set();
+   return 1;
+ }
+ 
+ int32_t XEvent::Pulse(uint32_t priority_increment, bool wait) {
++  Dbz3CountSignal();
+   event_->Pulse();
+   return 1;
+ }
+diff --git a/src/system/xmutant.cpp b/src/system/xmutant.cpp
+index 9303962a28e22aedd51f617853d85df6e564757c..da0c51e11bb5d29bf738db3b647df316c30f822f 100644
+--- a/src/system/xmutant.cpp
++++ b/src/system/xmutant.cpp
+@@ -38,6 +38,7 @@ void XMutant::InitializeNative(void* native_ptr, X_DISPATCH_HEADER* header) {
+ }
+ 
+ X_STATUS XMutant::ReleaseMutant(uint32_t priority_increment, bool abandon, bool wait) {
++  Dbz3CountSignal();
+   // Call should succeed if we own the mutant, so go ahead and do this.
+   if (owning_thread_ == XThread::GetCurrentThread()) {
+     owning_thread_ = nullptr;
+diff --git a/src/system/xobject.cpp b/src/system/xobject.cpp
+index d358f399d84f196be91eafc620a7e6d4242d2f5d..9dda711cf2dc7bf8537eab03ef3ea0933dc3fcd6 100644
+--- a/src/system/xobject.cpp
++++ b/src/system/xobject.cpp
+@@ -9,6 +9,11 @@
+  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
+  */
+ 
++#include <initializer_list>
++#include <string>
++#include <mutex>
++#include <map>
++#include <chrono>
+ #include <vector>
+ 
+ #include <rex/chrono/clock.h>
+@@ -200,6 +205,89 @@ uint32_t XObject::TimeoutTicksToMs(int64_t timeout_ticks) {
+   }
+ }
+ 
++
++// ---------------------------------------------------------------- Dragon Burst
++// (0056) Registo das esperas em curso, so para diagnostico.
++namespace {
++struct Dbz3Wait {
++  std::string thread;
++  uint32_t thread_id = 0;
++  const char* kind = "";
++  std::vector<XObject*> objects;
++  std::chrono::steady_clock::time_point start;
++};
++std::mutex& Dbz3WaitsMutex() {
++  static std::mutex m;
++  return m;
++}
++std::map<const void*, Dbz3Wait>& Dbz3Waits() {
++  static std::map<const void*, Dbz3Wait> w;
++  return w;
++}
++const char* Dbz3TypeName(XObject::Type t) {
++  switch (t) {
++    case XObject::Type::Event: return "evento";
++    case XObject::Type::Mutant: return "mutex";
++    case XObject::Type::Semaphore: return "semaforo";
++    case XObject::Type::Timer: return "timer";
++    case XObject::Type::Thread: return "thread";
++    case XObject::Type::File: return "ficheiro";
++    case XObject::Type::IOCompletion: return "iocompletion";
++    case XObject::Type::NotifyListener: return "notify";
++    default: return "outro";
++  }
++}
++struct Dbz3WaitScope {
++  const void* key;
++  Dbz3WaitScope(const char* kind, std::initializer_list<XObject*> objects) {
++    XThread* thread = XThread::GetCurrentThread();
++    key = thread ? static_cast<const void*>(thread) : nullptr;
++    if (!key) return;
++    Dbz3Wait w;
++    w.thread = thread->name();
++    w.thread_id = thread->thread_id();
++    w.kind = kind;
++    w.objects.assign(objects.begin(), objects.end());
++    w.start = std::chrono::steady_clock::now();
++    std::lock_guard<std::mutex> lock(Dbz3WaitsMutex());
++    Dbz3Waits()[key] = std::move(w);
++  }
++  Dbz3WaitScope(const char* kind, XObject** objects, uint32_t count) : Dbz3WaitScope(kind, {}) {
++    if (!key) return;
++    std::lock_guard<std::mutex> lock(Dbz3WaitsMutex());
++    auto it = Dbz3Waits().find(key);
++    if (it != Dbz3Waits().end()) it->second.objects.assign(objects, objects + count);
++  }
++  ~Dbz3WaitScope() {
++    if (!key) return;
++    std::lock_guard<std::mutex> lock(Dbz3WaitsMutex());
++    Dbz3Waits().erase(key);
++  }
++};
++}  // namespace
++
++void Dbz3LogKernelWaits(double min_seconds) {
++  const auto now = std::chrono::steady_clock::now();
++  std::lock_guard<std::mutex> lock(Dbz3WaitsMutex());
++  size_t shown = 0;
++  for (const auto& [key, w] : Dbz3Waits()) {
++    const double secs = std::chrono::duration<double>(now - w.start).count();
++    if (secs < min_seconds) continue;
++    std::string objs;
++    for (XObject* o : w.objects) {
++      if (!o) continue;
++      objs += fmt::format(" [{} {:08X} guest={:08X} handle={:08X} sinais={}]", Dbz3TypeName(o->type()),
++                          uint32_t(reinterpret_cast<uintptr_t>(o)), o->guest_object(),
++                          o->handles().empty() ? 0u : uint32_t(o->handles()[0]), o->dbz3_signals());
++    }
++    REXSYS_INFO("dbz3: espera {:.1f}s {} \"{}\" (id {:X}) em{}", secs, w.kind, w.thread, w.thread_id,
++                objs);
++    ++shown;
++  }
++  REXSYS_INFO("dbz3: esperas longas (>= {:.0f}s): {} de {} threads em espera", min_seconds, shown,
++              Dbz3Waits().size());
++}
++
+ X_STATUS XObject::Wait(uint32_t wait_reason, uint32_t processor_mode, uint32_t alertable,
+                        uint64_t* opt_timeout) {
+   auto wait_handle = GetWaitHandle();
+@@ -213,6 +301,7 @@ X_STATUS XObject::Wait(uint32_t wait_reason, uint32_t processor_mode, uint32_t a
+                                 : std::chrono::milliseconds::max();
+ 
+   XThread::CheckTitleTermination();
++  Dbz3WaitScope dbz3_scope("Wait", {this});
+   auto result = rex::thread::Wait(wait_handle, alertable ? true : false, timeout_ms);
+   XThread::CheckTitleTermination();
+   switch (result) {
+@@ -239,6 +328,7 @@ X_STATUS XObject::SignalAndWait(XObject* signal_object, XObject* wait_object, ui
+                                       TimeoutTicksToMs(*opt_timeout)))
+                                 : std::chrono::milliseconds::max();
+ 
++  Dbz3WaitScope dbz3_scope("SignalAndWait (espera o 2.o)", {signal_object, wait_object});
+   auto result =
+       rex::thread::SignalAndWait(signal_object->GetWaitHandle(), wait_object->GetWaitHandle(),
+                                  alertable ? true : false, timeout_ms);
+@@ -273,6 +363,7 @@ X_STATUS XObject::WaitMultiple(uint32_t count, XObject** objects, uint32_t wait_
+                                 : std::chrono::milliseconds::max();
+ 
+   XThread::CheckTitleTermination();
++  Dbz3WaitScope dbz3_scope(wait_type ? "WaitAny" : "WaitAll", objects, count);
+   if (wait_type) {
+     auto result =
+         rex::thread::WaitAny(std::move(wait_handles), alertable ? true : false, timeout_ms);
+diff --git a/src/system/xsemaphore.cpp b/src/system/xsemaphore.cpp
+index db830e48ebf7053eff3dd500cf65d41eb83ea850..1556bcd5853be1104b8f93c6ebc4d17cb4c5a6ab 100644
+--- a/src/system/xsemaphore.cpp
++++ b/src/system/xsemaphore.cpp
+@@ -40,6 +40,7 @@ bool XSemaphore::InitializeNative(void* native_ptr, X_DISPATCH_HEADER* header) {
+ 
+ bool XSemaphore::ReleaseSemaphore(int32_t release_count, int32_t* out_previous_count) {
+   int32_t previous_count = 0;
++  Dbz3CountSignal();
+   bool success = semaphore_->Release(release_count, &previous_count);
+   if (out_previous_count) {
+     *out_previous_count = previous_count;
+diff --git a/src/system/xtimer.cpp b/src/system/xtimer.cpp
+index 2f2f4a6acdd75990e24f90dd28a01a75853614d0..b1751e36146a4ce98cadacc6ef4d30b1153d2292 100644
+--- a/src/system/xtimer.cpp
++++ b/src/system/xtimer.cpp
+@@ -63,9 +63,10 @@ X_STATUS XTimer::SetTimer(int64_t due_time, uint32_t period_ms, uint32_t routine
+   callback_routine_arg_ = routine_arg;
+ 
+   // This callback will only be issued when the timer is fired.
+-  std::function<void()> callback = nullptr;
++  std::function<void()> callback = [this]() { Dbz3CountSignal(); };
+   if (callback_routine_) {
+     callback = [this]() {
++      Dbz3CountSignal();
+       // Queue APC to call back routine with (arg, low, high).
+       // It'll be executed on the thread that requested the timer.
+       uint64_t time = rex::chrono::Clock::QueryGuestSystemTime();

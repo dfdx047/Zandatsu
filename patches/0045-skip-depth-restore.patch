@@ -1,10 +1,10 @@
 diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
-index cf5e781..ee67764 100644
+index 182facb341ffa70de95347b68525d4484bb4db1a..fab79ad45e6cd6f80c3a27ac624b92beb83b3742 100644
 --- a/src/graphics/vulkan/command_processor.cpp
 +++ b/src/graphics/vulkan/command_processor.cpp
-@@ -78,6 +78,9 @@ REXCVAR_DEFINE_BOOL(vulkan_dynamic_rendering, true, "GPU/Vulkan",
- 
- REXCVAR_DECLARE(double, dbz3_rim_light_scale);  // src/graphics/command_processor.cpp
+@@ -76,6 +76,9 @@ REXCVAR_DEFINE_BOOL(vulkan_dynamic_rendering, true, "GPU/Vulkan",
+                     "device (falls back to render passes otherwise)")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
  
 +REXCVAR_DEFINE_BOOL(dbz3_skip_depth_restore, false, "GPU",
 +                    "DBZ3-Android: com render targets diretos, salta o restauro da profundidade "
@@ -12,7 +12,7 @@ index cf5e781..ee67764 100644
  REXCVAR_DEFINE_BOOL(dbz3_clear_to_1x, false, "GPU",
                      "DBZ3-Android: Clear do D3D (retangulo 4x MSAA) desenhado direto na imagem 1x");
  REXCVAR_DEFINE_BOOL(dbz3_skip_msaa_prepass, false, "GPU",
-@@ -4321,6 +4324,29 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+@@ -4319,6 +4322,29 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
        return true;
      }
    }

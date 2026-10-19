@@ -1,0 +1,154 @@
+diff --git a/include/rex/graphics/vulkan/render_target_cache.h b/include/rex/graphics/vulkan/render_target_cache.h
+index 8b98b0a6af3cbdb69370e6d5ed48fa978ebdd4bf..0f8bfc1f7d71167aeea52fb5e66f9e6be73464d7 100644
+--- a/include/rex/graphics/vulkan/render_target_cache.h
++++ b/include/rex/graphics/vulkan/render_target_cache.h
+@@ -180,6 +180,7 @@ class VulkanRenderTargetCache final : public RenderTargetCache {
+   // Um passe normal vai abrir neste framebuffer: se o render target ficou sem a imagem (ela
+   // foi para a textura) e o passe nao o sobrescreve todo, essa assinatura e banida.
+   void Dbz3RitNormalPassStart(const void* framebuffer, bool full_overwrite);
++  void Dbz3RitLogFrame();
+   // Ja ativo para este framebuffer: a vista para continuar (com LOAD).
+   VkImageView Dbz3RitContinue(const void* framebuffer) const;
+   bool Dbz3RitActive() const;
+diff --git a/src/graphics/pipeline/render_target/cache.cpp b/src/graphics/pipeline/render_target/cache.cpp
+index 21df563b3d7ac1208d672419fd2ba7ec1fa0e967..a3578083b946bb1fe11b9bb5084c5bf7f7654e25 100644
+--- a/src/graphics/pipeline/render_target/cache.cpp
++++ b/src/graphics/pipeline/render_target/cache.cpp
+@@ -53,7 +53,8 @@ REXCVAR_DEFINE_STRING(dbz3_rt_restore_shaders, "6E57A6E305D5D69B,ADCA7FBBCBF53B5
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ REXCVAR_DEFINE_BOOL(dbz3_rt_restore_identity_only, true, "GPU",
+                     "DBZ3-Android: so conta como restauro um draw cujos vertices sao uma copia "
+-                    "identidade de ecra inteiro");
++                    "identidade de ecra inteiro")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ REXCVAR_DEFINE_BOOL(dbz3_rt_elide_restores, true, "GPU",
+                     "DBZ3-Android: com dbz3_rt_direct, ignora os restauros de ecra inteiro e os "
+                     "resolves que so serviam para eles")
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 9000575807d11f3da43969e2fdd9457be4fba4fd..444c5e6b6a4a5a13eae2dac6d4316eb7253dc535 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -125,9 +125,11 @@ REXCVAR_DEFINE_BOOL(dbz3_fx_bloom, true, "GPU",
+                     "DBZ3-Android: brilho (bloom) do jogo (desligar ajuda GPUs fracos)");
+ REXCVAR_DEFINE_BOOL(dbz3_skip_depth_restore, true, "GPU",
+                     "DBZ3-Android: com render targets diretos, salta o restauro da profundidade "
+-                    "desenhado como cor na base da profundidade (PS ADCA7FBBCBF53B57)");
++                    "desenhado como cor na base da profundidade (PS ADCA7FBBCBF53B57)")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ REXCVAR_DEFINE_BOOL(dbz3_clear_to_1x, true, "GPU",
+-                    "DBZ3-Android: Clear do D3D (retangulo 4x MSAA) desenhado direto na imagem 1x");
++                    "DBZ3-Android: Clear do D3D (retangulo 4x MSAA) desenhado direto na imagem 1x")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ REXCVAR_DEFINE_BOOL(dbz3_skip_msaa_prepass, false, "GPU",
+                     "DBZ3-Android: salta o pre-passo 4x MSAA (pitch 640) do inicio do frame");
+ REXCVAR_DECLARE(bool, dbz3_rt_direct);
+@@ -2796,6 +2798,7 @@ void VulkanCommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontb
+   if (render_target_cache_->Dbz3RitActive()) {
+     render_target_cache_->Dbz3RitAbort(*texture_cache_, "fim do frame");
+   }
++  render_target_cache_->Dbz3RitLogFrame();
+   Dbz3LogGuestPerformanceVulkan();
+   SCOPE_profile_cpu_f("gpu");
+   if (!dbz3_frameskip::g_skip_frame) {
+diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
+index b21f10727fdc4792acc27c822ab013da634e0e78..2c46f5380bcc373b4ba56444e6b0e0fc801b5e21 100644
+--- a/src/graphics/vulkan/render_target_cache.cpp
++++ b/src/graphics/vulkan/render_target_cache.cpp
+@@ -7454,6 +7454,9 @@ uint32_t g_stale_pitch = 0;
+ uint64_t g_stale_bans = 0;
+ uint64_t g_ok = 0;
+ uint64_t g_abort = 0;
++uint64_t g_learn_fail[2] = {};
++uint64_t g_begin_fail[6] = {};
++uint64_t g_frames = 0;
+ 
+ void BanStale(const char* why) {
+   auto it = g_table.find(g_stale_sig);
+@@ -7516,9 +7519,20 @@ bool Resolve(VulkanRenderTargetCache& cache, const draw_util::ResolveInfo& ri,
+     return false;
+   }
+   // Aprender: o passe atual (aberto por um quad a cobrir o scissor) acaba aqui.
+-  if (g_pass_sig && matches && ri.color_edram_info.base_tiles == g_pass_base &&
+-      ri.color_edram_info.pitch_tiles == g_pass_pitch &&
+-      !dbz3_capture::WantsResolveReadback()) {
++  const bool same_rt = (ri.color_edram_info.base_tiles == g_pass_base ||
++                        ri.color_original_base == g_pass_base) &&
++                       ri.color_edram_info.pitch_tiles == g_pass_pitch;
++  if (g_pass_sig) {
++    if (!matches) ++g_learn_fail[0];
++    else if (!same_rt) {
++      if ((g_learn_fail[1]++ % 2000) == 0) {
++        REXGPU_INFO("dbz3: passo 4: resolve de outro alvo (base {} / {} pitch {} vs passe {} {})",
++                    uint32_t(ri.color_edram_info.base_tiles), ri.color_original_base,
++                    uint32_t(ri.color_edram_info.pitch_tiles), g_pass_base, g_pass_pitch);
++      }
++    }
++  }
++  if (g_pass_sig && matches && same_rt && !dbz3_capture::WantsResolveReadback()) {
+     Prediction& p = g_table[g_pass_sig];
+     const uint32_t dest = ri.copy_dest_base & 0x1FFFFFFF;
+     const uint32_t endian = uint32_t(ri.copy_dest_info.copy_dest_endian);
+@@ -7549,6 +7563,22 @@ void VulkanRenderTargetCache::Dbz3RitNormalPassStart(const void* framebuffer,
+   }
+ }
+ 
++void VulkanRenderTargetCache::Dbz3RitLogFrame() {
++  using namespace dbz3_rit;
++  if ((++g_frames % 3000) != 600) return;
++  uint32_t ready = 0, banned = 0;
++  for (const auto& kv : g_table) {
++    ready += (!kv.second.banned && kv.second.hits >= kHitsNeeded) ? 1 : 0;
++    banned += kv.second.banned ? 1 : 0;
++  }
++  REXGPU_INFO("dbz3: passo 4: {} assinaturas ({} prontas, {} banidas), {} feitos, {} desistencias; "
++              "aprender falhou: resolve diferente {}, outro alvo {}; inicio falhou: sem previsao {}, "
++              "banida {}, a aprender {}, area {}, texturas {}, nao renderizavel {}",
++              g_table.size(), ready, banned, g_ok, g_abort, g_learn_fail[0], g_learn_fail[1],
++              g_begin_fail[0], g_begin_fail[1], g_begin_fail[2], g_begin_fail[3], g_begin_fail[4],
++              g_begin_fail[5]);
++}
++
+ void VulkanRenderTargetCache::Dbz3RitPassStart(uint64_t signature, uint32_t color_base_tiles,
+                                                uint32_t pitch_tiles) {
+   dbz3_rit::g_pass_sig = signature;
+@@ -7574,11 +7604,17 @@ VkImageView VulkanRenderTargetCache::Dbz3RitBegin(VulkanTextureCache& texture_ca
+     return VK_NULL_HANDLE;
+   }
+   auto it = g_table.find(signature);
+-  if (it == g_table.end() || it->second.banned || it->second.hits < kHitsNeeded) {
++  if (it == g_table.end()) {
++    ++g_begin_fail[0];
++    return VK_NULL_HANDLE;
++  }
++  if (it->second.banned || it->second.hits < kHitsNeeded) {
++    ++g_begin_fail[it->second.banned ? 1 : 2];
+     return VK_NULL_HANDLE;
+   }
+   const Prediction& p = it->second;
+   if (area_right > p.width || area_bottom > p.height) {
++    ++g_begin_fail[3];
+     return VK_NULL_HANDLE;
+   }
+   for (uint32_t i = 0; i < sampled_count; ++i) {
+@@ -7592,6 +7628,7 @@ VkImageView VulkanRenderTargetCache::Dbz3RitBegin(VulkanTextureCache& texture_ca
+       p.dest, p.width, p.height, xenos::TextureFormat::k_8_8_8_8, false, xenos::Endian(p.endian),
+       found, 4);
+   if (n != 1 || !texture_cache.Dbz3TextureIsRenderable(found[0])) {
++    ++g_begin_fail[n != 1 ? 4 : 5];
+     return VK_NULL_HANDLE;
+   }
+   VkImageView view = texture_cache.Dbz3GetStorageView(found[0]);
+diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
+index 56ab5505798963ee0b05992224fab2947f07f6c1..15550fc6e4354fc9d7ea3ceb5c676964e0b11680 100644
+--- a/src/graphics/vulkan/texture_cache.cpp
++++ b/src/graphics/vulkan/texture_cache.cpp
+@@ -39,7 +39,8 @@
+ REXCVAR_DEFINE_BOOL(non_seamless_cube_map, false, "GPU", "Use non-seamless cube map sampling");
+ REXCVAR_DEFINE_BOOL(dbz3_resolve_early_transition, true, "GPU",
+                     "DBZ3: a textura resolvida passa logo para leitura no fim do resolve "
+-                    "(evita fechar o passe quando e amostrada)");
++                    "(evita fechar o passe quando e amostrada)")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ 
+ namespace rex::graphics::vulkan {
+ 

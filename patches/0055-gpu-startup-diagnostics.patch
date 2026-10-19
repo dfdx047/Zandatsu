@@ -1,0 +1,117 @@
+diff --git a/include/rex/graphics/command_processor.h b/include/rex/graphics/command_processor.h
+index 28f21021783b4b6a106f7e59ef4ba14ba25bb391..ea093bae1f2a85ec6c75dedc6bb4c453af5ceffc 100644
+--- a/include/rex/graphics/command_processor.h
++++ b/include/rex/graphics/command_processor.h
+@@ -39,6 +39,11 @@ namespace rex::graphics {
+ // DBZ3 (v1.4.1): tiempo total (us) del command processor dormido en WAIT_REG_MEM.
+ // Dragon Burst: lo lee la linea `perf` del backend Vulkan (Android).
+ extern std::atomic<uint64_t> g_dbz3_regmem_wait_us;
++// Dragon Burst (0055): diagnostico do arranque (graphics_system.cpp, linha
++// "dbz3: gpu-diag"): frames apresentados e interrupcoes por fonte (0 = vblank,
++// 1 = a do CP, ex. fim de frame).
++extern std::atomic<uint64_t> g_dbz3_swap_count;
++extern std::atomic<uint64_t> g_dbz3_irq_count[2];
+ 
+ class GraphicsSystem;
+ class Shader;
+@@ -89,6 +94,9 @@ class CommandProcessor {
+   virtual ~CommandProcessor();
+ 
+   uint32_t counter() const { return counter_; }
++  // Dragon Burst (0055): para o diagnostico (leitura sem sincronizar, so log).
++  uint32_t dbz3_read_ptr() const { return read_ptr_index_; }
++  uint32_t dbz3_write_ptr() const { return write_ptr_index_.load(std::memory_order_relaxed); }
+   void increment_counter() { counter_++; }
+ 
+   Shader* active_vertex_shader() const { return active_vertex_shader_; }
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+index b5a1ac17f14c85081b09ac9366446a406cc1dc95..af96b4607d29ce82348275f14f5edf21e5f2aee4 100644
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -90,6 +90,8 @@ namespace rex::graphics {
+ // DBZ3 (v1.4.1): microssegundos que o command processor passa a dormir em WAIT_REG_MEM
+ // (a espera de que o guest escreva um registo/memoria). Lido pela linha `perf`.
+ std::atomic<uint64_t> g_dbz3_regmem_wait_us{0};
++std::atomic<uint64_t> g_dbz3_swap_count{0};
++std::atomic<uint64_t> g_dbz3_irq_count[2] = {};
+ 
+ using namespace rex::graphics::xenos;
+ 
+diff --git a/src/graphics/graphics_system.cpp b/src/graphics/graphics_system.cpp
+index 98316e3ce840b9ebb90ebc7722f26c1a9e69681d..a70088d31c42b791e840dc11514a3b5c818c2c24 100644
+--- a/src/graphics/graphics_system.cpp
++++ b/src/graphics/graphics_system.cpp
+@@ -13,6 +13,7 @@
+ 
+ #include <algorithm>
+ #include <atomic>
++#include <chrono>
+ #include <cctype>
+ #include <cstdint>
+ #include <string>
+@@ -176,7 +177,25 @@ X_STATUS GraphicsSystem::SetupGuestGpu(runtime::FunctionDispatcher* function_dis
+             std::max(uint64_t(1), uint64_t(double(guest_tick_frequency) / refresh_rate_hz));
+         uint64_t no_vsync_interval_ticks = std::max(uint64_t(1), guest_tick_frequency / 1000);
+         uint64_t last_frame_time = chrono::Clock::QueryGuestTickCount();
++        // Dragon Burst (0055): estado da GPU a cada 2 s nos primeiros 30 s (e a
++        // cada 30 s depois), para ver arranques encravados sem capturas.
++        const auto diag_start = std::chrono::steady_clock::now();
++        auto diag_next = diag_start + std::chrono::seconds(2);
+         while (vsync_worker_running_) {
++          if (const auto diag_now = std::chrono::steady_clock::now(); diag_now >= diag_next) {
++            const auto since = std::chrono::duration_cast<std::chrono::seconds>(diag_now - diag_start);
++            diag_next = diag_now + std::chrono::seconds(since.count() < 30 ? 2 : 30);
++            REXGPU_INFO(
++                "dbz3: gpu-diag t={}s frames={} irq_vblank={} irq_cp={} cp_counter={} "
++                "ring_rptr={} ring_wptr={} vblank_hz={:.0f}",
++                since.count(), g_dbz3_swap_count.load(std::memory_order_relaxed),
++                g_dbz3_irq_count[0].load(std::memory_order_relaxed),
++                g_dbz3_irq_count[1].load(std::memory_order_relaxed),
++                command_processor_ ? command_processor_->counter() : 0,
++                command_processor_ ? command_processor_->dbz3_read_ptr() : 0,
++                command_processor_ ? command_processor_->dbz3_write_ptr() : 0,
++                rex::graphics::GetGuestVblankRate());
++          }
+           uint64_t current_time = chrono::Clock::QueryGuestTickCount();
+           const double game_rate_hz = rex::graphics::GetGuestVblankRate();
+           uint64_t interval_ticks;
+@@ -337,6 +356,7 @@ void GraphicsSystem::DispatchInterruptCallback(uint32_t source, uint32_t cpu) {
+   if (!interrupt_callback_) {
+     return;
+   }
++  g_dbz3_irq_count[source ? 1 : 0].fetch_add(1, std::memory_order_relaxed);
+ 
+   auto thread = system::XThread::GetCurrentThread();
+   assert_not_null(thread);
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 98b7feb11908b2488d68d49d0f8c1bf5d18346e6..18a7df931d85080997d183b8ce0127e531b395e8 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -2593,6 +2593,7 @@ std::string g_path;
+ // del guest cada 5 s con `dbz3_perf_logging`, y lineas `tiron` (frames de mas de 50 ms,
+ // siempre, maximo 30 por sesion) con la espera del command processor al guest.
+ static void Dbz3LogGuestPerformanceVulkan() {
++  rex::graphics::g_dbz3_swap_count.fetch_add(1, std::memory_order_relaxed);
+   static std::chrono::steady_clock::time_point window_start;
+   static std::chrono::steady_clock::time_point last_frame;
+   static uint32_t frames_in_window = 0;
+diff --git a/src/kernel/xboxkrnl/xboxkrnl_video.cpp b/src/kernel/xboxkrnl/xboxkrnl_video.cpp
+index 642f7ff709f1e21f4ebbb9ebe3f5c09b5032c087..ee1bd52100296cb5c664c5dea650d796ee42c715 100644
+--- a/src/kernel/xboxkrnl/xboxkrnl_video.cpp
++++ b/src/kernel/xboxkrnl/xboxkrnl_video.cpp
+@@ -423,6 +423,15 @@ void VdSwap_entry(mapped_void buffer_ptr,      // ptr into primary ringbuffer
+                   mapped_u32 frontbuffer_ptr,  // ptr to frontbuffer address
+                   mapped_u32 texture_format_ptr, mapped_u32 color_space_ptr, mapped_u32 width,
+                   mapped_u32 height) {
++  // Dragon Burst (0055): os primeiros VdSwap do jogo (comparar com "frames" do
++  // gpu-diag: o jogo pediu o frame mas a GPU nao o apresentou?).
++  {
++    static std::atomic<uint32_t> dbz3_vdswaps{0};
++    const uint32_t n = dbz3_vdswaps.fetch_add(1, std::memory_order_relaxed) + 1;
++    if (n <= 5 || n == 60 || n == 600) {
++      REXKRNL_INFO("dbz3: VdSwap #{} ({}x{})", n, uint32_t(width), uint32_t(height));
++    }
++  }
+   // All of these parameters are REQUIRED.
+   assert(buffer_ptr);
+   assert(fetch_ptr);

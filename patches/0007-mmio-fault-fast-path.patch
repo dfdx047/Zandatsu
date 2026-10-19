@@ -1,6 +1,8 @@
+diff --git a/src/system/mmio_handler.cpp b/src/system/mmio_handler.cpp
+index 2b930058bad8ef3c9832e82e0e9b50491425ec82..6097d72311a0b175ee29aeba96c63d0ee042799d 100644
 --- a/src/system/mmio_handler.cpp
 +++ b/src/system/mmio_handler.cpp
-@@ -406,6 +406,20 @@
+@@ -406,6 +406,20 @@ bool MMIOHandler::ExceptionCallback(arch::Exception* ex) {
      // clears the watch we just hit).
      // Do this under the lock so we don't introduce another race condition.
      auto lock = global_critical_region_.Acquire();
@@ -21,7 +23,7 @@
      memory::PageAccess cur_access;
      size_t page_length = memory::page_size();
      memory::QueryProtect(fault_host_address, page_length, cur_access);
-@@ -414,6 +428,10 @@
+@@ -414,6 +428,10 @@ bool MMIOHandler::ExceptionCallback(arch::Exception* ex) {
        // Another thread has cleared this watch. Abort.
        return true;
      }

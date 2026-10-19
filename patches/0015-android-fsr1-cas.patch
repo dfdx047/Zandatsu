@@ -1,8 +1,8 @@
 diff --git a/src/ui/CMakeLists.txt b/src/ui/CMakeLists.txt
-index 91cd4b5..ad6a9ae 100644
+index 531b494e74a0c3d690e844cd574664aad7673d67..aac6c07a38a14e726c5b8e25d108e3e25029d54a 100644
 --- a/src/ui/CMakeLists.txt
 +++ b/src/ui/CMakeLists.txt
-@@ -130,6 +130,13 @@ if(REXGLUE_FIDELITYFX_SOURCE_DIR AND EXISTS "${REXGLUE_FIDELITYFX_SOURCE_DIR}/sd
+@@ -133,6 +133,13 @@ if(REXGLUE_FIDELITYFX_SOURCE_DIR AND EXISTS "${REXGLUE_FIDELITYFX_SOURCE_DIR}/sd
      target_compile_definitions(rexui PRIVATE REX_HAS_FIDELITYFX_SDK=1)
  endif()
  

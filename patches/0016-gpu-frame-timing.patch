@@ -1,8 +1,8 @@
 diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
-index 1415fe3..6fee5fe 100644
+index dfbf7d22052b1e9f065f073714c9e73aadb8223a..057097fd759f0e3f1ecbb3c2cfef1bf855cfc4d9 100644
 --- a/src/graphics/vulkan/command_processor.cpp
 +++ b/src/graphics/vulkan/command_processor.cpp
-@@ -2274,6 +2274,171 @@ void VulkanCommandProcessor::OnGammaRampPWLValueWritten() {
+@@ -2272,6 +2272,171 @@ void VulkanCommandProcessor::OnGammaRampPWLValueWritten() {
    gamma_ramp_pwl_current_frame_ = UINT32_MAX;
  }
  
@@ -174,7 +174,7 @@ index 1415fe3..6fee5fe 100644
  // DBZ3 (v1.4.1): la misma telemetria que en D3D12 para Vulkan (y por tanto Linux): fps
  // del guest cada 5 s con `dbz3_perf_logging`, y lineas `tiron` (frames de mas de 50 ms,
  // siempre, maximo 30 por sesion) con la espera del command processor al guest.
-@@ -2337,16 +2502,20 @@ static void Dbz3LogGuestPerformanceVulkan() {
+@@ -2335,16 +2500,20 @@ static void Dbz3LogGuestPerformanceVulkan() {
    }
    ++frames_in_window;
    const double elapsed_s = std::chrono::duration<double>(now - window_start).count();
@@ -198,7 +198,7 @@ index 1415fe3..6fee5fe 100644
    }
    cp_last_window = cp_now;
    window_start = now;
-@@ -5473,7 +5642,9 @@ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
+@@ -5471,7 +5640,9 @@ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
        REXGPU_ERROR("Failed to begin a Vulkan command buffer");
        return false;
      }
