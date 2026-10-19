@@ -1,0 +1,82 @@
+diff --git a/include/rex/graphics/vulkan/pipeline_cache.h b/include/rex/graphics/vulkan/pipeline_cache.h
+index c5fe364..5e5fbfb 100644
+--- a/include/rex/graphics/vulkan/pipeline_cache.h
++++ b/include/rex/graphics/vulkan/pipeline_cache.h
+@@ -426,6 +426,8 @@ class VulkanPipelineCache {
+   // shader interlock when no Xenos pixel shader provided.
+   VkShaderModule depth_only_fragment_shader_ = VK_NULL_HANDLE;
+   VkShaderModule placeholder_pixel_shader_ = VK_NULL_HANDLE;
++  // Project SwordMan: fragment shader vazio para pipelines so de profundidade (Mali).
++  VkShaderModule empty_fragment_shader_ = VK_NULL_HANDLE;
+   // Depth-only shaders for float24 emulation when no Xenos pixel shader is
+   // provided in host render target mode.
+   VkShaderModule depth_float24_truncate_fragment_shader_ = VK_NULL_HANDLE;
+diff --git a/src/graphics/vulkan/pipeline_cache.cpp b/src/graphics/vulkan/pipeline_cache.cpp
+index ac4d1db..2250982 100644
+--- a/src/graphics/vulkan/pipeline_cache.cpp
++++ b/src/graphics/vulkan/pipeline_cache.cpp
+@@ -69,6 +69,13 @@ REXCVAR_DEFINE_BOOL(dbz3_tex_implicit_lod, true, "GPU/Vulkan",
+                     "gradientes explicitos")
+     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+ 
++REXCVAR_DEFINE_INT32(dbz3_empty_fs_for_depth_only, -1, "GPU/Vulkan",
++                     "Project SwordMan: pipelines sem pixel shader (so profundidade) levam um "
++                     "fragment shader vazio em vez de nenhum. O compilador da Mali cai em alguns "
++                     "pipelines so de vertex shader. -1 = so na Mali, 0 = nunca, 1 = sempre")
++    .range(-1, 1)
++    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
++
+ REXCVAR_DEFINE_BOOL(dbz3_ignore_fetch_lod_bias, false, "GPU/Vulkan",
+                     "Dragon Burst (diagnostico): ignora o LOD bias dos fetch constants das texturas")
+     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+@@ -490,6 +497,29 @@ bool VulkanPipelineCache::Initialize() {
+         "async placeholder hot-swap will be unavailable");
+   }
+ 
++  // Project SwordMan: fragment shader vazio para os pipelines so de profundidade (Mali).
++  {
++    int32_t mode = REXCVAR_GET(dbz3_empty_fs_for_depth_only);
++    const bool is_arm = vulkan_device->properties().vendorID == 0x13B5 ||
++                        vulkan_device->properties().driverID == VK_DRIVER_ID_ARM_PROPRIETARY;
++    if (mode > 0 || (mode < 0 && is_arm)) {
++      static constexpr std::string_view kEmptyFragmentShaderSource =
++          "#version 460\nvoid main() {}\n";
++      std::vector<uint32_t> spirv;
++      std::string error;
++      if (command_processor_.CompileGlslToSpirv(VK_SHADER_STAGE_FRAGMENT_BIT,
++                                                kEmptyFragmentShaderSource, spirv, error)) {
++        empty_fragment_shader_ = ui::vulkan::util::CreateShaderModule(
++            vulkan_device, spirv.data(), spirv.size() * sizeof(uint32_t));
++      }
++      if (empty_fragment_shader_ != VK_NULL_HANDLE) {
++        REXGPU_INFO("swordman: pipelines so de profundidade com fragment shader vazio");
++      } else {
++        REXGPU_WARN("swordman: fragment shader vazio indisponivel: {}", error);
++      }
++    }
++  }
++
+   uint32_t logical_processor_count = rex::thread::logical_processor_count();
+   if (!logical_processor_count) {
+     logical_processor_count = 6;
+@@ -1028,6 +1058,8 @@ void VulkanPipelineCache::Shutdown() {
+                                          depth_float24_round_fragment_shader_);
+   ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyShaderModule, device,
+                                          placeholder_pixel_shader_);
++  ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyShaderModule, device,
++                                         empty_fragment_shader_);
+   if (tessellation_indexed_vertex_shader_ != VK_NULL_HANDLE) {
+     dfn.vkDestroyShaderModule(device, tessellation_indexed_vertex_shader_, nullptr);
+     tessellation_indexed_vertex_shader_ = VK_NULL_HANDLE;
+@@ -3387,6 +3419,11 @@ bool VulkanPipelineCache::EnsurePipelineCreated(const PipelineCreationArguments&
+       }
+     }
+   }
++  if (shader_stage_fragment.module == VK_NULL_HANDLE && empty_fragment_shader_ != VK_NULL_HANDLE) {
++    // Project SwordMan: Mali - nunca um pipeline sem fragment shader.
++    shader_stage_fragment.module = empty_fragment_shader_;
++    shader_stage_fragment.pSpecializationInfo = nullptr;
++  }
+   if (shader_stage_fragment.module == VK_NULL_HANDLE) {
+     --shader_stage_count;
+   }
