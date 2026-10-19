@@ -46,12 +46,14 @@ cmake -S "$SDK" -B "$BUILD" -G Ninja \
   -DCMAKE_C_COMPILER="$CC_BIN" -DCMAKE_CXX_COMPILER="$CXX_BIN" \
   -DCMAKE_C_FLAGS="-march=x86-64-v2" -DCMAKE_CXX_FLAGS="-march=x86-64-v2" \
   -DREXGLUE_ENABLE_TRACY=OFF -DREXGLUE_BUILD_TESTS=OFF \
+  -DREXGLUE_OUTPUT_DIR="$BUILD/bin" \
   -DCMAKE_POLICY_VERSION_MINIMUM=3.5 > /dev/null
 cmake --build "$BUILD" --target rexglue
 
-REXGLUE="$(find "$BUILD" -type f -name rexglue -perm -u+x | head -n 1)"
+# O SDK pode pô-lo em external/build-host/bin ou na pasta out/ dele (REXGLUE_OUTPUT_DIR).
+REXGLUE="$(find "$BUILD" "$SDK/out" -type f -name rexglue -perm -u+x 2>/dev/null | head -n 1)"
 if [ -z "$REXGLUE" ]; then
-  echo "ERRO: o rexglue nao foi gerado em external/build-host." >&2
+  echo "ERRO: o rexglue nao foi gerado (external/build-host ou external/rexglue-sdk/out)." >&2
   exit 1
 fi
 
