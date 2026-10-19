@@ -1,0 +1,231 @@
+diff --git a/include/rex/ui/flags.h b/include/rex/ui/flags.h
+index fa2ef60..1b056b8 100644
+--- a/include/rex/ui/flags.h
++++ b/include/rex/ui/flags.h
+@@ -62,4 +62,5 @@ REXCVAR_DECLARE(bool, vulkan_require_geometry_shader);
+ REXCVAR_DECLARE(bool, vulkan_require_fragment_stores_and_atomics);
+ REXCVAR_DECLARE(bool, vulkan_require_vertex_pipeline_stores_and_atomics);
+ REXCVAR_DECLARE(bool, vulkan_require_fill_mode_non_solid);
++REXCVAR_DECLARE(std::string, vulkan_mask_features);
+ #endif  // REX_HAS_VULKAN
+diff --git a/src/graphics/vulkan/pipeline_cache.cpp b/src/graphics/vulkan/pipeline_cache.cpp
+index 7ac0551..68b7bfa 100644
+--- a/src/graphics/vulkan/pipeline_cache.cpp
++++ b/src/graphics/vulkan/pipeline_cache.cpp
+@@ -544,6 +544,10 @@ void VulkanPipelineCache::InitializeShaderStorage(const std::filesystem::path& c
+     return;
+   }
+   pipeline_storage_file_flush_needed_ = false;
++  // DBZ3-Android (de RB2-Android, BSD-3): com "a+" a libc do Android comeca a ler no FIM do
++  // ficheiro (a glibc comeca no inicio), por isso os pipelines guardados nunca eram lidos e o
++  // armazenamento era refeito em cada arranque (pipelines compilados a meio do jogo).
++  rex::filesystem::Seek(pipeline_storage_file_, 0, SEEK_SET);
+   // 'XEPS'.
+   const uint32_t pipeline_storage_magic = 0x53504558;
+   const uint32_t pipeline_storage_magic_api = edram_fragment_shader_interlock ? 1u : 0u;
+@@ -630,6 +634,7 @@ void VulkanPipelineCache::InitializeShaderStorage(const std::filesystem::path& c
+   }
+   ++shader_storage_index_;
+   shader_storage_file_flush_needed_ = false;
++  rex::filesystem::Seek(shader_storage_file_, 0, SEEK_SET);  // Ver o armazenamento de pipelines.
+   struct {
+     uint32_t magic;
+     uint32_t version_swapped;
+diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
+index 4c77499..9b9d38e 100644
+--- a/src/graphics/vulkan/render_target_cache.cpp
++++ b/src/graphics/vulkan/render_target_cache.cpp
+@@ -40,6 +40,13 @@
+ #include <rex/math.h>
+ #include <rex/ui/vulkan/util.h>
+ 
++REXCVAR_DEFINE_BOOL(vulkan_disable_depth_unorm24, false, "GPU/Vulkan",
++                    "Do not use the native D24 host depth format even when the GPU offers it, "
++                    "emulating guest depth with 32-bit float like GPUs without D24 (desktop "
++                    "NVIDIA) do. A diagnostic for depth-related artifacts on GPUs that have D24 "
++                    "(Adreno).")
++    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
++
+ REXCVAR_DEFINE_STRING(render_target_path_vulkan, "", "GPU/Vulkan",
+                       "Vulkan render target implementation path")
+     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+@@ -257,6 +264,10 @@ bool VulkanRenderTargetCache::Initialize(uint32_t shared_memory_binding_count) {
+                                           &depth_unorm24_properties);
+   depth_unorm24_vulkan_format_supported_ = (depth_unorm24_properties.optimalTilingFeatures &
+                                             kUsedDepthFormatFeatures) == kUsedDepthFormatFeatures;
++  if (REXCVAR_GET(vulkan_disable_depth_unorm24)) {
++    // Take the path desktop NVIDIA GPUs take (they have no native D24): 32-bit float host depth.
++    depth_unorm24_vulkan_format_supported_ = false;
++  }
+   VkFormatProperties color_rg16_snorm_properties;
+   ifn.vkGetPhysicalDeviceFormatProperties(physical_device, VK_FORMAT_R16G16_SNORM,
+                                           &color_rg16_snorm_properties);
+diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
+index 58de055..38de4a2 100644
+--- a/src/graphics/vulkan/texture_cache.cpp
++++ b/src/graphics/vulkan/texture_cache.cpp
+@@ -2872,7 +2872,11 @@ bool VulkanTextureCache::Initialize() {
+       host_format.unsigned_signed_compatible = false;
+     }
+   }
+-  // S3TC.
++  // S3TC. vulkan_mask_features=textureCompressionBC takes the decompression fallbacks (as
++  // on Mali / PowerVR, which have no BC formats). Patch from RB2-Android (BSD-3); a cvar e
++  // definida no rexui, lida por nome (outro .so).
++  const bool mask_bc =
++      rex::cvar::GetFlagByName("vulkan_mask_features").find("textureCompressionBC") != std::string::npos;
+   // Not checking the textureCompressionBC feature because its availability
+   // means that all BC formats are supported, however, the device may expose
+   // some BC formats without this feature. Xenia doesn't use BC6H and BC7 at
+@@ -2885,6 +2889,7 @@ bool VulkanTextureCache::Initialize() {
+   assert_true(host_format_dxt1.format_unsigned.format == VK_FORMAT_BC1_RGBA_UNORM_BLOCK);
+   ifn.vkGetPhysicalDeviceFormatProperties(physical_device, VK_FORMAT_BC1_RGBA_UNORM_BLOCK,
+                                           &format_properties);
++  if (mask_bc) format_properties.optimalTilingFeatures = 0;
+   if ((format_properties.optimalTilingFeatures & kLinearFilterFeatures) != kLinearFilterFeatures) {
+     host_format_dxt1.format_unsigned.load_shader = kLoadShaderIndexDXT1ToRGBA8;
+     host_format_dxt1.format_unsigned.format = VK_FORMAT_R8G8B8A8_UNORM;
+@@ -2895,6 +2900,7 @@ bool VulkanTextureCache::Initialize() {
+   assert_true(host_format_dxt2_3.format_unsigned.format == VK_FORMAT_BC2_UNORM_BLOCK);
+   ifn.vkGetPhysicalDeviceFormatProperties(physical_device, VK_FORMAT_BC2_UNORM_BLOCK,
+                                           &format_properties);
++  if (mask_bc) format_properties.optimalTilingFeatures = 0;
+   if ((format_properties.optimalTilingFeatures & kLinearFilterFeatures) != kLinearFilterFeatures) {
+     host_format_dxt2_3.format_unsigned.load_shader = kLoadShaderIndexDXT3ToRGBA8;
+     host_format_dxt2_3.format_unsigned.format = VK_FORMAT_R8G8B8A8_UNORM;
+@@ -2905,6 +2911,7 @@ bool VulkanTextureCache::Initialize() {
+   assert_true(host_format_dxt4_5.format_unsigned.format == VK_FORMAT_BC3_UNORM_BLOCK);
+   ifn.vkGetPhysicalDeviceFormatProperties(physical_device, VK_FORMAT_BC3_UNORM_BLOCK,
+                                           &format_properties);
++  if (mask_bc) format_properties.optimalTilingFeatures = 0;
+   if ((format_properties.optimalTilingFeatures & kLinearFilterFeatures) != kLinearFilterFeatures) {
+     host_format_dxt4_5.format_unsigned.load_shader = kLoadShaderIndexDXT5ToRGBA8;
+     host_format_dxt4_5.format_unsigned.format = VK_FORMAT_R8G8B8A8_UNORM;
+@@ -2915,6 +2922,7 @@ bool VulkanTextureCache::Initialize() {
+   assert_true(host_format_dxn.format_unsigned.format == VK_FORMAT_BC5_UNORM_BLOCK);
+   ifn.vkGetPhysicalDeviceFormatProperties(physical_device, VK_FORMAT_BC5_UNORM_BLOCK,
+                                           &format_properties);
++  if (mask_bc) format_properties.optimalTilingFeatures = 0;
+   if ((format_properties.optimalTilingFeatures & kLinearFilterFeatures) != kLinearFilterFeatures) {
+     host_format_dxn.format_unsigned.load_shader = kLoadShaderIndexDXNToRG8;
+     host_format_dxn.format_unsigned.format = VK_FORMAT_R8G8_UNORM;
+@@ -2924,6 +2932,7 @@ bool VulkanTextureCache::Initialize() {
+   assert_true(host_format_dxt5a.format_unsigned.format == VK_FORMAT_BC4_UNORM_BLOCK);
+   ifn.vkGetPhysicalDeviceFormatProperties(physical_device, VK_FORMAT_BC4_UNORM_BLOCK,
+                                           &format_properties);
++  if (mask_bc) format_properties.optimalTilingFeatures = 0;
+   if ((format_properties.optimalTilingFeatures & kLinearFilterFeatures) != kLinearFilterFeatures) {
+     host_format_dxt5a.format_unsigned.load_shader = kLoadShaderIndexDXT5AToR8;
+     host_format_dxt5a.format_unsigned.format = VK_FORMAT_R8_UNORM;
+diff --git a/src/ui/vulkan/vulkan_device.cpp b/src/ui/vulkan/vulkan_device.cpp
+index 8197bb4..6a5c853 100644
+--- a/src/ui/vulkan/vulkan_device.cpp
++++ b/src/ui/vulkan/vulkan_device.cpp
+@@ -41,6 +41,18 @@ REXCVAR_DEFINE_BOOL(vulkan_require_fill_mode_non_solid, !REX_PLATFORM_MAC, "UI/V
+                     "allow fallback to solid fill for line/point polygon modes)")
+     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+ 
++REXCVAR_DEFINE_STRING(vulkan_mask_features, "", "UI/Vulkan",
++                      "Testing: comma-separated device features to treat as unsupported, so a GPU "
++                      "that has them runs the fallback paths of GPUs that do not (e.g. "
++                      "geometryShader,fillModeNonSolid,textureCompressionBC as on Mali / PowerVR)")
++    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
++
++// DBZ3-Android: lista de extensoes (separadas por virgula) que nao se ativam, mesmo
++// que o driver as tenha. Serve para fugir de caminhos com bugs num driver (ex.
++// VK_EXT_shader_stencil_export no Turnip dos Adreno 6xx) sem recompilar.
++REXCVAR_DEFINE_STRING(dbz3_vk_disable_extensions, "", "UI/Vulkan",
++                      "DBZ3-Android: extensoes Vulkan a nao usar (separadas por virgula)");
++
+ namespace rex {
+ namespace ui {
+ namespace vulkan {
+@@ -91,6 +103,25 @@ std::unique_ptr<VulkanDevice> VulkanDevice::CreateIfSupported(
+ 
+   VkPhysicalDeviceFeatures supported_features = {};
+   ifn.vkGetPhysicalDeviceFeatures(physical_device, &supported_features);
++  {
++    const std::string& mask = REXCVAR_GET(vulkan_mask_features);
++#define XE_UI_VULKAN_MASK(name)                                           \
++  if (mask.find(#name) != std::string::npos && supported_features.name) { \
++    supported_features.name = VK_FALSE;                                   \
++    REXLOG_WARN("Vulkan feature " #name " masked by vulkan_mask_features"); \
++  }
++    XE_UI_VULKAN_MASK(geometryShader)
++    XE_UI_VULKAN_MASK(fillModeNonSolid)
++    XE_UI_VULKAN_MASK(tessellationShader)
++    XE_UI_VULKAN_MASK(sampleRateShading)
++    XE_UI_VULKAN_MASK(depthClamp)
++    XE_UI_VULKAN_MASK(shaderClipDistance)
++    XE_UI_VULKAN_MASK(shaderCullDistance)
++    XE_UI_VULKAN_MASK(samplerAnisotropy)
++    XE_UI_VULKAN_MASK(fullDrawIndexUint32)
++    XE_UI_VULKAN_MASK(occlusionQueryPrecise)
++#undef XE_UI_VULKAN_MASK
++  }
+ 
+   if (with_gpu_emulation) {
+     if (!supported_features.independentBlend) {
+@@ -150,9 +181,32 @@ std::unique_ptr<VulkanDevice> VulkanDevice::CreateIfSupported(
+   // extensions vector.
+   std::unordered_map<std::string, bool*> requested_extensions;
+ 
++  // DBZ3-Android: extensoes desligadas pela cvar dbz3_vk_disable_extensions.
++  std::vector<std::string> dbz3_disabled_extensions;
++  {
++    const std::string list = REXCVAR_GET(dbz3_vk_disable_extensions);
++    size_t start = 0;
++    while (start <= list.size()) {
++      size_t end = list.find(',', start);
++      if (end == std::string::npos) end = list.size();
++      std::string item = list.substr(start, end - start);
++      item.erase(0, item.find_first_not_of(" \t"));
++      item.erase(item.find_last_not_of(" \t") + 1);
++      if (!item.empty()) dbz3_disabled_extensions.push_back(item);
++      start = end + 1;
++    }
++  }
++  const auto dbz3_extension_disabled = [&](const char* const name) {
++    return std::find(dbz3_disabled_extensions.cbegin(), dbz3_disabled_extensions.cend(), name) !=
++           dbz3_disabled_extensions.cend();
++  };
++
+   const auto request_promoted_extension = [&](const char* const name, uint32_t const major,
+                                               uint32_t const minor, bool* const supported_ptr) {
+     assert_not_null(supported_ptr);
++    if (dbz3_extension_disabled(name)) {
++      return;
++    }
+     if (properties.apiVersion >= VK_MAKE_API_VERSION(0, major, minor, 0)) {
+       *supported_ptr = true;
+     } else {
+@@ -273,6 +327,11 @@ std::unique_ptr<VulkanDevice> VulkanDevice::CreateIfSupported(
+         if (requested_extension_it == requested_extensions.cend()) {
+           continue;
+         }
++        if (dbz3_extension_disabled(supported_extension.extensionName)) {
++          REXLOG_INFO("dbz3: extensao Vulkan {} desligada (dbz3_vk_disable_extensions)",
++                      supported_extension.extensionName);
++          continue;
++        }
+         assert_not_null(requested_extension_it->second);
+         if (!*requested_extension_it->second) {
+           enabled_extensions.emplace_back(requested_extension_it->first.c_str());
+diff --git a/src/ui/vulkan/vulkan_presenter.cpp b/src/ui/vulkan/vulkan_presenter.cpp
+index 47c388f..a42a91b 100644
+--- a/src/ui/vulkan/vulkan_presenter.cpp
++++ b/src/ui/vulkan/vulkan_presenter.cpp
+@@ -1899,6 +1899,13 @@ Presenter::PaintResult VulkanPresenter::PaintAndPresentImpl(bool execute_ui_draw
+                 swapchain_effect, paint_context_.swapchain_render_pass);
+             if (swapchain_effect_pipeline.swapchain_pipeline == VK_NULL_HANDLE) {
+               guest_output_flow.effect_count = 0;
++            } else {
++              // Remember which render pass format this pipeline was built for. Nothing else ever
++              // assigned swapchain_format, so it stayed VK_FORMAT_UNDEFINED, never matched the
++              // render pass format above, and every frame waited for the GPU, destroyed this
++              // pipeline and recompiled it (84% of the UI thread on Adreno, whose shader compiler
++              // is slow).
++              swapchain_effect_pipeline.swapchain_format = paint_context_.swapchain_render_pass_format;
+             }
+           }
+         }

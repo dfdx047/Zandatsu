@@ -1,0 +1,13 @@
+--- a/include/rex/chrono/chrono.h
++++ b/include/rex/chrono/chrono.h
+@@ -116,8 +116,9 @@
+ 
+ namespace std::chrono {
+ 
+-#ifdef __APPLE__
++#if defined(__APPLE__) || defined(__ANDROID__)
+ // Apple libc++ does not expose clock_time_conversion or clock_cast.
++// DBZ3-Android: o libc++ do NDK tambem nao.
+ template <class, class>
+ struct clock_time_conversion {};
+ 

@@ -1,0 +1,26 @@
+diff --git a/include/rex/graphics/pipeline/shader/spirv_translator.h b/include/rex/graphics/pipeline/shader/spirv_translator.h
+index dce3dbf..9462989 100644
+--- a/include/rex/graphics/pipeline/shader/spirv_translator.h
++++ b/include/rex/graphics/pipeline/shader/spirv_translator.h
+@@ -223,6 +223,12 @@ class SpirvShaderTranslator : public ShaderTranslator {
+     uint32_t vertex_index_reset;
+     // Number of guest vertices processed by the memexport compute dispatch.
+     uint32_t compute_memexport_vertex_count;
++    // DBZ3-Android (de Skate3-Mobile): sem isto user_clip_planes (vec4[6]) ficava no
++    // offset 28, que o std140 nao permite (vec4 alinhado a 16). So e valido com
++    // uniformBufferStandardLayout/scalarBlockLayout, que o driver antigo da Qualcomm
++    // (Vulkan 1.1, Adreno 650 do RP5) nao tem. Com o outro preenchimento mais abaixo,
++    // todos os vec3/vec4/arrays ficam nos alinhamentos do std140.
++    uint32_t dbz3_padding_user_clip_planes;
+     float user_clip_planes[6][4];
+ 
+     float ndc_scale[3];
+@@ -238,6 +244,8 @@ class SpirvShaderTranslator : public ShaderTranslator {
+     // One bit per texture fetch constant indicating that it references a
+     // draw-resolution-scaled texture.
+     uint32_t textures_resolution_scaled;
++    // DBZ3-Android: os uvec4 seguintes tem de comecar num multiplo de 16 (std140).
++    uint32_t dbz3_padding_texture_signs[3];
+ 
+     // Each byte contains post-swizzle TextureSign values for each of the needed
+     // components of each of the 32 used texture fetch constants.

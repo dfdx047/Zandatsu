@@ -1,0 +1,85 @@
+diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
+index 797bed7..2bd6a2a 100644
+--- a/src/graphics/vulkan/render_target_cache.cpp
++++ b/src/graphics/vulkan/render_target_cache.cpp
+@@ -6278,6 +6278,16 @@ struct Dbz3DirectResolveState {
+ Dbz3DirectResolveState g_dbz3_direct;
+ Dbz3DirectResolveState g_dbz3_direct_depth;
+ 
++// Diagnostico: porque e que o atalho de profundidade nao se aplicou (uma vez por motivo).
++bool Dbz3DepthFail(int reason) {
++  static uint32_t logged_mask = 0;
++  if (!(logged_mask & (1u << reason))) {
++    logged_mask |= 1u << reason;
++    REXGPU_INFO("dbz3: atalho profundidade->textura nao aplicado (motivo {})", reason);
++  }
++  return false;
++}
++
+ // Profundidade + stencil do render target -> buffer linear. mode 0: float (textura
+ // k_24_8, R32_SFLOAT); mode 1: uint (depth24 << 8) | stencil (textura k_8_8_8_8).
+ const char* Dbz3DirectResolveDepthSource() {
+@@ -6348,6 +6358,7 @@ bool VulkanRenderTargetCache::Dbz3TryResolveToTexture(const draw_util::ResolveIn
+     return false;
+   }
+   if (resolve_info.IsCopyingDepth()) {
++    Dbz3DepthFail(0);  // so regista que chegou aqui
+     return Dbz3TryResolveDepthToTexture(resolve_info, texture_cache, skip_memory);
+   }
+   // So copias de cor 8888 sem MSAA, sem escala, de um retangulo a comecar em (0,0)
+@@ -6523,11 +6534,13 @@ bool VulkanRenderTargetCache::Dbz3TryResolveDepthToTexture(
+     bool skip_memory) {
+   // Resolve de profundidade sem MSAA, sem escala, de (0,0), destino linear de largura =
+   // pitch, para k_24_8 ou k_8_8_8_8 (o Budokai 3 le o mesmo destino das duas formas).
+-  // O D3D9 poe k_8_8_8_8 como formato de destino nos resolves de profundidade (so o
+-  // endian conta); o jogo le o destino como k_24_8 ou k_8_8_8_8.
+-  if (resolve_info.copy_dest_info.copy_dest_format != xenos::ColorFormat::k_8_8_8_8 ||
++  // Formato de destino: GetResolveInfo substitui-o por k_24_8 (22, que o enum
++  // ColorFormat nao nomeia) nos resolves de profundidade; so o endian conta. O jogo le o
++  // destino como k_24_8 ou k_8_8_8_8.
++  const uint32_t dest_format = uint32_t(resolve_info.copy_dest_info.copy_dest_format);
++  if ((dest_format != uint32_t(xenos::ColorFormat::k_8_8_8_8) && dest_format != 22u) ||
+       resolve_info.copy_dest_info.copy_dest_exp_bias != 0) {
+-    return false;
++    return Dbz3DepthFail(1);
+   }
+   const draw_util::ResolveEdramInfo& src_info = resolve_info.depth_edram_info;
+   if (src_info.msaa_samples != xenos::MsaaSamples::k1X ||
+@@ -6536,24 +6549,24 @@ bool VulkanRenderTargetCache::Dbz3TryResolveDepthToTexture(
+       resolve_info.coordinate_info.edram_offset_y_div_8 != 0 ||
+       resolve_info.copy_dest_coordinate_info.offset_x_div_8 != 0 ||
+       resolve_info.copy_dest_coordinate_info.offset_y_div_8 != 0) {
+-    return false;
++    return Dbz3DepthFail(2);
+   }
+   const uint32_t width = uint32_t(resolve_info.coordinate_info.width_div_8) * 8;
+   const uint32_t height = resolve_info.height_div_8 * 8;
+   if (width < 64 || height < 32 ||
+       uint32_t(resolve_info.copy_dest_coordinate_info.pitch_aligned_div_32) * 32 != width ||
+       resolve_info.copy_dest_base != resolve_info.copy_dest_extent_start) {
+-    return false;
++    return Dbz3DepthFail(3);
+   }
+   if (dump_rectangles_.size() != 1 || !dump_rectangles_[0].render_target) {
+-    return false;
++    return Dbz3DepthFail(4);
+   }
+   auto& rt = *static_cast<VulkanRenderTarget*>(dump_rectangles_[0].render_target);
+   const RenderTargetKey rt_key = rt.key();
+   if (!rt_key.is_depth || rt_key.msaa_samples != xenos::MsaaSamples::k1X ||
+       rt_key.base_tiles != src_info.base_tiles ||
+       rt_key.pitch_tiles_at_32bpp != src_info.pitch_tiles) {
+-    return false;
++    return Dbz3DepthFail(5);
+   }
+   // Todas as texturas ja existentes deste destino, nos dois formatos e em qualquer endian.
+   struct Target {
+@@ -6572,7 +6585,7 @@ bool VulkanRenderTargetCache::Dbz3TryResolveDepthToTexture(
+     }
+   }
+   if (!target_count) {
+-    return false;
++    return Dbz3DepthFail(6);
+   }
+ 
+   const ui::vulkan::VulkanDevice* const vulkan_device = command_processor_.GetVulkanDevice();

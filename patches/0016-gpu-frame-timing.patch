@@ -1,0 +1,210 @@
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 1415fe3..6fee5fe 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -2274,6 +2274,171 @@ void VulkanCommandProcessor::OnGammaRampPWLValueWritten() {
+   gamma_ramp_pwl_current_frame_ = UINT32_MAX;
+ }
+ 
++// DBZ3-Android: tempo real de GPU por frame, com timestamps no inicio e no fim de
++// cada submissao (so com `dbz3_perf_logging`). Mostra se um frame foi lento por
++// trabalho da GPU (ou clock baixo) e nao pela CPU. Tudo na thread do command
++// processor; os resultados sao lidos sem esperar, por ordem, quando ficam prontos.
++namespace dbz3_gputime {
++constexpr uint32_t kSlots = 128;  // submissoes em voo; 2 queries cada
++std::atomic<bool> g_enabled{false};
++struct Pending {
++  uint64_t frame;
++  uint32_t slot;
++};
++struct State {
++  bool init_tried = false;
++  bool ok = false;
++  VkDevice device = VK_NULL_HANDLE;
++  VkQueryPool pool = VK_NULL_HANDLE;
++  PFN_vkCmdWriteTimestamp write_timestamp = nullptr;
++  PFN_vkGetQueryPoolResults get_results = nullptr;
++  double ns_per_tick = 1.0;
++  uint64_t mask = ~uint64_t(0);
++  uint32_t next_slot = 0;
++  std::vector<Pending> pending;  // fila por ordem de submissao
++  size_t pending_head = 0;
++  // Frame em acumulacao e estatisticas da janela de 5 s.
++  uint64_t acc_frame = UINT64_MAX;
++  double acc_ms = 0.0;
++  uint32_t win_frames = 0;
++  double win_sum_ms = 0.0;
++  double win_max_ms = 0.0;
++  uint32_t win_over_16 = 0;
++  uint32_t win_over_20 = 0;
++};
++State g_state;
++
++void Init(const ui::vulkan::VulkanDevice* vulkan_device) {
++  State& st = g_state;
++  st.init_tried = true;
++  const auto& ifn = vulkan_device->vulkan_instance()->functions();
++  VkPhysicalDevice physical_device = vulkan_device->physical_device();
++  uint32_t family_count = 0;
++  ifn.vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &family_count, nullptr);
++  std::vector<VkQueueFamilyProperties> families(family_count);
++  ifn.vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &family_count, families.data());
++  const uint32_t family = vulkan_device->queue_family_graphics_compute();
++  if (family >= family_count || families[family].timestampValidBits == 0) {
++    REXGPU_INFO("dbz3: gpu_ms indisponivel (fila sem timestamps)");
++    return;
++  }
++  const uint32_t bits = families[family].timestampValidBits;
++  st.mask = bits >= 64 ? ~uint64_t(0) : ((uint64_t(1) << bits) - 1);
++  VkPhysicalDeviceProperties props;
++  ifn.vkGetPhysicalDeviceProperties(physical_device, &props);
++  st.ns_per_tick = double(props.limits.timestampPeriod);
++  st.device = vulkan_device->device();
++  st.write_timestamp = reinterpret_cast<PFN_vkCmdWriteTimestamp>(
++      ifn.vkGetDeviceProcAddr(st.device, "vkCmdWriteTimestamp"));
++  st.get_results = reinterpret_cast<PFN_vkGetQueryPoolResults>(
++      ifn.vkGetDeviceProcAddr(st.device, "vkGetQueryPoolResults"));
++  if (!st.write_timestamp || !st.get_results || st.ns_per_tick <= 0.0) {
++    REXGPU_INFO("dbz3: gpu_ms indisponivel (funcoes em falta)");
++    return;
++  }
++  VkQueryPoolCreateInfo pool_info = {};
++  pool_info.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
++  pool_info.queryType = VK_QUERY_TYPE_TIMESTAMP;
++  pool_info.queryCount = kSlots * 2;
++  if (vulkan_device->functions().vkCreateQueryPool(st.device, &pool_info, nullptr, &st.pool) !=
++      VK_SUCCESS) {
++    REXGPU_INFO("dbz3: gpu_ms indisponivel (vkCreateQueryPool)");
++    return;
++  }
++  st.pending.reserve(kSlots);
++  st.ok = true;
++  REXGPU_INFO("dbz3: gpu_ms ativo ({} bits, {:.2f} ns/tick)", bits, st.ns_per_tick);
++}
++
++size_t InFlight() { return g_state.pending.size() - g_state.pending_head; }
++
++// Antes do conteudo da submissao. Devolve o slot ou UINT32_MAX.
++uint32_t Begin(const ui::vulkan::VulkanDevice* vulkan_device, VkCommandBuffer cb) {
++  if (!g_enabled.load(std::memory_order_relaxed)) {
++    return UINT32_MAX;
++  }
++  State& st = g_state;
++  if (!st.init_tried) {
++    Init(vulkan_device);
++  }
++  if (!st.ok || InFlight() >= kSlots) {
++    return UINT32_MAX;
++  }
++  const uint32_t slot = st.next_slot;
++  st.next_slot = (st.next_slot + 1) % kSlots;
++  vulkan_device->functions().vkCmdResetQueryPool(cb, st.pool, slot * 2, 2);
++  st.write_timestamp(cb, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, st.pool, slot * 2);
++  return slot;
++}
++
++// Depois do conteudo da submissao.
++void End(VkCommandBuffer cb, uint32_t slot, uint64_t frame) {
++  if (slot == UINT32_MAX) {
++    return;
++  }
++  State& st = g_state;
++  st.write_timestamp(cb, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, st.pool, slot * 2 + 1);
++  if (st.pending_head > 0 && st.pending_head == st.pending.size()) {
++    st.pending.clear();
++    st.pending_head = 0;
++  }
++  st.pending.push_back({frame, slot});
++}
++
++void FinishFrame(State& st) {
++  if (st.acc_frame == UINT64_MAX) {
++    return;
++  }
++  ++st.win_frames;
++  st.win_sum_ms += st.acc_ms;
++  st.win_max_ms = std::max(st.win_max_ms, st.acc_ms);
++  if (st.acc_ms > 16.7) ++st.win_over_16;
++  if (st.acc_ms > 20.0) ++st.win_over_20;
++}
++
++// Le os resultados ja prontos (sem esperar).
++void Poll() {
++  State& st = g_state;
++  if (!st.ok) {
++    return;
++  }
++  while (st.pending_head < st.pending.size()) {
++    const Pending& p = st.pending[st.pending_head];
++    uint64_t ticks[2] = {};
++    VkResult r = st.get_results(st.device, st.pool, p.slot * 2, 2, sizeof(ticks), ticks,
++                                sizeof(uint64_t), VK_QUERY_RESULT_64_BIT);
++    if (r != VK_SUCCESS) {
++      break;  // ainda na GPU: os seguintes tambem
++    }
++    const double ms = double((ticks[1] - ticks[0]) & st.mask) * st.ns_per_tick / 1.0e6;
++    if (p.frame != st.acc_frame) {
++      FinishFrame(st);
++      st.acc_frame = p.frame;
++      st.acc_ms = 0.0;
++    }
++    st.acc_ms += ms;
++    ++st.pending_head;
++  }
++}
++
++// Texto para a linha perf e reinicio da janela.
++std::string TakeWindowSummary() {
++  State& st = g_state;
++  if (!st.ok || st.win_frames == 0) {
++    return "gpu_ms=n/d";
++  }
++  std::string text = fmt::format("gpu_ms avg={:.1f} max={:.1f} >16.7={} >20={}",
++                                 st.win_sum_ms / st.win_frames, st.win_max_ms, st.win_over_16,
++                                 st.win_over_20);
++  st.win_frames = 0;
++  st.win_sum_ms = 0.0;
++  st.win_max_ms = 0.0;
++  st.win_over_16 = 0;
++  st.win_over_20 = 0;
++  return text;
++}
++}  // namespace dbz3_gputime
++
+ // DBZ3 (v1.4.1): la misma telemetria que en D3D12 para Vulkan (y por tanto Linux): fps
+ // del guest cada 5 s con `dbz3_perf_logging`, y lineas `tiron` (frames de mas de 50 ms,
+ // siempre, maximo 30 por sesion) con la espera del command processor al guest.
+@@ -2337,16 +2502,20 @@ static void Dbz3LogGuestPerformanceVulkan() {
+   }
+   ++frames_in_window;
+   const double elapsed_s = std::chrono::duration<double>(now - window_start).count();
++  dbz3_gputime::Poll();
+   if (elapsed_s < 5.0) return;
+-  if (rex::cvar::GetFlagByName("dbz3_perf_logging") == "true") {
++  const bool perf_logging = rex::cvar::GetFlagByName("dbz3_perf_logging") == "true";
++  dbz3_gputime::g_enabled.store(perf_logging, std::memory_order_relaxed);
++  if (perf_logging) {
+     REXGPU_INFO(
+         "dbz3: perf fps={:.1f} frames={} window={:.2f}s max_frame_ms={:.1f} backend=vulkan "
+-        "cfg=scale:{}x{} msaa:{} cp_wait={:.1f}ms/f",
++        "cfg=scale:{}x{} msaa:{} cp_wait={:.1f}ms/f {}",
+         double(frames_in_window) / elapsed_s, frames_in_window, elapsed_s, max_frame_ms,
+         rex::cvar::GetFlagByName("draw_resolution_scale_x"),
+         rex::cvar::GetFlagByName("draw_resolution_scale_y"),
+         rex::cvar::GetFlagByName("native_2x_msaa"),
+-        double(cp_now - cp_last_window) / 1000.0 / double(frames_in_window ? frames_in_window : 1));
++        double(cp_now - cp_last_window) / 1000.0 / double(frames_in_window ? frames_in_window : 1),
++        dbz3_gputime::TakeWindowSummary());
+   }
+   cp_last_window = cp_now;
+   window_start = now;
+@@ -5473,7 +5642,9 @@ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
+       REXGPU_ERROR("Failed to begin a Vulkan command buffer");
+       return false;
+     }
++    const uint32_t dbz3_gpu_slot = dbz3_gputime::Begin(vulkan_device, command_buffer.buffer);
+     deferred_command_buffer_.Execute(command_buffer.buffer);
++    dbz3_gputime::End(command_buffer.buffer, dbz3_gpu_slot, frame_current_);
+     if (dfn.vkEndCommandBuffer(command_buffer.buffer) != VK_SUCCESS) {
+       REXGPU_ERROR("Failed to end a Vulkan command buffer");
+       return false;

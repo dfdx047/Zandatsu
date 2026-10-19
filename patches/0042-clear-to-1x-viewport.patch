@@ -1,0 +1,109 @@
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 49206c6..fccb1b1 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -4303,44 +4303,68 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+   // DBZ3-Android (dbz3_clear_to_1x): o D3D do XDK faz Clear() com um retangulo (shaders
+   // embutidos: VS 1E6883FCCDE1F688 com posicao em pixeis e cor por vertice, PS
+   // A4A965C189287B99 = cor interpolada) num render target 4x MSAA de metade da largura
+-  // (pitch 640, o mesmo EDRAM que 1280 a 1x), que depois tem de ser transferido para a
+-  // imagem 1x. Com render targets diretos desenha-se o mesmo retangulo diretamente na
+-  // imagem 1x: as posicoes dos 3 vertices (memoria do guest, escrita agora pelo D3D) sao
+-  // multiplicadas por 2 e o RB_SURFACE_INFO passa a 1x com o dobro do pitch.
+-  if (REXCVAR_GET(dbz3_clear_to_1x) && REXCVAR_GET(dbz3_rt_direct) && pixel_shader &&
++  // (pitch 640, o mesmo EDRAM que 1280 a 1x): um draw de cor (edram_mode kColorDepth) e um
++  // de profundidade (kDepth), com os mesmos vertices. Depois o render target cache tem de
++  // transferir 4x -> 1x. Com render targets diretos desenha-se o mesmo retangulo na imagem
++  // 1x: so durante este draw, RB_SURFACE_INFO passa a 1x com o dobro do pitch e a escala do
++  // viewport (desligada pelo D3D, VTE_CNTL = 0x300) passa a 2 em X e Y. Os registos sao
++  // repostos no fim do draw (o D3D so reenvia blocos sujos). A memoria do guest nao e tocada.
++  struct Dbz3RegRestore {
++    RegisterFile* rf = nullptr;
++    uint32_t idx[8];
++    uint32_t val[8];
++    uint32_t count = 0;
++    void Set(uint32_t reg, uint32_t value) {
++      idx[count] = reg;
++      val[count] = (*rf)[reg];
++      ++count;
++      (*rf)[reg] = value;
++    }
++    ~Dbz3RegRestore() {
++      while (count) {
++        --count;
++        (*rf)[idx[count]] = val[count];
++      }
++    }
++  } dbz3_reg_restore;
++  dbz3_reg_restore.rf = register_file_;
++  if (REXCVAR_GET(dbz3_clear_to_1x) && REXCVAR_GET(dbz3_rt_direct) &&
+       prim_type == xenos::PrimitiveType::kRectangleList && index_count == 3 &&
+-      pixel_shader->ucode_data_hash() == UINT64_C(0xA4A965C189287B99) &&
+-      vertex_shader->ucode_data_hash() == UINT64_C(0x1E6883FCCDE1F688)) {
++      vertex_shader->ucode_data_hash() == UINT64_C(0x1E6883FCCDE1F688) &&
++      (edram_mode == xenos::EdramMode::kColorDepth || edram_mode == xenos::EdramMode::kDepthOnly)) {
++    Shader* clear_ps = active_pixel_shader();
+     auto surface_info = regs.Get<reg::RB_SURFACE_INFO>();
+-    if (surface_info.msaa_samples == xenos::MsaaSamples::k4X && surface_info.surface_pitch &&
+-        surface_info.surface_pitch * 2 <= 8192) {
+-      const xenos::xe_gpu_vertex_fetch_t vf = regs.GetVertexFetch(95);
+-      const uint32_t vf_bytes = uint32_t(vf.size) * 4;
+-      uint8_t* data = vf.type == xenos::FetchConstantType::kVertex && vf_bytes >= 3 * 28
+-                          ? memory_->TranslatePhysical(uint32_t(vf.address) << 2)
+-                          : nullptr;
+-      if (data && (vf.endian == xenos::Endian::k8in32 || vf.endian == xenos::Endian::kNone)) {
+-        const bool swap = vf.endian == xenos::Endian::k8in32;
+-        for (uint32_t v = 0; v < 3; ++v) {
+-          for (uint32_t c = 0; c < 2; ++c) {
+-            uint32_t* word = reinterpret_cast<uint32_t*>(data + v * 28 + c * 4);
+-            uint32_t bits = swap ? rex::byte_swap(*word) : *word;
+-            float value;
+-            std::memcpy(&value, &bits, sizeof(value));
+-            value *= 2.0f;
+-            std::memcpy(&bits, &value, sizeof(bits));
+-            *word = swap ? rex::byte_swap(bits) : bits;
+-          }
+-        }
+-        surface_info.msaa_samples = xenos::MsaaSamples::k1X;
+-        surface_info.surface_pitch = surface_info.surface_pitch * 2;
+-        (*register_file_)[XE_GPU_REG_RB_SURFACE_INFO] = surface_info.value;
+-        static uint32_t dbz3_clear_logged = 0;
+-        if (dbz3_clear_logged < 4) {
+-          ++dbz3_clear_logged;
+-          REXGPU_INFO("dbz3: Clear 4x (pitch {}) desenhado direto na imagem 1x",
+-                      uint32_t(surface_info.surface_pitch) / 2);
+-        }
++    auto vte = regs.Get<reg::PA_CL_VTE_CNTL>();
++    const bool viewport_off = !vte.vport_x_scale_ena && !vte.vport_x_offset_ena &&
++                              !vte.vport_y_scale_ena && !vte.vport_y_offset_ena;
++    if (clear_ps && clear_ps->ucode_data_hash() == UINT64_C(0xA4A965C189287B99) &&
++        surface_info.msaa_samples == xenos::MsaaSamples::k4X && surface_info.surface_pitch &&
++        surface_info.surface_pitch * 2 <= 8192 && viewport_off) {
++      surface_info.msaa_samples = xenos::MsaaSamples::k1X;
++      surface_info.surface_pitch = surface_info.surface_pitch * 2;
++      vte.vport_x_scale_ena = 1;
++      vte.vport_y_scale_ena = 1;
++      const float two = 2.0f;
++      uint32_t two_bits;
++      std::memcpy(&two_bits, &two, sizeof(two_bits));
++      dbz3_reg_restore.Set(XE_GPU_REG_RB_SURFACE_INFO, surface_info.value);
++      dbz3_reg_restore.Set(XE_GPU_REG_PA_CL_VTE_CNTL, vte.value);
++      dbz3_reg_restore.Set(XE_GPU_REG_PA_CL_VPORT_XSCALE, two_bits);
++      dbz3_reg_restore.Set(XE_GPU_REG_PA_CL_VPORT_YSCALE, two_bits);
++      static uint32_t dbz3_clear_logged = 0;
++      if (dbz3_clear_logged < 6) {
++        ++dbz3_clear_logged;
++        REXGPU_INFO("dbz3: Clear 4x (pitch {}, {}) desenhado direto na imagem 1x",
++                    uint32_t(surface_info.surface_pitch) / 2,
++                    edram_mode == xenos::EdramMode::kDepthOnly ? "profundidade" : "cor");
++      }
++    } else {
++      static uint32_t dbz3_clear_miss = 0;
++      if (dbz3_clear_miss < 6) {
++        ++dbz3_clear_miss;
++        REXGPU_INFO("dbz3: Clear nao redirecionado (ps {:016X}, msaa {}, pitch {}, vte {:08X})",
++                    clear_ps ? clear_ps->ucode_data_hash() : 0, uint32_t(surface_info.msaa_samples),
++                    uint32_t(surface_info.surface_pitch), vte.value);
+       }
+     }
+   }

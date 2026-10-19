@@ -1,0 +1,132 @@
+diff --git a/include/rex/graphics/vulkan/dbz3_gpuprof.h b/include/rex/graphics/vulkan/dbz3_gpuprof.h
+index d6c158a..c35f306 100644
+--- a/include/rex/graphics/vulkan/dbz3_gpuprof.h
++++ b/include/rex/graphics/vulkan/dbz3_gpuprof.h
+@@ -75,6 +75,7 @@ struct State {
+   uint64_t win_load_texels = 0;
+   uint64_t win_load_repeats = 0;
+   uint64_t win_direct = 0;  // resolves feitos pelo atalho render target -> textura
++  uint64_t win_skipped = 0;  // desses, os que saltaram a copia para a memoria do guest
+   std::vector<const void*> frame_loaded;
+   std::unordered_map<uint64_t, uint32_t> win_resolve_sizes;  // (w << 32 | h)
+   std::unordered_map<uint64_t, uint32_t> win_load_sizes;     // (fmt << 48 | w << 24 | h)
+@@ -157,6 +158,7 @@ class Zone {
+ inline void CountDraw() { ++g_state.draws; }
+ 
+ inline void CountDirectResolve() { ++g_state.win_direct; }
++inline void CountSkippedMemory() { ++g_state.win_skipped; }
+ 
+ inline void CountResolve(uint32_t width, uint32_t height) {
+   State& st = g_state;
+@@ -203,14 +205,16 @@ inline std::string TakeCountsSummary() {
+     return out;
+   };
+   std::string text = fmt::format(
+-      "resolves={:.1f}/f ({:.2f} Mpx, atalho={:.1f}){} | cargas={:.1f}/f ({:.2f} Mtexels, "
+-      "repetidas={:.1f}){}",
++      "resolves={:.1f}/f ({:.2f} Mpx, atalho={:.1f}, sem_memoria={:.1f}){} | cargas={:.1f}/f "
++      "({:.2f} Mtexels, repetidas={:.1f}){}",
+       double(st.win_resolves) / frames, double(st.win_resolve_px) / frames / 1.0e6,
+-      double(st.win_direct) / frames, top(st.win_resolve_sizes, false), double(st.win_loads) / frames,
++      double(st.win_direct) / frames, double(st.win_skipped) / frames,
++      top(st.win_resolve_sizes, false), double(st.win_loads) / frames,
+       double(st.win_load_texels) / frames / 1.0e6, double(st.win_load_repeats) / frames,
+       top(st.win_load_sizes, true));
+   st.win_resolves = st.win_resolve_px = st.win_loads = st.win_load_texels = st.win_load_repeats = 0;
+   st.win_direct = 0;
++  st.win_skipped = 0;
+   st.win_resolve_sizes.clear();
+   st.win_load_sizes.clear();
+   return text;
+diff --git a/include/rex/graphics/vulkan/render_target_cache.h b/include/rex/graphics/vulkan/render_target_cache.h
+index 1dc3ab2..8141699 100644
+--- a/include/rex/graphics/vulkan/render_target_cache.h
++++ b/include/rex/graphics/vulkan/render_target_cache.h
+@@ -807,7 +807,7 @@ class VulkanRenderTargetCache final : public RenderTargetCache {
+                               bool draw_resolution_scaled);
+   // DBZ3-Android: atalho render target -> textura (dbz3_direct_resolve_texture).
+   bool Dbz3TryResolveToTexture(const draw_util::ResolveInfo& resolve_info,
+-                               VulkanTextureCache& texture_cache);
++                               VulkanTextureCache& texture_cache, bool skip_memory);
+ 
+   // Writes contents of host render targets within rectangles from
+   // ResolveInfo::GetCopyEdramTileSpan to edram_buffer_.
+diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
+index 6773aff..4c77499 100644
+--- a/src/graphics/vulkan/render_target_cache.cpp
++++ b/src/graphics/vulkan/render_target_cache.cpp
+@@ -1195,7 +1195,25 @@ bool VulkanRenderTargetCache::Resolve(const memory::Memory& memory,
+ 
+   // Copying.
+   bool copied = false;
+-  if (resolve_info.copy_dest_extent_length) {
++  // DBZ3-Android: modo rapido do atalho render target -> textura
++  // (dbz3_direct_resolve_skip_memory): se a textura deste destino ja existir, so
++  // ela e preenchida e a copia para a memoria do guest (dump + resolve) e saltada.
++  // A memoria fica com o conteudo antigo; so outra textura com outro formato no
++  // mesmo endereco (ou o CPU) o veriam, e no Budokai 3 ninguem le estes destinos
++  // de outra forma (logs de 2026-10-12/13).
++  if (resolve_info.copy_dest_extent_length && !draw_resolution_scaled &&
++      rex::cvar::GetFlagByName("dbz3_direct_resolve_skip_memory") == "true") {
++    uint32_t dump_base, dump_row_length_used, dump_rows, dump_pitch;
++    resolve_info.GetCopyEdramTileSpan(dump_base, dump_row_length_used, dump_rows, dump_pitch);
++    GetResolveCopyRectanglesToDump(dump_base, dump_row_length_used, dump_rows, dump_pitch,
++                                   dump_rectangles_);
++    if (Dbz3TryResolveToTexture(resolve_info, texture_cache, true)) {
++      written_address_out = resolve_info.copy_dest_extent_start;
++      written_length_out = resolve_info.copy_dest_extent_length;
++      copied = true;
++    }
++  }
++  if (resolve_info.copy_dest_extent_length && !copied) {
+     draw_util::ResolveCopyShaderConstants copy_shader_constants;
+     uint32_t copy_group_count_x, copy_group_count_y;
+     draw_util::ResolveCopyShaderIndex copy_shader =
+@@ -1335,7 +1353,7 @@ bool VulkanRenderTargetCache::Resolve(const memory::Memory& memory,
+           // se a textura que o jogo vai ler deste destino ja existir, e preenchida
+           // logo a partir do render target, sem a carga/untile seguinte.
+           if (!draw_resolution_scaled) {
+-            Dbz3TryResolveToTexture(resolve_info, texture_cache);
++            Dbz3TryResolveToTexture(resolve_info, texture_cache, false);
+           }
+           written_address_out = resolve_info.copy_dest_extent_start;
+           written_length_out = resolve_info.copy_dest_extent_length;
+@@ -6264,7 +6282,8 @@ void main() {
+ }  // namespace
+ 
+ bool VulkanRenderTargetCache::Dbz3TryResolveToTexture(const draw_util::ResolveInfo& resolve_info,
+-                                                      VulkanTextureCache& texture_cache) {
++                                                      VulkanTextureCache& texture_cache,
++                                                      bool skip_memory) {
+   const std::string mode_text = rex::cvar::GetFlagByName("dbz3_direct_resolve_texture");
+   const int mode = mode_text.empty() ? 0 : std::atoi(mode_text.c_str());
+   if (mode <= 0 || GetPath() != Path::kHostRenderTargets) {
+@@ -6375,6 +6394,13 @@ bool VulkanRenderTargetCache::Dbz3TryResolveToTexture(const draw_util::ResolveIn
+     return false;
+   }
+ 
++  if (skip_memory) {
++    // Sem escrita na memoria do guest: invalida as outras texturas deste intervalo
++    // como o resolve faria (a nossa volta a ficar carregada no fim).
++    texture_cache.MarkRangeAsResolved(resolve_info.copy_dest_extent_start,
++                                      resolve_info.copy_dest_extent_length);
++    dbz3_gpuprof::CountSkippedMemory();
++  }
+   const VkDeviceSize buffer_size = VkDeviceSize(width) * height * 4;
+   VulkanCommandProcessor::ScratchBufferAcquisition scratch = command_processor_.AcquireScratchGpuBuffer(
+       buffer_size, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_WRITE_BIT);
+diff --git a/src/ui/vulkan/vulkan_presenter.cpp b/src/ui/vulkan/vulkan_presenter.cpp
+index 9257887..3ecc146 100644
+--- a/src/ui/vulkan/vulkan_presenter.cpp
++++ b/src/ui/vulkan/vulkan_presenter.cpp
+@@ -64,6 +64,10 @@ REXCVAR_DEFINE_INT32(dbz3_direct_resolve_texture, 0, "GPU",
+                      "para a textura (0 desligado, 1 ligado, 2 ligado com R/B invertido)")
+     .range(0, 2)
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
++REXCVAR_DEFINE_BOOL(dbz3_direct_resolve_skip_memory, false, "GPU",
++                    "DBZ3-Android: com o atalho ligado, salta a copia para a memoria do guest "
++                    "quando a textura do destino ja existe (mais rapido)")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ #endif
+ 
+ // REXGLUE_DBZ3_VULKAN_PRESENT_FIX

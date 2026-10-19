@@ -1,0 +1,76 @@
+diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
+index 4aa3b87..3511f9f 100644
+--- a/src/graphics/vulkan/render_target_cache.cpp
++++ b/src/graphics/vulkan/render_target_cache.cpp
+@@ -1149,6 +1149,38 @@ bool VulkanRenderTargetCache::Resolve(const memory::Memory& memory,
+ 
+   dbz3_gpuprof::CountResolve(uint32_t(resolve_info.coordinate_info.width_div_8) * 8,
+                              resolve_info.height_div_8 * 8);
++  // DBZ3-Android: descricao dos resolves grandes (uma vez por combinacao), para o
++  // atalho render target -> textura: origem, destino, formato, endian e troca R/B.
++  if (dbz3_gpuprof::g_state.enabled &&
++      uint32_t(resolve_info.coordinate_info.width_div_8) * 8 * resolve_info.height_div_8 * 8 >=
++          640 * 360) {
++    static std::vector<uint64_t> dbz3_seen;
++    const draw_util::ResolveEdramInfo& src_info =
++        resolve_info.IsCopyingDepth() ? resolve_info.depth_edram_info : resolve_info.color_edram_info;
++    const uint64_t sig = (uint64_t(resolve_info.copy_dest_base) << 32) ^
++                         resolve_info.copy_dest_info.value ^ (uint64_t(src_info.packed) << 7);
++    if (dbz3_seen.size() < 48 &&
++        std::find(dbz3_seen.begin(), dbz3_seen.end(), sig) == dbz3_seen.end()) {
++      dbz3_seen.push_back(sig);
++      REXGPU_INFO(
++          "dbz3: resolve grande {}x{} dest={:08X} pitch={} dest_fmt={} endian={} swap={} "
++          "exp_bias={} src_select={} src_fmt={} 64bpp={} msaa={} src_pitch_tiles={} "
++          "src_base_tiles={} edram_off=({},{}) dest_off=({},{})",
++          uint32_t(resolve_info.coordinate_info.width_div_8) * 8, resolve_info.height_div_8 * 8,
++          resolve_info.copy_dest_base, uint32_t(resolve_info.copy_dest_coordinate_info.pitch_aligned_div_32) * 32,
++          uint32_t(resolve_info.copy_dest_info.copy_dest_format),
++          uint32_t(resolve_info.copy_dest_info.copy_dest_endian),
++          uint32_t(resolve_info.copy_dest_info.copy_dest_swap),
++          int32_t(resolve_info.copy_dest_info.copy_dest_exp_bias),
++          uint32_t(resolve_info.rb_copy_control.copy_src_select), uint32_t(src_info.format),
++          uint32_t(src_info.format_is_64bpp), uint32_t(src_info.msaa_samples),
++          uint32_t(src_info.pitch_tiles), uint32_t(src_info.base_tiles),
++          uint32_t(resolve_info.coordinate_info.edram_offset_x_div_8) * 8,
++          uint32_t(resolve_info.coordinate_info.edram_offset_y_div_8) * 8,
++          uint32_t(resolve_info.copy_dest_coordinate_info.offset_x_div_8) * 8,
++          uint32_t(resolve_info.copy_dest_coordinate_info.offset_y_div_8) * 8);
++    }
++  }
+   // Nothing to copy/clear.
+   if (!resolve_info.coordinate_info.width_div_8 || !resolve_info.height_div_8) {
+     return true;
+diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
+index 4faaf54..8682540 100644
+--- a/src/graphics/vulkan/texture_cache.cpp
++++ b/src/graphics/vulkan/texture_cache.cpp
+@@ -1257,6 +1257,28 @@ bool VulkanTextureCache::LoadTextureDataFromResidentMemoryImpl(Texture& texture,
+   TextureKey texture_key = vulkan_texture.key();
+   dbz3_gpuprof::CountLoad(&texture, texture_key.GetWidth(), texture_key.GetHeight(),
+                           texture_key.GetDepthOrArraySize(), uint32_t(texture_key.format));
++  // DBZ3-Android: descricao das texturas grandes carregadas (uma vez por chave), para
++  // ligar aos resolves grandes (mesmo endereco) no atalho render target -> textura.
++  if (dbz3_gpuprof::g_state.enabled &&
++      texture_key.GetWidth() * texture_key.GetHeight() >= 640 * 360) {
++    static std::vector<uint64_t> dbz3_seen;
++    uint64_t sig = 0;
++    std::memcpy(&sig, &texture_key, std::min(sizeof(sig), sizeof(texture_key)));
++    sig ^= uint64_t(texture_key.format) << 58 ^ uint64_t(texture_key.endianness) << 56;
++    if (dbz3_seen.size() < 48 &&
++        std::find(dbz3_seen.begin(), dbz3_seen.end(), sig) == dbz3_seen.end()) {
++      dbz3_seen.push_back(sig);
++      REXGPU_INFO(
++          "dbz3: textura grande {}x{} base={:08X} fmt={} endian={} tiled={} pitch={} "
++          "mips={} packed={} signed_sep={} scaled={} dim={} host_fmt_ok={}",
++          texture_key.GetWidth(), texture_key.GetHeight(), uint32_t(texture_key.base_page) << 12,
++          uint32_t(texture_key.format), uint32_t(texture_key.endianness),
++          uint32_t(texture_key.tiled), uint32_t(texture_key.pitch),
++          uint32_t(texture_key.mip_max_level), uint32_t(texture_key.packed_mips),
++          uint32_t(texture_key.signed_separate), uint32_t(texture_key.scaled_resolve),
++          uint32_t(texture_key.dimension), 1);
++    }
++  }
+ 
+   // DBZ3: si la textura esta en un pack, se sube la imagen del pack (RGBA8 con
+   // mips) y se omite la carga estandar. Si la subida falla, se sigue con el

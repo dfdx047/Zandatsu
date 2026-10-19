@@ -1,0 +1,34 @@
+--- a/src/system/mmio_handler.cpp
++++ b/src/system/mmio_handler.cpp
+@@ -406,6 +406,20 @@
+     // clears the watch we just hit).
+     // Do this under the lock so we don't introduce another race condition.
+     auto lock = global_critical_region_.Acquire();
++#if REX_PLATFORM_ANDROID
++    // DBZ3-Android: no Linux o QueryProtect le e analisa /proc/self/maps, que
++    // no Android tem milhares de linhas; fazia-se isso em cada falta de pagina
++    // vigiada (escritas do jogo em memoria que a GPU observa). Primeiro tenta-se
++    // o callback, que conhece as vigias; so se ele nao tratar a falta e que se
++    // faz a verificacao cara da corrida (outra thread levantou a vigia).
++    if (access_violation_callback_) {
++      if (access_violation_callback_(std::move(lock), access_violation_callback_context_,
++                                     fault_host_address, is_write)) {
++        return true;
++      }
++      lock = global_critical_region_.Acquire();
++    }
++#endif
+     memory::PageAccess cur_access;
+     size_t page_length = memory::page_size();
+     memory::QueryProtect(fault_host_address, page_length, cur_access);
+@@ -414,6 +428,10 @@
+       // Another thread has cleared this watch. Abort.
+       return true;
+     }
++#if REX_PLATFORM_ANDROID
++    // O callback ja foi tentado acima e nao tratou a falta.
++    return false;
++#endif
+     // The address is not found within any range, so either a write watch or an
+     // actual access violation.
+     if (access_violation_callback_) {

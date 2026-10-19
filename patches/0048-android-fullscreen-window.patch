@@ -1,0 +1,37 @@
+diff --git a/src/ui/window_sdl.cpp b/src/ui/window_sdl.cpp
+index d55d1ec..f89e2c5 100644
+--- a/src/ui/window_sdl.cpp
++++ b/src/ui/window_sdl.cpp
+@@ -172,10 +172,19 @@ bool WindowSDL::OpenImpl() {
+     }
+   }
+ 
++#if REX_PLATFORM_ANDROID
++  // DBZ3-Android: no Android a janela e sempre o ecra inteiro. Sem isto (o jogo forca
++  // fullscreen=false no arranque, para o launcher do PC) o SDLActivity aplica o estilo
++  // "janela": barra de estado e de navegacao visiveis e a superficie fica mais pequena
++  // que o ecra (1920x918 num Retroid Pocket 5 de 1920x1080), o que corta/encolhe a
++  // imagem nos portateis 16:9. Em ecra inteiro o SDL usa o modo imersivo.
++  SDL_SetWindowFullscreen(sdl_window_, true);
++#else
+   if (IsFullscreen()) {
+     // Borderless desktop fullscreen (a NULL display mode is SDL3's default).
+     SDL_SetWindowFullscreen(sdl_window_, true);
+   }
++#endif
+ #if REX_PLATFORM_MAC
+   CFPreferencesSetAppValue(CFSTR("ApplePressAndHoldEnabled"), kCFBooleanFalse,
+                            kCFPreferencesCurrentApplication);
+@@ -297,7 +306,12 @@ void WindowSDL::ApplyNewFullscreen() {
+   if (!sdl_window_) {
+     return;
+   }
++#if REX_PLATFORM_ANDROID
++  // DBZ3-Android: sempre ecra inteiro (ver OpenImpl).
++  SDL_SetWindowFullscreen(sdl_window_, true);
++#else
+   SDL_SetWindowFullscreen(sdl_window_, IsFullscreen());
++#endif
+ }
+ 
+ void WindowSDL::ApplyNewTitle() {

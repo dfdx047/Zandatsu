@@ -6,6 +6,10 @@
 
 #include <rex/rex_app.h>
 
+#if defined(__ANDROID__)
+#include <rex/main_android.h>
+#endif
+
 class MgrApp : public rex::ReXApp {
  public:
   using rex::ReXApp::ReXApp;
@@ -14,6 +18,19 @@ class MgrApp : public rex::ReXApp {
       rex::ui::WindowedAppContext& ctx) {
     return std::unique_ptr<MgrApp>(new MgrApp(ctx, "mgr",
         PPCImageConfig));
+  }
+
+  // Android: o jogo fica em <pasta do app>/game (default.xex + media/), ou seja
+  // /sdcard/Android/data/com.dfdx047.swordman/files/game. O cvar game_data_root
+  // (cvars.txt) continua a mandar, se estiver definido.
+  void OnConfigurePaths(rex::PathConfig& paths) override {
+#if defined(__ANDROID__)
+    if (paths.game_data_root.empty()) {
+      paths.game_data_root = rex::GetAndroidAppDirectory() / "game";
+    }
+#else
+    (void)paths;
+#endif
   }
 
   // Override virtual hooks for customization:
@@ -27,5 +44,4 @@ class MgrApp : public rex::ReXApp {
   // std::unique_ptr<rex::ui::AchievementNotificationDialog>
   // CreateAchievementNotificationDialog() override;
   // void OnShutdown() override {}
-  // void OnConfigurePaths(rex::PathConfig& paths) override {}
 };

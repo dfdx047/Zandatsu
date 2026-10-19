@@ -1,0 +1,15 @@
+--- a/src/audio/sdl/sdl_audio_driver.cpp
++++ b/src/audio/sdl/sdl_audio_driver.cpp
+@@ -87,7 +87,11 @@
+ 
+   // A 1-channel device gets the stereo fold too, then SDL collapses to mono.
+   // Handing it a 6ch stream instead would use SDL's own downmix.
+-  if (obtained_spec.channels <= 2) {
++  // DBZ3-Android: no Android o dispositivo anuncia 6 canais, mas os altifalantes
++  // do telemovel so tocam L/R e o canal central (onde estao as vozes do jogo)
++  // perdia-se. Usamos sempre a mistura estereo do runtime, que poe o central e
++  // o LFE nos dois lados.
++  if (obtained_spec.channels <= 2 || REX_PLATFORM_ANDROID) {
+     SDL_DestroyAudioStream(sdl_stream_);
+     sdl_stream_ = nullptr;
+     desired_spec.channels = 2;

@@ -1,0 +1,261 @@
+--- a/src/graphics/vulkan/pipeline_cache.cpp
++++ b/src/graphics/vulkan/pipeline_cache.cpp
+@@ -12,6 +12,10 @@
+ #include <algorithm>
+ #include <array>
+ #include <atomic>
++#include <chrono>
++#include <cstdio>
++#include <filesystem>
++#include <thread>
+ #include <cstdint>
+ #include <cstring>
+ #include <memory>
+@@ -63,6 +67,109 @@
+ 
+ namespace {
+ 
++// DBZ3-Android: cache de pipelines do proprio driver (VkPipelineCache) guardada
++// em disco. Sem ela, cada pipeline era compilado do zero pelo driver em cada
++// arranque (10-30 ms no Adreno), o que dava os travoes nas transformacoes e nos
++// poderes. O driver valida o cabecalho dos dados (fabricante, GPU, versao do
++// driver), por isso um ficheiro de outro aparelho ou driver e simplesmente
++// ignorado. E guardado periodicamente numa thread a parte, porque no Android a
++// app pode ser terminada sem passar pelo Shutdown.
++struct Dbz3DriverPipelineCache {
++  VkPipelineCache cache = VK_NULL_HANDLE;
++  std::filesystem::path path;
++  std::atomic<uint32_t> dirty{0};
++  std::atomic<bool> saving{false};
++  std::chrono::steady_clock::time_point last_save{};
++};
++Dbz3DriverPipelineCache g_dbz3_driver_cache;
++
++void Dbz3SaveDriverPipelineCache(const ui::vulkan::VulkanDevice::Functions& dfn,
++                                 VkDevice device) {
++  VkPipelineCache cache = g_dbz3_driver_cache.cache;
++  if (cache == VK_NULL_HANDLE || g_dbz3_driver_cache.path.empty()) {
++    return;
++  }
++  size_t size = 0;
++  if (dfn.vkGetPipelineCacheData(device, cache, &size, nullptr) != VK_SUCCESS || !size) {
++    return;
++  }
++  std::vector<uint8_t> data(size);
++  VkResult result = dfn.vkGetPipelineCacheData(device, cache, &size, data.data());
++  if (result != VK_SUCCESS && result != VK_INCOMPLETE) {
++    return;
++  }
++  data.resize(size);
++  std::filesystem::path temp_path = g_dbz3_driver_cache.path;
++  temp_path += ".tmp";
++  FILE* file = rex::filesystem::OpenFile(temp_path, "wb");
++  if (!file) {
++    return;
++  }
++  const bool written = fwrite(data.data(), 1, data.size(), file) == data.size();
++  fclose(file);
++  std::error_code ec;
++  if (written) {
++    std::filesystem::rename(temp_path, g_dbz3_driver_cache.path, ec);
++  }
++  if (!written || ec) {
++    std::filesystem::remove(temp_path, ec);
++    return;
++  }
++  REXGPU_INFO("dbz3: cache de pipelines do driver guardada ({} KB)", data.size() >> 10);
++}
++
++void Dbz3InitDriverPipelineCache(const ui::vulkan::VulkanDevice::Functions& dfn,
++                                 VkDevice device, const std::filesystem::path& path) {
++  if (g_dbz3_driver_cache.cache != VK_NULL_HANDLE) {
++    return;
++  }
++  g_dbz3_driver_cache.path = path;
++  std::vector<uint8_t> data;
++  if (FILE* file = rex::filesystem::OpenFile(path, "rb")) {
++    fseek(file, 0, SEEK_END);
++    const long length = ftell(file);
++    fseek(file, 0, SEEK_SET);
++    if (length > 0) {
++      data.resize(size_t(length));
++      if (fread(data.data(), 1, data.size(), file) != data.size()) {
++        data.clear();
++      }
++    }
++    fclose(file);
++  }
++  VkPipelineCacheCreateInfo create_info = {};
++  create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
++  create_info.initialDataSize = data.size();
++  create_info.pInitialData = data.empty() ? nullptr : data.data();
++  if (dfn.vkCreatePipelineCache(device, &create_info, nullptr, &g_dbz3_driver_cache.cache) !=
++      VK_SUCCESS) {
++    // Dados invalidos ou de outro driver: comeca vazia.
++    create_info.initialDataSize = 0;
++    create_info.pInitialData = nullptr;
++    data.clear();
++    if (dfn.vkCreatePipelineCache(device, &create_info, nullptr, &g_dbz3_driver_cache.cache) !=
++        VK_SUCCESS) {
++      g_dbz3_driver_cache.cache = VK_NULL_HANDLE;
++      REXGPU_WARN("dbz3: nao foi possivel criar a cache de pipelines do driver");
++      return;
++    }
++  }
++  g_dbz3_driver_cache.last_save = std::chrono::steady_clock::now();
++  REXGPU_INFO("dbz3: cache de pipelines do driver carregada ({} KB de {})", data.size() >> 10,
++              rex::path_to_utf8(path));
++}
++
++}  // namespace
++
++// DBZ3-Android: tambem usada pelos pipelines de transferencia de render targets
++// (render_target_cache.cpp), criados a meio do jogo nos efeitos.
++VkPipelineCache Dbz3GetDriverPipelineCache() { return g_dbz3_driver_cache.cache; }
++void Dbz3MarkDriverPipelineCacheDirty() {
++  g_dbz3_driver_cache.dirty.fetch_add(1, std::memory_order_relaxed);
++}
++
++namespace {
++
+ constexpr std::string_view kPlaceholderPixelShaderSource = R"(#version 460
+ layout(location = 0) out vec4 oC0;
+ void main() {
+@@ -411,6 +518,14 @@
+   bool edram_fragment_shader_interlock =
+       render_target_cache_.GetPath() == RenderTargetCache::Path::kPixelShaderInterlock;
+ 
++  // DBZ3-Android: a cache do driver tem de existir antes da pre-compilacao dos
++  // pipelines guardados, que vem a seguir.
++  {
++    const ui::vulkan::VulkanDevice* const vulkan_device = command_processor_.GetVulkanDevice();
++    Dbz3InitDriverPipelineCache(vulkan_device->functions(), vulkan_device->device(),
++                                shader_storage_root / "vulkan_driver_pipelines.bin");
++  }
++
+   // Initialize the pipeline storage stream - read pipeline descriptions and
+   // collect used shader modifications to translate.
+   std::vector<PipelineStoredDescription> pipeline_stored_descriptions;
+@@ -789,6 +904,27 @@
+   }
+ 
+   ProcessDeferredPipelineDestructions(false);
++
++  // DBZ3-Android: guarda a cache do driver de 20 em 20 s se houver pipelines
++  // novos, numa thread a parte (o vkGetPipelineCacheData e a escrita podem
++  // demorar e nao devem travar a GPU).
++  if (g_dbz3_driver_cache.cache != VK_NULL_HANDLE &&
++      g_dbz3_driver_cache.dirty.load(std::memory_order_relaxed) &&
++      !g_dbz3_driver_cache.saving.load(std::memory_order_acquire)) {
++    const auto now = std::chrono::steady_clock::now();
++    if (now - g_dbz3_driver_cache.last_save >= std::chrono::seconds(20)) {
++      g_dbz3_driver_cache.last_save = now;
++      g_dbz3_driver_cache.dirty.store(0, std::memory_order_relaxed);
++      g_dbz3_driver_cache.saving.store(true, std::memory_order_release);
++      const ui::vulkan::VulkanDevice* const vulkan_device = command_processor_.GetVulkanDevice();
++      const ui::vulkan::VulkanDevice::Functions* const save_dfn = &vulkan_device->functions();
++      const VkDevice save_device = vulkan_device->device();
++      std::thread([save_dfn, save_device]() {
++        Dbz3SaveDriverPipelineCache(*save_dfn, save_device);
++        g_dbz3_driver_cache.saving.store(false, std::memory_order_release);
++      }).detach();
++    }
++  }
+ }
+ 
+ void VulkanPipelineCache::Shutdown() {
+@@ -822,6 +958,19 @@
+   const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
+   const VkDevice device = vulkan_device->device();
+ 
++  // DBZ3-Android: ultima gravacao da cache do driver e destruicao.
++  if (g_dbz3_driver_cache.cache != VK_NULL_HANDLE) {
++    while (g_dbz3_driver_cache.saving.load(std::memory_order_acquire)) {
++      std::this_thread::sleep_for(std::chrono::milliseconds(5));
++    }
++    if (g_dbz3_driver_cache.dirty.load(std::memory_order_relaxed)) {
++      Dbz3SaveDriverPipelineCache(dfn, device);
++    }
++    dfn.vkDestroyPipelineCache(device, g_dbz3_driver_cache.cache, nullptr);
++    g_dbz3_driver_cache.cache = VK_NULL_HANDLE;
++    g_dbz3_driver_cache.dirty.store(0, std::memory_order_relaxed);
++  }
++
+   ProcessDeferredPipelineDestructions(true);
+ 
+   // Destroy all pipelines.
+@@ -3480,8 +3629,11 @@
+   const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
+   const VkDevice device = vulkan_device->device();
+   VkPipeline pipeline;
+-  VkResult create_result = dfn.vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1,
++  VkResult create_result = dfn.vkCreateGraphicsPipelines(device, g_dbz3_driver_cache.cache, 1,
+                                                          &pipeline_create_info, nullptr, &pipeline);
++  if (create_result == VK_SUCCESS) {
++    g_dbz3_driver_cache.dirty.fetch_add(1, std::memory_order_relaxed);
++  }
+   if (create_result != VK_SUCCESS) {
+     uint64_t ps_hash = creation_arguments.pixel_shader
+                            ? creation_arguments.pixel_shader->shader().ucode_data_hash()
+--- a/src/graphics/vulkan/render_target_cache.cpp
++++ b/src/graphics/vulkan/render_target_cache.cpp
+@@ -64,6 +64,10 @@
+ 
+ namespace rex::graphics::vulkan {
+ 
++// DBZ3-Android: cache de pipelines do driver (pipeline_cache.cpp).
++VkPipelineCache Dbz3GetDriverPipelineCache();
++void Dbz3MarkDriverPipelineCacheDirty();
++
+ // Generated with `xb buildshaders`.
+ namespace shaders {
+ #include "../shaders/vulkan_spirv/host_depth_store_1xmsaa_cs.h"
+@@ -4506,8 +4510,9 @@
+   pipeline_create_info.subpass = 0;
+   pipeline_create_info.basePipelineHandle = VK_NULL_HANDLE;
+   pipeline_create_info.basePipelineIndex = -1;
+-  if (dfn.vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeline_create_info, nullptr,
+-                                    &pipelines[0]) != VK_SUCCESS) {
++  Dbz3MarkDriverPipelineCacheDirty();
++  if (dfn.vkCreateGraphicsPipelines(device, Dbz3GetDriverPipelineCache(), 1, &pipeline_create_info,
++                                    nullptr, &pipelines[0]) != VK_SUCCESS) {
+     REXGPU_ERROR(
+         "VulkanRenderTargetCache: Failed to create the render target ownership "
+         "transfer pipeline for render pass 0x{:08X}, shader 0x{:08X}",
+@@ -4528,8 +4533,8 @@
+           (dest_sample_count == 2 && !msaa_2x_attachments_supported_ && i == 1) ? 3 : i;
+       sample_id_specialization_constant = host_sample_index;
+       sample_mask = uint32_t(1) << host_sample_index;
+-      if (dfn.vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeline_create_info, nullptr,
+-                                        &pipelines[i]) != VK_SUCCESS) {
++      if (dfn.vkCreateGraphicsPipelines(device, Dbz3GetDriverPipelineCache(), 1,
++                                        &pipeline_create_info, nullptr, &pipelines[i]) != VK_SUCCESS) {
+         REXGPU_ERROR(
+             "VulkanRenderTargetCache: Failed to create the render target "
+             "ownership transfer pipeline for render pass 0x{:08X}, shader "
+--- a/include/rex/ui/vulkan/functions/device_1_0.inc
++++ b/include/rex/ui/vulkan/functions/device_1_0.inc
+@@ -43,6 +43,7 @@
+ XE_UI_VULKAN_FUNCTION(vkCreateGraphicsPipelines)
+ XE_UI_VULKAN_FUNCTION(vkCreateImage)
+ XE_UI_VULKAN_FUNCTION(vkCreateImageView)
++XE_UI_VULKAN_FUNCTION(vkCreatePipelineCache)
+ XE_UI_VULKAN_FUNCTION(vkCreatePipelineLayout)
+ XE_UI_VULKAN_FUNCTION(vkCreateQueryPool)
+ XE_UI_VULKAN_FUNCTION(vkCreateRenderPass)
+@@ -59,6 +60,7 @@
+ XE_UI_VULKAN_FUNCTION(vkDestroyImage)
+ XE_UI_VULKAN_FUNCTION(vkDestroyImageView)
+ XE_UI_VULKAN_FUNCTION(vkDestroyPipeline)
++XE_UI_VULKAN_FUNCTION(vkDestroyPipelineCache)
+ XE_UI_VULKAN_FUNCTION(vkDestroyPipelineLayout)
+ XE_UI_VULKAN_FUNCTION(vkDestroyQueryPool)
+ XE_UI_VULKAN_FUNCTION(vkDestroyRenderPass)
+@@ -72,6 +74,7 @@
+ XE_UI_VULKAN_FUNCTION(vkGetDeviceQueue)
+ XE_UI_VULKAN_FUNCTION(vkGetFenceStatus)
+ XE_UI_VULKAN_FUNCTION(vkGetImageMemoryRequirements)
++XE_UI_VULKAN_FUNCTION(vkGetPipelineCacheData)
+ XE_UI_VULKAN_FUNCTION(vkInvalidateMappedMemoryRanges)
+ XE_UI_VULKAN_FUNCTION(vkMapMemory)
+ XE_UI_VULKAN_FUNCTION(vkResetCommandPool)

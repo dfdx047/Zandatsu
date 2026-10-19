@@ -1,0 +1,103 @@
+--- a/include/rex/platform/dynlib.h
++++ b/include/rex/platform/dynlib.h
+@@ -36,6 +36,10 @@
+ 
+   void* GetRawSymbol(const char* name) const;
+ 
++  // DBZ3-Android: assume a posse de um handle ja aberto por outro meio (por
++  // exemplo, o driver Vulkan carregado pelo libadrenotools).
++  void Adopt(void* handle);
++
+   template <typename T>
+   T GetSymbol(const char* name) const {
+     return reinterpret_cast<T>(GetRawSymbol(name));
+--- a/src/core/dynlib_posix.cpp
++++ b/src/core/dynlib_posix.cpp
+@@ -38,6 +38,11 @@
+   }
+ }
+ 
++void DynamicLibrary::Adopt(void* handle) {
++  Close();
++  handle_ = handle;
++}
++
+ void* DynamicLibrary::GetRawSymbol(const char* name) const {
+   if (!handle_)
+     return nullptr;
+--- a/src/ui/vulkan/vulkan_instance.cpp
++++ b/src/ui/vulkan/vulkan_instance.cpp
+@@ -25,12 +25,56 @@
+ #include "vulkan_moltenvk.h"
+ #endif
+ 
++#if REX_PLATFORM_ANDROID && defined(REX_HAS_ADRENOTOOLS)
++#include <dlfcn.h>
++
++#include <cstdlib>
++
++#include <adrenotools/driver.h>
++#endif
++
+ REXCVAR_DEFINE_BOOL(vulkan_log_debug_messages, true, "UI/Vulkan", "Log Vulkan debug messages");
+ 
+ namespace rex {
+ namespace ui {
+ namespace vulkan {
+ 
++#if REX_PLATFORM_ANDROID && defined(REX_HAS_ADRENOTOOLS)
++// DBZ3-Android: driver Vulkan alternativo (por exemplo Turnip/Mesa) carregado
++// com o libadrenotools. A app (MainActivity) copia o .so para a pasta interna e
++// define REX_VULKAN_DRIVER_DIR e REX_VULKAN_DRIVER_NAME; sem essas variaveis usa-se
++// o driver do sistema. Devolve nullptr se nao houver driver alternativo ou se
++// ele falhar a carregar (e entao tambem se usa o do sistema).
++static void* Dbz3OpenCustomVulkanDriver() {
++  const char* driver_dir = std::getenv("REX_VULKAN_DRIVER_DIR");
++  const char* driver_name = std::getenv("REX_VULKAN_DRIVER_NAME");
++  const char* hook_dir = std::getenv("REX_NATIVE_LIB_DIR");
++  if (!driver_dir || !*driver_dir || !driver_name || !*driver_name || !hook_dir || !*hook_dir) {
++    return nullptr;
++  }
++  std::string driver_dir_slash(driver_dir);
++  if (driver_dir_slash.back() != '/') {
++    driver_dir_slash += '/';
++  }
++  std::string hook_dir_slash(hook_dir);
++  if (hook_dir_slash.back() != '/') {
++    hook_dir_slash += '/';
++  }
++  void* handle = adrenotools_open_libvulkan(RTLD_NOW, ADRENOTOOLS_DRIVER_CUSTOM, nullptr,
++                                            hook_dir_slash.c_str(), driver_dir_slash.c_str(),
++                                            driver_name, nullptr, nullptr);
++  const char* error = handle ? nullptr : dlerror();
++  if (handle) {
++    REXLOG_INFO("Vulkan: a usar o driver alternativo {}{}", driver_dir_slash, driver_name);
++  } else {
++    REXLOG_ERROR("Vulkan: o driver alternativo {}{} falhou a carregar ({}); a usar o do sistema",
++                 driver_dir_slash, driver_name, error ? error : "sem detalhe");
++  }
++  return handle;
++}
++#endif
++
++
+ std::unique_ptr<VulkanInstance> VulkanInstance::Create(const bool with_surface,
+                                                        const bool try_enable_validation) {
+   std::unique_ptr<VulkanInstance> vulkan_instance(new VulkanInstance());
+@@ -75,7 +119,15 @@
+     return nullptr;
+   }
+ #else
+-  loader_loaded = vulkan_instance->loader_.Load(platform::lib_names::kVulkanLoader);
++#if REX_PLATFORM_ANDROID && defined(REX_HAS_ADRENOTOOLS)
++  if (void* custom_driver = Dbz3OpenCustomVulkanDriver()) {
++    vulkan_instance->loader_.Adopt(custom_driver);
++    loader_loaded = true;
++  }
++#endif
++  if (!loader_loaded) {
++    loader_loaded = vulkan_instance->loader_.Load(platform::lib_names::kVulkanLoader);
++  }
+   if (!loader_loaded) {
+     REXLOG_ERROR("Failed to load {}", platform::lib_names::kVulkanLoader);
+     return nullptr;

@@ -1,0 +1,27 @@
+# cvars.txt para o PRIMEIRO teste do MGR no aparelho: todas as otimizacoes de GPU
+# do Dragon Fury desligadas (caminho emulado "puro", como o Xenia).
+#
+# Copiar para o aparelho:
+#   adb push docs/cvars-sem-otimizacoes.txt /sdcard/Android/data/com.dfdx047.swordman/files/cvars.txt
+#
+# Primeiro a imagem certa, depois desempenho (OptXbox, GUIA_DE_PORT.md, fase 3).
+# Com a imagem certa, ligar uma de cada vez e medir com optxbox compare.
+
+# Diagnosticos (linha "dbz3: perf" a cada 5 s, fins de passe por causa)
+dbz3_perf_logging = true
+
+# Otimizacoes do caminho emulado (padroes A-D do OptXbox), todas desligadas
+dbz3_clear_to_1x = false
+dbz3_hoist_uploads = false
+dbz3_resolve_early_transition = false
+dbz3_rt_direct = false
+dbz3_rt_elide_restores = false
+dbz3_skip_depth_restore = false
+dbz3_direct_resolve_texture = 0
+dbz3_direct_resolve_skip_memory = false
+dbz3_spec_texture_signs = false
+dbz3_tex_implicit_lod = false
+dbz3_frameskip = 0
+
+# Hashes de shaders do Budokai 3: no MGR nao servem
+dbz3_rt_restore_shaders = ""

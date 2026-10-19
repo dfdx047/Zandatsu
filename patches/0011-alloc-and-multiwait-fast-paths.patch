@@ -1,0 +1,89 @@
+--- a/src/core/memory_posix.cpp
++++ b/src/core/memory_posix.cpp
+@@ -306,12 +306,23 @@
+   if (errno == EEXIST && base_address &&
+       (allocation_type == AllocationType::kCommit ||
+        allocation_type == AllocationType::kReserveCommit)) {
++#if REX_PLATFORM_ANDROID
++    // DBZ3-Android (0011): sem ler /proc/self/maps. Cada commit do guest
++    // (MmAllocatePhysicalMemoryEx) percorria o ficheiro inteiro, com milhares
++    // de linhas, e isso era ~90% dos travoes de 200-400 ms nas transformacoes.
++    // O proprio mprotect falha com ENOMEM se parte do intervalo nao estiver
++    // mapeada, que e exatamente o que IsRangeFullyMapped verificava.
++    if (mprotect(base_address, length, static_cast<int>(prot_requested)) == 0) {
++      return base_address;
++    }
++#else
+     // Verify the entire range is mapped before using mprotect
+     if (IsRangeFullyMapped(base_address, length)) {
+       if (mprotect(base_address, length, static_cast<int>(prot_requested)) == 0) {
+         return base_address;
+       }
+     }
++#endif
+   }
+ #endif
+ 
+--- a/src/core/threading_posix.cpp
++++ b/src/core/threading_posix.cpp
+@@ -292,7 +292,18 @@
+   // thread de audio. Agora qualquer sinal (Set/Release/fim de thread) avanca um
+   // contador global e acorda quem esta em WaitMultiple, que dorme de verdade
+   // entre verificacoes.
+-  static void NotifyMultiWaiters() {
++  //
++  // DBZ3-Android (0011): so se mexe no estado global quando ha alguem em
++  // WaitMultiple a esperar POR ESTE objeto (multi_waiters_). Antes, cada
++  // Set/Release de qualquer evento trancava o mutex global e acordava a thread
++  // de audio; nas transformacoes os 6 workers do jogo passavam mais tempo nisso
++  // (no kernel) do que a trabalhar. Chamado sempre com mutex_ deste objeto
++  // trancado, e WaitMultiple incrementa o contador antes de verificar os
++  // objetos (sob os mesmos mutexes), por isso nenhum sinal se perde.
++  void NotifyMultiWaiters() {
++    if (multi_waiters_.load(std::memory_order_seq_cst) == 0) {
++      return;
++    }
+     auto& state = MultiWaitState();
+     {
+       std::lock_guard<std::mutex> guard(state.mutex);
+@@ -353,6 +364,22 @@
+     std::vector<std::unique_lock<std::mutex>> locks;
+     locks.reserve(handles.size());
+ 
++    // Regista-se em cada objeto (ver NotifyMultiWaiters) ate sair, por
++    // qualquer caminho.
++    struct MultiWaiterRegistration {
++      const std::vector<PosixConditionBase*>& handles;
++      explicit MultiWaiterRegistration(const std::vector<PosixConditionBase*>& h) : handles(h) {
++        for (auto* handle : handles) {
++          handle->multi_waiters_.fetch_add(1, std::memory_order_seq_cst);
++        }
++      }
++      ~MultiWaiterRegistration() {
++        for (auto* handle : handles) {
++          handle->multi_waiters_.fetch_sub(1, std::memory_order_seq_cst);
++        }
++      }
++    } multi_waiter_registration(handles);
++
+     while (true) {
+       size_t first_signaled = std::numeric_limits<size_t>::max();
+       bool condition_met = false;
+@@ -467,6 +494,8 @@
+  protected:
+   inline virtual bool signaled() const = 0;
+   inline virtual void post_execution() = 0;
++  // Quantos WaitMultiple estao a espera deste objeto (DBZ3-Android, 0011).
++  std::atomic<uint32_t> multi_waiters_{0};
+   std::condition_variable cond_;
+   std::mutex mutex_;
+ };
+@@ -1494,7 +1523,7 @@
+     thread->handle_.exit_code_ = 0;
+     thread->handle_.signaled_ = true;
+     thread->handle_.cond_.notify_all();
+-    PosixConditionBase::NotifyMultiWaiters();
++    thread->handle_.NotifyMultiWaiters();
+   }
+ 
+   current_thread_ = nullptr;

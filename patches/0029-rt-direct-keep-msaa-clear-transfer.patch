@@ -1,0 +1,94 @@
+diff --git a/include/rex/graphics/pipeline/render_target/cache.h b/include/rex/graphics/pipeline/render_target/cache.h
+index 73c802e..11d9f60 100644
+--- a/include/rex/graphics/pipeline/render_target/cache.h
++++ b/include/rex/graphics/pipeline/render_target/cache.h
+@@ -303,6 +303,7 @@ class RenderTargetCache {
+ 
+   // DBZ3-Android (dbz3_rt_direct): render targets com a mesma base que o ultimo
+   // PrepareHostRenderTargetsResolveClear tambem deve limpar (true = profundidade).
++  static bool Dbz3DirectAllowsTransfer(RenderTargetKey source, RenderTargetKey dest);
+   const std::vector<std::pair<RenderTarget*, bool>>& dbz3_direct_clear_siblings() const {
+     return dbz3_direct_clear_siblings_;
+   }
+diff --git a/src/graphics/pipeline/render_target/cache.cpp b/src/graphics/pipeline/render_target/cache.cpp
+index 0a80d8b..7acaf4b 100644
+--- a/src/graphics/pipeline/render_target/cache.cpp
++++ b/src/graphics/pipeline/render_target/cache.cpp
+@@ -42,11 +42,10 @@ REXCVAR_DEFINE_BOOL(direct_host_resolve, true, "GPU",
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ 
+ // DBZ3-Android: modo "direto" dos render targets. Cada combinacao (base no EDRAM, pitch,
+-// MSAA, formato) tem a sua imagem no host e as imagens nunca se copiam entre si quando o
+-// jogo muda de configuracao sobre a mesma zona do EDRAM (as "transferencias de
+-// propriedade" do Xenia: 8-9 ms por frame num Adreno 650). O Budokai 3 restaura ele
+-// proprio a cor e a profundidade entre passes (desenha a textura resolvida de volta), por
+-// isso o conteudo de cada imagem fica certo sem as copias. As limpezas por resolve
++// MSAA, formato) tem a sua imagem no host; as copias entre imagens quando o jogo muda de
++// configuracao sobre a mesma zona do EDRAM (as "transferencias de propriedade" do Xenia,
++// 8-9 ms por frame num Adreno 650) ficam reduzidas as que levam uma limpeza feita com
++// outra contagem de amostras (ver Dbz3DirectAllowsTransfer). As limpezas por resolve
+ // aplicam-se a todas as imagens com a mesma base (nao so a dona dos tiles).
+ REXCVAR_DEFINE_BOOL(dbz3_rt_direct, false, "GPU",
+                     "DBZ3-Android: render targets sem transferencias entre imagens do host "
+@@ -699,9 +698,7 @@ bool RenderTargetCache::Update(bool is_rasterization_done,
+     const std::pair<uint32_t, uint32_t>& rt_base_index = edram_bases_sorted[i];
+     uint32_t rt_bit_index = rt_base_index.second;
+     ChangeOwnership(rt_keys[rt_bit_index], 0, rt_lengths_tiles[i],
+-                    (interlock_barrier_only || REXCVAR_GET(dbz3_rt_direct))
+-                        ? nullptr
+-                        : &last_update_transfers_[rt_bit_index]);
++                    interlock_barrier_only ? nullptr : &last_update_transfers_[rt_bit_index]);
+   }
+ 
+   if (interlock_barrier_only) {
+@@ -1128,15 +1125,13 @@ bool RenderTargetCache::PrepareHostRenderTargetsResolveClear(
+   const bool rt_direct = REXCVAR_GET(dbz3_rt_direct);
+   if (depth_render_target) {
+     ChangeOwnership(depth_render_target_key, depth_clear_start_tiles_base_relative,
+-                    depth_clear_length_tiles, rt_direct ? nullptr : &depth_transfers_out,
+-                    &clear_rectangle);
++                    depth_clear_length_tiles, &depth_transfers_out, &clear_rectangle);
+   }
+   color_render_target_out = color_render_target;
+   color_transfers_out.clear();
+   if (color_render_target) {
+     ChangeOwnership(color_render_target_key, color_clear_start_tiles_base_relative,
+-                    color_clear_length_tiles, rt_direct ? nullptr : &color_transfers_out,
+-                    &clear_rectangle);
++                    color_clear_length_tiles, &color_transfers_out, &clear_rectangle);
+   }
+   // DBZ3-Android (modo direto): as outras imagens com a mesma base (outro pitch/MSAA, ex. o
+   // passe de 512x512 do Budokai 3 que usa a mesma profundidade) tambem sao limpas, porque
+@@ -1273,6 +1268,22 @@ bool RenderTargetCache::WouldOwnershipChangeRequireTransfers(RenderTargetKey des
+   return false;
+ }
+ 
++// DBZ3-Android (dbz3_rt_direct): das transferencias entre imagens do host so ficam as que
++// levam o conteudo de uma "limpeza" feita com outra contagem de amostras sobre os mesmos
++// tiles (o Budokai 3 limpa cor e profundidade com 2 draws de ecra inteiro a 4x MSAA e pitch
++// 640, que cobrem exatamente o EDRAM do passe 1x a 1280). As outras (passe de 512x512,
++// brilho, e sobretudo as restauracoes profundidade <-> cor de ecra inteiro, duas por
++// lutador) nao fazem falta: o jogo restaura cor e profundidade ele proprio.
++bool RenderTargetCache::Dbz3DirectAllowsTransfer(RenderTargetKey source, RenderTargetKey dest) {
++  if (!REXCVAR_GET(dbz3_rt_direct)) {
++    return true;
++  }
++  return source.base_tiles == dest.base_tiles &&
++         source.pitch_tiles_at_32bpp == dest.pitch_tiles_at_32bpp &&
++         source.is_depth == dest.is_depth && source.resource_format == dest.resource_format &&
++         source.msaa_samples != dest.msaa_samples;
++}
++
+ void RenderTargetCache::ChangeOwnership(RenderTargetKey dest, uint32_t start_tiles_base_relative,
+                                         uint32_t length_tiles,
+                                         std::vector<Transfer>* transfers_append_out,
+@@ -1330,7 +1341,8 @@ void RenderTargetCache::ChangeOwnership(RenderTargetKey dest, uint32_t start_til
+         // Only perform the copying when actually changing the latest owner, not
+         // just the latest host depth owner - the transfer source is expected to
+         // be different than the destination.
+-        if (!transfer_source.IsEmpty() && transfer_source != dest) {
++        if (!transfer_source.IsEmpty() && transfer_source != dest &&
++            Dbz3DirectAllowsTransfer(transfer_source, dest)) {
+           uint32_t transfer_end_tiles = std::min(it->second.end_tiles, extent_end);
+           if (!resolve_clear_cutout ||
+               Transfer::GetRangeRectangles(it->first, transfer_end_tiles, dest.base_tiles,

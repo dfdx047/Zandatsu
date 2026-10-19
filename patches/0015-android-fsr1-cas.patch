@@ -1,0 +1,18 @@
+diff --git a/src/ui/CMakeLists.txt b/src/ui/CMakeLists.txt
+index 91cd4b5..ad6a9ae 100644
+--- a/src/ui/CMakeLists.txt
++++ b/src/ui/CMakeLists.txt
+@@ -130,6 +130,13 @@ if(REXGLUE_FIDELITYFX_SOURCE_DIR AND EXISTS "${REXGLUE_FIDELITYFX_SOURCE_DIR}/sd
+     target_compile_definitions(rexui PRIVATE REX_HAS_FIDELITYFX_SDK=1)
+ endif()
+ 
++# DBZ3-Android: o FSR 1 (EASU + RCAS) e o CAS do presenter usam shaders proprios, ja
++# em SPIR-V em src/ui/shaders, sem nada do SDK da AMD. O SDK so e preciso para o
++# FSR 2/3 temporal, que fica de fora. Sem isto present_effect so aceitava bilinear.
++if(ANDROID AND NOT REXGLUE_FIDELITYFX_SOURCE_DIR)
++    target_compile_definitions(rexui PRIVATE REX_HAS_FIDELITYFX_SDK=1)
++endif()
++
+ set(REXUI_HAS_FIDELITYFX_RUNTIME OFF)
+ if(TARGET amd_fidelityfx_vk)
+     target_link_libraries(rexui PRIVATE amd_fidelityfx_vk)

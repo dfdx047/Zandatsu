@@ -1,0 +1,14 @@
+--- a/include/rex/ui/windowed_app.h
++++ b/include/rex/ui/windowed_app.h
+@@ -24,7 +24,10 @@
+ #include <rex/platform.h>
+ #include <rex/ui/windowed_app_context.h>
+ 
+-#if REX_PLATFORM_ANDROID
++// DBZ3-Android: no Android o Xenia registava varias apps numa biblioteca; aqui
++// ha uma so app (libmain.so) e o SDL_main usa GetWindowedAppCreator(), como no
++// Linux. Por isso o modo "varias apps" fica desligado.
++#if 0
+ // Multiple apps in a single library instead of separate executables.
+ #define XE_UI_WINDOWED_APPS_IN_LIBRARY 1
+ #endif

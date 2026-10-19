@@ -1,0 +1,49 @@
+diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
+index bc5356a..284882d 100644
+--- a/src/graphics/vulkan/render_target_cache.cpp
++++ b/src/graphics/vulkan/render_target_cache.cpp
+@@ -332,7 +332,7 @@ bool VulkanRenderTargetCache::Initialize(uint32_t shared_memory_binding_count) {
+           "is unavailable",
+           color_rg16_draw_format_supported ? "available" : "unavailable",
+           color_rgba16_draw_format_supported ? "available" : "unavailable");
+-      return false;
++      // DBZ3-Android: continuar sem paridade exata (Mali).
+     }
+   }
+   if (path_ == Path::kHostRenderTargets && gamma_render_target_as_unorm16_requested &&
+@@ -348,7 +348,7 @@ bool VulkanRenderTargetCache::Initialize(uint32_t shared_memory_binding_count) {
+           "VulkanRenderTargetCache: R16G16B16A16_UNORM render target support "
+           "is unavailable for k_8_8_8_8_GAMMA linear storage, and fragment "
+           "shader interlock fallback is unavailable");
+-      return false;
++      // DBZ3-Android: continuar sem paridade exata (Mali).
+     }
+   }
+   VkFormatProperties color_rg16_uint_properties;
+@@ -428,7 +428,7 @@ bool VulkanRenderTargetCache::Initialize(uint32_t shared_memory_binding_count) {
+           "VulkanRenderTargetCache: Bit-exact host render target ownership "
+           "transfers require UINT transfer formats and integer sampled-image "
+           "MSAA support, and fragment shader interlock fallback is unavailable");
+-      return false;
++      // DBZ3-Android: continuar sem paridade exata (Mali).
+     }
+   }
+ 
+diff --git a/src/ui/vulkan/vulkan_device.cpp b/src/ui/vulkan/vulkan_device.cpp
+index 63ef2b5..71d10e2 100644
+--- a/src/ui/vulkan/vulkan_device.cpp
++++ b/src/ui/vulkan/vulkan_device.cpp
+@@ -32,11 +32,11 @@ REXCVAR_DEFINE_BOOL(vulkan_require_vertex_pipeline_stores_and_atomics, true, "UI
+     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+ // Apple Silicon / MoltenVK does not expose geometryShader or fillModeNonSolid;
+ // default both to false on macOS so the device can still be selected.
+-REXCVAR_DEFINE_BOOL(vulkan_require_geometry_shader, !REX_PLATFORM_MAC, "UI/Vulkan",
++REXCVAR_DEFINE_BOOL(vulkan_require_geometry_shader, !REX_PLATFORM_MAC && !REX_PLATFORM_ANDROID, "UI/Vulkan",
+                     "Require geometryShader support for Vulkan GPU emulation (disable to allow "
+                     "fallback primitive emulation paths)")
+     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+-REXCVAR_DEFINE_BOOL(vulkan_require_fill_mode_non_solid, !REX_PLATFORM_MAC, "UI/Vulkan",
++REXCVAR_DEFINE_BOOL(vulkan_require_fill_mode_non_solid, !REX_PLATFORM_MAC && !REX_PLATFORM_ANDROID, "UI/Vulkan",
+                     "Require fillModeNonSolid support for Vulkan GPU emulation (disable to "
+                     "allow fallback to solid fill for line/point polygon modes)")
+     .lifecycle(rex::cvar::Lifecycle::kInitOnly);

@@ -1,0 +1,34 @@
+diff --git a/src/graphics/pipeline/render_target/cache.cpp b/src/graphics/pipeline/render_target/cache.cpp
+index 7acaf4b..83c2fb9 100644
+--- a/src/graphics/pipeline/render_target/cache.cpp
++++ b/src/graphics/pipeline/render_target/cache.cpp
+@@ -1278,10 +1278,25 @@ bool RenderTargetCache::Dbz3DirectAllowsTransfer(RenderTargetKey source, RenderT
+   if (!REXCVAR_GET(dbz3_rt_direct)) {
+     return true;
+   }
+-  return source.base_tiles == dest.base_tiles &&
+-         source.pitch_tiles_at_32bpp == dest.pitch_tiles_at_32bpp &&
+-         source.is_depth == dest.is_depth && source.resource_format == dest.resource_format &&
+-         source.msaa_samples != dest.msaa_samples;
++  const bool allowed = source.base_tiles == dest.base_tiles &&
++                       source.pitch_tiles_at_32bpp == dest.pitch_tiles_at_32bpp &&
++                       source.is_depth == dest.is_depth &&
++                       source.resource_format == dest.resource_format &&
++                       source.msaa_samples != dest.msaa_samples;
++  // Diagnostico: as primeiras transferencias saltadas/mantidas, para ver que passes
++  // dependem de conteudo herdado.
++  static uint32_t logged = 0;
++  if (logged < 120) {
++    ++logged;
++    REXGPU_INFO("dbz3: rt_direct transferencia {}: {}{}@{} pitch{} {}x -> {}{}@{} pitch{} {}x",
++                allowed ? "mantida" : "saltada", source.is_depth ? "D" : "C",
++                uint32_t(source.resource_format), uint32_t(source.base_tiles),
++                uint32_t(source.pitch_tiles_at_32bpp), 1u << uint32_t(source.msaa_samples),
++                dest.is_depth ? "D" : "C", uint32_t(dest.resource_format),
++                uint32_t(dest.base_tiles), uint32_t(dest.pitch_tiles_at_32bpp),
++                1u << uint32_t(dest.msaa_samples));
++  }
++  return allowed;
+ }
+ 
+ void RenderTargetCache::ChangeOwnership(RenderTargetKey dest, uint32_t start_tiles_base_relative,

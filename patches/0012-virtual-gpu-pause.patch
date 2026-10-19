@@ -1,0 +1,32 @@
+diff --git a/include/rex/graphics/graphics_system.h b/include/rex/graphics/graphics_system.h
+index ac6b056..85d7218 100644
+--- a/include/rex/graphics/graphics_system.h
++++ b/include/rex/graphics/graphics_system.h
+@@ -84,8 +84,8 @@ class GraphicsSystem : public system::IGraphicsSystem {
+                                bool blocking) override;
+ 
+   bool is_paused() const { return paused_; }
+-  void Pause();
+-  void Resume();
++  void Pause() override;
++  void Resume() override;
+ 
+   bool Save(::rex::stream::ByteStream* stream);
+   bool Restore(::rex::stream::ByteStream* stream);
+diff --git a/include/rex/system/interfaces/graphics.h b/include/rex/system/interfaces/graphics.h
+index d54df86..86c3496 100644
+--- a/include/rex/system/interfaces/graphics.h
++++ b/include/rex/system/interfaces/graphics.h
+@@ -50,6 +50,12 @@ class IGraphicsSystem {
+ 
+   virtual bool has_presentation() const = 0;
+ 
++  // DBZ3-Android: pausa/retoma a GPU do guest (menus por cima do jogo). Virtual
++  // para quem esta fora do plugin da GPU (que compila com visibilidade hidden)
++  // poder chamar pela interface.
++  virtual void Pause() {}
++  virtual void Resume() {}
++
+   // --- Optional capabilities, default no-op -------------------------------
+ 
+   // Host presentation objects for ReXApp's overlay wiring; custom systems may

@@ -1,0 +1,96 @@
+diff --git a/include/rex/graphics/pipeline/render_target/cache.h b/include/rex/graphics/pipeline/render_target/cache.h
+index 2426ade..cd1dab2 100644
+--- a/include/rex/graphics/pipeline/render_target/cache.h
++++ b/include/rex/graphics/pipeline/render_target/cache.h
+@@ -322,7 +322,8 @@ class RenderTargetCache {
+   //   proibido daqui em diante (no maximo um frame com a textura velha).
+   bool Dbz3ShouldElideResolve(uint32_t dest_base, RenderTargetKey source);
+   bool Dbz3IsRedundantRestore(const uint32_t* sampled_bases, uint32_t sampled_count,
+-                              uint32_t index_count, uint64_t pixel_shader_hash);
++                              uint32_t index_count, uint64_t pixel_shader_hash,
++                              bool identity_copy = false);
+   void Dbz3ElisionFrameEnd();
+   void Dbz3MarkWritten(RenderTargetKey key) { ++dbz3_write_gen_[key]; }
+   // DBZ3-Android: render target ja criado com esta chave (ou nullptr).
+diff --git a/src/graphics/pipeline/render_target/cache.cpp b/src/graphics/pipeline/render_target/cache.cpp
+index 2ea8140..28732c3 100644
+--- a/src/graphics/pipeline/render_target/cache.cpp
++++ b/src/graphics/pipeline/render_target/cache.cpp
+@@ -51,6 +51,9 @@ REXCVAR_DEFINE_STRING(dbz3_rt_restore_shaders, "6E57A6E305D5D69B,ADCA7FBBCBF53B5
+                       "DBZ3-Android: hashes (hex) dos pixel shaders de copia simples do Budokai 3 "
+                       "(restauro da cor e da profundidade)")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
++REXCVAR_DEFINE_BOOL(dbz3_rt_restore_identity_only, true, "GPU",
++                    "DBZ3-Android: so conta como restauro um draw cujos vertices sao uma copia "
++                    "identidade de ecra inteiro");
+ REXCVAR_DEFINE_BOOL(dbz3_rt_elide_restores, false, "GPU",
+                     "DBZ3-Android: com dbz3_rt_direct, ignora os restauros de ecra inteiro e os "
+                     "resolves que so serviam para eles")
+@@ -1491,7 +1494,7 @@ bool RenderTargetCache::Dbz3ShouldElideResolve(uint32_t dest_base, RenderTargetK
+ 
+ bool RenderTargetCache::Dbz3IsRedundantRestore(const uint32_t* sampled_bases,
+                                                uint32_t sampled_count, uint32_t index_count,
+-                                               uint64_t pixel_shader_hash) {
++                                               uint64_t pixel_shader_hash, bool identity_copy) {
+   if (!REXCVAR_GET(dbz3_rt_direct) || !REXCVAR_GET(dbz3_rt_elide_restores) ||
+       dbz3_frame_resolves_.empty() || !sampled_count) {
+     return false;
+@@ -1550,7 +1553,10 @@ bool RenderTargetCache::Dbz3IsRedundantRestore(const uint32_t* sampled_bases,
+                color0.pitch_tiles_at_32bpp == rec->source.pitch_tiles_at_32bpp &&
+                color0.msaa_samples == rec->source.msaa_samples)
+             : color0 == rec->source;
++    // dbz3_rt_restore_identity_only: alem do shader, os vertices tem de ser uma copia
++    // identidade de ecra inteiro (ver IssueDraw); sem isto os especiais ficavam pretos.
+     if (restore_shader && opaque && index_count <= 6 && same_target &&
++        (identity_copy || !REXCVAR_GET(dbz3_rt_restore_identity_only)) &&
+         dbz3_write_gen_[rec->source] == rec->source_gen) {
+       restore_found = true;
+     } else {
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index ee67764..78ebbfa 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -4425,8 +4425,42 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+         sampled_bases[sampled_count++] = uint32_t(fetch.base_address) << 12;
+       }
+     }
++    // Copia identidade: VS de passagem (posicao em pixeis + UV) com os 3 vertices de um
++    // retangulo de ecra inteiro (0,0)-(L,0)-(0,A) e UV (0,0)-(1,0)-(0,1), viewport desligado.
++    // Os efeitos dos especiais desenham o ecra por cima dele transformado (outros vertices ou
++    // outro VS) e nao passam neste teste.
++    bool dbz3_identity_copy = false;
++    if (prim_type == xenos::PrimitiveType::kRectangleList && index_count == 3 &&
++        vertex_shader->ucode_data_hash() == UINT64_C(0xB4ED697CB92C1759) &&
++        !vertex_shader->vertex_bindings().empty()) {
++      const auto vte = regs.Get<reg::PA_CL_VTE_CNTL>();
++      const auto& vb = vertex_shader->vertex_bindings()[0];
++      const xenos::xe_gpu_vertex_fetch_t vf = regs.GetVertexFetch(vb.fetch_constant);
++      const auto br = regs.Get<reg::PA_SC_WINDOW_SCISSOR_BR>();
++      const uint8_t* data = vf.type == xenos::FetchConstantType::kVertex && vb.stride_words == 4
++                                ? memory_->TranslatePhysical(uint32_t(vf.address) << 2)
++                                : nullptr;
++      if (data && !vte.vport_x_scale_ena && !vte.vport_x_offset_ena && !vte.vport_y_scale_ena &&
++          !vte.vport_y_offset_ena &&
++          (vf.endian == xenos::Endian::k8in32 || vf.endian == xenos::Endian::kNone)) {
++        float f[12];
++        for (uint32_t k = 0; k < 12; ++k) {
++          uint32_t bits;
++          std::memcpy(&bits, data + k * 4, 4);
++          if (vf.endian == xenos::Endian::k8in32) bits = rex::byte_swap(bits);
++          std::memcpy(&f[k], &bits, 4);
++        }
++        const float w = float(br.br_x), h = float(br.br_y);
++        const float expect[12] = {0, 0, 0, 0, w, 0, 1, 0, 0, h, 0, 1};
++        dbz3_identity_copy = w > 0 && h > 0;
++        for (uint32_t k = 0; k < 12 && dbz3_identity_copy; ++k) {
++          dbz3_identity_copy = f[k] == expect[k];
++        }
++      }
++    }
+     if (render_target_cache_->Dbz3IsRedundantRestore(sampled_bases, sampled_count, index_count,
+-                                                     pixel_shader->ucode_data_hash())) {
++                                                     pixel_shader->ucode_data_hash(),
++                                                     dbz3_identity_copy)) {
+       return true;
+     }
+   }

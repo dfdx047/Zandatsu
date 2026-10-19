@@ -1,0 +1,242 @@
+diff --git a/include/rex/graphics/vulkan/command_processor.h b/include/rex/graphics/vulkan/command_processor.h
+index fcb282a..8ea3b09 100644
+--- a/include/rex/graphics/vulkan/command_processor.h
++++ b/include/rex/graphics/vulkan/command_processor.h
+@@ -210,6 +210,10 @@ class VulkanCommandProcessor : public CommandProcessor {
+   // DBZ3-Android (de RB2-Android 0003, BSD-3): uploads da memoria partilhada gravados antes
+   // do inicio do passe atual em vez de o terminar, quando o passe ainda nao leu as paginas.
+   bool in_render_pass() const { return in_render_pass_; }
++  // DBZ3-Android: tempo de GPU por draw durante uma captura (patch 0034).
++  void Dbz3DrawTimingBegin();
++  void Dbz3DrawTimestamp(xenos::PrimitiveType prim_type, uint32_t index_count);
++  void Dbz3DrawTimingReadback();
+   size_t render_pass_begin_position() const {
+     return in_render_pass_ ? render_pass_begin_position_ : SIZE_MAX;
+   }
+diff --git a/include/rex/graphics/vulkan/dbz3_capture.h b/include/rex/graphics/vulkan/dbz3_capture.h
+index aefae74..95edea0 100644
+--- a/include/rex/graphics/vulkan/dbz3_capture.h
++++ b/include/rex/graphics/vulkan/dbz3_capture.h
+@@ -59,6 +59,7 @@ struct State {
+   std::vector<std::pair<uint32_t, uint32_t>> mem_ranges;  // (addr, len) ja escritos
+   std::vector<std::pair<uint32_t, uint32_t>> pending;     // par (indice, valor)
+   uint64_t bytes = 0;
++  std::string path;
+ };
+ 
+ inline State g_state;
+@@ -206,6 +207,7 @@ inline void Begin(uint32_t frames, const RegisterFile& regs) {
+   std::time_t t = std::time(nullptr);
+   std::strftime(name, sizeof(name), "%Y%m%d-%H%M%S.dfc", std::localtime(&t));
+   const std::string path = dir + "/" + name;
++  st.path = path;
+   st.file = std::fopen(path.c_str(), "wb");
+   if (!st.file) {
+     REXLOG_WARN("dbz3: captura: nao consegui criar {}", path);
+diff --git a/src/graphics/pipeline/render_target/cache.cpp b/src/graphics/pipeline/render_target/cache.cpp
+index a68f79e..2ea8140 100644
+--- a/src/graphics/pipeline/render_target/cache.cpp
++++ b/src/graphics/pipeline/render_target/cache.cpp
+@@ -51,7 +51,7 @@ REXCVAR_DEFINE_STRING(dbz3_rt_restore_shaders, "6E57A6E305D5D69B,ADCA7FBBCBF53B5
+                       "DBZ3-Android: hashes (hex) dos pixel shaders de copia simples do Budokai 3 "
+                       "(restauro da cor e da profundidade)")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+-REXCVAR_DEFINE_BOOL(dbz3_rt_elide_restores, true, "GPU",
++REXCVAR_DEFINE_BOOL(dbz3_rt_elide_restores, false, "GPU",
+                     "DBZ3-Android: com dbz3_rt_direct, ignora os restauros de ecra inteiro e os "
+                     "resolves que so serviam para eles")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 65e2287..b17d5a5 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -2553,6 +2553,26 @@ std::string TakeWindowSummary() {
+ }
+ }  // namespace dbz3_gputime
+ 
++// DBZ3-Android: tempo de GPU por draw durante uma captura de frames (patch 0034). Cada draw
++// passa a ter o seu proprio passe de render (o frame capturado fica lento, de proposito) e um
++// timestamp antes dele; o intervalo ate ao timestamp seguinte e o custo desse draw, com a
++// carga/escrita do passe incluida (igual para todos, por isso a comparacao vale). O resumo
++// por pixel shader vai para o log e o detalhe para <captura>.timing.txt.
++namespace dbz3_drawtime {
++struct Info {
++  uint32_t draw_index;
++  uint64_t vs, ps;
++  uint32_t prim, index_count, rt_pitch, rt_base, msaa;
++};
++VkQueryPool g_pool = VK_NULL_HANDLE;
++constexpr uint32_t kMaxQueries = 4096;
++uint32_t g_count = 0;
++bool g_active = false;
++bool g_readback_pending = false;
++std::vector<Info> g_infos;
++std::string g_path;
++}  // namespace dbz3_drawtime
++
+ // DBZ3 (v1.4.1): la misma telemetria que en D3D12 para Vulkan (y por tanto Linux): fps
+ // del guest cada 5 s con `dbz3_perf_logging`, y lineas `tiron` (frames de mas de 50 ms,
+ // siempre, maximo 30 por sesion) con la espera del command processor al guest.
+@@ -2642,8 +2662,22 @@ void VulkanCommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontb
+   Dbz3LogGuestPerformanceVulkan();
+   SCOPE_profile_cpu_f("gpu");
+   if (!dbz3_frameskip::g_skip_frame) {
++    Dbz3DrawTimingReadback();
++    const bool capture_was_active = dbz3_capture::Active();
+     dbz3_capture::OnSwap(*register_file_, *memory_, frontbuffer_ptr, frontbuffer_width,
+                          frontbuffer_height);
++    if (!capture_was_active && dbz3_capture::Active()) {
++      Dbz3DrawTimingBegin();
++    } else if (capture_was_active && !dbz3_capture::Active() && dbz3_drawtime::g_active) {
++      // O ultimo draw termina aqui: um timestamp final fecha-o.
++      if (dbz3_drawtime::g_count && BeginSubmission(true)) {
++        EndRenderPass("perfil por draw", 0);
++        deferred_command_buffer_.CmdDbz3WriteTimestamp(dbz3_drawtime::g_pool,
++                                                       dbz3_drawtime::g_count);
++      }
++      dbz3_drawtime::g_active = false;
++      dbz3_drawtime::g_readback_pending = true;
++    }
+     if (render_target_cache_) {
+       render_target_cache_->Dbz3ElisionFrameEnd();
+     }
+@@ -4030,6 +4064,118 @@ Shader* VulkanCommandProcessor::LoadShader(xenos::ShaderType shader_type, uint32
+   return pipeline_cache_->LoadShader(shader_type, host_address, dword_count);
+ }
+ 
++void VulkanCommandProcessor::Dbz3DrawTimingBegin() {
++  namespace dt = dbz3_drawtime;
++  if (!dbz3_gputime::g_reader.init_tried) {
++    dbz3_gputime::Init(GetVulkanDevice());
++  }
++  if (!dbz3_gpuprof::g_state.write_timestamp) {
++    return;
++  }
++  if (dt::g_pool == VK_NULL_HANDLE) {
++    VkQueryPoolCreateInfo pool_info = {};
++    pool_info.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
++    pool_info.queryType = VK_QUERY_TYPE_TIMESTAMP;
++    pool_info.queryCount = dt::kMaxQueries;
++    if (GetVulkanDevice()->functions().vkCreateQueryPool(GetVulkanDevice()->device(), &pool_info,
++                                                         nullptr, &dt::g_pool) != VK_SUCCESS) {
++      dt::g_pool = VK_NULL_HANDLE;
++      return;
++    }
++  }
++  if (!BeginSubmission(true)) {
++    return;
++  }
++  EndRenderPass("perfil por draw", 0);
++  deferred_command_buffer_.CmdVkResetQueryPool(dt::g_pool, 0, dt::kMaxQueries);
++  dt::g_count = 0;
++  dt::g_infos.clear();
++  dt::g_path = dbz3_capture::g_state.path;
++  dt::g_active = true;
++}
++
++void VulkanCommandProcessor::Dbz3DrawTimestamp(xenos::PrimitiveType prim_type,
++                                               uint32_t index_count) {
++  namespace dt = dbz3_drawtime;
++  if (!dt::g_active || dt::g_count + 1 >= dt::kMaxQueries || !BeginSubmission(true)) {
++    return;
++  }
++  // Cada draw no seu passe: o timestamp antes dele mede o fim do draw anterior.
++  EndRenderPass("perfil por draw", 0);
++  deferred_command_buffer_.CmdDbz3WriteTimestamp(dt::g_pool, dt::g_count);
++  const RegisterFile& regs = *register_file_;
++  dt::Info info;
++  info.draw_index = dbz3_capture::g_state.draw_index;
++  info.vs = active_vertex_shader() ? active_vertex_shader()->ucode_data_hash() : 0;
++  info.ps = active_pixel_shader() ? active_pixel_shader()->ucode_data_hash() : 0;
++  info.prim = uint32_t(prim_type);
++  info.index_count = index_count;
++  info.rt_pitch = regs.Get<reg::RB_SURFACE_INFO>().surface_pitch;
++  info.msaa = uint32_t(regs.Get<reg::RB_SURFACE_INFO>().msaa_samples);
++  info.rt_base = regs.Get<reg::RB_COLOR_INFO>().color_base;
++  dt::g_infos.push_back(info);
++  ++dt::g_count;
++}
++
++void VulkanCommandProcessor::Dbz3DrawTimingReadback() {
++  namespace dt = dbz3_drawtime;
++  if (!dt::g_readback_pending) {
++    return;
++  }
++  dt::g_readback_pending = false;
++  if (!dt::g_count) {
++    return;
++  }
++  // As submissoes do frame capturado ja foram enviadas no swap anterior.
++  AwaitAllQueueOperationsCompletion();
++  std::vector<uint64_t> ticks(dt::g_count + 1, 0);
++  const VkResult result = dbz3_gputime::g_reader.get_results(
++      GetVulkanDevice()->device(), dt::g_pool, 0, dt::g_count + 1, ticks.size() * sizeof(uint64_t),
++      ticks.data(), sizeof(uint64_t), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
++  if (result != VK_SUCCESS) {
++    REXGPU_WARN("dbz3: perfil por draw: resultados indisponiveis ({})", int(result));
++    return;
++  }
++  const double ns = dbz3_gputime::g_reader.ns_per_tick;
++  const uint64_t mask = dbz3_gputime::g_reader.mask;
++  std::vector<double> ms(dt::g_count, 0.0);
++  double min_ms = 1e9, total = 0.0;
++  for (uint32_t i = 0; i < dt::g_count; ++i) {
++    ms[i] = double((ticks[i + 1] - ticks[i]) & mask) * ns / 1.0e6;
++    min_ms = std::min(min_ms, ms[i]);
++    total += ms[i];
++  }
++  // Resumo por pixel shader (custo acima do minimo, que e o custo fixo de um passe).
++  std::map<uint64_t, std::pair<double, uint32_t>> by_ps;
++  for (uint32_t i = 0; i < dt::g_count; ++i) {
++    auto& e = by_ps[dt::g_infos[i].ps];
++    e.first += ms[i] - min_ms;
++    e.second++;
++  }
++  std::vector<std::pair<double, uint64_t>> sorted;
++  for (const auto& [ps, e] : by_ps) sorted.push_back({e.first, ps});
++  std::sort(sorted.rbegin(), sorted.rend());
++  std::string report;
++  for (size_t i = 0; i < sorted.size() && i < 10; ++i) {
++    report += fmt::format(" | PS {:016X} {:.2f}ms/{}d", sorted[i].second, sorted[i].first,
++                          by_ps[sorted[i].second].second);
++  }
++  REXGPU_INFO("dbz3: perfil por draw: {} draws, {:.1f} ms (custo fixo por passe {:.3f} ms){}",
++              dt::g_count, total, min_ms, report);
++  if (!dt::g_path.empty()) {
++    if (FILE* f = std::fopen((dt::g_path + ".timing.txt").c_str(), "w")) {
++      std::fprintf(f, "# draw ms acima_do_minimo vs ps prim indices rt_pitch rt_base msaa\n");
++      for (uint32_t i = 0; i < dt::g_count; ++i) {
++        const dt::Info& in = dt::g_infos[i];
++        std::fprintf(f, "%u %.4f %.4f %016llX %016llX %u %u %u %u %u\n", in.draw_index, ms[i],
++                     ms[i] - min_ms, (unsigned long long)in.vs, (unsigned long long)in.ps,
++                     in.prim, in.index_count, in.rt_pitch, in.rt_base, in.msaa);
++      }
++      std::fclose(f);
++    }
++  }
++}
++
+ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t index_count,
+                                        IndexBufferInfo* index_buffer_info,
+                                        bool major_mode_explicit) {
+@@ -4044,6 +4190,7 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+   const RegisterFile& regs = *register_file_;
+   (void)index_buffer_info;
+   if (dbz3_capture::Active()) {
++    Dbz3DrawTimestamp(prim_type, index_count);
+     dbz3_capture::OnDraw(regs, *memory_, prim_type, index_count,
+                          index_buffer_info ? index_buffer_info->format : xenos::IndexFormat::kInt16,
+                          index_buffer_info ? index_buffer_info->endianness : xenos::Endian::kNone,
+diff --git a/src/graphics/vulkan/shared_memory.cpp b/src/graphics/vulkan/shared_memory.cpp
+index 09eff19..74befed 100644
+--- a/src/graphics/vulkan/shared_memory.cpp
++++ b/src/graphics/vulkan/shared_memory.cpp
+@@ -27,7 +27,7 @@ REXCVAR_DEFINE_BOOL(vulkan_sparse_shared_memory, true, "GPU/Vulkan",
+                     "Use sparse shared memory on Vulkan")
+     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+ 
+-REXCVAR_DEFINE_BOOL(dbz3_hoist_uploads, true, "GPU/Vulkan",
++REXCVAR_DEFINE_BOOL(dbz3_hoist_uploads, false, "GPU/Vulkan",
+                     "DBZ3-Android (de RB2-Android): grava os uploads da memoria partilhada "
+                     "antes do passe atual quando ele nao leu essas paginas, em vez de terminar "
+                     "o passe (num tiler cada passe novo recarrega e reescreve o ecra)")

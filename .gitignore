@@ -1,5 +1,25 @@
+# Jogo e codigo gerado (nunca no git)
 assets/
 generated/default/
-out/
-*.log
 *.iso
+*.xex
+
+# SDK preparado (tools/setup-sdk.sh)
+external/
+
+# Builds
+out/
+build/
+app/build/
+app/.cxx/
+.gradle/
+local.properties
+*.apk
+
+# IDE
+.idea/
+*.iml
+
+# Logs
+*.log
+optxbox-logs/

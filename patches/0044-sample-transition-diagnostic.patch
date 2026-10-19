@@ -1,0 +1,79 @@
+diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
+index 55f7777..13516c9 100644
+--- a/src/graphics/vulkan/texture_cache.cpp
++++ b/src/graphics/vulkan/texture_cache.cpp
+@@ -10,6 +10,8 @@
+  */
+ 
+ #include <algorithm>
++#include <map>
++#include <tuple>
+ #include <array>
+ #include <cstddef>
+ #include <cstring>
+@@ -573,6 +575,31 @@ void VulkanTextureCache::EndFrame() {
+   }
+ }
+ 
++// DBZ3-Android: diagnostico das transicoes para leitura feitas no draw (cada uma pode
++// fechar o passe aberto). A cada 3000 transicoes escreve as mais frequentes por
++// (uso anterior, tamanho, formato, base).
++static void Dbz3NoteSampleTransition(uint32_t old_usage, uint32_t width, uint32_t height,
++                                     uint32_t format, uint32_t base) {
++  static std::map<std::tuple<uint32_t, uint32_t, uint32_t, uint32_t, uint32_t>, uint32_t> counts;
++  static uint32_t total = 0;
++  ++counts[{old_usage, width, height, format, base}];
++  if (++total < 3000) {
++    return;
++  }
++  std::vector<std::pair<uint32_t, std::tuple<uint32_t, uint32_t, uint32_t, uint32_t, uint32_t>>>
++      sorted;
++  for (const auto& [k, v] : counts) sorted.push_back({v, k});
++  std::sort(sorted.begin(), sorted.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
++  std::string report;
++  for (size_t i = 0; i < sorted.size() && i < 8; ++i) {
++    const auto& [u, w, h, f, b] = sorted[i].second;
++    report += fmt::format(" | uso{} {}x{} f{} {:08X}: {}", u, w, h, f, b, sorted[i].first);
++  }
++  REXGPU_INFO("dbz3: transicoes para leitura no draw ({}){}", total, report);
++  counts.clear();
++  total = 0;
++}
++
+ void VulkanTextureCache::RequestTextures(uint32_t used_texture_mask) {
+ #if XE_GPU_FINE_GRAINED_DRAW_SCOPES
+   SCOPE_profile_cpu_f("gpu");
+@@ -622,6 +649,11 @@ void VulkanTextureCache::RequestTextures(uint32_t used_texture_mask) {
+       VulkanTexture::Usage old_usage =
+           binding_texture->SetUsage(VulkanTexture::Usage::kGuestShaderSampled);
+       if (old_usage != VulkanTexture::Usage::kGuestShaderSampled) {
++        {
++          const TextureKey& dbz3_key = binding_texture->key();
++          Dbz3NoteSampleTransition(uint32_t(old_usage), dbz3_key.GetWidth(), dbz3_key.GetHeight(),
++                                   uint32_t(dbz3_key.format), dbz3_key.base_page << 12);
++        }
+         VkPipelineStageFlags src_stage_mask;
+         VkAccessFlags src_access_mask;
+         VkImageLayout old_layout;
+@@ -1967,6 +1999,21 @@ void VulkanTextureCache::Dbz3CopyToResolveTexture(void* texture_opaque, VkBuffer
+   copy_region->imageOffset = {0, 0, 0};
+   copy_region->imageExtent = {width, height, 1};
+   Dbz3MarkTextureLoaded(vulkan_texture);
++  // Mesma ideia que em Dbz3EndStorageWrite: passar ja para leitura, fora do passe.
++  if (REXCVAR_GET(dbz3_resolve_early_transition)) {
++    VkPipelineStageFlags src_stage, dst_stage;
++    VkAccessFlags src_access, dst_access;
++    VkImageLayout old_layout, new_layout;
++    GetTextureUsageMasks(VulkanTexture::Usage::kTransferDestination, src_stage, src_access,
++                         old_layout);
++    GetTextureUsageMasks(VulkanTexture::Usage::kGuestShaderSampled, dst_stage, dst_access,
++                         new_layout);
++    vulkan_texture.SetUsage(VulkanTexture::Usage::kGuestShaderSampled);
++    command_processor_.PushImageMemoryBarrier(vulkan_texture.image(),
++                                              ui::vulkan::util::InitializeSubresourceRange(),
++                                              src_stage, dst_stage, src_access, dst_access,
++                                              old_layout, new_layout);
++  }
+ }
+ 
+ uint32_t VulkanTextureCache::Dbz3FindResolveTextures(uint32_t base, uint32_t width,

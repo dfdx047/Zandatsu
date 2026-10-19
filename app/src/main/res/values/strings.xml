@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Project SwordMan</string>
+    <string name="play">Jogar</string>
+    <string name="export_logs">Exportar logs</string>
+    <string name="game_folder">Pasta do jogo:</string>
+    <string name="missing">falta</string>
+    <string name="push_hint">Copia o jogo pelo PC: bash tools/push-game.sh (na raiz do ProjectSwordMan, com o aparelho ligado por USB).</string>
+    <string name="logs_saved">Logs gravados em Download/%1$s</string>
+    <string name="logs_failed">Falha ao exportar os logs: %1$s</string>
+</resources>

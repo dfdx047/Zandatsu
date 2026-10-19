@@ -1,0 +1,95 @@
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 0ebf3ee..7214a62 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -10,6 +10,7 @@
+  */
+ 
+ #include <algorithm>
++#include <cstdlib>
+ #include <array>
+ #include <cstdint>
+ #include <cstring>
+@@ -77,6 +78,17 @@ REXCVAR_DECLARE(double, dbz3_rim_light_scale);  // src/graphics/command_processo
+ 
+ namespace rex::graphics::vulkan {
+ 
++// DBZ3-Android: "30 FPS" de verdade (dbz3_frameskip). O jogo continua a correr a
++// 60 (a logica segue o vblank do guest), mas so 1 em cada (N+1) frames e desenhado:
++// nos outros, os comandos de estado sao processados e os draws, resolves e queries
++// de oclusao sao ignorados, e nao ha apresentacao. Corta o trabalho da GPU a metade
++// com N=1 sem deixar o jogo em camara lenta em GPUs fracas.
++namespace dbz3_frameskip {
++bool g_skip_frame = false;
++uint32_t g_counter = 0;
++}  // namespace dbz3_frameskip
++
++
+ namespace {
+ 
+ // glslang default built-in resource limits.
+@@ -654,7 +666,8 @@ void VulkanCommandProcessor::InitializeShaderStorage(const std::filesystem::path
+ 
+ bool VulkanCommandProcessor::ExecutePacketType3_EVENT_WRITE_ZPD(memory::RingBuffer* reader,
+                                                                 uint32_t packet, uint32_t count) {
+-  if (!REXCVAR_GET(occlusion_query_enable) || !occlusion_query_resources_available_) {
++  if (!REXCVAR_GET(occlusion_query_enable) || !occlusion_query_resources_available_ ||
++      dbz3_frameskip::g_skip_frame) {
+     return CommandProcessor::ExecutePacketType3_EVENT_WRITE_ZPD(reader, packet, count);
+   }
+ 
+@@ -2612,6 +2625,19 @@ void VulkanCommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontb
+   dbz3_gpuprof::Zone<DeferredCommandBuffer> dbz3_zone(deferred_command_buffer_,
+                                                       dbz3_gpuprof::kSwap);
+ 
++  {
++    const bool this_frame_skipped = dbz3_frameskip::g_skip_frame;
++    const std::string skip_text = rex::cvar::GetFlagByName("dbz3_frameskip");
++    const int skip = skip_text.empty() ? 0 : std::clamp(std::atoi(skip_text.c_str()), 0, 3);
++    ++dbz3_frameskip::g_counter;
++    dbz3_frameskip::g_skip_frame = skip > 0 && (dbz3_frameskip::g_counter % uint32_t(skip + 1)) != 0;
++    if (this_frame_skipped) {
++      // Frame nao desenhado: fecha-o sem apresentar (fica a imagem anterior).
++      EndSubmission(true);
++      return;
++    }
++  }
++
+   bool skip_present_due_async_placeholder = REXCVAR_GET(async_shader_compilation) &&
+                                             REXCVAR_GET(vulkan_async_skip_incomplete_frames) &&
+                                             frame_used_async_placeholder_pipeline_;
+@@ -3918,6 +3944,9 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+   SCOPE_profile_cpu_f("gpu");
+ #endif  // XE_GPU_FINE_GRAINED_DRAW_SCOPES
+   dbz3_gpuprof::CountDraw();
++  if (dbz3_frameskip::g_skip_frame) {
++    return true;
++  }
+ 
+   const RegisterFile& regs = *register_file_;
+   (void)index_buffer_info;
+@@ -4710,6 +4739,9 @@ bool VulkanCommandProcessor::IssueCopy() {
+ #if XE_GPU_FINE_GRAINED_DRAW_SCOPES
+   SCOPE_profile_cpu_f("gpu");
+ #endif  // XE_GPU_FINE_GRAINED_DRAW_SCOPES
++  if (dbz3_frameskip::g_skip_frame) {
++    return true;
++  }
+ 
+   if (!BeginSubmission(true)) {
+     return false;
+diff --git a/src/ui/vulkan/vulkan_presenter.cpp b/src/ui/vulkan/vulkan_presenter.cpp
+index 3ecc146..47c388f 100644
+--- a/src/ui/vulkan/vulkan_presenter.cpp
++++ b/src/ui/vulkan/vulkan_presenter.cpp
+@@ -64,6 +64,10 @@ REXCVAR_DEFINE_INT32(dbz3_direct_resolve_texture, 0, "GPU",
+                      "para a textura (0 desligado, 1 ligado, 2 ligado com R/B invertido)")
+     .range(0, 2)
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
++REXCVAR_DEFINE_INT32(dbz3_frameskip, 0, "GPU",
++                     "DBZ3-Android: desenha so 1 em cada N+1 frames (1 = 30 FPS com o jogo a 60)")
++    .range(0, 3)
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ REXCVAR_DEFINE_BOOL(dbz3_direct_resolve_skip_memory, false, "GPU",
+                     "DBZ3-Android: com o atalho ligado, salta a copia para a memoria do guest "
+                     "quando a textura do destino ja existe (mais rapido)")

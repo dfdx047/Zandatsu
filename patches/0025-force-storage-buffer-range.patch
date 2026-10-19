@@ -1,0 +1,33 @@
+diff --git a/src/ui/vulkan/vulkan_device.cpp b/src/ui/vulkan/vulkan_device.cpp
+index 6a5c853..22a80b7 100644
+--- a/src/ui/vulkan/vulkan_device.cpp
++++ b/src/ui/vulkan/vulkan_device.cpp
+@@ -53,6 +53,14 @@ REXCVAR_DEFINE_STRING(vulkan_mask_features, "", "UI/Vulkan",
+ REXCVAR_DEFINE_STRING(dbz3_vk_disable_extensions, "", "UI/Vulkan",
+                       "DBZ3-Android: extensoes Vulkan a nao usar (separadas por virgula)");
+ 
++// DBZ3-Android: forca o maxStorageBufferRange (em MB, 0 = o do driver). Com menos de
++// 512 MB a memoria do guest (512 MB) e dividida em 2 ou 4 storage buffers e todos os
++// acessos dos shaders passam por um switch; com 512 fica um so buffer, como no Turnip
++// dos Adreno 7xx/8xx (2 GB). Teste dos glitches do Turnip nos Adreno 6xx (128 MB).
++REXCVAR_DEFINE_INT32(dbz3_vk_max_storage_buffer_range_mb, 0, "UI/Vulkan",
++                     "DBZ3-Android: maxStorageBufferRange forcado em MB (0 = do driver)")
++    .range(0, 2048);
++
+ namespace rex {
+ namespace ui {
+ namespace vulkan {
+@@ -654,6 +662,13 @@ std::unique_ptr<VulkanDevice> VulkanDevice::CreateIfSupported(
+   XE_UI_VULKAN_LIMIT(maxImageDimensionCube)
+   XE_UI_VULKAN_LIMIT(maxImageArrayLayers)
+   XE_UI_VULKAN_LIMIT(maxStorageBufferRange)
++  if (REXCVAR_GET(dbz3_vk_max_storage_buffer_range_mb) > 0) {
++    device->properties_.maxStorageBufferRange =
++        uint32_t(std::min<uint64_t>(uint64_t(REXCVAR_GET(dbz3_vk_max_storage_buffer_range_mb)) << 20,
++                                    UINT32_MAX));
++    REXLOG_INFO("dbz3: maxStorageBufferRange forcado: {} (o driver diz {})",
++                device->properties_.maxStorageBufferRange, properties.limits.maxStorageBufferRange);
++  }
+   XE_UI_VULKAN_LIMIT(maxSamplerAllocationCount)
+   XE_UI_VULKAN_LIMIT(maxPerStageDescriptorSamplers)
+   XE_UI_VULKAN_LIMIT(maxPerStageDescriptorStorageBuffers)

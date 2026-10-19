@@ -1,0 +1,472 @@
+diff --git a/include/rex/graphics/pipeline/texture/cache.h b/include/rex/graphics/pipeline/texture/cache.h
+index d26cd4f..4489181 100644
+--- a/include/rex/graphics/pipeline/texture/cache.h
++++ b/include/rex/graphics/pipeline/texture/cache.h
+@@ -547,6 +547,12 @@ class TextureCache {
+   // implementation to update the internal dependencies of the binding.
+   virtual void UpdateTextureBindingsImpl(uint32_t /*fetch_constant_mask*/) {}
+ 
++  // DBZ3-Android: atalho render target -> textura (VulkanRenderTargetCache).
++  // Procura uma textura ja criada com esta chave (sem criar) e marca-a como
++  // carregada depois de o conteudo ter sido escrito por outro caminho.
++  Texture* Dbz3FindTexture(const TextureKey& key);
++  void Dbz3MarkTextureLoaded(Texture& texture);
++
+  private:
+   struct PendingTextureLoad {
+     Texture* texture = nullptr;
+diff --git a/include/rex/graphics/vulkan/dbz3_gpuprof.h b/include/rex/graphics/vulkan/dbz3_gpuprof.h
+index bf5cc17..d6c158a 100644
+--- a/include/rex/graphics/vulkan/dbz3_gpuprof.h
++++ b/include/rex/graphics/vulkan/dbz3_gpuprof.h
+@@ -74,6 +74,7 @@ struct State {
+   uint64_t win_loads = 0;
+   uint64_t win_load_texels = 0;
+   uint64_t win_load_repeats = 0;
++  uint64_t win_direct = 0;  // resolves feitos pelo atalho render target -> textura
+   std::vector<const void*> frame_loaded;
+   std::unordered_map<uint64_t, uint32_t> win_resolve_sizes;  // (w << 32 | h)
+   std::unordered_map<uint64_t, uint32_t> win_load_sizes;     // (fmt << 48 | w << 24 | h)
+@@ -155,6 +156,8 @@ class Zone {
+ 
+ inline void CountDraw() { ++g_state.draws; }
+ 
++inline void CountDirectResolve() { ++g_state.win_direct; }
++
+ inline void CountResolve(uint32_t width, uint32_t height) {
+   State& st = g_state;
+   if (!st.enabled) return;
+@@ -200,12 +203,14 @@ inline std::string TakeCountsSummary() {
+     return out;
+   };
+   std::string text = fmt::format(
+-      "resolves={:.1f}/f ({:.2f} Mpx){} | cargas={:.1f}/f ({:.2f} Mtexels, repetidas={:.1f}){}",
++      "resolves={:.1f}/f ({:.2f} Mpx, atalho={:.1f}){} | cargas={:.1f}/f ({:.2f} Mtexels, "
++      "repetidas={:.1f}){}",
+       double(st.win_resolves) / frames, double(st.win_resolve_px) / frames / 1.0e6,
+-      top(st.win_resolve_sizes, false), double(st.win_loads) / frames,
++      double(st.win_direct) / frames, top(st.win_resolve_sizes, false), double(st.win_loads) / frames,
+       double(st.win_load_texels) / frames / 1.0e6, double(st.win_load_repeats) / frames,
+       top(st.win_load_sizes, true));
+   st.win_resolves = st.win_resolve_px = st.win_loads = st.win_load_texels = st.win_load_repeats = 0;
++  st.win_direct = 0;
+   st.win_resolve_sizes.clear();
+   st.win_load_sizes.clear();
+   return text;
+diff --git a/include/rex/graphics/vulkan/render_target_cache.h b/include/rex/graphics/vulkan/render_target_cache.h
+index 34f7033..1dc3ab2 100644
+--- a/include/rex/graphics/vulkan/render_target_cache.h
++++ b/include/rex/graphics/vulkan/render_target_cache.h
+@@ -805,6 +805,9 @@ class VulkanRenderTargetCache final : public RenderTargetCache {
+   bool TryResolveCopyDirectly(const draw_util::ResolveInfo& resolve_info,
+                               draw_util::ResolveCopyShaderIndex copy_shader,
+                               bool draw_resolution_scaled);
++  // DBZ3-Android: atalho render target -> textura (dbz3_direct_resolve_texture).
++  bool Dbz3TryResolveToTexture(const draw_util::ResolveInfo& resolve_info,
++                               VulkanTextureCache& texture_cache);
+ 
+   // Writes contents of host render targets within rectangles from
+   // ResolveInfo::GetCopyEdramTileSpan to edram_buffer_.
+diff --git a/include/rex/graphics/vulkan/texture_cache.h b/include/rex/graphics/vulkan/texture_cache.h
+index ee3e2b2..bffc40c 100644
+--- a/include/rex/graphics/vulkan/texture_cache.h
++++ b/include/rex/graphics/vulkan/texture_cache.h
+@@ -37,6 +37,16 @@ class VulkanCommandProcessor;
+ 
+ class VulkanTextureCache final : public TextureCache {
+  public:
++  // DBZ3-Android: atalho render target -> textura para resolves de ecra inteiro
++  // k_8_8_8_8. Dbz3FindResolveTexture devolve a textura (opaca) ja existente para
++  // este destino, ou nullptr; Dbz3CopyToResolveTexture copia o buffer linear
++  // (RGBA8, width*4 bytes por linha) para a imagem e marca-a como carregada, o que
++  // evita a carga (untile) a partir da memoria do guest.
++  void* Dbz3FindResolveTexture(uint32_t base, uint32_t width, uint32_t height,
++                               xenos::Endian endian);
++  void Dbz3CopyToResolveTexture(void* texture, VkBuffer buffer, uint32_t width, uint32_t height,
++                                VkPipelineStageFlags buffer_src_stage,
++                                VkAccessFlags buffer_src_access);
+   // Sampler parameters that can be directly converted to a host sampler or used
+   // for checking whether samplers bindings are up to date.
+   union SamplerParameters {
+diff --git a/src/graphics/pipeline/texture/cache.cpp b/src/graphics/pipeline/texture/cache.cpp
+index a2d464d..669474e 100644
+--- a/src/graphics/pipeline/texture/cache.cpp
++++ b/src/graphics/pipeline/texture/cache.cpp
+@@ -748,6 +748,15 @@ TextureCache::Texture::~Texture() {
+   texture_cache_.UpdateTexturesTotalHostMemoryUsage(0, host_memory_usage_);
+ }
+ 
++TextureCache::Texture* TextureCache::Dbz3FindTexture(const TextureKey& key) {
++  auto it = textures_.find(key);
++  return it != textures_.end() ? it->second.get() : nullptr;
++}
++
++void TextureCache::Dbz3MarkTextureLoaded(Texture& texture) {
++  texture.MakeUpToDateAndWatch(global_critical_region_.Acquire());
++}
++
+ void TextureCache::Texture::MakeUpToDateAndWatch(
+     const std::unique_lock<std::recursive_mutex>& global_lock) {
+   SharedMemory& shared_memory = texture_cache().shared_memory();
+diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
+index 3511f9f..6773aff 100644
+--- a/src/graphics/vulkan/render_target_cache.cpp
++++ b/src/graphics/vulkan/render_target_cache.cpp
+@@ -13,6 +13,8 @@
+ #include <array>
+ #include <cstddef>
+ #include <cstdint>
++#include <cstdlib>
++#include <string>
+ #include <cstring>
+ #include <memory>
+ #include <tuple>
+@@ -1329,6 +1331,12 @@ bool VulkanRenderTargetCache::Resolve(const memory::Memory& memory,
+           // Invalidate textures and mark the range as scaled if needed.
+           texture_cache.MarkRangeAsResolved(resolve_info.copy_dest_extent_start,
+                                             resolve_info.copy_dest_extent_length);
++          // DBZ3-Android: a memoria do guest fica correta (resolve normal acima) e,
++          // se a textura que o jogo vai ler deste destino ja existir, e preenchida
++          // logo a partir do render target, sem a carga/untile seguinte.
++          if (!draw_resolution_scaled) {
++            Dbz3TryResolveToTexture(resolve_info, texture_cache);
++          }
+           written_address_out = resolve_info.copy_dest_extent_start;
+           written_length_out = resolve_info.copy_dest_extent_length;
+           copied = true;
+@@ -6196,4 +6204,231 @@ bool VulkanRenderTargetCache::DumpRenderTargets(uint32_t dump_base, uint32_t dum
+   return all_pipelines_available;
+ }
+ 
++
++// ---------------------------------------------------------------------------
++// DBZ3-Android: atalho render target -> textura.
++//
++// O jogo copia o ecra inteiro (1280x720 k_8_8_8_8) ~10 vezes por frame para os
++// efeitos e le cada copia como textura logo a seguir. No caminho normal cada copia
++// passa pelo buffer EDRAM, vai para a memoria do guest com tiling e endian, e a
++// textura volta a ler essa memoria e a desfazer tudo. Aqui, depois do resolve
++// normal (a memoria do guest continua certa), a textura que ja existe para esse
++// destino recebe o conteudo diretamente do render target (um compute que so troca
++// R/B se o resolve o pedir) e fica marcada como carregada.
++//
++// `dbz3_direct_resolve_texture`: 0 desligado, 1 ligado, 2 ligado com R/B ao
++// contrario (para testar a ordem dos canais sem recompilar).
++// ---------------------------------------------------------------------------
++namespace {
++struct Dbz3DirectResolveState {
++  bool init_tried = false;
++  VkPipelineLayout layout = VK_NULL_HANDLE;
++  VkPipeline pipeline = VK_NULL_HANDLE;
++  bool source_is_integer = false;
++  uint32_t logged = 0;
++};
++Dbz3DirectResolveState g_dbz3_direct;
++
++const char* Dbz3DirectResolveSource(bool integer) {
++  if (integer) {
++    return R"(#version 450
++#extension GL_EXT_samplerless_texture_functions : require
++layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
++layout(set = 0, binding = 0, std430) writeonly buffer Dest { uint dest[]; };
++layout(set = 1, binding = 0) uniform utexture2D src;
++layout(push_constant) uniform Constants { uint width; uint height; uint swap_rb; } pc;
++void main() {
++  uvec2 p = gl_GlobalInvocationID.xy;
++  if (p.x >= pc.width || p.y >= pc.height) return;
++  uvec4 c = texelFetch(src, ivec2(p), 0) & 0xFFu;
++  if (pc.swap_rb != 0u) c.rb = c.br;
++  dest[p.y * pc.width + p.x] = c.r | (c.g << 8u) | (c.b << 16u) | (c.a << 24u);
++}
++)";
++  }
++  return R"(#version 450
++#extension GL_EXT_samplerless_texture_functions : require
++layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
++layout(set = 0, binding = 0, std430) writeonly buffer Dest { uint dest[]; };
++layout(set = 1, binding = 0) uniform texture2D src;
++layout(push_constant) uniform Constants { uint width; uint height; uint swap_rb; } pc;
++void main() {
++  uvec2 p = gl_GlobalInvocationID.xy;
++  if (p.x >= pc.width || p.y >= pc.height) return;
++  uvec4 c = uvec4(clamp(texelFetch(src, ivec2(p), 0), 0.0, 1.0) * 255.0 + 0.5);
++  if (pc.swap_rb != 0u) c.rb = c.br;
++  dest[p.y * pc.width + p.x] = c.r | (c.g << 8u) | (c.b << 16u) | (c.a << 24u);
++}
++)";
++}
++}  // namespace
++
++bool VulkanRenderTargetCache::Dbz3TryResolveToTexture(const draw_util::ResolveInfo& resolve_info,
++                                                      VulkanTextureCache& texture_cache) {
++  const std::string mode_text = rex::cvar::GetFlagByName("dbz3_direct_resolve_texture");
++  const int mode = mode_text.empty() ? 0 : std::atoi(mode_text.c_str());
++  if (mode <= 0 || GetPath() != Path::kHostRenderTargets) {
++    return false;
++  }
++  // So copias de cor 8888 sem MSAA, sem escala, de um retangulo a comecar em (0,0)
++  // do render target e do destino, com o destino linear em largura = pitch.
++  if (resolve_info.IsCopyingDepth() || resolve_info.copy_dest_info.copy_dest_exp_bias != 0 ||
++      resolve_info.copy_dest_info.copy_dest_format != xenos::ColorFormat::k_8_8_8_8 ||
++      uint32_t(resolve_info.copy_dest_info.copy_dest_endian) > 3) {
++    return false;
++  }
++  const draw_util::ResolveEdramInfo& src_info = resolve_info.color_edram_info;
++  if (src_info.msaa_samples != xenos::MsaaSamples::k1X || src_info.format_is_64bpp ||
++      xenos::ColorRenderTargetFormat(src_info.format) != xenos::ColorRenderTargetFormat::k_8_8_8_8 ||
++      resolve_info.coordinate_info.edram_offset_x_div_8 != 0 ||
++      resolve_info.coordinate_info.edram_offset_y_div_8 != 0 ||
++      resolve_info.copy_dest_coordinate_info.offset_x_div_8 != 0 ||
++      resolve_info.copy_dest_coordinate_info.offset_y_div_8 != 0) {
++    return false;
++  }
++  const uint32_t width = uint32_t(resolve_info.coordinate_info.width_div_8) * 8;
++  const uint32_t height = resolve_info.height_div_8 * 8;
++  if (width < 256 || height < 128 ||
++      uint32_t(resolve_info.copy_dest_coordinate_info.pitch_aligned_div_32) * 32 != width ||
++      resolve_info.copy_dest_base != resolve_info.copy_dest_extent_start) {
++    return false;
++  }
++  // O conteudo tem de estar todo num unico render target 8888 1x a comecar no
++  // mesmo tile (dump_rectangles_ foi preenchido pelo dump deste resolve).
++  if (dump_rectangles_.size() != 1 || !dump_rectangles_[0].render_target) {
++    return false;
++  }
++  auto& rt = *static_cast<VulkanRenderTarget*>(dump_rectangles_[0].render_target);
++  const RenderTargetKey rt_key = rt.key();
++  if (rt_key.is_depth || rt_key.msaa_samples != xenos::MsaaSamples::k1X ||
++      rt_key.GetColorFormat() != xenos::ColorRenderTargetFormat::k_8_8_8_8 ||
++      rt_key.base_tiles != src_info.base_tiles ||
++      rt_key.pitch_tiles_at_32bpp != src_info.pitch_tiles) {
++    return false;
++  }
++  void* texture = texture_cache.Dbz3FindResolveTexture(
++      resolve_info.copy_dest_base, width, height,
++      xenos::Endian(uint32_t(resolve_info.copy_dest_info.copy_dest_endian)));
++  if (!texture) {
++    return false;
++  }
++
++  const ui::vulkan::VulkanDevice* const vulkan_device = command_processor_.GetVulkanDevice();
++  const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
++  const VkDevice device = vulkan_device->device();
++  Dbz3DirectResolveState& st = g_dbz3_direct;
++  if (!st.init_tried) {
++    st.init_tried = true;
++    GetColorOwnershipTransferVulkanFormat(xenos::ColorRenderTargetFormat::k_8_8_8_8,
++                                          xenos::MsaaSamples::k1X, &st.source_is_integer);
++    std::vector<uint32_t> spirv;
++    std::string error;
++    if (!command_processor_.CompileGlslToSpirv(VK_SHADER_STAGE_COMPUTE_BIT,
++                                               Dbz3DirectResolveSource(st.source_is_integer),
++                                               spirv, error)) {
++      REXGPU_ERROR("dbz3: atalho resolve->textura: shader nao compilou: {}", error);
++      return false;
++    }
++    VkDescriptorSetLayout set_layouts[2] = {
++        command_processor_.GetSingleTransientDescriptorLayout(
++            VulkanCommandProcessor::SingleTransientDescriptorLayout::kStorageBufferCompute),
++        descriptor_set_layout_sampled_image_};
++    VkPushConstantRange push_range = {VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(uint32_t) * 3};
++    VkPipelineLayoutCreateInfo layout_info = {};
++    layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
++    layout_info.setLayoutCount = 2;
++    layout_info.pSetLayouts = set_layouts;
++    layout_info.pushConstantRangeCount = 1;
++    layout_info.pPushConstantRanges = &push_range;
++    if (dfn.vkCreatePipelineLayout(device, &layout_info, nullptr, &st.layout) != VK_SUCCESS) {
++      REXGPU_ERROR("dbz3: atalho resolve->textura: vkCreatePipelineLayout falhou");
++      return false;
++    }
++    VkShaderModuleCreateInfo module_info = {};
++    module_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
++    module_info.codeSize = spirv.size() * sizeof(uint32_t);
++    module_info.pCode = spirv.data();
++    VkShaderModule module = VK_NULL_HANDLE;
++    if (dfn.vkCreateShaderModule(device, &module_info, nullptr, &module) != VK_SUCCESS) {
++      REXGPU_ERROR("dbz3: atalho resolve->textura: vkCreateShaderModule falhou");
++      return false;
++    }
++    VkComputePipelineCreateInfo pipeline_info = {};
++    pipeline_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
++    pipeline_info.stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
++    pipeline_info.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
++    pipeline_info.stage.module = module;
++    pipeline_info.stage.pName = "main";
++    pipeline_info.layout = st.layout;
++    const VkResult result = dfn.vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipeline_info,
++                                                         nullptr, &st.pipeline);
++    dfn.vkDestroyShaderModule(device, module, nullptr);
++    if (result != VK_SUCCESS) {
++      st.pipeline = VK_NULL_HANDLE;
++      REXGPU_ERROR("dbz3: atalho resolve->textura: vkCreateComputePipelines falhou");
++      return false;
++    }
++    REXGPU_INFO("dbz3: atalho resolve->textura ativo (origem {})",
++                st.source_is_integer ? "uint" : "unorm");
++  }
++  if (st.pipeline == VK_NULL_HANDLE) {
++    return false;
++  }
++
++  const VkDeviceSize buffer_size = VkDeviceSize(width) * height * 4;
++  VulkanCommandProcessor::ScratchBufferAcquisition scratch = command_processor_.AcquireScratchGpuBuffer(
++      buffer_size, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_WRITE_BIT);
++  VkBuffer scratch_buffer = scratch.buffer();
++  if (scratch_buffer == VK_NULL_HANDLE) {
++    return false;
++  }
++  VkDescriptorSet dest_set = command_processor_.AllocateSingleTransientDescriptor(
++      VulkanCommandProcessor::SingleTransientDescriptorLayout::kStorageBufferCompute);
++  if (dest_set == VK_NULL_HANDLE) {
++    return false;
++  }
++  VkDescriptorBufferInfo dest_buffer_info = {scratch_buffer, 0, buffer_size};
++  VkWriteDescriptorSet write = {};
++  write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
++  write.dstSet = dest_set;
++  write.dstBinding = 0;
++  write.descriptorCount = 1;
++  write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
++  write.pBufferInfo = &dest_buffer_info;
++  dfn.vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
++
++  // O render target ja esta pronto para leitura em compute (o dump deste resolve
++  // fez essa transicao); garante-o na mesma, sem custo se ja estiver.
++  command_processor_.PushImageMemoryBarrier(
++      rt.image(), ui::vulkan::util::InitializeSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT),
++      rt.current_stage_mask(), VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, rt.current_access_mask(),
++      VK_ACCESS_SHADER_READ_BIT, rt.current_layout(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
++  rt.SetUsage(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT,
++              VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
++
++  DeferredCommandBuffer& command_buffer = command_processor_.deferred_command_buffer();
++  command_processor_.BindExternalComputePipeline(st.pipeline);
++  VkDescriptorSet sets[2] = {dest_set, rt.GetDescriptorSetTransferSource()};
++  command_buffer.CmdVkBindDescriptorSets(VK_PIPELINE_BIND_POINT_COMPUTE, st.layout, 0, 2, sets, 0,
++                                         nullptr);
++  const bool swap_rb = (resolve_info.copy_dest_info.copy_dest_swap != 0) != (mode == 2);
++  const uint32_t constants[3] = {width, height, swap_rb ? 1u : 0u};
++  command_buffer.CmdVkPushConstants(st.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(constants),
++                                    constants);
++  command_processor_.SubmitBarriers(true);
++  command_buffer.CmdVkDispatch((width + 7) / 8, (height + 7) / 8, 1);
++
++  texture_cache.Dbz3CopyToResolveTexture(
++      texture, scratch_buffer, width, height,
++      scratch.SetStageMask(VK_PIPELINE_STAGE_TRANSFER_BIT),
++      scratch.SetAccessMask(VK_ACCESS_TRANSFER_READ_BIT));
++  dbz3_gpuprof::CountDirectResolve();
++  if (st.logged < 4) {
++    ++st.logged;
++    REXGPU_INFO("dbz3: atalho resolve->textura {}x{} dest={:08X} troca_rb={}", width, height,
++                resolve_info.copy_dest_base, swap_rb ? 1 : 0);
++  }
++  return true;
++}
++
+ }  // namespace rex::graphics::vulkan
+diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
+index 8682540..58de055 100644
+--- a/src/graphics/vulkan/texture_cache.cpp
++++ b/src/graphics/vulkan/texture_cache.cpp
+@@ -1856,6 +1856,82 @@ bool VulkanTextureCache::LoadTextureDataFromResidentMemoryImpl(Texture& texture,
+   return true;
+ }
+ 
++void* VulkanTextureCache::Dbz3FindResolveTexture(uint32_t base, uint32_t width, uint32_t height,
++                                                 xenos::Endian endian) {
++  if (IsDrawResolutionScaled() || !width || !height || (base & 0xFFF)) {
++    return nullptr;
++  }
++  TextureKey key;
++  key.base_page = (base & 0x1FFFFFFF) >> 12;
++  key.dimension = xenos::DataDimension::k2DOrStacked;
++  key.width_minus_1 = width - 1;
++  key.height_minus_1 = height - 1;
++  key.tiled = 1;
++  key.packed_mips = 0;
++  key.mip_page = 0;
++  key.depth_or_array_size_minus_1 = 0;
++  key.pitch = (width + 31) >> 5;
++  key.mip_max_level = 0;
++  key.format = xenos::TextureFormat::k_8_8_8_8;
++  key.endianness = endian;
++  key.signed_separate = 0;
++  key.scaled_resolve = 0;
++  key.is_valid = 1;
++  if (IsTexturePackReplaced(key)) {
++    return nullptr;
++  }
++  Texture* texture = Dbz3FindTexture(key);
++  if (!texture) {
++    return nullptr;
++  }
++  const HostFormatPair& host_format_pair = GetHostFormatPair(key);
++  if (host_format_pair.format_unsigned.format != VK_FORMAT_R8G8B8A8_UNORM ||
++      host_format_pair.format_unsigned.load_shader != kLoadShaderIndex32bpb) {
++    return nullptr;
++  }
++  return texture;
++}
++
++void VulkanTextureCache::Dbz3CopyToResolveTexture(void* texture_opaque, VkBuffer buffer,
++                                                  uint32_t width, uint32_t height,
++                                                  VkPipelineStageFlags buffer_src_stage,
++                                                  VkAccessFlags buffer_src_access) {
++  VulkanTexture& vulkan_texture = *static_cast<VulkanTexture*>(static_cast<Texture*>(texture_opaque));
++  DeferredCommandBuffer& command_buffer = command_processor_.deferred_command_buffer();
++  command_processor_.PushBufferMemoryBarrier(buffer, 0, VK_WHOLE_SIZE, buffer_src_stage,
++                                             VK_PIPELINE_STAGE_TRANSFER_BIT, buffer_src_access,
++                                             VK_ACCESS_TRANSFER_READ_BIT);
++  vulkan_texture.MarkAsUsed();
++  VulkanTexture::Usage texture_old_usage =
++      vulkan_texture.SetUsage(VulkanTexture::Usage::kTransferDestination);
++  if (texture_old_usage != VulkanTexture::Usage::kTransferDestination) {
++    VkPipelineStageFlags texture_src_stage_mask, texture_dst_stage_mask;
++    VkAccessFlags texture_src_access_mask, texture_dst_access_mask;
++    VkImageLayout texture_old_layout, texture_new_layout;
++    GetTextureUsageMasks(texture_old_usage, texture_src_stage_mask, texture_src_access_mask,
++                         texture_old_layout);
++    GetTextureUsageMasks(VulkanTexture::Usage::kTransferDestination, texture_dst_stage_mask,
++                         texture_dst_access_mask, texture_new_layout);
++    command_processor_.PushImageMemoryBarrier(
++        vulkan_texture.image(), ui::vulkan::util::InitializeSubresourceRange(),
++        texture_src_stage_mask, texture_dst_stage_mask, texture_src_access_mask,
++        texture_dst_access_mask, texture_old_layout, texture_new_layout);
++  }
++  command_processor_.SubmitBarriers(true);
++  VkBufferImageCopy* copy_region = command_buffer.CmdCopyBufferToImageEmplace(
++      buffer, vulkan_texture.image(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1);
++  copy_region->bufferOffset = 0;
++  copy_region->bufferRowLength = width;
++  copy_region->bufferImageHeight = height;
++  copy_region->imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
++  copy_region->imageSubresource.mipLevel = 0;
++  copy_region->imageSubresource.baseArrayLayer = 0;
++  copy_region->imageSubresource.layerCount = 1;
++  copy_region->imageOffset = {0, 0, 0};
++  copy_region->imageExtent = {width, height, 1};
++  Dbz3MarkTextureLoaded(vulkan_texture);
++}
++
+ // DBZ3 HD Collection: packs de texturas (ver dbz3_texture_pack.h).
+ 
+ bool VulkanTextureCache::LinearizeGuestTexture(
+diff --git a/src/ui/vulkan/vulkan_presenter.cpp b/src/ui/vulkan/vulkan_presenter.cpp
+index f6a3509..9257887 100644
+--- a/src/ui/vulkan/vulkan_presenter.cpp
++++ b/src/ui/vulkan/vulkan_presenter.cpp
+@@ -58,6 +58,12 @@ REXCVAR_DEFINE_BOOL(present_render_pass_clear, true, "UI/Presenter",
+ REXCVAR_DEFINE_BOOL(dbz3_perf_logging, false, "UI/Presenter",
+                     "DBZ3: log FPS/frame stats every 5 seconds (diagnostics)")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
++// Lida pelo VulkanRenderTargetCache (plugin da GPU) por nome.
++REXCVAR_DEFINE_INT32(dbz3_direct_resolve_texture, 0, "GPU",
++                     "DBZ3-Android: copia os resolves de ecra inteiro direto do render target "
++                     "para a textura (0 desligado, 1 ligado, 2 ligado com R/B invertido)")
++    .range(0, 2)
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ #endif
+ 
+ // REXGLUE_DBZ3_VULKAN_PRESENT_FIX

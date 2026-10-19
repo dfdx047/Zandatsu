@@ -1,0 +1,27 @@
+diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
+index 0562ed8..a2cde17 100644
+--- a/src/graphics/vulkan/render_target_cache.cpp
++++ b/src/graphics/vulkan/render_target_cache.cpp
+@@ -72,6 +72,9 @@ REXCVAR_DEFINE_STRING(render_target_path_vulkan, "", "GPU/Vulkan",
+ //     "always FB because the FSI path is much slower now).",
+ //     "GPU");
+ 
++REXCVAR_DEFINE_INT32(dbz3_resolve_debug, 0, "GPU",
++                     "DBZ3-Android: 1 = resolves sem trabalho na GPU (so para medir o custo)");
++
+ namespace rex::graphics::vulkan {
+ 
+ // DBZ3-Android: cache de pipelines do driver (pipeline_cache.cpp).
+@@ -6640,6 +6643,12 @@ bool VulkanRenderTargetCache::Dbz3TryResolveToTexture(const draw_util::ResolveIn
+   if (mode <= 0 || GetPath() != Path::kHostRenderTargets) {
+     return false;
+   }
++  // Diagnostico (cvars.txt: dbz3_resolve_debug = 1): nao faz trabalho nenhum no resolve,
++  // as texturas ficam com o conteudo antigo. Serve so para medir quanto custa o resolve.
++  if (REXCVAR_GET(dbz3_resolve_debug) == 1) {
++    dbz3_gpuprof::CountDirectResolve();
++    return true;
++  }
+   if (resolve_info.IsCopyingDepth()) {
+     Dbz3DepthFail(0);  // so regista que chegou aqui
+     return Dbz3TryResolveDepthToTexture(resolve_info, texture_cache, skip_memory);

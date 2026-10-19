@@ -1,0 +1,144 @@
+--- a/src/core/threading_posix.cpp
++++ b/src/core/threading_posix.cpp
+@@ -287,6 +287,20 @@
+   virtual ~PosixConditionBase() = default;
+   virtual bool Signal() = 0;
+ 
++  // DBZ3-Android: WaitMultiple fazia polling (trylock em todos os handles,
++  // vetor novo e sleep de 1 ms em cada volta) e gastava ~50% de um nucleo na
++  // thread de audio. Agora qualquer sinal (Set/Release/fim de thread) avanca um
++  // contador global e acorda quem esta em WaitMultiple, que dorme de verdade
++  // entre verificacoes.
++  static void NotifyMultiWaiters() {
++    auto& state = MultiWaitState();
++    {
++      std::lock_guard<std::mutex> guard(state.mutex);
++      ++state.epoch;
++    }
++    state.cv.notify_all();
++  }
++
+   WaitResult Wait(std::chrono::milliseconds timeout) {
+     bool executed;
+     auto predicate = [this] { return this->signaled(); };
+@@ -335,13 +349,23 @@
+                         ? std::chrono::steady_clock::time_point::max()
+                         : start_time + timeout;
+ 
++    auto& multi_wait = MultiWaitState();
++    std::vector<std::unique_lock<std::mutex>> locks;
++    locks.reserve(handles.size());
++
+     while (true) {
+       size_t first_signaled = std::numeric_limits<size_t>::max();
+       bool condition_met = false;
+       bool all_locked = true;
+ 
+-      std::vector<std::unique_lock<std::mutex>> locks;
+-      locks.reserve(handles.size());
++      // Lido antes de verificar os handles: um sinal que chegue depois da
++      // verificacao muda o contador e a espera abaixo nao adormece.
++      uint64_t epoch_before;
++      {
++        std::lock_guard<std::mutex> guard(multi_wait.mutex);
++        epoch_before = multi_wait.epoch;
++      }
++      locks.clear();
+ 
+       for (size_t i = 0; i < handles.size(); ++i) {
+ #if REX_PLATFORM_LINUX && !REX_PLATFORM_ANDROID
+@@ -411,16 +435,31 @@
+         return std::make_pair<WaitResult, size_t>(WaitResult::kTimeout, 0);
+       }
+ 
+-      if (timeout == std::chrono::milliseconds::max()) {
+-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+-      } else {
+-        auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - now);
+-        auto sleep_time = std::min(remaining, std::chrono::milliseconds(1));
+-        std::this_thread::sleep_for(sleep_time);
+-      }
++      // Dorme ate algum objeto ser sinalizado ou o tempo acabar. O limite de
++      // 50 ms e so uma rede de seguranca (re-verificar de vez em quando).
++      auto wake_time = now + std::chrono::milliseconds(50);
++      if (end_time < wake_time) {
++        wake_time = end_time;
++      }
++      std::unique_lock<std::mutex> guard(multi_wait.mutex);
++      multi_wait.cv.wait_until(guard, wake_time,
++                               [&] { return multi_wait.epoch != epoch_before; });
+     }
+   }
+ 
++ protected:
++  struct MultiWait {
++    std::mutex mutex;
++    std::condition_variable cv;
++    uint64_t epoch = 0;
++  };
++  static MultiWait& MultiWaitState() {
++    static MultiWait state;
++    return state;
++  }
++
++ public:
++
+   virtual void* native_handle() const {
+     return const_cast<std::condition_variable&>(cond_).native_handle();
+   }
+@@ -450,6 +489,7 @@
+     auto lock = std::unique_lock<std::mutex>(mutex_);
+     signal_ = true;
+     cond_.notify_all();
++    PosixConditionBase::NotifyMultiWaiters();
+     return true;
+   }
+ 
+@@ -487,6 +527,7 @@
+     }
+     count_ += release_count;
+     cond_.notify_all();
++    PosixConditionBase::NotifyMultiWaiters();
+     return true;
+   }
+ 
+@@ -495,6 +536,7 @@
+   inline void post_execution() override {
+     count_--;
+     cond_.notify_all();
++    PosixConditionBase::NotifyMultiWaiters();
+   }
+   uint32_t count_;
+   const uint32_t maximum_count_;
+@@ -519,6 +561,7 @@
+       // Free to be acquired by another thread
+       if (count_ == 0) {
+         cond_.notify_all();
++        PosixConditionBase::NotifyMultiWaiters();
+       }
+       return true;
+     }
+@@ -551,6 +594,7 @@
+     std::lock_guard<std::mutex> lock(mutex_);
+     signal_ = true;
+     cond_.notify_all();
++    PosixConditionBase::NotifyMultiWaiters();
+     return true;
+   }
+ 
+@@ -979,6 +1023,7 @@
+       exit_code_ = exit_code;
+       signaled_ = true;
+       cond_.notify_all();
++      PosixConditionBase::NotifyMultiWaiters();
+     }
+     if (is_current_thread) {
+       pthread_exit(reinterpret_cast<void*>(exit_code));
+@@ -1449,6 +1494,7 @@
+     thread->handle_.exit_code_ = 0;
+     thread->handle_.signaled_ = true;
+     thread->handle_.cond_.notify_all();
++    PosixConditionBase::NotifyMultiWaiters();
+   }
+ 
+   current_thread_ = nullptr;

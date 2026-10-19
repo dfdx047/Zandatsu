@@ -1,0 +1,47 @@
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 5347bf0..0ebf3ee 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -2305,6 +2305,8 @@ struct Reader {
+   uint32_t win_over_16 = 0;
+   uint32_t win_over_20 = 0;
+   std::array<double, prof::kCount> win_cat{};
++  // Pior frame da janela: para ver que categoria rebenta nos frames longos.
++  std::array<double, prof::kCount> worst_cat{};
+ };
+ Reader g_reader;
+ 
+@@ -2407,7 +2409,10 @@ void FinishFrame(Reader& rd) {
+   }
+   ++rd.win_frames;
+   rd.win_sum_ms += rd.acc_ms;
+-  rd.win_max_ms = std::max(rd.win_max_ms, rd.acc_ms);
++  if (rd.acc_ms > rd.win_max_ms) {
++    rd.win_max_ms = rd.acc_ms;
++    rd.worst_cat = rd.acc_cat;
++  }
+   if (rd.acc_ms > 16.7) ++rd.win_over_16;
+   if (rd.acc_ms > 20.0) ++rd.win_over_20;
+   for (uint32_t i = 0; i < prof::kCount; ++i) {
+@@ -2479,8 +2484,11 @@ std::string TakeWindowSummary() {
+         text += fmt::format("/{:.0f}p", double(st.win_passes[i]) / cpu_frames);
+       }
+     }
+-    text += fmt::format(" draws={:.0f} | {}", double(st.win_draws) / cpu_frames,
+-                        prof::TakeCountsSummary());
++    text += fmt::format(" draws={:.0f} | pior:", double(st.win_draws) / cpu_frames);
++    for (uint32_t i = 0; i < prof::kCount; ++i) {
++      text += fmt::format(" {}={:.1f}", prof::kCategoryNames[i], rd.worst_cat[i]);
++    }
++    text += fmt::format(" | {}", prof::TakeCountsSummary());
+   }
+   rd.win_frames = 0;
+   rd.win_sum_ms = 0.0;
+@@ -2488,6 +2496,7 @@ std::string TakeWindowSummary() {
+   rd.win_over_16 = 0;
+   rd.win_over_20 = 0;
+   rd.win_cat.fill(0.0);
++  rd.worst_cat.fill(0.0);
+   st.win_passes.fill(0);
+   st.win_draws = 0;
+   st.win_cpu_frames = 0;

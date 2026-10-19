@@ -1,0 +1,75 @@
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index fccb1b1..cf5e781 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -3498,7 +3498,28 @@ bool VulkanCommandProcessor::SubmitBarriers(bool force_end_render_pass) {
+   if (in_render_pass_) {
+     const char* reason = "barreira (outra)";
+     if (!pending_barriers_image_memory_barriers_.empty()) {
+-      reason = "barreira de imagem";
++      // Classificacao pelo destino da primeira barreira de imagem (diagnostico).
++      switch (pending_barriers_image_memory_barriers_.front().newLayout) {
++        case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
++          reason = "barreira de imagem (amostrar)";
++          break;
++        case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
++          reason = "barreira de imagem (carga)";
++          break;
++        case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
++          reason = "barreira de imagem (copia)";
++          break;
++        case VK_IMAGE_LAYOUT_GENERAL:
++          reason = "barreira de imagem (general)";
++          break;
++        case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
++        case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
++          reason = "barreira de imagem (render target)";
++          break;
++        default:
++          reason = "barreira de imagem";
++          break;
++      }
+     } else if (!pending_barriers_buffer_memory_barriers_.empty()) {
+       const VkBufferMemoryBarrier& b = pending_barriers_buffer_memory_barriers_.front();
+       reason = (b.dstAccessMask & VK_ACCESS_TRANSFER_WRITE_BIT) ? "barreira de buffer (upload)"
+diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
+index 564af6e..55f7777 100644
+--- a/src/graphics/vulkan/texture_cache.cpp
++++ b/src/graphics/vulkan/texture_cache.cpp
+@@ -38,6 +38,9 @@
+ // DBZ3 HD Collection: packs de texturas (modulo comun a D3D12 y Vulkan).
+ #include "../dbz3_texture_pack.h"
+ 
++REXCVAR_DEFINE_BOOL(dbz3_resolve_early_transition, true, "GPU",
++                    "DBZ3: a textura resolvida passa logo para leitura no fim do resolve "
++                    "(evita fechar o passe quando e amostrada)");
+ REXCVAR_DEFINE_BOOL(non_seamless_cube_map, false, "GPU", "Use non-seamless cube map sampling");
+ 
+ namespace rex::graphics::vulkan {
+@@ -2059,6 +2062,26 @@ void VulkanTextureCache::Dbz3EndStorageWrite(void* texture_opaque) {
+   VulkanTexture& vulkan_texture =
+       *static_cast<VulkanTexture*>(static_cast<Texture*>(texture_opaque));
+   Dbz3MarkTextureLoaded(vulkan_texture);
++  // A textura resolvida vai ser amostrada mais a frente no frame, normalmente com um passe
++  // ja aberto: se a transicao para leitura ficasse para o draw que a usa, a barreira fechava
++  // esse passe (no Mali ~25 fins de passe por frame, cada um com carga + gravacao dos tiles).
++  // O resolve corre fora de passes, por isso a transicao faz-se ja aqui.
++  if (REXCVAR_GET(dbz3_resolve_early_transition)) {
++    const VulkanTexture::Usage old_usage =
++        vulkan_texture.SetUsage(VulkanTexture::Usage::kGuestShaderSampled);
++    if (old_usage != VulkanTexture::Usage::kGuestShaderSampled) {
++      VkPipelineStageFlags src_stage, dst_stage;
++      VkAccessFlags src_access, dst_access;
++      VkImageLayout old_layout, new_layout;
++      GetTextureUsageMasks(old_usage, src_stage, src_access, old_layout);
++      GetTextureUsageMasks(VulkanTexture::Usage::kGuestShaderSampled, dst_stage, dst_access,
++                           new_layout);
++      command_processor_.PushImageMemoryBarrier(vulkan_texture.image(),
++                                                ui::vulkan::util::InitializeSubresourceRange(),
++                                                src_stage, dst_stage, src_access, dst_access,
++                                                old_layout, new_layout);
++    }
++  }
+ }
+ 
+ // DBZ3 HD Collection: packs de texturas (ver dbz3_texture_pack.h).

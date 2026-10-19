@@ -1,0 +1,778 @@
+diff --git a/include/rex/graphics/pipeline/render_target/cache.h b/include/rex/graphics/pipeline/render_target/cache.h
+index 9cff6d6..2426ade 100644
+--- a/include/rex/graphics/pipeline/render_target/cache.h
++++ b/include/rex/graphics/pipeline/render_target/cache.h
+@@ -325,6 +325,11 @@ class RenderTargetCache {
+                               uint32_t index_count, uint64_t pixel_shader_hash);
+   void Dbz3ElisionFrameEnd();
+   void Dbz3MarkWritten(RenderTargetKey key) { ++dbz3_write_gen_[key]; }
++  // DBZ3-Android: render target ja criado com esta chave (ou nullptr).
++  RenderTarget* Dbz3FindRenderTarget(RenderTargetKey key) const {
++    auto it = render_targets_.find(key);
++    return it != render_targets_.end() ? it->second : nullptr;
++  }
+   const std::vector<std::pair<RenderTarget*, bool>>& dbz3_direct_clear_siblings() const {
+     return dbz3_direct_clear_siblings_;
+   }
+diff --git a/include/rex/graphics/vulkan/render_target_cache.h b/include/rex/graphics/vulkan/render_target_cache.h
+index 24f0b38..8d0d480 100644
+--- a/include/rex/graphics/vulkan/render_target_cache.h
++++ b/include/rex/graphics/vulkan/render_target_cache.h
+@@ -810,6 +810,14 @@ class VulkanRenderTargetCache final : public RenderTargetCache {
+                                VulkanTextureCache& texture_cache, bool skip_memory);
+   // Idem para resolves de profundidade (src_select = depth): preenche as texturas
+   // k_24_8 (R32_SFLOAT) e/ou k_8_8_8_8 (bytes [stencil, d_lo, d_mid, d_hi]) do destino.
++  bool Dbz3StoreInit();
++  VkPipeline Dbz3StorePipeline(uint32_t variant);
++  bool Dbz3StoreToTexture(uint32_t variant, VkDescriptorSet source_set,
++                          VulkanTextureCache& texture_cache, void* texture, uint32_t width,
++                          uint32_t height, bool swap_rb, uint32_t samples);
++  bool Dbz3BufferResolveToTexture(VulkanRenderTarget& rt, bool source_is_integer,
++                                  VulkanTextureCache& texture_cache, void* texture, uint32_t width,
++                                  uint32_t height, bool swap_rb);
+   bool Dbz3TryResolveDepthToTexture(const draw_util::ResolveInfo& resolve_info,
+                                     VulkanTextureCache& texture_cache, bool skip_memory);
+ 
+diff --git a/include/rex/graphics/vulkan/texture_cache.h b/include/rex/graphics/vulkan/texture_cache.h
+index af34e07..0b7c2b0 100644
+--- a/include/rex/graphics/vulkan/texture_cache.h
++++ b/include/rex/graphics/vulkan/texture_cache.h
+@@ -45,6 +45,21 @@ class VulkanTextureCache final : public TextureCache {
+   void* Dbz3FindResolveTexture(uint32_t base, uint32_t width, uint32_t height,
+                                xenos::Endian endian,
+                                xenos::TextureFormat format = xenos::TextureFormat::k_8_8_8_8);
++  // DBZ3-Android: resolve escrito diretamente na imagem da textura (imageStore), sem
++  // buffer intermedio. So texturas 2D tiled sem mips em k_8_8_8_8 (RGBA8) ou k_24_8
++  // (R32F) sao criadas com VK_IMAGE_USAGE_STORAGE_BIT (dbz3_direct_resolve_texture != 0).
++  // Dbz3FindResolveTextures procura as texturas desse destino com a largura dada e
++  // altura entre height-7 e height (o resolve arredonda a altura a 8).
++  uint32_t Dbz3FindResolveTextures(uint32_t base, uint32_t width, uint32_t height,
++                                   xenos::TextureFormat format, bool any_endian,
++                                   xenos::Endian endian, void** out, uint32_t out_max);
++  bool Dbz3TextureHasStorage(void* texture) const;
++  uint32_t Dbz3TextureHeight(void* texture) const;
++  VkImageView Dbz3GetStorageView(void* texture);
++  // Transicao para escrita em compute (layout GENERAL); a seguinte amostragem volta a
++  // SHADER_READ_ONLY em RequestTextures. Dbz3EndStorageWrite marca-a como carregada.
++  void Dbz3BeginStorageWrite(void* texture);
++  void Dbz3EndStorageWrite(void* texture);
+   void Dbz3CopyToResolveTexture(void* texture, VkBuffer buffer, uint32_t width, uint32_t height,
+                                 VkPipelineStageFlags buffer_src_stage,
+                                 VkAccessFlags buffer_src_access);
+@@ -224,6 +239,7 @@ class VulkanTextureCache final : public TextureCache {
+       kTransferDestination,
+       kGuestShaderSampled,
+       kSwapSampled,
++      kDbz3StorageWrite,
+     };
+ 
+     // Takes ownership of the image and its memory.
+@@ -241,6 +257,11 @@ class VulkanTextureCache final : public TextureCache {
+     }
+ 
+     VkImageView GetView(bool is_signed, uint32_t host_swizzle, bool is_array = true);
++
++    // DBZ3-Android: imagem criada com STORAGE (resolve direto) e a vista para isso.
++    bool dbz3_storage() const { return dbz3_storage_; }
++    void set_dbz3_storage(bool value) { dbz3_storage_ = value; }
++    VkImageView Dbz3GetStorageView();
+     VkImageView GetOrCreate3DAs2DImageView(bool is_signed, uint32_t host_swizzle);
+ 
+    private:
+@@ -293,6 +314,8 @@ class VulkanTextureCache final : public TextureCache {
+ 
+     VkImage image_;
+     VmaAllocation allocation_;
++    bool dbz3_storage_ = false;
++    VkImageView dbz3_storage_view_ = VK_NULL_HANDLE;
+ 
+     Usage usage_ = Usage::kUndefined;
+ 
+diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
+index 284882d..0562ed8 100644
+--- a/src/graphics/vulkan/render_target_cache.cpp
++++ b/src/graphics/vulkan/render_target_cache.cpp
+@@ -6393,6 +6393,245 @@ void main() {
+ }
+ }  // namespace
+ 
++namespace {
++// ---------------------------------------------------------------------------
++// DBZ3-Android: resolve por imageStore direto na imagem da textura (sem buffer).
++// Variantes: 0 cor unorm 1x, 1 cor uint 1x, 2 cor unorm MSAA, 3 cor uint MSAA,
++// 4 profundidade -> R32F (k_24_8), 5 profundidade -> RGBA8 ([stencil, d_lo, d_mid, d_hi]).
++// ---------------------------------------------------------------------------
++constexpr uint32_t kDbz3StoreVariants = 6;
++constexpr uint32_t kDbz3StoreRing = 256;
++
++struct Dbz3StoreState {
++  bool init_tried = false;
++  bool ok = false;
++  VkDescriptorSetLayout dest_layout = VK_NULL_HANDLE;
++  VkDescriptorPool pool = VK_NULL_HANDLE;
++  VkDescriptorSet sets[kDbz3StoreRing] = {};
++  uint32_t next_set = 0;
++  VkPipelineLayout layouts[2] = {};  // 0: cor (1 imagem), 1: profundidade (2 imagens)
++  bool tried[kDbz3StoreVariants] = {};
++  VkPipeline pipelines[kDbz3StoreVariants] = {};
++  uint32_t logged = 0;
++};
++Dbz3StoreState g_dbz3_store;
++
++std::string Dbz3StoreSource(uint32_t variant) {
++  std::string src =
++      "#version 450\n"
++      "#extension GL_EXT_samplerless_texture_functions : require\n"
++      "layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;\n"
++      "layout(push_constant) uniform Constants { uint width; uint height; uint swap_rb;"
++      " uint samples; } pc;\n";
++  if (variant <= 3) {
++    const bool integer = variant == 1 || variant == 3;
++    const bool msaa = variant >= 2;
++    src += "layout(set = 0, binding = 0, rgba8) uniform writeonly image2D dest;\n";
++    src += std::string("layout(set = 1, binding = 0) uniform ") + (integer ? "u" : "") +
++           (msaa ? "texture2DMS" : "texture2D") + " src;\n";
++    src += "void main() {\n"
++           "  ivec2 p = ivec2(gl_GlobalInvocationID.xy);\n"
++           "  if (uint(p.x) >= pc.width || uint(p.y) >= pc.height) return;\n";
++    if (msaa) {
++      src += "  vec4 c = vec4(0.0);\n"
++             "  for (int s = 0; s < int(pc.samples); ++s) {\n";
++      src += integer ? "    c += vec4(texelFetch(src, p, s) & 0xFFu) / 255.0;\n"
++                     : "    c += clamp(texelFetch(src, p, s), 0.0, 1.0);\n";
++      src += "  }\n  c /= float(max(pc.samples, 1u));\n";
++    } else {
++      src += integer ? "  vec4 c = vec4(texelFetch(src, p, 0) & 0xFFu) / 255.0;\n"
++                     : "  vec4 c = clamp(texelFetch(src, p, 0), 0.0, 1.0);\n";
++    }
++    src += "  if (pc.swap_rb != 0u) c.rb = c.br;\n"
++           "  imageStore(dest, p, c);\n"
++           "}\n";
++    return src;
++  }
++  const bool as_float = variant == 4;
++  src += as_float ? "layout(set = 0, binding = 0, r32f) uniform writeonly image2D dest;\n"
++                  : "layout(set = 0, binding = 0, rgba8) uniform writeonly image2D dest;\n";
++  src += "layout(set = 1, binding = 0) uniform texture2D src_depth;\n"
++         "layout(set = 1, binding = 1) uniform utexture2D src_stencil;\n"
++         "void main() {\n"
++         "  ivec2 p = ivec2(gl_GlobalInvocationID.xy);\n"
++         "  if (uint(p.x) >= pc.width || uint(p.y) >= pc.height) return;\n"
++         "  float d = clamp(texelFetch(src_depth, p, 0).r, 0.0, 1.0);\n";
++  if (as_float) {
++    src += "  imageStore(dest, p, vec4(d, 0.0, 0.0, 0.0));\n";
++  } else {
++    src += "  uint d24 = uint(d * 16777215.0 + 0.5);\n"
++           "  uint st = texelFetch(src_stencil, p, 0).r & 0xFFu;\n"
++           "  uint v = (d24 << 8u) | st;\n"
++           "  imageStore(dest, p, vec4(uvec4(v, v >> 8u, v >> 16u, v >> 24u) & 0xFFu) / 255.0);\n";
++  }
++  src += "}\n";
++  return src;
++}
++}  // namespace
++
++bool VulkanRenderTargetCache::Dbz3StoreInit() {
++  Dbz3StoreState& st = g_dbz3_store;
++  if (st.init_tried) {
++    return st.ok;
++  }
++  st.init_tried = true;
++  const ui::vulkan::VulkanDevice* const vulkan_device = command_processor_.GetVulkanDevice();
++  const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
++  const VkDevice device = vulkan_device->device();
++  VkDescriptorSetLayoutBinding binding = {};
++  binding.binding = 0;
++  binding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
++  binding.descriptorCount = 1;
++  binding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
++  VkDescriptorSetLayoutCreateInfo set_layout_info = {};
++  set_layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
++  set_layout_info.bindingCount = 1;
++  set_layout_info.pBindings = &binding;
++  if (dfn.vkCreateDescriptorSetLayout(device, &set_layout_info, nullptr, &st.dest_layout) !=
++      VK_SUCCESS) {
++    REXGPU_ERROR("dbz3: resolve direto: vkCreateDescriptorSetLayout falhou");
++    return false;
++  }
++  VkDescriptorPoolSize pool_size = {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, kDbz3StoreRing};
++  VkDescriptorPoolCreateInfo pool_info = {};
++  pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
++  pool_info.maxSets = kDbz3StoreRing;
++  pool_info.poolSizeCount = 1;
++  pool_info.pPoolSizes = &pool_size;
++  if (dfn.vkCreateDescriptorPool(device, &pool_info, nullptr, &st.pool) != VK_SUCCESS) {
++    REXGPU_ERROR("dbz3: resolve direto: vkCreateDescriptorPool falhou");
++    return false;
++  }
++  VkDescriptorSetLayout set_layouts[kDbz3StoreRing];
++  for (uint32_t i = 0; i < kDbz3StoreRing; ++i) {
++    set_layouts[i] = st.dest_layout;
++  }
++  VkDescriptorSetAllocateInfo alloc_info = {};
++  alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
++  alloc_info.descriptorPool = st.pool;
++  alloc_info.descriptorSetCount = kDbz3StoreRing;
++  alloc_info.pSetLayouts = set_layouts;
++  if (dfn.vkAllocateDescriptorSets(device, &alloc_info, st.sets) != VK_SUCCESS) {
++    REXGPU_ERROR("dbz3: resolve direto: vkAllocateDescriptorSets falhou");
++    return false;
++  }
++  VkPushConstantRange push_range = {VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(uint32_t) * 4};
++  for (uint32_t l = 0; l < 2; ++l) {
++    VkDescriptorSetLayout layouts[2] = {
++        st.dest_layout,
++        l == 0 ? descriptor_set_layout_sampled_image_ : descriptor_set_layout_sampled_image_x2_};
++    VkPipelineLayoutCreateInfo layout_info = {};
++    layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
++    layout_info.setLayoutCount = 2;
++    layout_info.pSetLayouts = layouts;
++    layout_info.pushConstantRangeCount = 1;
++    layout_info.pPushConstantRanges = &push_range;
++    if (dfn.vkCreatePipelineLayout(device, &layout_info, nullptr, &st.layouts[l]) != VK_SUCCESS) {
++      REXGPU_ERROR("dbz3: resolve direto: vkCreatePipelineLayout falhou");
++      return false;
++    }
++  }
++  st.ok = true;
++  REXGPU_INFO("dbz3: resolve direto para a textura (imageStore) disponivel");
++  return true;
++}
++
++VkPipeline VulkanRenderTargetCache::Dbz3StorePipeline(uint32_t variant) {
++  Dbz3StoreState& st = g_dbz3_store;
++  if (variant >= kDbz3StoreVariants) {
++    return VK_NULL_HANDLE;
++  }
++  if (st.tried[variant]) {
++    return st.pipelines[variant];
++  }
++  st.tried[variant] = true;
++  const ui::vulkan::VulkanDevice* const vulkan_device = command_processor_.GetVulkanDevice();
++  const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
++  const VkDevice device = vulkan_device->device();
++  std::vector<uint32_t> spirv;
++  std::string error;
++  if (!command_processor_.CompileGlslToSpirv(VK_SHADER_STAGE_COMPUTE_BIT, Dbz3StoreSource(variant),
++                                             spirv, error)) {
++    REXGPU_ERROR("dbz3: resolve direto (variante {}): shader nao compilou: {}", variant, error);
++    return VK_NULL_HANDLE;
++  }
++  VkShaderModuleCreateInfo module_info = {};
++  module_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
++  module_info.codeSize = spirv.size() * sizeof(uint32_t);
++  module_info.pCode = spirv.data();
++  VkShaderModule module = VK_NULL_HANDLE;
++  if (dfn.vkCreateShaderModule(device, &module_info, nullptr, &module) != VK_SUCCESS) {
++    return VK_NULL_HANDLE;
++  }
++  VkComputePipelineCreateInfo pipeline_info = {};
++  pipeline_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
++  pipeline_info.stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
++  pipeline_info.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
++  pipeline_info.stage.module = module;
++  pipeline_info.stage.pName = "main";
++  pipeline_info.layout = st.layouts[variant >= 4 ? 1 : 0];
++  VkPipeline pipeline = VK_NULL_HANDLE;
++  if (dfn.vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipeline_info, nullptr,
++                                   &pipeline) != VK_SUCCESS) {
++    pipeline = VK_NULL_HANDLE;
++    REXGPU_ERROR("dbz3: resolve direto (variante {}): vkCreateComputePipelines falhou", variant);
++  }
++  dfn.vkDestroyShaderModule(device, module, nullptr);
++  st.pipelines[variant] = pipeline;
++  return pipeline;
++}
++
++// Escreve o render target (ja em SHADER_READ_ONLY) na textura por imageStore.
++bool VulkanRenderTargetCache::Dbz3StoreToTexture(uint32_t variant, VkDescriptorSet source_set,
++                                                 VulkanTextureCache& texture_cache, void* texture,
++                                                 uint32_t width, uint32_t height, bool swap_rb,
++                                                 uint32_t samples) {
++  if (!Dbz3StoreInit()) {
++    return false;
++  }
++  VkPipeline pipeline = Dbz3StorePipeline(variant);
++  VkImageView view = texture_cache.Dbz3GetStorageView(texture);
++  if (pipeline == VK_NULL_HANDLE || view == VK_NULL_HANDLE) {
++    return false;
++  }
++  Dbz3StoreState& st = g_dbz3_store;
++  const ui::vulkan::VulkanDevice* const vulkan_device = command_processor_.GetVulkanDevice();
++  const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
++  // Anel de descriptor sets: com no maximo ~25 resolves por frame e 3 frames em voo, um
++  // set so volta a ser escrito ~10 frames depois de ter sido usado.
++  VkDescriptorSet dest_set = st.sets[st.next_set];
++  st.next_set = (st.next_set + 1) % kDbz3StoreRing;
++  VkDescriptorImageInfo image_info = {VK_NULL_HANDLE, view, VK_IMAGE_LAYOUT_GENERAL};
++  VkWriteDescriptorSet write = {};
++  write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
++  write.dstSet = dest_set;
++  write.dstBinding = 0;
++  write.descriptorCount = 1;
++  write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
++  write.pImageInfo = &image_info;
++  dfn.vkUpdateDescriptorSets(vulkan_device->device(), 1, &write, 0, nullptr);
++
++  texture_cache.Dbz3BeginStorageWrite(texture);
++  DeferredCommandBuffer& command_buffer = command_processor_.deferred_command_buffer();
++  command_processor_.BindExternalComputePipeline(pipeline);
++  VkPipelineLayout layout = st.layouts[variant >= 4 ? 1 : 0];
++  VkDescriptorSet sets[2] = {dest_set, source_set};
++  command_buffer.CmdVkBindDescriptorSets(VK_PIPELINE_BIND_POINT_COMPUTE, layout, 0, 2, sets, 0,
++                                         nullptr);
++  const uint32_t constants[4] = {width, height, swap_rb ? 1u : 0u, samples};
++  command_buffer.CmdVkPushConstants(layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(constants),
++                                    constants);
++  command_processor_.SubmitBarriers(true);
++  command_buffer.CmdVkDispatch((width + 7) / 8, (height + 7) / 8, 1);
++  texture_cache.Dbz3EndStorageWrite(texture);
++  if (st.logged < 6) {
++    ++st.logged;
++    REXGPU_INFO("dbz3: resolve direto (imageStore) variante {} {}x{} amostras {}", variant, width,
++                height, samples);
++  }
++  return true;
++}
++
+ bool VulkanRenderTargetCache::Dbz3TryResolveToTexture(const draw_util::ResolveInfo& resolve_info,
+                                                       VulkanTextureCache& texture_cache,
+                                                       bool skip_memory) {
+@@ -6405,15 +6644,15 @@ bool VulkanRenderTargetCache::Dbz3TryResolveToTexture(const draw_util::ResolveIn
+     Dbz3DepthFail(0);  // so regista que chegou aqui
+     return Dbz3TryResolveDepthToTexture(resolve_info, texture_cache, skip_memory);
+   }
+-  // So copias de cor 8888 sem MSAA, sem escala, de um retangulo a comecar em (0,0)
+-  // do render target e do destino, com o destino linear em largura = pitch.
+-  if (resolve_info.IsCopyingDepth() || resolve_info.copy_dest_info.copy_dest_exp_bias != 0 ||
++  // Copias de cor 8888, sem escala, de um retangulo a comecar em (0,0) do render target e
++  // do destino, com o destino tiled de pitch = largura alinhada a 32.
++  if (resolve_info.copy_dest_info.copy_dest_exp_bias != 0 ||
+       resolve_info.copy_dest_info.copy_dest_format != xenos::ColorFormat::k_8_8_8_8 ||
+       uint32_t(resolve_info.copy_dest_info.copy_dest_endian) > 3) {
+     return Dbz3ColorFail(1, resolve_info);
+   }
+   const draw_util::ResolveEdramInfo& src_info = resolve_info.color_edram_info;
+-  if (src_info.msaa_samples != xenos::MsaaSamples::k1X || src_info.format_is_64bpp ||
++  if (src_info.format_is_64bpp ||
+       xenos::ColorRenderTargetFormat(src_info.format) != xenos::ColorRenderTargetFormat::k_8_8_8_8 ||
+       resolve_info.coordinate_info.edram_offset_x_div_8 != 0 ||
+       resolve_info.coordinate_info.edram_offset_y_div_8 != 0 ||
+@@ -6423,20 +6662,33 @@ bool VulkanRenderTargetCache::Dbz3TryResolveToTexture(const draw_util::ResolveIn
+   }
+   const uint32_t width = uint32_t(resolve_info.coordinate_info.width_div_8) * 8;
+   const uint32_t height = resolve_info.height_div_8 * 8;
+-  if (width < 64 || height < 32 ||
+-      uint32_t(resolve_info.copy_dest_coordinate_info.pitch_aligned_div_32) * 32 != width ||
++  const uint32_t dest_pitch = uint32_t(resolve_info.copy_dest_coordinate_info.pitch_aligned_div_32) * 32;
++  if (width < 8 || height < 8 || dest_pitch != ((width + 31) & ~31u) ||
+       resolve_info.copy_dest_base != resolve_info.copy_dest_extent_start) {
+     return Dbz3ColorFail(3, resolve_info);
+   }
+-  // O conteudo tem de estar todo num unico render target 8888 1x a comecar no
+-  // mesmo tile (dump_rectangles_ foi preenchido pelo dump deste resolve).
+-  if (dump_rectangles_.size() != 1 || !dump_rectangles_[0].render_target) {
++  // Render target de origem: primeiro pela chave exata (no modo direto ha imagens
++  // irmas com a mesma base mas MSAA diferente), senao o do dump deste resolve.
++  VulkanRenderTarget* rt_ptr = nullptr;
++  {
++    RenderTargetKey want;
++    want.base_tiles = src_info.base_tiles;
++    want.pitch_tiles_at_32bpp = src_info.pitch_tiles;
++    want.msaa_samples = src_info.msaa_samples;
++    want.is_depth = 0;
++    want.resource_format = uint32_t(xenos::ColorRenderTargetFormat::k_8_8_8_8);
++    rt_ptr = static_cast<VulkanRenderTarget*>(Dbz3FindRenderTarget(want));
++  }
++  if (!rt_ptr && dump_rectangles_.size() == 1 && dump_rectangles_[0].render_target) {
++    rt_ptr = static_cast<VulkanRenderTarget*>(dump_rectangles_[0].render_target);
++  }
++  if (!rt_ptr) {
+     return Dbz3ColorFail(4, resolve_info,
+                          [&] { return fmt::format(" rects={}", dump_rectangles_.size()); });
+   }
+-  auto& rt = *static_cast<VulkanRenderTarget*>(dump_rectangles_[0].render_target);
++  auto& rt = *rt_ptr;
+   const RenderTargetKey rt_key = rt.key();
+-  if (rt_key.is_depth || rt_key.msaa_samples != xenos::MsaaSamples::k1X ||
++  if (rt_key.is_depth || rt_key.msaa_samples != src_info.msaa_samples ||
+       rt_key.GetColorFormat() != xenos::ColorRenderTargetFormat::k_8_8_8_8 ||
+       rt_key.base_tiles != src_info.base_tiles ||
+       rt_key.pitch_tiles_at_32bpp != src_info.pitch_tiles) {
+@@ -6446,24 +6698,81 @@ bool VulkanRenderTargetCache::Dbz3TryResolveToTexture(const draw_util::ResolveIn
+                          uint32_t(rt_key.base_tiles), uint32_t(rt_key.pitch_tiles_at_32bpp));
+     });
+   }
+-  void* texture = texture_cache.Dbz3FindResolveTexture(
+-      resolve_info.copy_dest_base, width, height,
+-      xenos::Endian(uint32_t(resolve_info.copy_dest_info.copy_dest_endian)));
+-  if (!texture) {
++  const uint32_t samples = 1u << uint32_t(rt_key.msaa_samples);
++  void* textures[4];
++  const uint32_t texture_count = texture_cache.Dbz3FindResolveTextures(
++      resolve_info.copy_dest_base, width, height, xenos::TextureFormat::k_8_8_8_8, false,
++      xenos::Endian(uint32_t(resolve_info.copy_dest_info.copy_dest_endian)), textures, 4);
++  if (!texture_count) {
+     return Dbz3ColorFail(6, resolve_info, [&] {
+       return texture_cache.Dbz3DescribeTexturesAt((resolve_info.copy_dest_base & 0x1FFFFFFF) >>
+                                                   12);
+     });
+   }
++  // O caminho antigo (buffer + copia) so serve para 1x; com MSAA e preciso imageStore.
++  for (uint32_t i = 0; i < texture_count; ++i) {
++    if (samples > 1 && !texture_cache.Dbz3TextureHasStorage(textures[i])) {
++      return Dbz3ColorFail(7, resolve_info);
++    }
++  }
++
++  bool source_is_integer = false;
++  GetColorOwnershipTransferVulkanFormat(xenos::ColorRenderTargetFormat::k_8_8_8_8,
++                                        rt_key.msaa_samples, &source_is_integer);
++  const bool swap_rb = (resolve_info.copy_dest_info.copy_dest_swap != 0) != (mode == 2);
++
++  if (skip_memory) {
++    // Sem escrita na memoria do guest: invalida as outras texturas deste intervalo
++    // como o resolve faria (as nossas voltam a ficar carregadas no fim).
++    texture_cache.MarkRangeAsResolved(resolve_info.copy_dest_extent_start,
++                                      resolve_info.copy_dest_extent_length);
++    dbz3_gpuprof::CountSkippedMemory();
++  }
++  // O render target fica pronto para leitura em compute.
++  command_processor_.PushImageMemoryBarrier(
++      rt.image(), ui::vulkan::util::InitializeSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT),
++      rt.current_stage_mask(), VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, rt.current_access_mask(),
++      VK_ACCESS_SHADER_READ_BIT, rt.current_layout(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
++  rt.SetUsage(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT,
++              VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
++
++  bool any = false;
++  for (uint32_t i = 0; i < texture_count; ++i) {
++    void* texture = textures[i];
++    const uint32_t tex_height = std::min(height, texture_cache.Dbz3TextureHeight(texture));
++    if (texture_cache.Dbz3TextureHasStorage(texture)) {
++      const uint32_t variant = (samples > 1 ? 2u : 0u) + (source_is_integer ? 1u : 0u);
++      if (Dbz3StoreToTexture(variant, rt.GetDescriptorSetTransferSource(), texture_cache, texture,
++                             width, tex_height, swap_rb, samples)) {
++        any = true;
++        continue;
++      }
++    }
++    if (!Dbz3BufferResolveToTexture(rt, source_is_integer, texture_cache, texture, width,
++                                    tex_height, swap_rb)) {
++      return any;
++    }
++    any = true;
++  }
++  if (any) {
++    dbz3_gpuprof::CountDirectResolve();
++  }
++  return any;
++}
+ 
++// Caminho antigo (texturas sem STORAGE): compute -> buffer linear -> copia para a imagem.
++bool VulkanRenderTargetCache::Dbz3BufferResolveToTexture(VulkanRenderTarget& rt,
++                                                         bool source_is_integer,
++                                                         VulkanTextureCache& texture_cache,
++                                                         void* texture, uint32_t width,
++                                                         uint32_t height, bool swap_rb) {
+   const ui::vulkan::VulkanDevice* const vulkan_device = command_processor_.GetVulkanDevice();
+   const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
+   const VkDevice device = vulkan_device->device();
+   Dbz3DirectResolveState& st = g_dbz3_direct;
+   if (!st.init_tried) {
+     st.init_tried = true;
+-    GetColorOwnershipTransferVulkanFormat(xenos::ColorRenderTargetFormat::k_8_8_8_8,
+-                                          xenos::MsaaSamples::k1X, &st.source_is_integer);
++    st.source_is_integer = source_is_integer;
+     std::vector<uint32_t> spirv;
+     std::string error;
+     if (!command_processor_.CompileGlslToSpirv(VK_SHADER_STAGE_COMPUTE_BIT,
+@@ -6511,20 +6820,12 @@ bool VulkanRenderTargetCache::Dbz3TryResolveToTexture(const draw_util::ResolveIn
+       REXGPU_ERROR("dbz3: atalho resolve->textura: vkCreateComputePipelines falhou");
+       return false;
+     }
+-    REXGPU_INFO("dbz3: atalho resolve->textura ativo (origem {})",
++    REXGPU_INFO("dbz3: atalho resolve->textura (buffer) ativo (origem {})",
+                 st.source_is_integer ? "uint" : "unorm");
+   }
+-  if (st.pipeline == VK_NULL_HANDLE) {
++  if (st.pipeline == VK_NULL_HANDLE || st.source_is_integer != source_is_integer) {
+     return false;
+   }
+-
+-  if (skip_memory) {
+-    // Sem escrita na memoria do guest: invalida as outras texturas deste intervalo
+-    // como o resolve faria (a nossa volta a ficar carregada no fim).
+-    texture_cache.MarkRangeAsResolved(resolve_info.copy_dest_extent_start,
+-                                      resolve_info.copy_dest_extent_length);
+-    dbz3_gpuprof::CountSkippedMemory();
+-  }
+   const VkDeviceSize buffer_size = VkDeviceSize(width) * height * 4;
+   VulkanCommandProcessor::ScratchBufferAcquisition scratch = command_processor_.AcquireScratchGpuBuffer(
+       buffer_size, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_WRITE_BIT);
+@@ -6547,21 +6848,11 @@ bool VulkanRenderTargetCache::Dbz3TryResolveToTexture(const draw_util::ResolveIn
+   write.pBufferInfo = &dest_buffer_info;
+   dfn.vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+ 
+-  // O render target ja esta pronto para leitura em compute (o dump deste resolve
+-  // fez essa transicao); garante-o na mesma, sem custo se ja estiver.
+-  command_processor_.PushImageMemoryBarrier(
+-      rt.image(), ui::vulkan::util::InitializeSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT),
+-      rt.current_stage_mask(), VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, rt.current_access_mask(),
+-      VK_ACCESS_SHADER_READ_BIT, rt.current_layout(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+-  rt.SetUsage(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT,
+-              VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+-
+   DeferredCommandBuffer& command_buffer = command_processor_.deferred_command_buffer();
+   command_processor_.BindExternalComputePipeline(st.pipeline);
+   VkDescriptorSet sets[2] = {dest_set, rt.GetDescriptorSetTransferSource()};
+   command_buffer.CmdVkBindDescriptorSets(VK_PIPELINE_BIND_POINT_COMPUTE, st.layout, 0, 2, sets, 0,
+                                          nullptr);
+-  const bool swap_rb = (resolve_info.copy_dest_info.copy_dest_swap != 0) != (mode == 2);
+   const uint32_t constants[3] = {width, height, swap_rb ? 1u : 0u};
+   command_buffer.CmdVkPushConstants(st.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(constants),
+                                     constants);
+@@ -6572,11 +6863,10 @@ bool VulkanRenderTargetCache::Dbz3TryResolveToTexture(const draw_util::ResolveIn
+       texture, scratch_buffer, width, height,
+       scratch.SetStageMask(VK_PIPELINE_STAGE_TRANSFER_BIT),
+       scratch.SetAccessMask(VK_ACCESS_TRANSFER_READ_BIT));
+-  dbz3_gpuprof::CountDirectResolve();
+   if (st.logged < 4) {
+     ++st.logged;
+-    REXGPU_INFO("dbz3: atalho resolve->textura {}x{} dest={:08X} troca_rb={}", width, height,
+-                resolve_info.copy_dest_base, swap_rb ? 1 : 0);
++    REXGPU_INFO("dbz3: atalho resolve->textura (buffer) {}x{} troca_rb={}", width, height,
++                swap_rb ? 1 : 0);
+   }
+   return true;
+ }
+@@ -6605,8 +6895,9 @@ bool VulkanRenderTargetCache::Dbz3TryResolveDepthToTexture(
+   }
+   const uint32_t width = uint32_t(resolve_info.coordinate_info.width_div_8) * 8;
+   const uint32_t height = resolve_info.height_div_8 * 8;
+-  if (width < 64 || height < 32 ||
+-      uint32_t(resolve_info.copy_dest_coordinate_info.pitch_aligned_div_32) * 32 != width ||
++  if (width < 8 || height < 8 ||
++      uint32_t(resolve_info.copy_dest_coordinate_info.pitch_aligned_div_32) * 32 !=
++          ((width + 31) & ~31u) ||
+       resolve_info.copy_dest_base != resolve_info.copy_dest_extent_start) {
+     return Dbz3DepthFail(3);
+   }
+@@ -6630,10 +6921,11 @@ bool VulkanRenderTargetCache::Dbz3TryResolveDepthToTexture(
+   for (uint32_t f = 0; f < 2; ++f) {
+     const xenos::TextureFormat tf = f == 0 ? xenos::TextureFormat::k_24_8
+                                            : xenos::TextureFormat::k_8_8_8_8;
+-    for (uint32_t e = 0; e < 4; ++e) {
+-      void* t = texture_cache.Dbz3FindResolveTexture(resolve_info.copy_dest_base, width, height,
+-                                                     xenos::Endian(e), tf);
+-      if (t) targets[target_count++] = {t, f == 0 ? 0u : 1u};
++    void* found[4];
++    const uint32_t n = texture_cache.Dbz3FindResolveTextures(
++        resolve_info.copy_dest_base, width, height, tf, true, xenos::Endian::kNone, found, 4);
++    for (uint32_t k = 0; k < n && target_count < 8; ++k) {
++      targets[target_count++] = {found[k], f == 0 ? 0u : 1u};
+     }
+   }
+   if (!target_count) {
+@@ -6713,8 +7005,15 @@ bool VulkanRenderTargetCache::Dbz3TryResolveDepthToTexture(
+               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+ 
+   DeferredCommandBuffer& command_buffer = command_processor_.deferred_command_buffer();
+-  const VkDeviceSize buffer_size = VkDeviceSize(width) * height * 4;
+   for (uint32_t i = 0; i < target_count; ++i) {
++    const uint32_t tex_height =
++        std::min(height, texture_cache.Dbz3TextureHeight(targets[i].texture));
++    if (texture_cache.Dbz3TextureHasStorage(targets[i].texture) &&
++        Dbz3StoreToTexture(targets[i].mode == 0 ? 4u : 5u, rt.GetDescriptorSetTransferSource(),
++                           texture_cache, targets[i].texture, width, tex_height, false, 1)) {
++      continue;
++    }
++    const VkDeviceSize buffer_size = VkDeviceSize(width) * tex_height * 4;
+     VulkanCommandProcessor::ScratchBufferAcquisition scratch =
+         command_processor_.AcquireScratchGpuBuffer(buffer_size, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                                                    VK_ACCESS_SHADER_WRITE_BIT);
+@@ -6740,12 +7039,12 @@ bool VulkanRenderTargetCache::Dbz3TryResolveDepthToTexture(
+     VkDescriptorSet sets[2] = {dest_set, rt.GetDescriptorSetTransferSource()};
+     command_buffer.CmdVkBindDescriptorSets(VK_PIPELINE_BIND_POINT_COMPUTE, st.layout, 0, 2, sets,
+                                            0, nullptr);
+-    const uint32_t constants[3] = {width, height, targets[i].mode};
++    const uint32_t constants[3] = {width, tex_height, targets[i].mode};
+     command_buffer.CmdVkPushConstants(st.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                                       sizeof(constants), constants);
+     command_processor_.SubmitBarriers(true);
+-    command_buffer.CmdVkDispatch((width + 7) / 8, (height + 7) / 8, 1);
+-    texture_cache.Dbz3CopyToResolveTexture(targets[i].texture, scratch_buffer, width, height,
++    command_buffer.CmdVkDispatch((width + 7) / 8, (tex_height + 7) / 8, 1);
++    texture_cache.Dbz3CopyToResolveTexture(targets[i].texture, scratch_buffer, width, tex_height,
+                                            scratch.SetStageMask(VK_PIPELINE_STAGE_TRANSFER_BIT),
+                                            scratch.SetAccessMask(VK_ACCESS_TRANSFER_READ_BIT));
+   }
+diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
+index b00f0d2..564af6e 100644
+--- a/src/graphics/vulkan/texture_cache.cpp
++++ b/src/graphics/vulkan/texture_cache.cpp
+@@ -1227,6 +1227,29 @@ std::unique_ptr<TextureCache::Texture> VulkanTextureCache::CreateTexture(Texture
+   VmaAllocationCreateInfo allocation_create_info = {};
+   allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+ 
++  // DBZ3-Android: destinos possiveis de resolve (2D tiled, sem mips, RGBA8 ou R32F)
++  // podem receber o resolve diretamente por imageStore.
++  bool dbz3_storage = false;
++  if (!is_3d && key.dimension == xenos::DataDimension::k2DOrStacked && key.tiled &&
++      !key.scaled_resolve && key.mip_max_level == 0 && depth_or_array_size == 1 &&
++      formats[1] == VK_FORMAT_UNDEFINED && !FindPackEntry(key) &&
++      ((key.format == xenos::TextureFormat::k_8_8_8_8 &&
++        formats[0] == VK_FORMAT_R8G8B8A8_UNORM) ||
++       (key.format == xenos::TextureFormat::k_24_8 && formats[0] == VK_FORMAT_R32_SFLOAT))) {
++    const std::string mode_text = rex::cvar::GetFlagByName("dbz3_direct_resolve_texture");
++    if (!mode_text.empty() && std::atoi(mode_text.c_str()) > 0) {
++      const ui::vulkan::VulkanInstance::Functions& ifn =
++          vulkan_device->vulkan_instance()->functions();
++      VkFormatProperties format_properties;
++      ifn.vkGetPhysicalDeviceFormatProperties(vulkan_device->physical_device(), formats[0],
++                                              &format_properties);
++      if (format_properties.optimalTilingFeatures & VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT) {
++        dbz3_storage = true;
++        image_create_info.usage |= VK_IMAGE_USAGE_STORAGE_BIT;
++      }
++    }
++  }
++
+   VkImage image;
+   VmaAllocation allocation;
+   if (vmaCreateImage(vma_allocator_, &image_create_info, &allocation_create_info, &image,
+@@ -1234,7 +1257,9 @@ std::unique_ptr<TextureCache::Texture> VulkanTextureCache::CreateTexture(Texture
+     return nullptr;
+   }
+ 
+-  return std::unique_ptr<Texture>(new VulkanTexture(*this, key, image, allocation));
++  auto* vulkan_texture = new VulkanTexture(*this, key, image, allocation);
++  vulkan_texture->set_dbz3_storage(dbz3_storage);
++  return std::unique_ptr<Texture>(vulkan_texture);
+ }
+ 
+ bool VulkanTextureCache::EnsureScaledResolveMemoryCommitted(uint32_t start_unscaled,
+@@ -1941,6 +1966,101 @@ void VulkanTextureCache::Dbz3CopyToResolveTexture(void* texture_opaque, VkBuffer
+   Dbz3MarkTextureLoaded(vulkan_texture);
+ }
+ 
++uint32_t VulkanTextureCache::Dbz3FindResolveTextures(uint32_t base, uint32_t width,
++                                                     uint32_t height, xenos::TextureFormat format,
++                                                     bool any_endian, xenos::Endian endian,
++                                                     void** out, uint32_t out_max) {
++  uint32_t count = 0;
++  if (!height) {
++    return 0;
++  }
++  // O resolve arredonda a altura a multiplos de 8 (720 -> 720, 180 -> 184, 45 -> 48).
++  const uint32_t min_height = height > 7 ? height - 7 : 1;
++  for (uint32_t h = height; h >= min_height && count < out_max; --h) {
++    for (uint32_t e = 0; e < 4 && count < out_max; ++e) {
++      if (!any_endian && xenos::Endian(e) != endian) {
++        continue;
++      }
++      void* texture = Dbz3FindResolveTexture(base, width, h, xenos::Endian(e), format);
++      if (texture) {
++        out[count++] = texture;
++      }
++    }
++  }
++  return count;
++}
++
++bool VulkanTextureCache::Dbz3TextureHasStorage(void* texture) const {
++  return static_cast<VulkanTexture*>(static_cast<Texture*>(texture))->dbz3_storage();
++}
++
++uint32_t VulkanTextureCache::Dbz3TextureHeight(void* texture) const {
++  return static_cast<Texture*>(texture)->key().GetHeight();
++}
++
++VkImageView VulkanTextureCache::VulkanTexture::Dbz3GetStorageView() {
++  if (dbz3_storage_view_ != VK_NULL_HANDLE || !dbz3_storage_) {
++    return dbz3_storage_view_;
++  }
++  const VulkanTextureCache& vulkan_texture_cache =
++      static_cast<const VulkanTextureCache&>(texture_cache());
++  const ui::vulkan::VulkanDevice* const vulkan_device =
++      vulkan_texture_cache.command_processor_.GetVulkanDevice();
++  const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
++  VkImageViewCreateInfo view_info = {};
++  view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
++  view_info.image = image_;
++  view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
++  view_info.format = key().format == xenos::TextureFormat::k_24_8 ? VK_FORMAT_R32_SFLOAT
++                                                                  : VK_FORMAT_R8G8B8A8_UNORM;
++  view_info.components = {VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY,
++                          VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY};
++  view_info.subresourceRange = ui::vulkan::util::InitializeSubresourceRange();
++  if (dfn.vkCreateImageView(vulkan_device->device(), &view_info, nullptr, &dbz3_storage_view_) !=
++      VK_SUCCESS) {
++    dbz3_storage_view_ = VK_NULL_HANDLE;
++    dbz3_storage_ = false;
++  }
++  return dbz3_storage_view_;
++}
++
++VkImageView VulkanTextureCache::Dbz3GetStorageView(void* texture) {
++  return static_cast<VulkanTexture*>(static_cast<Texture*>(texture))->Dbz3GetStorageView();
++}
++
++void VulkanTextureCache::Dbz3BeginStorageWrite(void* texture_opaque) {
++  VulkanTexture& vulkan_texture =
++      *static_cast<VulkanTexture*>(static_cast<Texture*>(texture_opaque));
++  vulkan_texture.MarkAsUsed();
++  const VulkanTexture::Usage old_usage =
++      vulkan_texture.SetUsage(VulkanTexture::Usage::kDbz3StorageWrite);
++  VkPipelineStageFlags src_stage, dst_stage;
++  VkAccessFlags src_access, dst_access;
++  VkImageLayout old_layout, new_layout;
++  GetTextureUsageMasks(old_usage, src_stage, src_access, old_layout);
++  GetTextureUsageMasks(VulkanTexture::Usage::kDbz3StorageWrite, dst_stage, dst_access,
++                       new_layout);
++  if (old_usage == VulkanTexture::Usage::kDbz3StorageWrite) {
++    // Duas escritas seguidas (dois resolves para o mesmo destino): barreira WAW.
++    old_layout = new_layout;
++  }
++  if (!src_stage) {
++    src_stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
++  }
++  // O conteudo antigo nao interessa: o resolve escreve a textura toda (ou o que
++  // sobra fica com o conteudo anterior, que so existe se a imagem ja tinha dados).
++  command_processor_.PushImageMemoryBarrier(vulkan_texture.image(),
++                                            ui::vulkan::util::InitializeSubresourceRange(),
++                                            src_stage, dst_stage, src_access, dst_access,
++                                            old_layout, new_layout);
++}
++
++void VulkanTextureCache::Dbz3EndStorageWrite(void* texture_opaque) {
++  VulkanTexture& vulkan_texture =
++      *static_cast<VulkanTexture*>(static_cast<Texture*>(texture_opaque));
++  Dbz3MarkTextureLoaded(vulkan_texture);
++}
++
+ // DBZ3 HD Collection: packs de texturas (ver dbz3_texture_pack.h).
+ 
+ bool VulkanTextureCache::LinearizeGuestTexture(
+@@ -2285,6 +2405,9 @@ VulkanTextureCache::VulkanTexture::~VulkanTexture() {
+   if (image_view_3d_as_2d_signed_ != VK_NULL_HANDLE) {
+     dfn.vkDestroyImageView(device, image_view_3d_as_2d_signed_, nullptr);
+   }
++  if (dbz3_storage_view_ != VK_NULL_HANDLE) {
++    dfn.vkDestroyImageView(device, dbz3_storage_view_, nullptr);
++  }
+   vmaDestroyImage(vulkan_texture_cache.vma_allocator_, image_, allocation_);
+ }
+ 
+@@ -3672,6 +3795,11 @@ void VulkanTextureCache::GetTextureUsageMasks(VulkanTexture::Usage usage,
+       access_mask = VK_ACCESS_SHADER_READ_BIT;
+       layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+       break;
++    case VulkanTexture::Usage::kDbz3StorageWrite:
++      stage_mask = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
++      access_mask = VK_ACCESS_SHADER_WRITE_BIT;
++      layout = VK_IMAGE_LAYOUT_GENERAL;
++      break;
+     case VulkanTexture::Usage::kSwapSampled:
+       // The swap texture is likely to be used only for the presentation
+       // post-processing passes, and not during emulation where it'd be used in

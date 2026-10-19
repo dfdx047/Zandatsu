@@ -1,0 +1,481 @@
+diff --git a/include/rex/graphics/pipeline/shader/spirv_translator.h b/include/rex/graphics/pipeline/shader/spirv_translator.h
+index 9462989..8ac0d25 100644
+--- a/include/rex/graphics/pipeline/shader/spirv_translator.h
++++ b/include/rex/graphics/pipeline/shader/spirv_translator.h
+@@ -381,6 +381,18 @@ class SpirvShaderTranslator : public ShaderTranslator {
+   // https://github.com/KhronosGroup/SPIRV-Headers/blob/c43a43c7cc3af55910b9bec2a71e3e8a622443cf/include/spirv/spir-v.xml#L79
+   static constexpr uint32_t kSpirvMagicToolId = 26;
+ 
++  // DBZ3-Android: sinais das texturas (unsigned/signed/biased/gamma, ja com o swizzle) como
++  // specialization constants, uma por fetch constant (SpecId = base + indice, 8 bits). O driver
++  // dobra entao os switch por componente, as duas amostragens condicionais (unsigned e signed) e a
++  // conversao gamma por partes, que de outro modo correm em cada tfetch de cada pixel.
++  static constexpr uint32_t kDbz3TextureSignsSpecIdBase = 1000;
++  void Dbz3SetSpecTextureSigns(bool enabled) { dbz3_spec_texture_signs_ = enabled; }
++  bool dbz3_spec_texture_signs() const { return dbz3_spec_texture_signs_; }
++  // DBZ3-Android: tfetch2D no pixel shader com LOD calculado pela GPU (amostragem implicita com
++  // Bias) em vez de gradientes explicitos (OpDPdxCoarse + Grad), que em Adreno e Mali correm a
++  // fracao da taxa normal da unidade de texturas.
++  void Dbz3SetImplicitLod(bool enabled) { dbz3_implicit_lod_ = enabled; }
++
+   struct Features {
+     explicit Features(const ui::vulkan::VulkanDevice* vulkan_device);
+     explicit Features(bool all = false);
+@@ -977,6 +989,11 @@ class SpirvShaderTranslator : public ShaderTranslator {
+   spv::Id var_main_vfetch_address_;
+   // float.
+   spv::Id var_main_tfetch_lod_;
++  // DBZ3-Android: specialization constants dos sinais por fetch constant (NoResult se ainda nao).
++  bool dbz3_spec_texture_signs_ = false;
++  bool dbz3_implicit_lod_ = false;
++  spv::Id dbz3_texture_signs_spec_[32];
++  spv::Id Dbz3TextureSignsSpecConstant(uint32_t fetch_constant_index);
+   // float3.
+   spv::Id var_main_tfetch_gradients_h_;
+   spv::Id var_main_tfetch_gradients_v_;
+diff --git a/include/rex/graphics/pipeline/texture/cache.h b/include/rex/graphics/pipeline/texture/cache.h
+index 4489181..64e4051 100644
+--- a/include/rex/graphics/pipeline/texture/cache.h
++++ b/include/rex/graphics/pipeline/texture/cache.h
+@@ -15,6 +15,7 @@
+ #include <cstdint>
+ #include <cstring>
+ #include <memory>
++#include <string>
+ #include <unordered_map>
+ #include <vector>
+ 
+@@ -117,6 +118,8 @@ class TextureCache {
+     const TextureBinding* binding = GetValidTextureBinding(fetch_constant_index);
+     return binding ? binding->host_swizzle : xenos::XE_GPU_TEXTURE_SWIZZLE_0000;
+   }
++  // DBZ3-Android: lista as texturas existentes nesta pagina base (diagnostico de atalhos).
++  std::string Dbz3DescribeTexturesAt(uint32_t base_page) const;
+   uint8_t GetActiveTextureSwizzledSigns(uint32_t fetch_constant_index) const {
+     const TextureBinding* binding = GetValidTextureBinding(fetch_constant_index);
+     return binding ? binding->swizzled_signs : kSwizzledSignsUnsigned;
+diff --git a/include/rex/graphics/vulkan/pipeline_cache.h b/include/rex/graphics/vulkan/pipeline_cache.h
+index 7b938b9..c5fe364 100644
+--- a/include/rex/graphics/vulkan/pipeline_cache.h
++++ b/include/rex/graphics/vulkan/pipeline_cache.h
+@@ -34,6 +34,7 @@
+ #include <rex/graphics/primitive_processor.h>
+ #include <rex/graphics/register_file.h>
+ #include <rex/graphics/registers.h>
++#include <rex/graphics/pipeline/texture/cache.h>
+ #include <rex/graphics/vulkan/render_target_cache.h>
+ #include <rex/graphics/vulkan/shader.h>
+ #include <rex/graphics/xenos.h>
+@@ -69,6 +70,10 @@ class VulkanPipelineCache {
+                                bool blocking);
+   void ShutdownShaderStorage();
+   void EndSubmission();
++  // DBZ3-Android: de onde vem os sinais das texturas ativas (dbz3_spec_texture_signs).
++  void Dbz3SetTextureCache(const TextureCache* texture_cache) {
++    dbz3_texture_cache_ = texture_cache;
++  }
+ 
+   VulkanShader* LoadShader(xenos::ShaderType shader_type, const uint32_t* host_address,
+                            uint32_t dword_count);
+@@ -200,8 +205,13 @@ class VulkanPipelineCache {
+     // Filled only for the attachments present in the render pass object.
+     PipelineRenderTarget render_targets[xenos::kMaxColorRenderTargets];
+ 
++    // DBZ3-Android: sinais (ja com swizzle) das texturas usadas pelos shaders, passados como
++    // specialization constants (SpirvShaderTranslator::kDbz3TextureSignsSpecIdBase + indice).
++    // Zero nas fetch constants que os shaders nao usam e com dbz3_spec_texture_signs desligado.
++    uint8_t dbz3_texture_signs[32];
++
+     // Including all the padding, for a stable hash.
+-    static constexpr uint32_t kVersion = 0x20260228;
++    static constexpr uint32_t kVersion = 0x20261013;
+     PipelineDescription() {
+       Reset();
+     }
+@@ -425,6 +435,7 @@ class VulkanPipelineCache {
+ 
+   // Previously used pipeline, to avoid lookups if the state wasn't changed.
+   const std::pair<const PipelineDescription, Pipeline>* last_pipeline_ = nullptr;
++  const TextureCache* dbz3_texture_cache_ = nullptr;
+   // <Submission index, pipeline>.
+   std::deque<std::pair<uint64_t, VkPipeline>> deferred_destroy_pipelines_;
+   std::mutex deferred_destroy_lock_;
+diff --git a/src/graphics/pipeline/shader/spirv_translator.cpp b/src/graphics/pipeline/shader/spirv_translator.cpp
+index 1774f97..32750e3 100644
+--- a/src/graphics/pipeline/shader/spirv_translator.cpp
++++ b/src/graphics/pipeline/shader/spirv_translator.cpp
+@@ -110,6 +110,10 @@ void SpirvShaderTranslator::Reset() {
+ 
+   builder_.reset();
+ 
++  for (spv::Id& id : dbz3_texture_signs_spec_) {
++    id = spv::NoResult;
++  }
++
+   uniform_float_constants_ = spv::NoResult;
+ 
+   input_vertex_index_ = spv::NoResult;
+diff --git a/src/graphics/pipeline/shader/spirv_translator_fetch.cpp b/src/graphics/pipeline/shader/spirv_translator_fetch.cpp
+index 9ce3bb4..4c3c2de 100644
+--- a/src/graphics/pipeline/shader/spirv_translator_fetch.cpp
++++ b/src/graphics/pipeline/shader/spirv_translator_fetch.cpp
+@@ -1288,18 +1288,26 @@ void SpirvShaderTranslator::ProcessTextureFetchInstruction(
+         }
+       }
+ 
+-      id_vector_temp_.clear();
+-      id_vector_temp_.push_back(builder_->makeIntConstant(kSystemConstantTextureSwizzledSigns));
+-      id_vector_temp_.push_back(builder_->makeIntConstant(fetch_constant_index >> 4));
+-      id_vector_temp_.push_back(builder_->makeIntConstant((fetch_constant_index >> 2) & 3));
+-      // All 32 bits containing the values for 4 fetch constants (use
+-      // OpBitFieldUExtract to get the signednesses for the specific components
+-      // of this texture).
+-      spv::Id swizzled_signs_word = builder_->createLoad(
+-          builder_->createAccessChain(spv::StorageClassUniform, uniform_system_constants_,
+-                                      id_vector_temp_),
+-          spv::NoPrecision);
+-      uint32_t swizzled_signs_word_offset = 8 * (fetch_constant_index & 3);
++      spv::Id swizzled_signs_word;
++      uint32_t swizzled_signs_word_offset;
++      if (dbz3_spec_texture_signs_) {
++        // DBZ3-Android: os 8 bits desta fetch constant como specialization constant.
++        swizzled_signs_word = Dbz3TextureSignsSpecConstant(fetch_constant_index);
++        swizzled_signs_word_offset = 0;
++      } else {
++        id_vector_temp_.clear();
++        id_vector_temp_.push_back(builder_->makeIntConstant(kSystemConstantTextureSwizzledSigns));
++        id_vector_temp_.push_back(builder_->makeIntConstant(fetch_constant_index >> 4));
++        id_vector_temp_.push_back(builder_->makeIntConstant((fetch_constant_index >> 2) & 3));
++        // All 32 bits containing the values for 4 fetch constants (use
++        // OpBitFieldUExtract to get the signednesses for the specific components
++        // of this texture).
++        swizzled_signs_word = builder_->createLoad(
++            builder_->createAccessChain(spv::StorageClassUniform, uniform_system_constants_,
++                                        id_vector_temp_),
++            spv::NoPrecision);
++        swizzled_signs_word_offset = 8 * (fetch_constant_index & 3);
++      }
+ 
+       spv::Builder::TextureParameters texture_parameters = {};
+ 
+@@ -1310,9 +1318,11 @@ void SpirvShaderTranslator::ProcessTextureFetchInstruction(
+         // unsigned (if all signednesses are signed).
+         spv::Id swizzled_signs_all_signed = builder_->createBinOp(
+             spv::OpIEqual, type_bool_,
+-            builder_->createTriOp(spv::OpBitFieldUExtract, type_uint_, swizzled_signs_word,
+-                                  builder_->makeUintConstant(swizzled_signs_word_offset),
+-                                  builder_->makeUintConstant(8)),
++            dbz3_spec_texture_signs_
++                ? swizzled_signs_word
++                : builder_->createTriOp(spv::OpBitFieldUExtract, type_uint_, swizzled_signs_word,
++                                        builder_->makeUintConstant(swizzled_signs_word_offset),
++                                        builder_->makeUintConstant(8)),
+             builder_->makeUintConstant(uint32_t(xenos::TextureSign::kSigned) * 0b01010101));
+ 
+         // OpImageQueryLod doesn't need the array layer component.
+@@ -1383,10 +1393,21 @@ void SpirvShaderTranslator::ProcessTextureFetchInstruction(
+           uint32_t result_component_index;
+           while (rex::bit_scan_forward(result_remaining_components, &result_component_index)) {
+             result_remaining_components &= ~(UINT32_C(1) << result_component_index);
+-            spv::Id result_component_sign = builder_->createTriOp(
+-                spv::OpBitFieldUExtract, type_uint_, swizzled_signs_word,
+-                builder_->makeUintConstant(swizzled_signs_word_offset + 2 * result_component_index),
+-                const_uint_2);
++            spv::Id result_component_sign;
++            if (dbz3_spec_texture_signs_) {
++              // DBZ3-Android: deslocamento + mascara (dobrados por qualquer compilador, ao
++              // contrario do OpBitFieldUExtract) sobre a specialization constant.
++              result_component_sign = builder_->createBinOp(
++                  spv::OpBitwiseAnd, type_uint_,
++                  builder_->createBinOp(spv::OpShiftRightLogical, type_uint_, swizzled_signs_word,
++                                        builder_->makeUintConstant(2 * result_component_index)),
++                  builder_->makeUintConstant(3));
++            } else {
++              result_component_sign = builder_->createTriOp(
++                  spv::OpBitFieldUExtract, type_uint_, swizzled_signs_word,
++                  builder_->makeUintConstant(swizzled_signs_word_offset + 2 * result_component_index),
++                  const_uint_2);
++            }
+             swizzled_signs[result_component_index] = result_component_sign;
+             spv::Id is_component_signed = builder_->createBinOp(
+                 spv::OpIEqual, type_bool_, result_component_sign, const_uint_sign_signed);
+@@ -1838,8 +1859,16 @@ void SpirvShaderTranslator::ProcessTextureFetchInstruction(
+               if_data_is_3d.createMergePhi(sample_result_signed_3d, sample_result_signed_stacked);
+         } else {
+           if (use_computed_lod) {
+-            texture_parameters.gradX = gradients_h;
+-            texture_parameters.gradY = gradients_v;
++            if (dbz3_implicit_lod_ && is_pixel_shader() &&
++                !instr.attributes.use_register_gradients &&
++                instr.dimension == xenos::FetchOpDimension::k2D) {
++              // DBZ3-Android: LOD implicito; o Bias soma o mesmo que exp2(lod) nos gradientes.
++              texture_parameters.bias = lod;
++              image_operands_mask = spv::ImageOperandsMaskNone;
++            } else {
++              texture_parameters.gradX = gradients_h;
++              texture_parameters.gradY = gradients_v;
++            }
+           }
+           id_vector_temp_.clear();
+           for (uint32_t i = 0; i < 3; ++i) {
+@@ -2068,6 +2097,18 @@ void SpirvShaderTranslator::ProcessTextureFetchInstruction(
+   StoreResult(instr.result, result_vector);
+ }
+ 
++spv::Id SpirvShaderTranslator::Dbz3TextureSignsSpecConstant(uint32_t fetch_constant_index) {
++  spv::Id& id = dbz3_texture_signs_spec_[fetch_constant_index & 31];
++  if (id == spv::NoResult) {
++    // Valor por omissao: os quatro componentes unsigned (TextureSign::kUnsigned = 0).
++    id = builder_->makeUintConstant(0, true);
++    builder_->addDecoration(id, spv::DecorationSpecId,
++                            int(kDbz3TextureSignsSpecIdBase + (fetch_constant_index & 31)));
++    builder_->addName(id, fmt::format("dbz3_texture_signs_{}", fetch_constant_index).c_str());
++  }
++  return id;
++}
++
+ size_t SpirvShaderTranslator::FindOrAddTextureBinding(uint32_t fetch_constant,
+                                                       xenos::FetchOpDimension dimension,
+                                                       bool is_signed) {
+diff --git a/src/graphics/pipeline/texture/cache.cpp b/src/graphics/pipeline/texture/cache.cpp
+index 669474e..0245584 100644
+--- a/src/graphics/pipeline/texture/cache.cpp
++++ b/src/graphics/pipeline/texture/cache.cpp
+@@ -753,6 +753,26 @@ TextureCache::Texture* TextureCache::Dbz3FindTexture(const TextureKey& key) {
+   return it != textures_.end() ? it->second.get() : nullptr;
+ }
+ 
++std::string TextureCache::Dbz3DescribeTexturesAt(uint32_t base_page) const {
++  std::string out;
++  uint32_t count = 0;
++  for (const auto& [key, texture] : textures_) {
++    if (key.base_page != base_page) {
++      continue;
++    }
++    if (++count > 6) {
++      out += " ...";
++      break;
++    }
++    out += fmt::format(" [{}x{} fmt={} endian={} tiled={} pitch={} mips={} dim={}]",
++                       uint32_t(key.width_minus_1) + 1, uint32_t(key.height_minus_1) + 1,
++                       uint32_t(key.format), uint32_t(key.endianness), uint32_t(key.tiled),
++                       uint32_t(key.pitch) * 32, uint32_t(key.mip_max_level),
++                       uint32_t(key.dimension));
++  }
++  return count ? out : std::string(" (nenhuma)");
++}
++
+ void TextureCache::Dbz3MarkTextureLoaded(Texture& texture) {
+   texture.MakeUpToDateAndWatch(global_critical_region_.Acquire());
+ }
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index b17d5a5..2930155 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -1078,6 +1078,7 @@ bool VulkanCommandProcessor::SetupContext() {
+     REXGPU_ERROR("Failed to initialize the texture cache");
+     return false;
+   }
++  pipeline_cache_->Dbz3SetTextureCache(texture_cache_.get());
+ 
+   // Shared memory and EDRAM common bindings.
+   VkDescriptorPoolSize descriptor_pool_sizes[1];
+diff --git a/src/graphics/vulkan/pipeline_cache.cpp b/src/graphics/vulkan/pipeline_cache.cpp
+index 68b7bfa..b7a41b2 100644
+--- a/src/graphics/vulkan/pipeline_cache.cpp
++++ b/src/graphics/vulkan/pipeline_cache.cpp
+@@ -60,6 +60,15 @@ REXCVAR_DEFINE_INT32(
+     .range(-1, 32)
+     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+ 
++REXCVAR_DEFINE_BOOL(dbz3_spec_texture_signs, true, "GPU/Vulkan",
++                    "DBZ3-Android: sinais das texturas como specialization constants (o driver "
++                    "elimina os ramos por componente, a amostragem signed e o gamma por pixel)")
++    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
++REXCVAR_DEFINE_BOOL(dbz3_tex_implicit_lod, true, "GPU/Vulkan",
++                    "DBZ3-Android: tfetch2D nos pixel shaders com LOD implicito (Bias) em vez de "
++                    "gradientes explicitos")
++    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
++
+ REXCVAR_DEFINE_BOOL(vulkan_tessellation_wireframe, false, "GPU/Vulkan",
+                     "Render tessellation as wireframe")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+@@ -405,6 +414,10 @@ bool VulkanPipelineCache::Initialize() {
+       render_target_cache_.msaa_2x_no_attachments_supported(), edram_fragment_shader_interlock,
+       render_target_cache_.draw_resolution_scale_x(),
+       render_target_cache_.draw_resolution_scale_y());
++  shader_translator_->Dbz3SetSpecTextureSigns(REXCVAR_GET(dbz3_spec_texture_signs));
++  shader_translator_->Dbz3SetImplicitLod(REXCVAR_GET(dbz3_tex_implicit_lod));
++  REXGPU_INFO("dbz3: sinais de textura como spec constants: {}, LOD implicito: {}",
++              REXCVAR_GET(dbz3_spec_texture_signs), REXCVAR_GET(dbz3_tex_implicit_lod));
+ 
+   if (edram_fragment_shader_interlock) {
+     std::vector<uint8_t> depth_only_fragment_shader_code =
+@@ -1547,6 +1560,20 @@ bool VulkanPipelineCache::GetCurrentStateDescription(
+ 
+   description_out.vertex_shader_hash = vertex_shader->shader().ucode_data_hash();
+   description_out.vertex_shader_modification = vertex_shader->modification();
++  if (shader_translator_->dbz3_spec_texture_signs() && dbz3_texture_cache_) {
++    uint32_t dbz3_textures =
++        static_cast<const SpirvShader&>(vertex_shader->shader()).GetUsedTextureMaskAfterTranslation();
++    if (pixel_shader) {
++      dbz3_textures |= static_cast<const SpirvShader&>(pixel_shader->shader())
++                           .GetUsedTextureMaskAfterTranslation();
++    }
++    uint32_t dbz3_texture_index;
++    while (rex::bit_scan_forward(dbz3_textures, &dbz3_texture_index)) {
++      dbz3_textures &= ~(UINT32_C(1) << dbz3_texture_index);
++      description_out.dbz3_texture_signs[dbz3_texture_index] =
++          dbz3_texture_cache_->GetActiveTextureSwizzledSigns(dbz3_texture_index);
++    }
++  }
+   SpirvShaderTranslator::Modification vertex_shader_modification(
+       description_out.vertex_shader_modification);
+   Shader::HostVertexShaderType host_vertex_shader_type =
+@@ -3222,6 +3249,26 @@ bool VulkanPipelineCache::EnsurePipelineCreated(const PipelineCreationArguments&
+   std::array<VkPipelineShaderStageCreateInfo, 5> shader_stages;
+   uint32_t shader_stage_count = 0;
+ 
++  // DBZ3-Android: sinais das texturas como specialization constants (ids que o shader nao
++  // declara sao ignorados pelo Vulkan).
++  std::array<VkSpecializationMapEntry, 32> dbz3_spec_entries;
++  std::array<uint32_t, 32> dbz3_spec_data;
++  VkSpecializationInfo dbz3_spec_info = {};
++  const VkSpecializationInfo* dbz3_spec = nullptr;
++  if (shader_translator_->dbz3_spec_texture_signs()) {
++    for (uint32_t i = 0; i < 32; ++i) {
++      dbz3_spec_entries[i].constantID = SpirvShaderTranslator::kDbz3TextureSignsSpecIdBase + i;
++      dbz3_spec_entries[i].offset = uint32_t(sizeof(uint32_t) * i);
++      dbz3_spec_entries[i].size = sizeof(uint32_t);
++      dbz3_spec_data[i] = description.dbz3_texture_signs[i];
++    }
++    dbz3_spec_info.mapEntryCount = uint32_t(dbz3_spec_entries.size());
++    dbz3_spec_info.pMapEntries = dbz3_spec_entries.data();
++    dbz3_spec_info.dataSize = sizeof(dbz3_spec_data);
++    dbz3_spec_info.pData = dbz3_spec_data.data();
++    dbz3_spec = &dbz3_spec_info;
++  }
++
+   // Vertex or tessellation evaluation shader (plus helper stages for tessellation).
+   assert_true(creation_arguments.vertex_shader->is_translated());
+   if (!creation_arguments.vertex_shader->is_valid()) {
+@@ -3261,7 +3308,7 @@ bool VulkanPipelineCache::EnsurePipelineCreated(const PipelineCreationArguments&
+     shader_stage_tess_eval.module = creation_arguments.vertex_shader->shader_module();
+     assert_true(shader_stage_tess_eval.module != VK_NULL_HANDLE);
+     shader_stage_tess_eval.pName = "main";
+-    shader_stage_tess_eval.pSpecializationInfo = nullptr;
++    shader_stage_tess_eval.pSpecializationInfo = dbz3_spec;
+   } else {
+     VkPipelineShaderStageCreateInfo& shader_stage_vertex = shader_stages[shader_stage_count++];
+     shader_stage_vertex.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+@@ -3271,7 +3318,7 @@ bool VulkanPipelineCache::EnsurePipelineCreated(const PipelineCreationArguments&
+     shader_stage_vertex.module = creation_arguments.vertex_shader->shader_module();
+     assert_true(shader_stage_vertex.module != VK_NULL_HANDLE);
+     shader_stage_vertex.pName = "main";
+-    shader_stage_vertex.pSpecializationInfo = nullptr;
++    shader_stage_vertex.pSpecializationInfo = dbz3_spec;
+   }
+   // Geometry shader.
+   if (creation_arguments.geometry_shader != VK_NULL_HANDLE) {
+@@ -3305,6 +3352,7 @@ bool VulkanPipelineCache::EnsurePipelineCreated(const PipelineCreationArguments&
+     }
+     shader_stage_fragment.module = creation_arguments.pixel_shader->shader_module();
+     assert_true(shader_stage_fragment.module != VK_NULL_HANDLE);
++    shader_stage_fragment.pSpecializationInfo = dbz3_spec;
+   } else {
+     if (edram_fragment_shader_interlock) {
+       shader_stage_fragment.module = depth_only_fragment_shader_;
+diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
+index ed36f6a..bc5356a 100644
+--- a/src/graphics/vulkan/render_target_cache.cpp
++++ b/src/graphics/vulkan/render_target_cache.cpp
+@@ -6305,6 +6305,33 @@ bool Dbz3DepthFail(int reason) {
+   return false;
+ }
+ 
++// Diagnostico do atalho de cor: motivo + destino, cada combinacao uma vez (ate 32 linhas).
++template <typename Extra>
++bool Dbz3ColorFail(int reason, const draw_util::ResolveInfo& ri, Extra&& extra_fn) {
++  static std::vector<uint64_t> seen;
++  const uint64_t id = (uint64_t(reason) << 32) | ri.copy_dest_base;
++  if (seen.size() < 32 && std::find(seen.begin(), seen.end(), id) == seen.end()) {
++    seen.push_back(id);
++    const std::string extra = extra_fn();
++    REXGPU_INFO(
++        "dbz3: atalho resolve->textura nao aplicado (motivo {}) dest={:08X} {}x{} fmt={} "
++        "endian={} pitch={} rt_fmt={} msaa={} edram_off={},{} dest_off={},{}{}",
++        reason, ri.copy_dest_base, uint32_t(ri.coordinate_info.width_div_8) * 8,
++        ri.height_div_8 * 8, uint32_t(ri.copy_dest_info.copy_dest_format),
++        uint32_t(ri.copy_dest_info.copy_dest_endian),
++        uint32_t(ri.copy_dest_coordinate_info.pitch_aligned_div_32) * 32,
++        uint32_t(ri.color_edram_info.format), uint32_t(ri.color_edram_info.msaa_samples),
++        uint32_t(ri.coordinate_info.edram_offset_x_div_8) * 8,
++        uint32_t(ri.coordinate_info.edram_offset_y_div_8) * 8,
++        uint32_t(ri.copy_dest_coordinate_info.offset_x_div_8) * 8,
++        uint32_t(ri.copy_dest_coordinate_info.offset_y_div_8) * 8, extra);
++  }
++  return false;
++}
++bool Dbz3ColorFail(int reason, const draw_util::ResolveInfo& ri) {
++  return Dbz3ColorFail(reason, ri, [] { return std::string(); });
++}
++
+ // Profundidade + stencil do render target -> buffer linear. mode 0: float (textura
+ // k_24_8, R32_SFLOAT); mode 1: uint (depth24 << 8) | stencil (textura k_8_8_8_8).
+ const char* Dbz3DirectResolveDepthSource() {
+@@ -6383,7 +6410,7 @@ bool VulkanRenderTargetCache::Dbz3TryResolveToTexture(const draw_util::ResolveIn
+   if (resolve_info.IsCopyingDepth() || resolve_info.copy_dest_info.copy_dest_exp_bias != 0 ||
+       resolve_info.copy_dest_info.copy_dest_format != xenos::ColorFormat::k_8_8_8_8 ||
+       uint32_t(resolve_info.copy_dest_info.copy_dest_endian) > 3) {
+-    return false;
++    return Dbz3ColorFail(1, resolve_info);
+   }
+   const draw_util::ResolveEdramInfo& src_info = resolve_info.color_edram_info;
+   if (src_info.msaa_samples != xenos::MsaaSamples::k1X || src_info.format_is_64bpp ||
+@@ -6392,19 +6419,20 @@ bool VulkanRenderTargetCache::Dbz3TryResolveToTexture(const draw_util::ResolveIn
+       resolve_info.coordinate_info.edram_offset_y_div_8 != 0 ||
+       resolve_info.copy_dest_coordinate_info.offset_x_div_8 != 0 ||
+       resolve_info.copy_dest_coordinate_info.offset_y_div_8 != 0) {
+-    return false;
++    return Dbz3ColorFail(2, resolve_info);
+   }
+   const uint32_t width = uint32_t(resolve_info.coordinate_info.width_div_8) * 8;
+   const uint32_t height = resolve_info.height_div_8 * 8;
+   if (width < 64 || height < 32 ||
+       uint32_t(resolve_info.copy_dest_coordinate_info.pitch_aligned_div_32) * 32 != width ||
+       resolve_info.copy_dest_base != resolve_info.copy_dest_extent_start) {
+-    return false;
++    return Dbz3ColorFail(3, resolve_info);
+   }
+   // O conteudo tem de estar todo num unico render target 8888 1x a comecar no
+   // mesmo tile (dump_rectangles_ foi preenchido pelo dump deste resolve).
+   if (dump_rectangles_.size() != 1 || !dump_rectangles_[0].render_target) {
+-    return false;
++    return Dbz3ColorFail(4, resolve_info,
++                         [&] { return fmt::format(" rects={}", dump_rectangles_.size()); });
+   }
+   auto& rt = *static_cast<VulkanRenderTarget*>(dump_rectangles_[0].render_target);
+   const RenderTargetKey rt_key = rt.key();
+@@ -6412,13 +6440,20 @@ bool VulkanRenderTargetCache::Dbz3TryResolveToTexture(const draw_util::ResolveIn
+       rt_key.GetColorFormat() != xenos::ColorRenderTargetFormat::k_8_8_8_8 ||
+       rt_key.base_tiles != src_info.base_tiles ||
+       rt_key.pitch_tiles_at_32bpp != src_info.pitch_tiles) {
+-    return false;
++    return Dbz3ColorFail(5, resolve_info, [&] {
++      return fmt::format(" rt_key_fmt={} rt_msaa={} rt_base={} rt_pitch={}",
++                         uint32_t(rt_key.GetColorFormat()), uint32_t(rt_key.msaa_samples),
++                         uint32_t(rt_key.base_tiles), uint32_t(rt_key.pitch_tiles_at_32bpp));
++    });
+   }
+   void* texture = texture_cache.Dbz3FindResolveTexture(
+       resolve_info.copy_dest_base, width, height,
+       xenos::Endian(uint32_t(resolve_info.copy_dest_info.copy_dest_endian)));
+   if (!texture) {
+-    return false;
++    return Dbz3ColorFail(6, resolve_info, [&] {
++      return texture_cache.Dbz3DescribeTexturesAt((resolve_info.copy_dest_base & 0x1FFFFFFF) >>
++                                                  12);
++    });
+   }
+ 
+   const ui::vulkan::VulkanDevice* const vulkan_device = command_processor_.GetVulkanDevice();

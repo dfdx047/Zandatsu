@@ -1,0 +1,90 @@
+diff --git a/src/graphics/pipeline/render_target/cache.cpp b/src/graphics/pipeline/render_target/cache.cpp
+index 28732c3..f5b6412 100644
+--- a/src/graphics/pipeline/render_target/cache.cpp
++++ b/src/graphics/pipeline/render_target/cache.cpp
+@@ -54,7 +54,7 @@ REXCVAR_DEFINE_STRING(dbz3_rt_restore_shaders, "6E57A6E305D5D69B,ADCA7FBBCBF53B5
+ REXCVAR_DEFINE_BOOL(dbz3_rt_restore_identity_only, true, "GPU",
+                     "DBZ3-Android: so conta como restauro um draw cujos vertices sao uma copia "
+                     "identidade de ecra inteiro");
+-REXCVAR_DEFINE_BOOL(dbz3_rt_elide_restores, false, "GPU",
++REXCVAR_DEFINE_BOOL(dbz3_rt_elide_restores, true, "GPU",
+                     "DBZ3-Android: com dbz3_rt_direct, ignora os restauros de ecra inteiro e os "
+                     "resolves que so serviam para eles")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 78ebbfa..eaa14f2 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -78,10 +78,16 @@ REXCVAR_DEFINE_BOOL(vulkan_dynamic_rendering, true, "GPU/Vulkan",
+ 
+ REXCVAR_DECLARE(double, dbz3_rim_light_scale);  // src/graphics/command_processor.cpp
+ 
+-REXCVAR_DEFINE_BOOL(dbz3_skip_depth_restore, false, "GPU",
++REXCVAR_DEFINE_BOOL(dbz3_fx_dof, true, "GPU",
++                    "DBZ3-Android: profundidade de campo do jogo (desligar ajuda GPUs fracos)");
++REXCVAR_DEFINE_BOOL(dbz3_fx_fxaa, true, "GPU",
++                    "DBZ3-Android: FXAA do jogo (desligar ajuda GPUs fracos)");
++REXCVAR_DEFINE_BOOL(dbz3_fx_bloom, true, "GPU",
++                    "DBZ3-Android: brilho (bloom) do jogo (desligar ajuda GPUs fracos)");
++REXCVAR_DEFINE_BOOL(dbz3_skip_depth_restore, true, "GPU",
+                     "DBZ3-Android: com render targets diretos, salta o restauro da profundidade "
+                     "desenhado como cor na base da profundidade (PS ADCA7FBBCBF53B57)");
+-REXCVAR_DEFINE_BOOL(dbz3_clear_to_1x, false, "GPU",
++REXCVAR_DEFINE_BOOL(dbz3_clear_to_1x, true, "GPU",
+                     "DBZ3-Android: Clear do D3D (retangulo 4x MSAA) desenhado direto na imagem 1x");
+ REXCVAR_DEFINE_BOOL(dbz3_skip_msaa_prepass, false, "GPU",
+                     "DBZ3-Android: salta o pre-passo 4x MSAA (pitch 640) do inicio do frame");
+@@ -4324,6 +4330,40 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+       return true;
+     }
+   }
++  // DBZ3-Android: efeitos de pos-processamento do jogo que podem ser desligados (opcoes do
++  // launcher, para aparelhos fracos). Com render targets diretos o render target do ecra ja
++  // tem a cena antes de cada efeito, por isso saltar o draw do efeito deixa a imagem sem ele:
++  // - profundidade de campo: PS 4DFCBC49057E5721 (desfoque dependente da profundidade, opaco);
++  // - FXAA: PS F5F4D761A981B87D (opaco);
++  // - brilho (bloom): cadeia 320x184 -> 80x48 (PS 555EBAAEF8F61839, PS CB0605B416DF85B8 em
++  //   render targets de pitch 320) e a composicao aditiva da textura pequena no ecra (PS
++  //   6E57A6E305D5D69B com mistura nao opaca e textura de largura <= 160).
++  if (pixel_shader && REXCVAR_GET(dbz3_rt_direct) &&
++      (!REXCVAR_GET(dbz3_fx_dof) || !REXCVAR_GET(dbz3_fx_fxaa) || !REXCVAR_GET(dbz3_fx_bloom))) {
++    const uint64_t fx_ps = pixel_shader->ucode_data_hash();
++    const bool fx_opaque = (regs[XE_GPU_REG_RB_BLENDCONTROL0] & 0x1FFF1FFF) == 0x00010001;
++    bool fx_skip = false;
++    if (!REXCVAR_GET(dbz3_fx_dof) && fx_ps == UINT64_C(0x4DFCBC49057E5721) && fx_opaque) {
++      fx_skip = true;
++    } else if (!REXCVAR_GET(dbz3_fx_fxaa) && fx_ps == UINT64_C(0xF5F4D761A981B87D) && fx_opaque) {
++      fx_skip = true;
++    } else if (!REXCVAR_GET(dbz3_fx_bloom)) {
++      const uint32_t fx_pitch = regs.Get<reg::RB_SURFACE_INFO>().surface_pitch;
++      if (fx_ps == UINT64_C(0x555EBAAEF8F61839) ||
++          (fx_ps == UINT64_C(0xCB0605B416DF85B8) && fx_pitch == 320)) {
++        fx_skip = true;
++      } else if (fx_ps == UINT64_C(0x6E57A6E305D5D69B) && !fx_opaque &&
++                 !pixel_shader->texture_bindings().empty()) {
++        const xenos::xe_gpu_texture_fetch_t fetch =
++            regs.GetTextureFetch(pixel_shader->texture_bindings()[0].fetch_constant);
++        fx_skip = fetch.type == xenos::FetchConstantType::kTexture &&
++                  uint32_t(fetch.size_2d.width) + 1 <= 160;
++      }
++    }
++    if (fx_skip) {
++      return true;
++    }
++  }
+   // DBZ3-Android (dbz3_skip_depth_restore): depois de cada passe de 512x512 (silhueta do
+   // lutador, pitch 560, que no EDRAM real escreve por cima da zona da profundidade) o jogo
+   // repoe a profundidade desenhando a copia dela como COR na base da profundidade
+diff --git a/src/graphics/vulkan/shared_memory.cpp b/src/graphics/vulkan/shared_memory.cpp
+index 74befed..09eff19 100644
+--- a/src/graphics/vulkan/shared_memory.cpp
++++ b/src/graphics/vulkan/shared_memory.cpp
+@@ -27,7 +27,7 @@ REXCVAR_DEFINE_BOOL(vulkan_sparse_shared_memory, true, "GPU/Vulkan",
+                     "Use sparse shared memory on Vulkan")
+     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+ 
+-REXCVAR_DEFINE_BOOL(dbz3_hoist_uploads, false, "GPU/Vulkan",
++REXCVAR_DEFINE_BOOL(dbz3_hoist_uploads, true, "GPU/Vulkan",
+                     "DBZ3-Android (de RB2-Android): grava os uploads da memoria partilhada "
+                     "antes do passe atual quando ele nao leu essas paginas, em vez de terminar "
+                     "o passe (num tiler cada passe novo recarrega e reescreve o ecra)")

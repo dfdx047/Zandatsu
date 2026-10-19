@@ -1,0 +1,34 @@
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index bd88336..43426d4 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -78,6 +78,10 @@ REXCVAR_DEFINE_BOOL(vulkan_dynamic_rendering, true, "GPU/Vulkan",
+ 
+ REXCVAR_DECLARE(double, dbz3_rim_light_scale);  // src/graphics/command_processor.cpp
+ 
++REXCVAR_DEFINE_BOOL(dbz3_skip_msaa_prepass, false, "GPU",
++                    "DBZ3-Android: salta o pre-passo 4x MSAA (pitch 640) do inicio do frame");
++REXCVAR_DECLARE(bool, dbz3_rt_direct);
++
+ namespace rex::graphics::vulkan {
+ 
+ // DBZ3-Android: "30 FPS" de verdade (dbz3_frameskip). O jogo continua a correr a
+@@ -4282,6 +4286,18 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+     }
+     draw_util::AddMemExportRanges(regs, *pixel_shader, memexport_ranges_);
+   }
++  // DBZ3-Android (dbz3_skip_msaa_prepass): no inicio de cada frame o Budokai 3 desenha
++  // cor e profundidade num render target 4x MSAA com pitch 640 (o mesmo EDRAM que o ecra
++  // 1x 1280) a partir do frame anterior, e o render target cache transfere isso para a
++  // imagem 1x. Com render targets diretos a imagem 1x ja guarda o frame anterior, por isso
++  // este pre-passo (e a transferencia 4x -> 1x) pode ser saltado: no Mali custam ~17 ms.
++  if (REXCVAR_GET(dbz3_skip_msaa_prepass) && REXCVAR_GET(dbz3_rt_direct)) {
++    const auto surface_info = regs.Get<reg::RB_SURFACE_INFO>();
++    if (surface_info.msaa_samples == xenos::MsaaSamples::k4X &&
++        surface_info.surface_pitch == 640) {
++      return true;
++    }
++  }
+   // DBZ3-Android (dbz3_rt_direct): restauro de ecra inteiro que nao muda nada.
+   if (pixel_shader && !memexport_used_pixel && !memexport_used_vertex) {
+     uint32_t sampled_bases[32];

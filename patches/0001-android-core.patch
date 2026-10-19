@@ -1,0 +1,674 @@
+diff -ruN '--exclude=.git' sdk-orig/include/rex/main_android.h sdk/include/rex/main_android.h
+--- a/include/rex/main_android.h
++++ b/include/rex/main_android.h
+@@ -0,0 +1,30 @@
++#pragma once
++/**
++ * DBZ3-Android: utilitarios de arranque do runtime no Android.
++ *
++ * O codigo herdado do Xenia (threading_posix, memory_posix) chama
++ * rex::GetAndroidApiLevel() e os AndroidInitialize() de cada subsistema.
++ * InitializeAndroidRuntime() faz essas chamadas pela ordem certa e e chamado
++ * pelo SDL_main (windowed_app_main_sdl.cpp) antes de tudo o resto.
++ */
++
++#include <cstdint>
++#include <filesystem>
++
++namespace rex {
++
++// Nivel de API do Android em que o processo esta a correr (ex.: 34).
++int32_t GetAndroidApiLevel();
++
++// Pasta de dados da app (definida pelo lado Java na variavel REX_APP_DIR).
++// E aqui que ficam o jogo (DBZ3/), as configuracoes, os logs e a cache.
++std::filesystem::path GetAndroidAppDirectory();
++
++// Pasta das bibliotecas nativas extraidas (variavel REX_NATIVE_LIB_DIR).
++std::filesystem::path GetAndroidNativeLibraryDirectory();
++
++// Inicializa os subsistemas Android do runtime (memoria, threads).
++void InitializeAndroidRuntime();
++void ShutdownAndroidRuntime();
++
++}  // namespace rex
+diff -ruN '--exclude=.git' sdk-orig/include/rex/string/numeric.h sdk/include/rex/string/numeric.h
+--- a/include/rex/string/numeric.h
++++ b/include/rex/string/numeric.h
+@@ -26,7 +26,7 @@
+ #include <rex/string/utf8.h>
+ #include <rex/vec128.h>
+ 
+-#if REX_PLATFORM_MAC
++#if REX_PLATFORM_MAC || REX_PLATFORM_ANDROID  // DBZ3-Android: libc++ do NDK sem from_chars float
+ #include <locale.h>
+ #endif
+ 
+@@ -114,7 +114,7 @@
+   return result;
+ }
+ 
+-#if REX_PLATFORM_MAC
++#if REX_PLATFORM_MAC || REX_PLATFORM_ANDROID  // DBZ3-Android: libc++ do NDK sem from_chars float
+ template <typename T>
+ inline std::from_chars_result portable_float_from_chars(const char* first, const char* last,
+                                                         T& value) {
+@@ -189,7 +189,7 @@
+     }
+     std::memcpy(&result, &pun, sizeof(PUN));
+   } else {
+-#if REX_PLATFORM_MAC
++#if REX_PLATFORM_MAC || REX_PLATFORM_ANDROID  // DBZ3-Android: libc++ do NDK sem from_chars float
+     auto [p, error] = portable_float_from_chars(range.data(), range.data() + range.size(), result);
+ #else
+     auto [p, error] = std::from_chars(range.data(), range.data() + range.size(), result,
+@@ -316,7 +316,7 @@
+         assert_always();
+         return vec128_t();
+       }
+-#if REX_PLATFORM_MAC
++#if REX_PLATFORM_MAC || REX_PLATFORM_ANDROID  // DBZ3-Android: libc++ do NDK sem from_chars float
+       auto result = detail::portable_float_from_chars(p, end, v.f32[i]);
+ #else
+       auto result = std::from_chars(p, end, v.f32[i], std::chars_format::general);
+diff -ruN '--exclude=.git' sdk-orig/include/rex/thread/fiber.h sdk/include/rex/thread/fiber.h
+--- a/include/rex/thread/fiber.h
++++ b/include/rex/thread/fiber.h
+@@ -14,7 +14,12 @@
+ #include <rex/platform.h>
+ #include <cstddef>
+ 
+-#if REX_PLATFORM_LINUX || REX_PLATFORM_MAC
++#if REX_PLATFORM_ANDROID
++// DBZ3-Android: o bionic nao tem getcontext/makecontext/swapcontext. Usa-se
++// uma troca de contexto propria em assembly AArch64 (fiber_posix.cpp).
++#include <cstdint>
++#include <vector>
++#elif REX_PLATFORM_LINUX || REX_PLATFORM_MAC
+ #if REX_PLATFORM_MAC && !defined(_XOPEN_SOURCE)
+ // Darwin hides the deprecated ucontext APIs unless _XOPEN_SOURCE is defined
+ // before including <ucontext.h>.
+@@ -56,6 +61,23 @@
+ #if REX_PLATFORM_WIN32
+   void* handle_ = nullptr;
+   bool is_thread_fiber_ = false;
++#elif REX_PLATFORM_ANDROID
++  // Registos preservados pela ABI AArch64: x19-x28, fp (x29), lr (x30), sp e
++  // d8-d15. Ordem fixa, usada pelo assembly em fiber_posix.cpp.
++  struct Context {
++    uint64_t x19_x28[10];
++    uint64_t fp;
++    uint64_t lr;
++    uint64_t sp;
++    uint64_t d8_d15[8];
++  };
++  Context context_{};
++  std::vector<uint8_t> stack_;
++  void (*entry_)(void*) = nullptr;
++  void* arg_ = nullptr;
++  bool is_thread_fiber_ = false;
++
++  static void Trampoline();
+ #elif REX_PLATFORM_LINUX || REX_PLATFORM_MAC
+   ucontext_t context_{};
+   std::vector<uint8_t> stack_;
+diff -ruN '--exclude=.git' sdk-orig/include/rex/ui/surface_android.h sdk/include/rex/ui/surface_android.h
+--- a/include/rex/ui/surface_android.h
++++ b/include/rex/ui/surface_android.h
+@@ -0,0 +1,34 @@
++#pragma once
++/**
++ * DBZ3-Android: superficie de apresentacao para Android (ANativeWindow).
++ *
++ * O SDL cria a janela e expoe o ANativeWindow* pela propriedade
++ * SDL_PROP_WINDOW_ANDROID_WINDOW_POINTER. O VulkanPresenter usa-o para criar
++ * a VkSurfaceKHR com vkCreateAndroidSurfaceKHR.
++ */
++
++#include <rex/ui/surface.h>
++
++struct ANativeWindow;
++struct SDL_Window;
++
++namespace rex {
++namespace ui {
++
++class AndroidNativeWindowSurface final : public Surface {
++ public:
++  explicit AndroidNativeWindowSurface(ANativeWindow* window, SDL_Window* sdl_window)
++      : window_(window), sdl_window_(sdl_window) {}
++  TypeIndex GetType() const override { return kTypeIndex_AndroidNativeWindow; }
++  ANativeWindow* window() const { return window_; }
++
++ protected:
++  bool GetSizeImpl(uint32_t& width_out, uint32_t& height_out) const override;
++
++ private:
++  ANativeWindow* window_;
++  SDL_Window* sdl_window_;
++};
++
++}  // namespace ui
++}  // namespace rex
+diff -ruN '--exclude=.git' sdk-orig/src/core/CMakeLists.txt sdk/src/core/CMakeLists.txt
+--- a/src/core/CMakeLists.txt
++++ b/src/core/CMakeLists.txt
+@@ -25,7 +25,9 @@
+ )
+ add_library(rex::core ALIAS rexcore)
+ 
+-if(APPLE)
++if(APPLE OR ANDROID)
++    # DBZ3-Android: o libc++ do NDK tambem esconde std::jthread/std::stop_token
++    # atras de -fexperimental-library.
+     # Apple's libc++ still gates std::jthread/std::stop_token behind the
+     # experimental-library feature flag. Only timer_queue.cpp uses them, and
+     # neither type crosses a header boundary.
+@@ -75,6 +77,10 @@
+         system_posix.cpp
+         threading_posix.cpp
+     )
++    if(ANDROID)
++        # DBZ3-Android: nivel de API, pastas da app e init dos subsistemas.
++        target_sources(rexcore PRIVATE main_android.cpp)
++    endif()
+ endif()
+ 
+ # Xenos data-format layer (stateless; headers under include/rex/graphics/).
+@@ -101,6 +107,8 @@
+ 
+ if(APPLE)
+     target_link_libraries(rexcore PRIVATE pthread)
++elseif(ANDROID)
++    target_link_libraries(rexcore PRIVATE dl log android)
+ elseif(UNIX)
+     target_link_libraries(rexcore PRIVATE pthread rt dl)
+ endif()
+diff -ruN '--exclude=.git' sdk-orig/src/core/fiber_posix.cpp sdk/src/core/fiber_posix.cpp
+--- a/src/core/fiber_posix.cpp
++++ b/src/core/fiber_posix.cpp
+@@ -17,7 +17,119 @@
+ #endif
+ 
+ #include <rex/platform.h>
+-#if REX_PLATFORM_LINUX || REX_PLATFORM_MAC
++#if REX_PLATFORM_ANDROID && defined(__aarch64__)
++
++// DBZ3-Android: backend de fibras para Android AArch64. O bionic nao tem
++// getcontext/makecontext/swapcontext, por isso a troca de contexto e feita
++// em assembly: guarda os registos preservados pela ABI (x19-x29, lr, sp,
++// d8-d15) do fiber atual e carrega os do destino. Layout em fiber.h.
++
++#include <rex/thread/fiber.h>
++
++#include <cassert>
++#include <cstdlib>
++#include <cstddef>
++
++extern "C" void rex_android_fiber_switch(void* from_context, const void* to_context);
++
++asm(R"(
++    .text
++    .p2align 4
++    .globl rex_android_fiber_switch
++    .hidden rex_android_fiber_switch
++    .type rex_android_fiber_switch, %function
++rex_android_fiber_switch:
++    stp x19, x20, [x0, #0]
++    stp x21, x22, [x0, #16]
++    stp x23, x24, [x0, #32]
++    stp x25, x26, [x0, #48]
++    stp x27, x28, [x0, #64]
++    stp x29, x30, [x0, #80]
++    mov x9, sp
++    str x9, [x0, #96]
++    stp d8, d9, [x0, #104]
++    stp d10, d11, [x0, #120]
++    stp d12, d13, [x0, #136]
++    stp d14, d15, [x0, #152]
++
++    ldp x19, x20, [x1, #0]
++    ldp x21, x22, [x1, #16]
++    ldp x23, x24, [x1, #32]
++    ldp x25, x26, [x1, #48]
++    ldp x27, x28, [x1, #64]
++    ldp x29, x30, [x1, #80]
++    ldr x9, [x1, #96]
++    mov sp, x9
++    ldp d8, d9, [x1, #104]
++    ldp d10, d11, [x1, #120]
++    ldp d12, d13, [x1, #136]
++    ldp d14, d15, [x1, #152]
++    ret
++    .size rex_android_fiber_switch, .-rex_android_fiber_switch
++)");
++
++namespace rex::thread {
++
++thread_local Fiber* Fiber::tls_current_ = nullptr;
++
++Fiber* Fiber::ConvertCurrentThread() {
++  auto* f = new Fiber();
++  // O contexto desta thread e gravado no primeiro SwitchTo que sair dela.
++  f->is_thread_fiber_ = true;
++  tls_current_ = f;
++  return f;
++}
++
++Fiber* Fiber::Create(size_t stack_size, void (*entry)(void*), void* arg) {
++  static_assert(offsetof(Context, fp) == 80, "layout usado pelo assembly");
++  static_assert(offsetof(Context, sp) == 96, "layout usado pelo assembly");
++  static_assert(offsetof(Context, d8_d15) == 104, "layout usado pelo assembly");
++
++  // Primeiro codigo executado num fiber novo: o primeiro SwitchTo para ele faz
++  // "ret" para aqui, ja com o sp no topo da pilha propria do fiber. Um fiber
++  // nunca deve voltar da funcao de entrada (como no Windows).
++  void (*entry_thunk)() = []() {
++    Fiber::Trampoline();
++    std::abort();
++  };
++
++  auto* f = new Fiber();
++  f->entry_ = entry;
++  f->arg_ = arg;
++  f->stack_.resize(stack_size);
++
++  uintptr_t top = reinterpret_cast<uintptr_t>(f->stack_.data() + f->stack_.size());
++  top &= ~uintptr_t(15);  // A ABI AArch64 exige sp alinhado a 16 bytes.
++  f->context_.sp = top;
++  f->context_.fp = 0;
++  f->context_.lr = reinterpret_cast<uint64_t>(entry_thunk);
++  return f;
++}
++
++/*static*/ void Fiber::Trampoline() {
++  // tls_current_ foi atualizado pelo SwitchTo antes de chegarmos aqui.
++  Fiber* f = tls_current_;
++  f->entry_(f->arg_);
++}
++
++void Fiber::SwitchTo(Fiber* target) {
++  Fiber* from = tls_current_;
++  tls_current_ = target;
++  rex_android_fiber_switch(&from->context_, &target->context_);
++}
++
++void Fiber::Destroy() {
++  if (is_thread_fiber_) {
++    tls_current_ = nullptr;
++  } else {
++    assert(this != tls_current_ && "Destroy called on the currently running fiber");
++  }
++  delete this;
++}
++
++}  // namespace rex::thread
++
++#elif REX_PLATFORM_LINUX || REX_PLATFORM_MAC
+ 
+ #include <rex/thread/fiber.h>
+ 
+diff -ruN '--exclude=.git' sdk-orig/src/core/filesystem_posix.cpp sdk/src/core/filesystem_posix.cpp
+--- a/src/core/filesystem_posix.cpp
++++ b/src/core/filesystem_posix.cpp
+@@ -100,10 +100,23 @@
+ }
+ 
+ std::filesystem::path GetExecutableFolder() {
++#if REX_PLATFORM_ANDROID
++  // DBZ3-Android: /proc/self/exe aponta para o app_process do sistema. A
++  // "pasta do executavel" passa a ser a pasta de dados da app (REX_APP_DIR),
++  // onde ficam o jogo, as configuracoes, os logs e a cache.
++  if (auto app_dir = rex::platform::env::get("REX_APP_DIR")) {
++    return std::filesystem::path(*app_dir);
++  }
++#endif
+   return GetExecutablePath().parent_path();
+ }
+ 
+ std::filesystem::path GetUserFolder() {
++#if REX_PLATFORM_ANDROID
++  if (auto app_dir = rex::platform::env::get("REX_APP_DIR")) {
++    return std::filesystem::path(*app_dir);
++  }
++#endif
+   // get preferred data home
+   if (auto xdg = rex::platform::env::get("XDG_DATA_HOME")) {
+     return std::filesystem::path(*xdg);
+diff -ruN '--exclude=.git' sdk-orig/src/core/logging.cpp sdk/src/core/logging.cpp
+--- a/src/core/logging.cpp
++++ b/src/core/logging.cpp
+@@ -29,6 +29,9 @@
+ 
+ #if REX_PLATFORM_WIN32
+ #include <spdlog/sinks/msvc_sink.h>
++#elif REX_PLATFORM_ANDROID
++// DBZ3-Android: todos os logs do runtime tambem vao para o logcat (tag "dbz3").
++#include <spdlog/sinks/android_sink.h>
+ #else
+ #include <spdlog/sinks/stdout_sinks.h>
+ #endif
+@@ -170,6 +173,8 @@
+ 
+ #if REX_PLATFORM_WIN32
+   auto sink = std::make_shared<spdlog::sinks::msvc_sink_mt>();
++#elif REX_PLATFORM_ANDROID
++  auto sink = std::make_shared<spdlog::sinks::android_sink_mt>("dbz3");
+ #else
+   auto sink = std::make_shared<spdlog::sinks::stdout_sink_mt>();
+ #endif
+@@ -218,7 +223,7 @@
+   //     apps and does not conflict with the stdout console sink, so keep it.
+   //   Non-Windows: drop the early stdout sink unconditionally so file-only
+   //     configs don't leak to stdout and console configs don't duplicate.
+-#if !REX_PLATFORM_WIN32
++#if !REX_PLATFORM_WIN32 && !REX_PLATFORM_ANDROID
+   if (g_early_sink) {
+     for (auto& entry : g_registry) {
+       if (entry.logger)
+diff -ruN '--exclude=.git' sdk-orig/src/core/main_android.cpp sdk/src/core/main_android.cpp
+--- a/src/core/main_android.cpp
++++ b/src/core/main_android.cpp
+@@ -0,0 +1,82 @@
++/**
++ * DBZ3-Android: arranque do runtime no Android.
++ *
++ * Implementa o que o codigo herdado do Xenia espera encontrar no Android e que
++ * nao vinha no SDK: o nivel de API, as pastas da app e os stubs de content://
++ * (URIs do Storage Access Framework, ainda nao usados por este port).
++ */
++
++#include <rex/platform.h>
++
++#if REX_PLATFORM_ANDROID
++
++#include <android/api-level.h>
++#include <android/log.h>
++
++#include <cstdlib>
++#include <string_view>
++
++#include <rex/filesystem.h>
++#include <rex/main_android.h>
++#include <rex/memory/utils.h>
++#include <rex/thread.h>
++
++namespace rex {
++
++int32_t GetAndroidApiLevel() {
++  static const int32_t level = android_get_device_api_level();
++  return level;
++}
++
++static std::filesystem::path PathFromEnv(const char* name) {
++  const char* value = std::getenv(name);
++  if (!value || !*value) {
++    return {};
++  }
++  return std::filesystem::path(value);
++}
++
++std::filesystem::path GetAndroidAppDirectory() {
++  return PathFromEnv("REX_APP_DIR");
++}
++
++std::filesystem::path GetAndroidNativeLibraryDirectory() {
++  return PathFromEnv("REX_NATIVE_LIB_DIR");
++}
++
++void InitializeAndroidRuntime() {
++  __android_log_print(ANDROID_LOG_INFO, "dbz3", "Android API %d, app dir '%s', lib dir '%s'",
++                      GetAndroidApiLevel(), GetAndroidAppDirectory().c_str(),
++                      GetAndroidNativeLibraryDirectory().c_str());
++  memory::AndroidInitialize();
++  thread::AndroidInitialize();
++  filesystem::AndroidInitialize();
++}
++
++void ShutdownAndroidRuntime() {
++  filesystem::AndroidShutdown();
++  thread::AndroidShutdown();
++  memory::AndroidShutdown();
++}
++
++namespace filesystem {
++
++void AndroidInitialize() {}
++void AndroidShutdown() {}
++
++bool IsAndroidContentUri(const std::string_view source) {
++  return source.substr(0, 10) == "content://";
++}
++
++int OpenAndroidContentFileDescriptor(const std::string_view uri, const char* mode) {
++  (void)uri;
++  (void)mode;
++  // Ainda nao suportado: o jogo e lido de uma pasta normal (REX_APP_DIR).
++  return -1;
++}
++
++}  // namespace filesystem
++
++}  // namespace rex
++
++#endif  // REX_PLATFORM_ANDROID
+diff -ruN '--exclude=.git' sdk-orig/src/core/memory_posix.cpp sdk/src/core/memory_posix.cpp
+--- a/src/core/memory_posix.cpp
++++ b/src/core/memory_posix.cpp
+@@ -53,6 +53,8 @@
+ 
+ #include <linux/ashmem.h>
+ 
++#include <rex/main_android.h>
++
+ // TODO(tomc): Android or maybe na. idk
+ // #include "xenia/base/main_android.h"
+ #endif
+diff -ruN '--exclude=.git' sdk-orig/src/system/gpu_plugin_loader.cpp sdk/src/system/gpu_plugin_loader.cpp
+--- a/src/system/gpu_plugin_loader.cpp
++++ b/src/system/gpu_plugin_loader.cpp
+@@ -9,6 +9,7 @@
+  *              See LICENSE file in the project root for full license text.
+  */
+ 
++#include <cstdlib>
+ #include <rex/system/gpu_plugin.h>
+ 
+ #include <filesystem>
+@@ -55,7 +56,18 @@
+ }  // namespace
+ 
+ std::unique_ptr<IGraphicsSystem> LoadGpuPlugin(std::string_view name, std::string_view backend) {
++#if REX_PLATFORM_ANDROID
++  // DBZ3-Android: o plugin vive na pasta das bibliotecas nativas da app
++  // (REX_NATIVE_LIB_DIR), nao na pasta de dados devolvida por
++  // GetExecutableFolder().
++  std::filesystem::path plugin_dir = rex::filesystem::GetExecutableFolder();
++  if (const char* lib_dir = std::getenv("REX_NATIVE_LIB_DIR"); lib_dir && *lib_dir) {
++    plugin_dir = lib_dir;
++  }
++  auto path = plugin_dir / PluginFileName(name);
++#else
+   auto path = rex::filesystem::GetExecutableFolder() / PluginFileName(name);
++#endif
+   if (!std::filesystem::exists(path)) {
+     REXSYS_ERROR(
+         "GPU plugin '{}' not found at {}. Stage it next to the executable "
+diff -ruN '--exclude=.git' sdk-orig/src/ui/CMakeLists.txt sdk/src/ui/CMakeLists.txt
+--- a/src/ui/CMakeLists.txt
++++ b/src/ui/CMakeLists.txt
+@@ -74,6 +74,10 @@
+     set(REXUI_PLATFORM_SOURCES
+         surface_mac.cpp
+     )
++elseif(ANDROID)
++    set(REXUI_PLATFORM_SOURCES
++        surface_android.cpp
++    )
+ else()
+     set(REXUI_PLATFORM_SOURCES
+         surface_gnulinux.cpp
+@@ -162,7 +166,9 @@
+ endif()
+ 
+ # Platform-specific dependencies
+-if(UNIX AND NOT APPLE)
++if(ANDROID)
++    target_link_libraries(rexui PUBLIC android log)
++elseif(UNIX AND NOT APPLE)
+     find_package(PkgConfig REQUIRED)
+     pkg_check_modules(X11_XCB REQUIRED x11-xcb)
+     # Required, not optional: vulkan/api.h pulls in <wayland-client.h> on every
+diff -ruN '--exclude=.git' sdk-orig/src/ui/surface_android.cpp sdk/src/ui/surface_android.cpp
+--- a/src/ui/surface_android.cpp
++++ b/src/ui/surface_android.cpp
+@@ -0,0 +1,37 @@
++/**
++ * DBZ3-Android: tamanho da superficie Android.
++ *
++ * Usa o tamanho real do buffer do ANativeWindow (pixeis fisicos). Se a janela
++ * ainda nao estiver pronta, cai para o tamanho em pixeis que o SDL reporta.
++ */
++
++#include <android/native_window.h>
++
++#include <SDL3/SDL.h>
++
++#include <rex/ui/surface_android.h>
++
++namespace rex {
++namespace ui {
++
++bool AndroidNativeWindowSurface::GetSizeImpl(uint32_t& width_out, uint32_t& height_out) const {
++  if (window_) {
++    const int32_t w = ANativeWindow_getWidth(window_);
++    const int32_t h = ANativeWindow_getHeight(window_);
++    if (w > 0 && h > 0) {
++      width_out = uint32_t(w);
++      height_out = uint32_t(h);
++      return true;
++    }
++  }
++  int w = 0, h = 0;
++  if (!sdl_window_ || !SDL_GetWindowSizeInPixels(sdl_window_, &w, &h) || w <= 0 || h <= 0) {
++    return false;
++  }
++  width_out = uint32_t(w);
++  height_out = uint32_t(h);
++  return true;
++}
++
++}  // namespace ui
++}  // namespace rex
+diff -ruN '--exclude=.git' sdk-orig/src/ui/window_sdl.cpp sdk/src/ui/window_sdl.cpp
+--- a/src/ui/window_sdl.cpp
++++ b/src/ui/window_sdl.cpp
+@@ -35,6 +35,8 @@
+ #include <SDL3/SDL_metal.h>
+ 
+ #include <rex/ui/surface_mac.h>
++#elif REX_PLATFORM_ANDROID
++#include <rex/ui/surface_android.h>
+ #else
+ #include <X11/Xlib-xcb.h>
+ #include <rex/ui/surface_gnulinux.h>
+@@ -398,6 +400,15 @@
+       SDL_Metal_DestroyView(metal_view);
+     }
+   }
++#elif REX_PLATFORM_ANDROID
++  SDL_PropertiesID props = SDL_GetWindowProperties(sdl_window_);
++  if (allowed_types & Surface::kTypeFlag_AndroidNativeWindow) {
++    auto* native_window = static_cast<ANativeWindow*>(
++        SDL_GetPointerProperty(props, SDL_PROP_WINDOW_ANDROID_WINDOW_POINTER, nullptr));
++    if (native_window) {
++      return std::make_unique<AndroidNativeWindowSurface>(native_window, sdl_window_);
++    }
++  }
+ #else
+   SDL_PropertiesID props = SDL_GetWindowProperties(sdl_window_);
+   if (allowed_types & Surface::kTypeFlag_WaylandSurface) {
+diff -ruN '--exclude=.git' sdk-orig/src/ui/windowed_app_main_sdl.cpp sdk/src/ui/windowed_app_main_sdl.cpp
+--- a/src/ui/windowed_app_main_sdl.cpp
++++ b/src/ui/windowed_app_main_sdl.cpp
+@@ -22,6 +22,17 @@
+ #include <rex/ui/windowed_app.h>
+ #include <rex/ui/windowed_app_context_sdl.h>
+ 
++#if REX_PLATFORM_ANDROID
++#include <filesystem>
++#include <system_error>
++
++// SDL_main e definido a mao mais abaixo; so precisamos de SDL_SetMainReady.
++#define SDL_MAIN_HANDLED
++#include <SDL3/SDL_main.h>
++
++#include <rex/main_android.h>
++#endif
++
+ #if REX_PLATFORM_WIN32
+ #ifndef WIN32_LEAN_AND_MEAN
+ #define WIN32_LEAN_AND_MEAN
+@@ -124,6 +135,26 @@
+   return RunWindowedApp(static_cast<int>(argv_ptrs.size()), argv_ptrs.data());
+ }
+ 
++#elif REX_PLATFORM_ANDROID
++
++// DBZ3-Android: o SDLActivity (Java) carrega libmain.so e chama SDL_main numa
++// thread propria, depois de inicializar o JNI do SDL. Antes de arrancar a app
++// inicializam-se os subsistemas Android do runtime (memoria partilhada,
++// threads) e muda-se a pasta atual para a pasta de dados da app.
++extern "C" __attribute__((visibility("default"))) int SDL_main(int argc, char* argv[]) {
++  SDL_SetMainReady();
++  rex::InitializeAndroidRuntime();
++  const auto app_dir = rex::GetAndroidAppDirectory();
++  if (!app_dir.empty()) {
++    std::error_code ec;
++    std::filesystem::create_directories(app_dir, ec);
++    std::filesystem::current_path(app_dir, ec);
++  }
++  const int result = RunWindowedApp(argc, argv);
++  rex::ShutdownAndroidRuntime();
++  return result;
++}
++
+ #else
+ 
+ int main(int argc, char* argv[]) {
+diff -ruN '--exclude=.git' sdk-orig/thirdparty/CMakeLists.txt sdk/thirdparty/CMakeLists.txt
+--- a/thirdparty/CMakeLists.txt
++++ b/thirdparty/CMakeLists.txt
+@@ -290,7 +290,7 @@
+ 
+ # Linux video and audio backends. Both video drivers are always built so the
+ # one in use stays a runtime choice.
+-if(UNIX AND NOT APPLE)
++if(UNIX AND NOT APPLE AND NOT ANDROID)
+     set(SDL_X11               ON  CACHE BOOL "" FORCE)
+     set(SDL_WAYLAND           ON  CACHE BOOL "" FORCE)
+     set(SDL_ALSA              ON  CACHE BOOL "" FORCE)
+@@ -301,6 +301,23 @@
+     set(SDL_PIPEWIRE_SHARED   ON  CACHE BOOL "" FORCE)
+ endif()
+ 
++# DBZ3-Android: SDL como biblioteca partilhada (libSDL3.so), como numa app SDL
++# Android normal. Assim ha uma unica instancia do SDL (JNI, janela, audio) para
++# libmain.so, librexruntime.so e o plugin da GPU. Os subsistemas que o backend
++# Android do SDL usa ficam ligados.
++if(ANDROID)
++    set(SDL_SHARED            ON  CACHE BOOL "" FORCE)
++    set(SDL_STATIC            OFF CACHE BOOL "" FORCE)
++    set(SDL_UNIX_CONSOLE_BUILD OFF CACHE BOOL "" FORCE)
++    set(SDL_VULKAN            ON  CACHE BOOL "" FORCE)
++    set(SDL_HAPTIC            ON  CACHE BOOL "" FORCE)
++    set(SDL_SENSOR            ON  CACHE BOOL "" FORCE)
++    set(SDL_POWER             ON  CACHE BOOL "" FORCE)
++    set(SDL_FILESYSTEM        ON  CACHE BOOL "" FORCE)
++    # As classes Java do SDL entram direto no projeto Gradle.
++    set(SDL_ANDROID_JAR       OFF CACHE BOOL "" FORCE)
++endif()
++
+ add_subdirectory(sdl3)
+ 
+ #=============================================================================

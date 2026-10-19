@@ -1,0 +1,269 @@
+diff --git a/include/rex/graphics/pipeline/render_target/cache.h b/include/rex/graphics/pipeline/render_target/cache.h
+index 11d9f60..80ffbe5 100644
+--- a/include/rex/graphics/pipeline/render_target/cache.h
++++ b/include/rex/graphics/pipeline/render_target/cache.h
+@@ -15,6 +15,7 @@
+ #include <functional>
+ #include <map>
+ #include <unordered_map>
++#include <unordered_set>
+ #include <utility>
+ #include <vector>
+ 
+@@ -304,6 +305,26 @@ class RenderTargetCache {
+   // DBZ3-Android (dbz3_rt_direct): render targets com a mesma base que o ultimo
+   // PrepareHostRenderTargetsResolveClear tambem deve limpar (true = profundidade).
+   static bool Dbz3DirectAllowsTransfer(RenderTargetKey source, RenderTargetKey dest);
++
++ public:
++  // DBZ3-Android (dbz3_rt_direct): eliminacao de resolves + restauros redundantes.
++  // O Budokai 3, por lutador, copia a cor e a profundidade do ecra para texturas, desenha
++  // a silhueta noutro render target e volta a desenhar essas texturas por cima do ecra
++  // (restauro). No modo direto o render target do ecra nao e tocado entretanto, por isso o
++  // restauro nao muda nada e a copia so serviu para ele. O que se faz:
++  // - Dbz3IsRedundantRestore: um draw de ecra inteiro, opaco, que le uma textura resolvida
++  //   neste frame a partir do render target onde vai desenhar (ou, para a profundidade, do
++  //   depth buffer com a mesma base), sem escritas nesse render target desde o resolve, e
++  //   ignorado.
++  // - Dbz3ShouldElideResolve: um resolve que no frame anterior so teve restauros como
++  //   leitores e foi sobrescrito por outro resolve para o mesmo destino no mesmo frame nao
++  //   e feito. Se, apesar disso, alguem ler a textura a serio, o par (destino, ordem) fica
++  //   proibido daqui em diante (no maximo um frame com a textura velha).
++  bool Dbz3ShouldElideResolve(uint32_t dest_base, RenderTargetKey source);
++  bool Dbz3IsRedundantRestore(const uint32_t* sampled_bases, uint32_t sampled_count,
++                              uint32_t index_count);
++  void Dbz3ElisionFrameEnd();
++  void Dbz3MarkWritten(RenderTargetKey key) { ++dbz3_write_gen_[key]; }
+   const std::vector<std::pair<RenderTarget*, bool>>& dbz3_direct_clear_siblings() const {
+     return dbz3_direct_clear_siblings_;
+   }
+@@ -662,6 +683,21 @@ class RenderTargetCache {
+   // DBZ3-Android (dbz3_rt_direct): render targets com a mesma base que o ultimo
+   // PrepareHostRenderTargetsResolveClear tambem deve limpar (true = profundidade).
+   std::vector<std::pair<RenderTarget*, bool>> dbz3_direct_clear_siblings_;
++  struct Dbz3ResolveRecord {
++    uint32_t dest;
++    uint32_t ordinal;
++    RenderTargetKey source;
++    uint64_t source_gen;
++    bool skipped;
++    bool real_use;
++    bool overwritten;
++  };
++  std::unordered_map<RenderTargetKey, uint64_t, RenderTargetKey::Hasher> dbz3_write_gen_;
++  std::vector<Dbz3ResolveRecord> dbz3_frame_resolves_;
++  std::unordered_map<uint32_t, uint32_t> dbz3_frame_resolve_counts_;
++  std::unordered_set<uint64_t> dbz3_elidable_;   // (dest << 8 | ordinal) do frame anterior
++  std::unordered_set<uint64_t> dbz3_forbidden_;  // pares que falharam
++  uint64_t dbz3_elided_ = 0, dbz3_restores_skipped_ = 0;
+ 
+   // Map of host render targets currently containing the most up-to-date version
+   // of the tile. Has no gaps, unused parts are represented by empty render
+diff --git a/src/graphics/pipeline/render_target/cache.cpp b/src/graphics/pipeline/render_target/cache.cpp
+index 83c2fb9..675a359 100644
+--- a/src/graphics/pipeline/render_target/cache.cpp
++++ b/src/graphics/pipeline/render_target/cache.cpp
+@@ -47,6 +47,10 @@ REXCVAR_DEFINE_BOOL(direct_host_resolve, true, "GPU",
+ // 8-9 ms por frame num Adreno 650) ficam reduzidas as que levam uma limpeza feita com
+ // outra contagem de amostras (ver Dbz3DirectAllowsTransfer). As limpezas por resolve
+ // aplicam-se a todas as imagens com a mesma base (nao so a dona dos tiles).
++REXCVAR_DEFINE_BOOL(dbz3_rt_elide_restores, true, "GPU",
++                    "DBZ3-Android: com dbz3_rt_direct, ignora os restauros de ecra inteiro e os "
++                    "resolves que so serviam para eles")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ REXCVAR_DEFINE_BOOL(dbz3_rt_direct, false, "GPU",
+                     "DBZ3-Android: render targets sem transferencias entre imagens do host "
+                     "(cada configuracao guarda a sua imagem)")
+@@ -768,6 +772,12 @@ bool RenderTargetCache::Update(bool is_rasterization_done,
+                 sizeof(last_update_accumulated_render_targets_));
+     are_accumulated_render_targets_valid_ = true;
+   }
++  // DBZ3-Android: geracao de escrita por render target (eliminacao de restauros).
++  for (uint32_t i = 0; i < 1 + xenos::kMaxColorRenderTargets; ++i) {
++    if (last_update_used_render_targets_[i]) {
++      ++dbz3_write_gen_[last_update_used_render_targets_[i]->key()];
++    }
++  }
+ 
+   return true;
+ }
+@@ -1133,6 +1143,8 @@ bool RenderTargetCache::PrepareHostRenderTargetsResolveClear(
+     ChangeOwnership(color_render_target_key, color_clear_start_tiles_base_relative,
+                     color_clear_length_tiles, &color_transfers_out, &clear_rectangle);
+   }
++  if (depth_render_target) ++dbz3_write_gen_[depth_render_target_key];
++  if (color_render_target) ++dbz3_write_gen_[color_render_target_key];
+   // DBZ3-Android (modo direto): as outras imagens com a mesma base (outro pitch/MSAA, ex. o
+   // passe de 512x512 do Budokai 3 que usa a mesma profundidade) tambem sao limpas, porque
+   // sem transferencias nada lhes traria a limpeza.
+@@ -1448,4 +1460,106 @@ void RenderTargetCache::ChangeOwnership(RenderTargetKey dest, uint32_t start_til
+   }
+ }
+ 
++bool RenderTargetCache::Dbz3ShouldElideResolve(uint32_t dest_base, RenderTargetKey source) {
++  if (!REXCVAR_GET(dbz3_rt_direct) || !REXCVAR_GET(dbz3_rt_elide_restores)) {
++    return false;
++  }
++  const uint32_t ordinal = dbz3_frame_resolve_counts_[dest_base]++;
++  for (Dbz3ResolveRecord& r : dbz3_frame_resolves_) {
++    if (r.dest == dest_base) r.overwritten = true;
++  }
++  Dbz3ResolveRecord rec;
++  rec.dest = dest_base;
++  rec.ordinal = ordinal;
++  rec.source = source;
++  rec.source_gen = dbz3_write_gen_[source];
++  rec.real_use = false;
++  rec.overwritten = false;
++  const uint64_t id = (uint64_t(dest_base) << 8) | (ordinal & 0xFF);
++  rec.skipped = dbz3_elidable_.count(id) && !dbz3_forbidden_.count(id);
++  dbz3_frame_resolves_.push_back(rec);
++  if (rec.skipped) ++dbz3_elided_;
++  return rec.skipped;
++}
++
++bool RenderTargetCache::Dbz3IsRedundantRestore(const uint32_t* sampled_bases,
++                                               uint32_t sampled_count, uint32_t index_count) {
++  if (!REXCVAR_GET(dbz3_rt_direct) || !REXCVAR_GET(dbz3_rt_elide_restores) ||
++      dbz3_frame_resolves_.empty() || !sampled_count) {
++    return false;
++  }
++  const RegisterFile& regs = register_file();
++  // Render target 0 de cor do draw (como em Update).
++  auto rb_surface_info = regs.Get<reg::RB_SURFACE_INFO>();
++  const uint32_t msaa_samples_x_log2 = uint32_t(rb_surface_info.msaa_samples >= xenos::MsaaSamples::k4X);
++  RenderTargetKey color0;
++  color0.base_tiles = regs.Get<reg::RB_COLOR_INFO>().color_base;
++  color0.pitch_tiles_at_32bpp =
++      ((uint32_t(rb_surface_info.surface_pitch) << msaa_samples_x_log2) +
++       (xenos::kEdramTileWidthSamples - 1)) /
++      xenos::kEdramTileWidthSamples;
++  color0.msaa_samples = rb_surface_info.msaa_samples;
++  color0.is_depth = 0;
++  color0.resource_format = uint32_t(GetColorResourceFormat(
++      xenos::GetStorageColorFormat(regs.Get<reg::RB_COLOR_INFO>().color_format)));
++  // Opaco (1*src + 0*dst) e poucos vertices (triangulo/retangulo de ecra inteiro).
++  const bool opaque = (regs[XE_GPU_REG_RB_BLENDCONTROL0] & 0x1FFF1FFF) == 0x00010001;
++  bool restore_found = false;
++  bool other_resolved = false;
++  for (uint32_t i = 0; i < sampled_count; ++i) {
++    Dbz3ResolveRecord* rec = nullptr;
++    for (auto it = dbz3_frame_resolves_.rbegin(); it != dbz3_frame_resolves_.rend(); ++it) {
++      if (it->dest == sampled_bases[i] && !it->overwritten) {
++        rec = &*it;
++        break;
++      }
++    }
++    if (!rec) continue;
++    const bool same_target =
++        rec->source.is_depth
++            ? (color0.base_tiles == rec->source.base_tiles &&
++               color0.pitch_tiles_at_32bpp == rec->source.pitch_tiles_at_32bpp &&
++               color0.msaa_samples == rec->source.msaa_samples)
++            : color0 == rec->source;
++    if (opaque && index_count <= 6 && same_target &&
++        dbz3_write_gen_[rec->source] == rec->source_gen) {
++      restore_found = true;
++    } else {
++      other_resolved = true;
++      if (!rec->real_use) {
++        rec->real_use = true;
++        if (rec->skipped) {
++          const uint64_t id = (uint64_t(rec->dest) << 8) | (rec->ordinal & 0xFF);
++          dbz3_forbidden_.insert(id);
++          REXGPU_WARN("dbz3: resolve {:08X} #{} eliminado mas lido a serio; volta a ser feito",
++                      rec->dest, rec->ordinal);
++        }
++      }
++    }
++  }
++  if (restore_found && !other_resolved) {
++    ++dbz3_restores_skipped_;
++    return true;
++  }
++  return false;
++}
++
++void RenderTargetCache::Dbz3ElisionFrameEnd() {
++  dbz3_elidable_.clear();
++  for (const Dbz3ResolveRecord& r : dbz3_frame_resolves_) {
++    if (r.overwritten && !r.real_use) {
++      dbz3_elidable_.insert((uint64_t(r.dest) << 8) | (r.ordinal & 0xFF));
++    }
++  }
++  static uint32_t frames = 0;
++  if (++frames % 600 == 0 && (dbz3_elided_ || dbz3_restores_skipped_)) {
++    REXGPU_INFO("dbz3: rt_direct: {} resolves eliminados, {} restauros ignorados (600 frames)",
++                dbz3_elided_, dbz3_restores_skipped_);
++    dbz3_elided_ = 0;
++    dbz3_restores_skipped_ = 0;
++  }
++  dbz3_frame_resolves_.clear();
++  dbz3_frame_resolve_counts_.clear();
++}
++
+ }  // namespace rex::graphics
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index b6ffd64..57d2a7c 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -2609,6 +2609,9 @@ void VulkanCommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontb
+   if (!dbz3_frameskip::g_skip_frame) {
+     dbz3_capture::OnSwap(*register_file_, *memory_, frontbuffer_ptr, frontbuffer_width,
+                          frontbuffer_height);
++    if (render_target_cache_) {
++      render_target_cache_->Dbz3ElisionFrameEnd();
++    }
+   }
+   vertex_buffers_in_sync_[0] = 0;
+   vertex_buffers_in_sync_[1] = 0;
+@@ -4046,6 +4049,21 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+     }
+     draw_util::AddMemExportRanges(regs, *pixel_shader, memexport_ranges_);
+   }
++  // DBZ3-Android (dbz3_rt_direct): restauro de ecra inteiro que nao muda nada.
++  if (pixel_shader && !memexport_used_pixel && !memexport_used_vertex) {
++    uint32_t sampled_bases[32];
++    uint32_t sampled_count = 0;
++    for (const Shader::TextureBinding& binding : pixel_shader->texture_bindings()) {
++      xenos::xe_gpu_texture_fetch_t fetch = regs.GetTextureFetch(binding.fetch_constant);
++      if (fetch.type == xenos::FetchConstantType::kTexture && sampled_count < 32) {
++        sampled_bases[sampled_count++] = uint32_t(fetch.base_address) << 12;
++      }
++    }
++    if (render_target_cache_->Dbz3IsRedundantRestore(sampled_bases, sampled_count,
++                                                     index_count)) {
++      return true;
++    }
++  }
+   reg::RB_DEPTHCONTROL normalized_depth_control = draw_util::GetNormalizedDepthControl(regs);
+ 
+   uint32_t ps_param_gen_pos = UINT32_MAX;
+diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
+index 2bd6a2a..ed36f6a 100644
+--- a/src/graphics/vulkan/render_target_cache.cpp
++++ b/src/graphics/vulkan/render_target_cache.cpp
+@@ -1206,6 +1206,23 @@ bool VulkanRenderTargetCache::Resolve(const memory::Memory& memory,
+ 
+   // Copying.
+   bool copied = false;
++  // DBZ3-Android (dbz3_rt_direct): resolve que so alimentava um restauro (ver
++  // Dbz3ShouldElideResolve). So sem limpeza e sem escala.
++  if (resolve_info.copy_dest_extent_length && !draw_resolution_scaled &&
++      GetPath() == Path::kHostRenderTargets && !resolve_info.IsClearingDepth() &&
++      !resolve_info.IsClearingColor()) {
++    uint32_t dump_base, dump_row_length_used, dump_rows, dump_pitch;
++    resolve_info.GetCopyEdramTileSpan(dump_base, dump_row_length_used, dump_rows, dump_pitch);
++    GetResolveCopyRectanglesToDump(dump_base, dump_row_length_used, dump_rows, dump_pitch,
++                                   dump_rectangles_);
++    if (dump_rectangles_.size() == 1 && dump_rectangles_[0].render_target &&
++        Dbz3ShouldElideResolve(resolve_info.copy_dest_base,
++                               dump_rectangles_[0].render_target->key())) {
++      written_address_out = 0;
++      written_length_out = 0;
++      return true;
++    }
++  }
+   // DBZ3-Android: modo rapido do atalho render target -> textura
+   // (dbz3_direct_resolve_skip_memory): se a textura deste destino ja existir, so
+   // ela e preenchida e a copia para a memoria do guest (dump + resolve) e saltada.

@@ -1,0 +1,558 @@
+diff --git a/include/rex/graphics/pipeline/render_target/cache.h b/include/rex/graphics/pipeline/render_target/cache.h
+index 80ffbe5..9cff6d6 100644
+--- a/include/rex/graphics/pipeline/render_target/cache.h
++++ b/include/rex/graphics/pipeline/render_target/cache.h
+@@ -322,7 +322,7 @@ class RenderTargetCache {
+   //   proibido daqui em diante (no maximo um frame com a textura velha).
+   bool Dbz3ShouldElideResolve(uint32_t dest_base, RenderTargetKey source);
+   bool Dbz3IsRedundantRestore(const uint32_t* sampled_bases, uint32_t sampled_count,
+-                              uint32_t index_count);
++                              uint32_t index_count, uint64_t pixel_shader_hash);
+   void Dbz3ElisionFrameEnd();
+   void Dbz3MarkWritten(RenderTargetKey key) { ++dbz3_write_gen_[key]; }
+   const std::vector<std::pair<RenderTarget*, bool>>& dbz3_direct_clear_siblings() const {
+@@ -696,7 +696,10 @@ class RenderTargetCache {
+   std::vector<Dbz3ResolveRecord> dbz3_frame_resolves_;
+   std::unordered_map<uint32_t, uint32_t> dbz3_frame_resolve_counts_;
+   std::unordered_set<uint64_t> dbz3_elidable_;   // (dest << 8 | ordinal) do frame anterior
+-  std::unordered_set<uint64_t> dbz3_forbidden_;  // pares que falharam
++  // Pares que falharam -> frame ate ao qual ficam proibidos (os especiais leem a copia a
++  // serio durante uns segundos; depois volta a aprender).
++  std::unordered_map<uint64_t, uint64_t> dbz3_forbidden_;
++  uint64_t dbz3_frame_number_ = 0;
+   uint64_t dbz3_elided_ = 0, dbz3_restores_skipped_ = 0;
+ 
+   // Map of host render targets currently containing the most up-to-date version
+diff --git a/include/rex/graphics/shared_memory.h b/include/rex/graphics/shared_memory.h
+index e192973..302128d 100644
+--- a/include/rex/graphics/shared_memory.h
++++ b/include/rex/graphics/shared_memory.h
+@@ -143,6 +143,8 @@ class SharedMemory {
+   // overall bounds of pages to be uploaded.
+   virtual bool UploadRanges(
+       const std::vector<std::pair<uint32_t, uint32_t>>& upload_page_ranges) = 0;
++  // DBZ3-Android (de RB2-Android): intervalos pedidos (ja residentes) que o draw vai ler.
++  virtual void NotifyRangesRequested(const std::vector<std::pair<uint32_t, uint32_t>>& ranges) {}
+ 
+  private:
+   memory::Memory& memory_;
+diff --git a/include/rex/graphics/vulkan/command_processor.h b/include/rex/graphics/vulkan/command_processor.h
+index 5252dd3..fcb282a 100644
+--- a/include/rex/graphics/vulkan/command_processor.h
++++ b/include/rex/graphics/vulkan/command_processor.h
+@@ -202,7 +202,20 @@ class VulkanCommandProcessor : public CommandProcessor {
+   // Must be called before doing anything outside the render pass scope,
+   // including adding pipeline barriers that are not a part of the render pass
+   // scope. Submission must be open.
+-  void EndRenderPass();
++  // DBZ3-Android: o local da chamada fica registado (estatistica de fins de passe, com
++  // dbz3_perf_logging), porque num tiler cada fim de passe custa uma carga/escrita do ecra.
++  void EndRenderPass(const char* reason_file = __builtin_FILE(),
++                     uint32_t reason_line = __builtin_LINE());
++
++  // DBZ3-Android (de RB2-Android 0003, BSD-3): uploads da memoria partilhada gravados antes
++  // do inicio do passe atual em vez de o terminar, quando o passe ainda nao leu as paginas.
++  bool in_render_pass() const { return in_render_pass_; }
++  size_t render_pass_begin_position() const {
++    return in_render_pass_ ? render_pass_begin_position_ : SIZE_MAX;
++  }
++  void AdvanceRenderPassBeginPosition(size_t elements) { render_pass_begin_position_ += elements; }
++  void NoteSharedMemoryRead(uint32_t start, uint32_t length);
++  bool SharedMemoryReadInCurrentPass(uint32_t start, uint32_t length) const;
+ 
+   VkDescriptorSetLayout GetSingleTransientDescriptorLayout(
+       SingleTransientDescriptorLayout transient_descriptor_layout) const {
+@@ -794,6 +807,9 @@ class VulkanCommandProcessor : public CommandProcessor {
+   VkRenderPass current_render_pass_;
+   const VulkanRenderTargetCache::Framebuffer* current_framebuffer_;
+   bool in_render_pass_ = false;
++  size_t render_pass_begin_position_ = SIZE_MAX;
++  std::vector<std::pair<uint32_t, uint32_t>> pass_shared_memory_reads_;
++  bool pass_shared_memory_reads_overflow_ = false;
+ 
+   // Currently bound graphics pipeline, either from the pipeline cache (with
+   // potentially deferred creation - current_external_graphics_pipeline_ is
+diff --git a/include/rex/graphics/vulkan/deferred_command_buffer.h b/include/rex/graphics/vulkan/deferred_command_buffer.h
+index 7856b2b..e67335c 100644
+--- a/include/rex/graphics/vulkan/deferred_command_buffer.h
++++ b/include/rex/graphics/vulkan/deferred_command_buffer.h
+@@ -10,6 +10,7 @@
+  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
+  */
+ 
++#include <algorithm>
+ #include <cstddef>
+ #include <cstdint>
+ #include <cstring>
+@@ -32,6 +33,15 @@ class DeferredCommandBuffer {
+   void Reset();
+   void Execute(VkCommandBuffer command_buffer);
+ 
++  // DBZ3-Android (de RB2-Android, BSD-3): posicao do proximo comando (em elementos do stream)
++  // e mover os comandos escritos desde tail_start para destination (<= tail_start), mantendo
++  // a ordem. Os comandos levam o proprio tamanho e nenhum offset absoluto.
++  size_t Position() const { return command_stream_.size(); }
++  void MoveTailTo(size_t tail_start, size_t destination) {
++    std::rotate(command_stream_.begin() + std::ptrdiff_t(destination),
++                command_stream_.begin() + std::ptrdiff_t(tail_start), command_stream_.end());
++  }
++
+   // render_pass_begin->pNext of all barriers must be null.
+   void CmdVkBeginRenderPass(const VkRenderPassBeginInfo* render_pass_begin,
+                             VkSubpassContents contents) {
+diff --git a/include/rex/graphics/vulkan/shared_memory.h b/include/rex/graphics/vulkan/shared_memory.h
+index 104bdad..3667ed6 100644
+--- a/include/rex/graphics/vulkan/shared_memory.h
++++ b/include/rex/graphics/vulkan/shared_memory.h
+@@ -55,7 +55,14 @@ class VulkanSharedMemory : public SharedMemory {
+ 
+   bool UploadRanges(const std::vector<std::pair<uint32_t, uint32_t>>& upload_page_ranges) override;
+ 
++  void NotifyRangesRequested(const std::vector<std::pair<uint32_t, uint32_t>>& ranges) override;
++
+  private:
++  // DBZ3-Android (de RB2-Android 0003, BSD-3): grava o upload antes do inicio do passe atual
++  // em vez de o terminar. Devolve false (sem gravar nada) quando nao e seguro.
++  bool TryUploadRangesBeforeRenderPass(
++      const std::vector<std::pair<uint32_t, uint32_t>>& upload_page_ranges);
++  bool hoisted_upload_failed_ = false;
+   void GetUsageMasks(Usage usage, VkPipelineStageFlags& stage_mask,
+                      VkAccessFlags& access_mask) const;
+ 
+diff --git a/src/graphics/pipeline/render_target/cache.cpp b/src/graphics/pipeline/render_target/cache.cpp
+index 675a359..a68f79e 100644
+--- a/src/graphics/pipeline/render_target/cache.cpp
++++ b/src/graphics/pipeline/render_target/cache.cpp
+@@ -47,6 +47,10 @@ REXCVAR_DEFINE_BOOL(direct_host_resolve, true, "GPU",
+ // 8-9 ms por frame num Adreno 650) ficam reduzidas as que levam uma limpeza feita com
+ // outra contagem de amostras (ver Dbz3DirectAllowsTransfer). As limpezas por resolve
+ // aplicam-se a todas as imagens com a mesma base (nao so a dona dos tiles).
++REXCVAR_DEFINE_STRING(dbz3_rt_restore_shaders, "6E57A6E305D5D69B,ADCA7FBBCBF53B57", "GPU",
++                      "DBZ3-Android: hashes (hex) dos pixel shaders de copia simples do Budokai 3 "
++                      "(restauro da cor e da profundidade)")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ REXCVAR_DEFINE_BOOL(dbz3_rt_elide_restores, true, "GPU",
+                     "DBZ3-Android: com dbz3_rt_direct, ignora os restauros de ecra inteiro e os "
+                     "resolves que so serviam para eles")
+@@ -1476,14 +1480,18 @@ bool RenderTargetCache::Dbz3ShouldElideResolve(uint32_t dest_base, RenderTargetK
+   rec.real_use = false;
+   rec.overwritten = false;
+   const uint64_t id = (uint64_t(dest_base) << 8) | (ordinal & 0xFF);
+-  rec.skipped = dbz3_elidable_.count(id) && !dbz3_forbidden_.count(id);
++  auto forbidden_it = dbz3_forbidden_.find(id);
++  const bool forbidden =
++      forbidden_it != dbz3_forbidden_.end() && forbidden_it->second > dbz3_frame_number_;
++  rec.skipped = dbz3_elidable_.count(id) && !forbidden;
+   dbz3_frame_resolves_.push_back(rec);
+   if (rec.skipped) ++dbz3_elided_;
+   return rec.skipped;
+ }
+ 
+ bool RenderTargetCache::Dbz3IsRedundantRestore(const uint32_t* sampled_bases,
+-                                               uint32_t sampled_count, uint32_t index_count) {
++                                               uint32_t sampled_count, uint32_t index_count,
++                                               uint64_t pixel_shader_hash) {
+   if (!REXCVAR_GET(dbz3_rt_direct) || !REXCVAR_GET(dbz3_rt_elide_restores) ||
+       dbz3_frame_resolves_.empty() || !sampled_count) {
+     return false;
+@@ -1504,6 +1512,27 @@ bool RenderTargetCache::Dbz3IsRedundantRestore(const uint32_t* sampled_bases,
+       xenos::GetStorageColorFormat(regs.Get<reg::RB_COLOR_INFO>().color_format)));
+   // Opaco (1*src + 0*dst) e poucos vertices (triangulo/retangulo de ecra inteiro).
+   const bool opaque = (regs[XE_GPU_REG_RB_BLENDCONTROL0] & 0x1FFF1FFF) == 0x00010001;
++  // So os shaders de copia simples do jogo contam como restauro: os efeitos de ecra
++  // inteiro dos especiais (Kamehameha, transformacao, modo vermelho) tambem desenham uma
++  // textura do ecra por cima dele, opacos, mas transformada (logs de 2026-10-13 20:01).
++  static std::vector<uint64_t> restore_shaders;
++  static std::string restore_shaders_text;
++  const std::string& text = REXCVAR_GET(dbz3_rt_restore_shaders);
++  if (text != restore_shaders_text) {
++    restore_shaders_text = text;
++    restore_shaders.clear();
++    size_t start = 0;
++    while (start < text.size()) {
++      size_t end = text.find(',', start);
++      if (end == std::string::npos) end = text.size();
++      const std::string item = text.substr(start, end - start);
++      if (!item.empty()) restore_shaders.push_back(std::strtoull(item.c_str(), nullptr, 16));
++      start = end + 1;
++    }
++  }
++  const bool restore_shader =
++      std::find(restore_shaders.begin(), restore_shaders.end(), pixel_shader_hash) !=
++      restore_shaders.end();
+   bool restore_found = false;
+   bool other_resolved = false;
+   for (uint32_t i = 0; i < sampled_count; ++i) {
+@@ -1521,17 +1550,21 @@ bool RenderTargetCache::Dbz3IsRedundantRestore(const uint32_t* sampled_bases,
+                color0.pitch_tiles_at_32bpp == rec->source.pitch_tiles_at_32bpp &&
+                color0.msaa_samples == rec->source.msaa_samples)
+             : color0 == rec->source;
+-    if (opaque && index_count <= 6 && same_target &&
++    if (restore_shader && opaque && index_count <= 6 && same_target &&
+         dbz3_write_gen_[rec->source] == rec->source_gen) {
+       restore_found = true;
+     } else {
+       other_resolved = true;
+       if (!rec->real_use) {
+         rec->real_use = true;
++        // Lido a serio: nao eliminar este resolve nos proximos frames (efeitos que duram).
++        dbz3_forbidden_[(uint64_t(rec->dest) << 8) | (rec->ordinal & 0xFF)] =
++            std::max(dbz3_forbidden_[(uint64_t(rec->dest) << 8) | (rec->ordinal & 0xFF)],
++                     dbz3_frame_number_ + 120);
+         if (rec->skipped) {
+           const uint64_t id = (uint64_t(rec->dest) << 8) | (rec->ordinal & 0xFF);
+-          dbz3_forbidden_.insert(id);
+-          REXGPU_WARN("dbz3: resolve {:08X} #{} eliminado mas lido a serio; volta a ser feito",
++          dbz3_forbidden_[id] = dbz3_frame_number_ + 600;
++          REXGPU_INFO("dbz3: resolve {:08X} #{} eliminado mas lido a serio; volta a ser feito",
+                       rec->dest, rec->ordinal);
+         }
+       }
+@@ -1545,6 +1578,7 @@ bool RenderTargetCache::Dbz3IsRedundantRestore(const uint32_t* sampled_bases,
+ }
+ 
+ void RenderTargetCache::Dbz3ElisionFrameEnd() {
++  ++dbz3_frame_number_;
+   dbz3_elidable_.clear();
+   for (const Dbz3ResolveRecord& r : dbz3_frame_resolves_) {
+     if (r.overwritten && !r.real_use) {
+diff --git a/src/graphics/shared_memory.cpp b/src/graphics/shared_memory.cpp
+index ec0df7c..42f7962 100644
+--- a/src/graphics/shared_memory.cpp
++++ b/src/graphics/shared_memory.cpp
+@@ -462,10 +462,13 @@ bool SharedMemory::RequestRanges(const std::pair<uint32_t, uint32_t>* ranges, si
+                     uint32_t(upload_ranges_.size()));
+ 
+   if (upload_ranges_.empty()) {
++    NotifyRangesRequested(merged_ranges);
+     return true;
+   }
+ 
+-  return UploadRanges(upload_ranges_);
++  const bool uploaded = UploadRanges(upload_ranges_);
++  NotifyRangesRequested(merged_ranges);
++  return uploaded;
+ }
+ 
+ bool SharedMemory::RequestRange(uint32_t start, uint32_t length) {
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 57d2a7c..65e2287 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -15,6 +15,7 @@
+ #include <cstdint>
+ #include <cstring>
+ #include <iterator>
++#include <map>
+ #include <mutex>
+ #include <string>
+ #include <string_view>
+@@ -84,6 +85,40 @@ namespace rex::graphics::vulkan {
+ // nos outros, os comandos de estado sao processados e os draws, resolves e queries
+ // de oclusao sao ignorados, e nao ha apresentacao. Corta o trabalho da GPU a metade
+ // com N=1 sem deixar o jogo em camara lenta em GPUs fracas.
++// DBZ3-Android: quem termina os passes de render (com dbz3_perf_logging, a cada 600 frames).
++namespace dbz3_pass_ends {
++std::map<std::pair<std::string, uint32_t>, uint64_t> g_counts;
++uint64_t g_total = 0;
++uint32_t g_frames = 0;
++}  // namespace dbz3_pass_ends
++
++void Dbz3NoteRenderPassEnd(const char* file, uint32_t line) {
++  const char* slash = std::strrchr(file, '/');
++  ++dbz3_pass_ends::g_counts[{slash ? slash + 1 : file, line}];
++  ++dbz3_pass_ends::g_total;
++}
++
++void Dbz3PassEndsFrame() {
++  if (++dbz3_pass_ends::g_frames < 600) {
++    return;
++  }
++  if (rex::cvar::GetFlagByName("dbz3_perf_logging") == "true" && dbz3_pass_ends::g_total) {
++    std::vector<std::pair<uint64_t, std::pair<std::string, uint32_t>>> sorted;
++    for (const auto& [site, count] : dbz3_pass_ends::g_counts) sorted.push_back({count, site});
++    std::sort(sorted.rbegin(), sorted.rend());
++    std::string report;
++    for (size_t i = 0; i < sorted.size() && i < 8; ++i) {
++      report += fmt::format(" | {}:{} {:.1f}/f", sorted[i].second.first, sorted[i].second.second,
++                            double(sorted[i].first) / dbz3_pass_ends::g_frames);
++    }
++    REXGPU_INFO("dbz3: fins de passe {:.1f}/f{}",
++                double(dbz3_pass_ends::g_total) / dbz3_pass_ends::g_frames, report);
++  }
++  dbz3_pass_ends::g_counts.clear();
++  dbz3_pass_ends::g_total = 0;
++  dbz3_pass_ends::g_frames = 0;
++}
++
+ namespace dbz3_frameskip {
+ bool g_skip_frame = false;
+ uint32_t g_counter = 0;
+@@ -2612,6 +2647,7 @@ void VulkanCommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontb
+     if (render_target_cache_) {
+       render_target_cache_->Dbz3ElisionFrameEnd();
+     }
++    Dbz3PassEndsFrame();
+   }
+   vertex_buffers_in_sync_[0] = 0;
+   vertex_buffers_in_sync_[1] = 0;
+@@ -3414,11 +3450,21 @@ bool VulkanCommandProcessor::SubmitBarriers(bool force_end_render_pass) {
+   SplitPendingBarrier();
+   if (pending_barriers_.empty()) {
+     if (force_end_render_pass) {
+-      EndRenderPass();
++      EndRenderPass("SubmitBarriers(forcado, sem barreiras)", 0);
+     }
+     return false;
+   }
+-  EndRenderPass();
++  if (in_render_pass_) {
++    const char* reason = "barreira (outra)";
++    if (!pending_barriers_image_memory_barriers_.empty()) {
++      reason = "barreira de imagem";
++    } else if (!pending_barriers_buffer_memory_barriers_.empty()) {
++      const VkBufferMemoryBarrier& b = pending_barriers_buffer_memory_barriers_.front();
++      reason = (b.dstAccessMask & VK_ACCESS_TRANSFER_WRITE_BIT) ? "barreira de buffer (upload)"
++                                                                 : "barreira de buffer";
++    }
++    EndRenderPass(reason, 0);
++  }
+   for (auto it = pending_barriers_.cbegin(); it != pending_barriers_.cend(); ++it) {
+     auto it_next = std::next(it);
+     bool is_last = it_next == pending_barriers_.cend();
+@@ -3465,6 +3511,7 @@ void VulkanCommandProcessor::SubmitBarriersAndEnterRenderTargetCacheRenderPass(
+   }
+ 
+   if (in_render_pass_) {
++    Dbz3NoteRenderPassEnd("mudanca_de_render_target", 0);
+     if (use_dynamic_rendering) {
+       deferred_command_buffer_.CmdVkEndRendering();
+     } else {
+@@ -3475,6 +3522,11 @@ void VulkanCommandProcessor::SubmitBarriersAndEnterRenderTargetCacheRenderPass(
+ 
+   current_render_pass_ = use_dynamic_rendering ? VK_NULL_HANDLE : render_pass;
+   current_framebuffer_ = framebuffer;
++  // DBZ3-Android: aqui ainda se esta fora de qualquer passe e o inicio e o proximo comando:
++  // e onde se podem gravar depois os uploads que o passe nao leu.
++  render_pass_begin_position_ = deferred_command_buffer_.Position();
++  pass_shared_memory_reads_.clear();
++  pass_shared_memory_reads_overflow_ = false;
+ 
+   if (use_dynamic_rendering) {
+     VkRenderingAttachmentInfo color_attachments[xenos::kMaxColorRenderTargets];
+@@ -3539,6 +3591,7 @@ void VulkanCommandProcessor::SubmitBarriersAndEnterRenderTargetCacheRenderPass(
+   }
+ 
+   if (in_render_pass_) {
++    Dbz3NoteRenderPassEnd("mudanca_de_render_target", 0);
+     if (use_dynamic_rendering) {
+       deferred_command_buffer_.CmdVkEndRendering();
+     } else {
+@@ -3549,6 +3602,11 @@ void VulkanCommandProcessor::SubmitBarriersAndEnterRenderTargetCacheRenderPass(
+ 
+   current_render_pass_ = use_dynamic_rendering ? VK_NULL_HANDLE : render_pass;
+   current_framebuffer_ = framebuffer;
++  // DBZ3-Android: aqui ainda se esta fora de qualquer passe e o inicio e o proximo comando:
++  // e onde se podem gravar depois os uploads que o passe nao leu.
++  render_pass_begin_position_ = deferred_command_buffer_.Position();
++  pass_shared_memory_reads_.clear();
++  pass_shared_memory_reads_overflow_ = false;
+ 
+   if (use_dynamic_rendering) {
+     VkRenderingAttachmentInfo color_attachment = {};
+@@ -3611,11 +3669,38 @@ void VulkanCommandProcessor::SubmitBarriersAndEnterRenderTargetCacheRenderPass(
+   in_render_pass_ = true;
+ }
+ 
+-void VulkanCommandProcessor::EndRenderPass() {
++void VulkanCommandProcessor::NoteSharedMemoryRead(uint32_t start, uint32_t length) {
++  if (!in_render_pass_ || !length || pass_shared_memory_reads_overflow_) {
++    return;
++  }
++  constexpr size_t kMaxTrackedReads = 4096;
++  if (pass_shared_memory_reads_.size() >= kMaxTrackedReads) {
++    pass_shared_memory_reads_overflow_ = true;
++    return;
++  }
++  pass_shared_memory_reads_.emplace_back(start, length);
++}
++
++bool VulkanCommandProcessor::SharedMemoryReadInCurrentPass(uint32_t start, uint32_t length) const {
++  if (pass_shared_memory_reads_overflow_) {
++    return true;
++  }
++  const uint64_t end = uint64_t(start) + length;
++  for (const auto& read : pass_shared_memory_reads_) {
++    if (uint64_t(read.first) < end && uint64_t(read.first) + read.second > start) {
++      return true;
++    }
++  }
++  return false;
++}
++
++void VulkanCommandProcessor::EndRenderPass(const char* reason_file, uint32_t reason_line) {
+   assert_true(submission_open_);
+   if (!in_render_pass_) {
+     return;
+   }
++  Dbz3NoteRenderPassEnd(reason_file, reason_line);
++  render_pass_begin_position_ = SIZE_MAX;
+   if (current_render_pass_ == VK_NULL_HANDLE) {
+     deferred_command_buffer_.CmdVkEndRendering();
+   } else {
+@@ -4059,8 +4144,8 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+         sampled_bases[sampled_count++] = uint32_t(fetch.base_address) << 12;
+       }
+     }
+-    if (render_target_cache_->Dbz3IsRedundantRestore(sampled_bases, sampled_count,
+-                                                     index_count)) {
++    if (render_target_cache_->Dbz3IsRedundantRestore(sampled_bases, sampled_count, index_count,
++                                                     pixel_shader->ucode_data_hash())) {
+       return true;
+     }
+   }
+diff --git a/src/graphics/vulkan/shared_memory.cpp b/src/graphics/vulkan/shared_memory.cpp
+index 6788214..09eff19 100644
+--- a/src/graphics/vulkan/shared_memory.cpp
++++ b/src/graphics/vulkan/shared_memory.cpp
+@@ -27,6 +27,12 @@ REXCVAR_DEFINE_BOOL(vulkan_sparse_shared_memory, true, "GPU/Vulkan",
+                     "Use sparse shared memory on Vulkan")
+     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+ 
++REXCVAR_DEFINE_BOOL(dbz3_hoist_uploads, true, "GPU/Vulkan",
++                    "DBZ3-Android (de RB2-Android): grava os uploads da memoria partilhada "
++                    "antes do passe atual quando ele nao leu essas paginas, em vez de terminar "
++                    "o passe (num tiler cada passe novo recarrega e reescreve o ecra)")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++
+ namespace rex::graphics::vulkan {
+ 
+ VulkanSharedMemory::VulkanSharedMemory(VulkanCommandProcessor& command_processor,
+@@ -268,11 +274,127 @@ bool VulkanSharedMemory::AllocateSparseHostGpuMemoryRange(uint32_t offset_alloca
+   return true;
+ }
+ 
++void VulkanSharedMemory::NotifyRangesRequested(
++    const std::vector<std::pair<uint32_t, uint32_t>>& ranges) {
++  if (!REXCVAR_GET(dbz3_hoist_uploads)) {
++    return;
++  }
++  for (const auto& range : ranges) {
++    command_processor_.NoteSharedMemoryRead(range.first, range.second);
++  }
++}
++
++bool VulkanSharedMemory::TryUploadRangesBeforeRenderPass(
++    const std::vector<std::pair<uint32_t, uint32_t>>& upload_page_ranges) {
++  // O upload passa para antes do passe atual: so e correto se nenhum draw do passe pode ter
++  // lido os bytes que ele substitui. Na duvida, devolve false (caminho normal).
++  if (!REXCVAR_GET(dbz3_hoist_uploads)) {
++    return false;
++  }
++  if (last_usage_ != Usage::kRead || last_written_range_.second) {
++    return false;
++  }
++  const size_t begin_position = command_processor_.render_pass_begin_position();
++  if (begin_position == SIZE_MAX) {
++    return false;
++  }
++  for (const auto& range : upload_page_ranges) {
++    if (command_processor_.SharedMemoryReadInCurrentPass(range.first << page_size_log2(),
++                                                         range.second << page_size_log2())) {
++      return false;
++    }
++  }
++
++  DeferredCommandBuffer& command_buffer = command_processor_.deferred_command_buffer();
++  const size_t tail_start = command_buffer.Position();
++
++  VkPipelineStageFlags read_stage_mask;
++  VkAccessFlags read_access_mask;
++  GetUsageMasks(Usage::kRead, read_stage_mask, read_access_mask);
++  const VkDeviceSize span_offset = VkDeviceSize(upload_page_ranges.front().first)
++                                   << page_size_log2();
++  const VkDeviceSize span_size =
++      VkDeviceSize(upload_page_ranges.back().first + upload_page_ranges.back().second -
++                   upload_page_ranges.front().first)
++      << page_size_log2();
++  VkBufferMemoryBarrier barrier;
++  barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
++  barrier.pNext = nullptr;
++  barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
++  barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
++  barrier.buffer = buffer_;
++  barrier.offset = span_offset;
++  barrier.size = span_size;
++  barrier.srcAccessMask =
++      read_access_mask | VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_SHADER_WRITE_BIT;
++  barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
++  command_buffer.CmdVkPipelineBarrier(read_stage_mask | VK_PIPELINE_STAGE_TRANSFER_BIT,
++                                      VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 1, &barrier, 0,
++                                      nullptr);
++
++  const uint64_t submission_current = command_processor_.GetCurrentSubmission();
++  bool successful = true;
++  upload_regions_.clear();
++  VkBuffer upload_buffer_previous = VK_NULL_HANDLE;
++  for (auto upload_range : upload_page_ranges) {
++    uint32_t upload_range_start = upload_range.first;
++    uint32_t upload_range_length = upload_range.second;
++    while (upload_range_length) {
++      VkBuffer upload_buffer;
++      VkDeviceSize upload_buffer_offset, upload_buffer_size;
++      uint8_t* upload_buffer_mapping = upload_buffer_pool_->RequestPartial(
++          submission_current, upload_range_length << page_size_log2(),
++          size_t(1) << page_size_log2(), upload_buffer, upload_buffer_offset, upload_buffer_size);
++      if (upload_buffer_mapping == nullptr) {
++        REXGPU_ERROR("Shared memory: Failed to get a Vulkan upload buffer");
++        successful = false;
++        break;
++      }
++      MakeRangeValid(upload_range_start << page_size_log2(), uint32_t(upload_buffer_size), false);
++      std::memcpy(upload_buffer_mapping,
++                  memory().TranslatePhysical(upload_range_start << page_size_log2()),
++                  upload_buffer_size);
++      if (upload_buffer_previous != upload_buffer && !upload_regions_.empty()) {
++        command_buffer.CmdVkCopyBuffer(upload_buffer_previous, buffer_,
++                                       uint32_t(upload_regions_.size()), upload_regions_.data());
++        upload_regions_.clear();
++      }
++      upload_buffer_previous = upload_buffer;
++      VkBufferCopy& upload_region = upload_regions_.emplace_back();
++      upload_region.srcOffset = upload_buffer_offset;
++      upload_region.dstOffset = VkDeviceSize(upload_range_start << page_size_log2());
++      upload_region.size = upload_buffer_size;
++      const uint32_t upload_buffer_pages = uint32_t(upload_buffer_size >> page_size_log2());
++      upload_range_start += upload_buffer_pages;
++      upload_range_length -= upload_buffer_pages;
++    }
++    if (!successful) {
++      break;
++    }
++  }
++  if (!upload_regions_.empty()) {
++    command_buffer.CmdVkCopyBuffer(upload_buffer_previous, buffer_,
++                                   uint32_t(upload_regions_.size()), upload_regions_.data());
++    upload_regions_.clear();
++  }
++  barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
++  barrier.dstAccessMask = read_access_mask;
++  command_buffer.CmdVkPipelineBarrier(VK_PIPELINE_STAGE_TRANSFER_BIT, read_stage_mask, 0, 0,
++                                      nullptr, 1, &barrier, 0, nullptr);
++  command_buffer.MoveTailTo(tail_start, begin_position);
++  command_processor_.AdvanceRenderPassBeginPosition(command_buffer.Position() - tail_start);
++  hoisted_upload_failed_ = !successful;
++  return true;
++}
++
+ bool VulkanSharedMemory::UploadRanges(
+     const std::vector<std::pair<uint32_t, uint32_t>>& upload_page_ranges) {
+   if (upload_page_ranges.empty()) {
+     return true;
+   }
++  if (TryUploadRangesBeforeRenderPass(upload_page_ranges)) {
++    return !hoisted_upload_failed_;
++  }
+   // upload_page_ranges are sorted, use them to determine the range for the
+   // ordering barrier.
+   Use(Usage::kTransferDestination,

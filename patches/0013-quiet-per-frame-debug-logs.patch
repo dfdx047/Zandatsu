@@ -1,0 +1,30 @@
+diff --git a/src/audio/xma_decoder.cpp b/src/audio/xma_decoder.cpp
+index a0a178d..95ff214 100644
+--- a/src/audio/xma_decoder.cpp
++++ b/src/audio/xma_decoder.cpp
+@@ -342,10 +342,10 @@ void XmaDecoder::WriteRegister(uint32_t addr, uint32_t value) {
+       default: {
+         const auto register_info = register_file_.GetRegisterInfo(r);
+         if (register_info) {
+-          REXAPU_DEBUG("XMA: Write to unhandled register ({:04X}, {}): {:08X}", r,
++          REXAPU_TRACE("XMA: Write to unhandled register ({:04X}, {}): {:08X}", r,
+                        register_info->name, value);
+         } else {
+-          REXAPU_DEBUG("XMA: Write to unknown register ({:04X}): {:08X}", r, value);
++          REXAPU_TRACE("XMA: Write to unknown register ({:04X}): {:08X}", r, value);
+         }
+         break;
+       }
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 0943763..1415fe3 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -2482,7 +2482,7 @@ void VulkanCommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontb
+           frontbuffer_width_scaled, frontbuffer_height_scaled);
+     }
+   }
+-  REXGPU_DEBUG(
++  REXGPU_TRACE(
+       "XELOG_GPU PRESENT: swap_texture_view={:p} packet_size={}x{} src_size={}x{} "
+       "src_unscaled={}x{} guest_output_size={}x{} format={}",
+       static_cast<void*>(swap_texture_view), frontbuffer_width, frontbuffer_height,

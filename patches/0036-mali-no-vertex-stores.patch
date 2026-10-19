@@ -1,0 +1,49 @@
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 2930155..bd88336 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -985,10 +985,10 @@ bool VulkanCommandProcessor::SetupContext() {
+     return false;
+   }
+   if (!device_properties.vertexPipelineStoresAndAtomics) {
+-    REXGPU_ERROR(
+-        "Vulkan vertexPipelineStoresAndAtomics is required for GPU emulation and "
+-        "D3D12 parity, but unsupported by the selected device");
+-    return false;
++    // DBZ3-Android: aceitar (Mali); draws com memexport no VS sao recusados.
++    REXGPU_WARN(
++        "Vulkan vertexPipelineStoresAndAtomics unsupported: vertex shader "
++        "memexport draws will be skipped");
+   }
+   if (!device_properties.geometryShader) {
+     if (REXCVAR_GET(vulkan_require_geometry_shader)) {
+@@ -4238,7 +4238,7 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+       REXGPU_ERROR(
+           "Vertex shader memexport draw encountered without "
+           "vertexPipelineStoresAndAtomics support");
+-      return false;
++      return true;
+     }
+     draw_util::AddMemExportRanges(regs, *vertex_shader, memexport_ranges_);
+   }
+diff --git a/src/ui/vulkan/vulkan_device.cpp b/src/ui/vulkan/vulkan_device.cpp
+index 22a80b7..63ef2b5 100644
+--- a/src/ui/vulkan/vulkan_device.cpp
++++ b/src/ui/vulkan/vulkan_device.cpp
+@@ -156,11 +156,13 @@ std::unique_ptr<VulkanDevice> VulkanDevice::CreateIfSupported(
+       return nullptr;
+     }
+     if (!supported_features.vertexPipelineStoresAndAtomics) {
++      // DBZ3-Android: Mali (Bifrost/Valhall) nao tem esta feature. So e precisa
++      // para memexport em vertex shaders, que o Budokai 3 nao usa; o command
++      // processor falha so o draw que a pedir.
+       REXLOG_WARN(
+-          "Vulkan device '{}' doesn't support vertexPipelineStoresAndAtomics, which "
+-          "is required for Vulkan GPU emulation parity",
++          "Vulkan device '{}' doesn't support vertexPipelineStoresAndAtomics; "
++          "vertex shader memexport draws will be skipped",
+           properties.deviceName);
+-      return nullptr;
+     }
+     if (REXCVAR_GET(vulkan_require_geometry_shader) && !supported_features.geometryShader) {
+       REXLOG_WARN(
