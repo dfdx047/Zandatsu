@@ -1,0 +1,158 @@
+diff --git a/src/codegen/codegen_flags.cpp b/src/codegen/codegen_flags.cpp
+index 1e53818..69ca461 100644
+--- a/src/codegen/codegen_flags.cpp
++++ b/src/codegen/codegen_flags.cpp
+@@ -86,4 +86,11 @@ REXCVAR_DEFINE_UINT32(max_blocks_per_function, 10000, "Codegen",
+     .lifecycle(rex::cvar::Lifecycle::kInitOnly)
+     .range(1, 1000000);
+ 
++// Project SwordMan: ponteiros de funcao guardados em dados (.rdata/.data) que nenhum bl
++// alcanca (callbacks, tabelas sem RTTI). So entram alvos com cara de inicio de funcao.
++REXCVAR_DEFINE_BOOL(scan_data_function_pointers, false, "Codegen",
++                    "Register code addresses stored in data sections that look like function "
++                    "starts (after blr/b/bctr or padding); writes fptr_scan.txt")
++    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
++
+ // clang-format on
+diff --git a/src/codegen/codegen_flags.h b/src/codegen/codegen_flags.h
+index 27b80db..aa359e5 100644
+--- a/src/codegen/codegen_flags.h
++++ b/src/codegen/codegen_flags.h
+@@ -33,3 +33,4 @@ REXCVAR_DECLARE(uint32_t, max_seh_scope_entries);
+ REXCVAR_DECLARE(uint32_t, backward_scan_limit);
+ REXCVAR_DECLARE(uint32_t, max_jump_table_entries);
+ REXCVAR_DECLARE(uint32_t, max_blocks_per_function);
++REXCVAR_DECLARE(bool, scan_data_function_pointers);
+diff --git a/src/codegen/phase_discover.cpp b/src/codegen/phase_discover.cpp
+index 1c73548..bdc1ddf 100644
+--- a/src/codegen/phase_discover.cpp
++++ b/src/codegen/phase_discover.cpp
+@@ -13,7 +13,9 @@
+ #include "decoded_binary.h"
+ #include <rex/codegen/function_scanner.h>
+ 
++#include <algorithm>
+ #include <array>
++#include <cstdio>
+ #include <bitset>
+ #include <unordered_set>
+ 
+@@ -402,6 +404,63 @@ void functionPointerScan(CodegenContext& ctx) {
+   REXCODEGEN_TRACE("functionPointerScan: found {} new function pointer targets", foundCount);
+ }
+ 
++//=============================================================================
++// Project SwordMan: data pointer scan. Words in non-executable sections that point
++// into code and look like a function start (the word before is blr/bctr/b or zero
++// padding, and the address is not inside a .pdata function). These are the
++// targets of indirect calls (bctrl) that the call graph never reaches.
++//=============================================================================
++size_t dataPointerScan(CodegenContext& ctx) {
++  auto& graph = ctx.graph;
++  auto& binary = ctx.binary();
++  std::vector<uint32_t> found;
++  std::unordered_set<uint32_t> seen;
++
++  auto word_at = [&](uint32_t addr, uint32_t& out) -> bool {
++    const uint8_t* p = binary.translate(addr);
++    if (!p)
++      return false;
++    out = load_and_swap<uint32_t>(p);
++    return true;
++  };
++
++  for (const auto& sec : binary.sections()) {
++    if (sec.executable || !sec.data)
++      continue;
++    for (uint32_t off = 0; off + 4 <= sec.size; off += 4) {
++      uint32_t t = load_and_swap<uint32_t>(sec.data + off);
++      if ((t & 3) != 0 || !binary.isExecutable(t))
++        continue;
++      if (binary.isInImportExportRange(t) || graph.isEntryPoint(t) || !seen.insert(t).second)
++        continue;
++      if (const auto* owner = graph.getFunctionContaining(t)) {
++        if (owner->authority() == FunctionAuthority::PDATA && t > owner->base() && t < owner->end())
++          continue;
++      }
++      uint32_t first = 0, prev = 0;
++      if (!word_at(t, first) || first == 0 || !word_at(t - 4, prev))
++        continue;
++      const bool prev_blr = prev == 0x4E800020u || prev == 0x4E800420u;  // blr, bctr
++      const bool prev_b = (prev >> 26) == 18 && (prev & 1) == 0;         // b (sem link)
++      const bool prev_pad = prev == 0;
++      if (!prev_blr && !prev_b && !prev_pad)
++        continue;
++      graph.addFunction(t, 4, FunctionAuthority::DISCOVERED, true);
++      found.push_back(t);
++    }
++  }
++
++  std::sort(found.begin(), found.end());
++  if (FILE* out = std::fopen("fptr_scan.txt", "w")) {
++    for (uint32_t a : found)
++      std::fprintf(out, "0x%08X\n", a);
++    std::fclose(out);
++  }
++  REXCODEGEN_INFO("dataPointerScan: {} new functions from data pointers (fptr_scan.txt)",
++                  found.size());
++  return found.size();
++}
++
+ }  // anonymous namespace
+ 
+ /// Discover blocks for all pending functions (shared helper, declared in phase_helpers.h).
+@@ -424,6 +483,17 @@ namespace phases {
+ VoidResult Discover(CodegenContext& ctx, ProgressReporter* reporter) {
+   (void)reporter;
+   discoverAllFunctions(ctx);
++  if (REXCVAR_GET(scan_data_function_pointers) && dataPointerScan(ctx) > 0) {
++    // Descobre os blocos das funcoes novas (e o que elas chamarem).
++    const size_t maxIterations = REXCVAR_GET(max_discovery_iterations);
++    size_t last = 0;
++    for (size_t i = 0; i < maxIterations && ctx.graph.functionCount() != last; ++i) {
++      last = ctx.graph.functionCount();
++      auto known = buildKnownFunctions(ctx.graph);
++      if (discoverPendingFunctions(ctx, known) == 0)
++        break;
++    }
++  }
+   return Ok();
+ }
+ 
+diff --git a/src/system/function_dispatcher.cpp b/src/system/function_dispatcher.cpp
+index bd43109..b22e4b7 100644
+--- a/src/system/function_dispatcher.cpp
++++ b/src/system/function_dispatcher.cpp
+@@ -15,6 +15,9 @@
+ 
+ #include <rex/assert.h>
+ #include <rex/dbg.h>
++#include <rex/filesystem.h>
++
++#include <cstdio>
+ #include <rex/logging.h>
+ #include <rex/perf/counter.h>
+ #include <rex/memory.h>
+@@ -35,8 +38,20 @@ FunctionDispatcher* GetBoundFunctionDispatcher() {
+ }  // namespace
+ 
+ static void InvalidFunctionTrap(PPCContext& ctx, uint8_t* /*base*/) {
+-  REX_FATAL("Call to invalid or unregistered function at guest address 0x{:08X}",
+-            ctx.last_indirect_target);
++  // Project SwordMan: o endereco (e quem chamou) fica tambem em logs/unregistered.txt, que
++  // vai no "Exportar logs": e a lista para o [functions] do mgr_overrides.toml.
++  const uint32_t target = ctx.last_indirect_target;
++  REXLOG_CRITICAL("UNREGISTERED indirect call: target=0x{:08X} caller_lr=0x{:08X}", target,
++                  static_cast<uint32_t>(ctx.lr));
++  try {
++    auto path = rex::filesystem::GetExecutableFolder() / "logs" / "unregistered.txt";
++    if (FILE* f = std::fopen(path.string().c_str(), "a")) {
++      std::fprintf(f, "0x%08X lr=0x%08X\n", target, static_cast<uint32_t>(ctx.lr));
++      std::fclose(f);
++    }
++  } catch (...) {
++  }
++  REX_FATAL("Call to invalid or unregistered function at guest address 0x{:08X}", target);
+ }
+ 
+ PPCFunc* ResolveIndirectFunction(uint32_t guest_address) {

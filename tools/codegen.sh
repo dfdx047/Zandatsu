@@ -60,8 +60,12 @@ fi
 cd "$ROOT"
 FORCE=()
 [ "${1:-}" = "--force" ] && FORCE=(--force)
+# Ponteiros de funcao guardados em dados (patch 0101): evita os "UNREGISTERED indirect
+# call" um a um. SCAN_FPTRS=0 desliga (para comparar). A lista sai em fptr_scan.txt.
+SCAN=(--scan_data_function_pointers)
+[ "${SCAN_FPTRS:-1}" = "0" ] && SCAN=(--no-scan_data_function_pointers)
 echo "== codegen ($REXGLUE)"
-"$REXGLUE" "${FORCE[@]}" codegen mgr_manifest.toml 2>&1 | tee codegen.log
+"$REXGLUE" "${FORCE[@]}" codegen mgr_manifest.toml "${SCAN[@]}" 2>&1 | tee codegen.log
 if [ ! -f "$ROOT/generated/default/sources.cmake" ]; then
   echo "ERRO: o codegen nao gerou generated/default/sources.cmake (ver codegen.log)." >&2
   exit 1
