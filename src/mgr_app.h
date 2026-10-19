@@ -33,9 +33,17 @@ class MgrApp : public rex::ReXApp {
 #endif
   }
 
+  // GPU emulada (plugin xenos, Vulkan). Sem isto o cvar gpu_plugin fica vazio, o
+  // runtime corre sem GPU e o ecra fica preto ("no GPU emulation loaded" no log).
+  // O cvar gpu_plugin (cvars.txt ou --gpu_plugin) continua a mandar, se definido.
+  void OnPreSetup(rex::RuntimeConfig& config) override {
+    if (config.gpu_plugin.empty()) {
+      config.gpu_plugin = "xenos";
+    }
+  }
+
   // Override virtual hooks for customization:
   // void OnPostInitLogging() override {}
-  // void OnPreSetup(rex::RuntimeConfig& config) override {}
   // void OnLoadXexImage(std::string& xex_image) override {}
   // void OnPostLoadXexImage() override {}
   // void OnPostSetup() override {}

@@ -7,6 +7,9 @@
 # Primeiro a imagem certa, depois desempenho (OptXbox, GUIA_DE_PORT.md, fase 3).
 # Com a imagem certa, ligar uma de cada vez e medir com optxbox compare.
 
+# GPU emulada (o mgr_app.h ja liga por omissao a partir do commit seguinte)
+gpu_plugin = xenos
+
 # Diagnosticos (linha "dbz3: perf" a cada 5 s, fins de passe por causa)
 dbz3_perf_logging = true
 
