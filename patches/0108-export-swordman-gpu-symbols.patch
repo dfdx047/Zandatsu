@@ -1,0 +1,22 @@
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index d68437c..c2ece3f 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -122,13 +122,15 @@ const std::vector<Skip>& SkipList() {
+ }  // namespace swordman_ps
+ 
+ // Tempo de GPU acumulado: out[0] = frames medidos, out[1] = microssegundos (dbz3_perf_logging).
+-extern "C" void rex_swordman_gpu_stats(uint64_t* out) {
++// 0108: a rexgpu-xenos compila com visibilidade escondida; estas duas sao para o app.
++extern "C" __attribute__((visibility("default"))) void rex_swordman_gpu_stats(uint64_t* out) {
+   out[0] = swordman_ps::g_gpu_frames.load(std::memory_order_relaxed);
+   out[1] = swordman_ps::g_gpu_us.load(std::memory_order_relaxed);
+ }
+ 
+ // Censo: "HASH:draws:pitch:prim" separados por virgula, por ordem de draws; reset = recomeca.
+-extern "C" size_t rex_swordman_ps_census(char* buf, size_t size, int reset) {
++extern "C" __attribute__((visibility("default"))) size_t rex_swordman_ps_census(char* buf, size_t size,
++                                                                    int reset) {
+   std::vector<std::pair<uint64_t, swordman_ps::CensusEntry>> v;
+   {
+     std::lock_guard<std::mutex> lock(swordman_ps::g_census_mutex);
