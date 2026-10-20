@@ -376,9 +376,60 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
         }
         viewModelScope.launch {
             withContext(Dispatchers.IO) { GameConfig.save(config) }
+            // Regra dos ports: no Adreno o jogo roda SEMPRE no Turnip (os problemas resolvem-se
+            // no Turnip, nunca voltando ao driver da Qualcomm).
+            if (!withContext(Dispatchers.IO) { ensureTurnip() }) return@launch
             AppLog.i("launcher", "jogar: ${config.resolution.label} ${config.frameMode} ${config.presentEffect}")
             context.startActivity(Intent(context, GameActivity::class.java).setAction(PLAY_ACTION))
         }
+    }
+
+    /**
+     * No Adreno garante um Turnip ativo antes de jogar: ativa o instalado mais recente ou, sem
+     * nenhum, descarrega um das fontes da aba Drivers. Sem Turnip (sem internet) nao abre o jogo.
+     */
+    private fun ensureTurnip(): Boolean {
+        if (!DriverRepository.isAdreno() || DriverRepository.activeDir() != null) return true
+        DriverRepository.installed().firstOrNull()?.let { d ->
+            DriverRepository.activate(d)
+            prefs.clearDriverBootState()
+            driverBootFailed = ""
+            AppLog.i("drivers", "Turnip obrigatorio no Adreno: ativado ${d.name}")
+            say(R.string.msg_turnip_auto, d.name)
+            refreshDrivers()
+            return true
+        }
+        val gen = com.dfdx047.swordman.drivers.TurnipSupport.detect().gen
+        for (source in DriverRepository.SOURCES) {
+            val asset = try {
+                DriverRepository.fetchReleases(source).asSequence().flatMap { it.assets.asSequence() }
+                    .sortedByDescending { a -> (if (gen.isNotEmpty() && a.name.contains(gen.take(2), true)) 2 else 0) + (if (a.name.contains("turnip", true)) 1 else 0) }
+                    .firstOrNull()
+            } catch (e: DriverException) {
+                AppLog.w("drivers", "Turnip automatico: ${source.label} falhou", e)
+                null
+            } ?: continue
+            try {
+                busy = Busy(R.string.busy_downloading_driver, asset.name)
+                val d = DriverRepository.download(asset) { done, total ->
+                    busy = Busy(R.string.busy_downloading_driver, asset.name, if (total > 0) done.toFloat() / total else null)
+                }
+                DriverRepository.activate(d)
+                prefs.clearDriverBootState()
+                driverBootFailed = ""
+                AppLog.i("drivers", "Turnip obrigatorio no Adreno: descarregado e ativado ${d.name} (${source.label})")
+                say(R.string.msg_turnip_auto, d.name)
+                refreshDrivers()
+                return true
+            } catch (e: DriverException) {
+                AppLog.w("drivers", "Turnip automatico: ${asset.name} falhou", e)
+            } finally {
+                busy = null
+            }
+        }
+        AppLog.e("drivers", "Adreno sem Turnip: jogo nao aberto")
+        say(R.string.err_turnip_required)
+        return false
     }
 
     fun createShortcut(context: Context) {

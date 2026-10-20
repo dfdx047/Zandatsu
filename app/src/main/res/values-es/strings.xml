@@ -371,4 +371,6 @@
     <string name="err_dialog_iso_text">La .iso o los archivos del juego están dañados, incompletos o no son la versión esperada. Haz un nuevo volcado de tu disco (.iso XGD2 completa) e impórtalo de nuevo.</string>
     <string name="err_dialog_import_title">La importación falló</string>
     <string name="err_dialog_import_text">No se pudo copiar el juego. Revisa el espacio libre y que el archivo o la carpeta sigan disponibles, e inténtalo de nuevo.</string>
+    <string name="msg_turnip_auto">Adreno: Turnip activado automáticamente (%1$s)</string>
+    <string name="err_turnip_required">Este dispositivo tiene GPU Adreno: el juego solo funciona con Turnip. Instala uno en la pestaña Drivers (requiere internet).</string>
 </resources>

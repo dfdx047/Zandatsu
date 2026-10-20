@@ -14,7 +14,8 @@ import java.util.zip.ZipInputStream
  * Drivers Vulkan alternativos (Turnip/Mesa) no formato do AdrenoTools: um .zip
  * com meta.json e a .so. O GameActivity carrega a .so que estiver em
  * <appDir>/driver/ (via libadrenotools); sem nada la usa o driver do sistema.
- * Nenhum e ativado por omissao: o usuario escolhe.
+ * No Adreno o Turnip e obrigatorio (regra dos ports): o launcher ativa ou descarrega um
+ * antes de jogar (LauncherViewModel.ensureTurnip) e o jogo nao volta ao driver do sistema.
  */
 data class DriverSource(val owner: String, val repo: String, val label: String) {
     val apiUrl get() = "https://api.github.com/repos/$owner/$repo/releases?per_page=20"
