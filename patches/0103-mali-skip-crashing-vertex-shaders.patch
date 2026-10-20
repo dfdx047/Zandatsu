@@ -1,0 +1,62 @@
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 35015ac..3defa39 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -57,6 +57,11 @@
+ #include <rex/ui/vulkan/util.h>
+ 
+ // Legacy backend compatibility aliases for shared readback controls.
++REXCVAR_DEFINE_STRING(dbz3_skip_vertex_shaders, "auto", "GPU/Vulkan",
++                      "Project SwordMan: draws com estes vertex shaders (hashes do ucode, "
++                      "separados por virgula) sao saltados. O compilador da Mali cai em alguns. "
++                      "\"auto\" = a lista conhecida so na Mali, \"\" = nenhum");
++
+ REXCVAR_DEFINE_BOOL(vulkan_readback_resolve, false, "GPU/Vulkan",
+                     "Read render-to-texture results on the CPU")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+@@ -5090,6 +5095,45 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+     // Always need a vertex shader.
+     DBZ3_DRAW_RET(draw_fail("missing_vertex_shader"));
+   }
++  // Project SwordMan: vertex shaders que derrubam o driver ao criar o pipeline.
++  {
++    static const std::vector<uint64_t> skip_vs = [this]() {
++      std::vector<uint64_t> out;
++      std::string list = REXCVAR_GET(dbz3_skip_vertex_shaders);
++      if (list == "auto") {
++        const auto& props = GetVulkanDevice()->properties();
++        const bool is_arm =
++            props.vendorID == 0x13B5 || props.driverID == VK_DRIVER_ID_ARM_PROPRIETARY;
++        // MGR no RG Cube (Mali-G57 r40p0): pipelines so de profundidade.
++        list = is_arm ? "14C49585A680385C,4F42DA3976EE7514" : "";
++      }
++      size_t pos = 0;
++      while (pos < list.size()) {
++        size_t comma = list.find(',', pos);
++        std::string item = list.substr(pos, comma == std::string::npos ? std::string::npos
++                                                                        : comma - pos);
++        if (!item.empty()) {
++          out.push_back(std::strtoull(item.c_str(), nullptr, 16));
++        }
++        if (comma == std::string::npos) {
++          break;
++        }
++        pos = comma + 1;
++      }
++      if (!out.empty()) {
++        REXGPU_INFO("swordman: {} vertex shaders saltados ({})", out.size(), list);
++      }
++      return out;
++    }();
++    if (!skip_vs.empty()) {
++      const uint64_t vs_hash = vertex_shader->ucode_data_hash();
++      for (uint64_t h : skip_vs) {
++        if (h == vs_hash) {
++          DBZ3_DRAW_RET(true);
++        }
++      }
++    }
++  }
+   pipeline_cache_->AnalyzeShaderUcode(*vertex_shader);
+   bool memexport_used_vertex = vertex_shader->memexport_eM_written() != 0;
+   if (memexport_used_vertex) {

@@ -36,6 +36,9 @@ class RenderSelfTest(
     /** Otimizacao: rotulo + cvars que a ligam (valor "ligado"/"desligado"). */
     private class Opt(val label: String, val cvars: Map<String, Pair<String, String>>)
 
+    // Sem os interruptores das transferencias entre render targets (keep_*, pares prof->cor,
+    // drop_transfers, clear_siblings): eram do Burst Limit e, trocados ao vivo no MGR, deixavam o
+    // Turnip sem GPU (VK_ERROR_DEVICE_LOST no RP5, 20/10).
     private val opts = listOf(
         Opt("resolves repetidos/sem leitor (passo 3)", mapOf("dbz3_resolve_dedupe" to ("true" to "false"))),
         Opt("draws nulos (passo 3)", mapOf("dbz3_skip_null_draws" to ("true" to "false"))),
@@ -50,19 +53,6 @@ class RenderSelfTest(
         Opt("RT diretos: restauros ignorados", mapOf("dbz3_rt_elide_restores" to ("true" to "false"))),
         Opt("RT diretos: restauro da profundidade", mapOf("dbz3_skip_depth_restore" to ("true" to "false"))),
         Opt("RT diretos: Clear 4x direto em 1x", mapOf("dbz3_clear_to_1x" to ("true" to "false"))),
-        // As duas partes do modo direto que nao tinham interruptor (patch 0073).
-        Opt("RT diretos: transferencias saltadas", mapOf("dbz3_rt_direct_drop_transfers" to ("true" to "false"))),
-        Opt("RT diretos: limpa as imagens irmas", mapOf("dbz3_rt_direct_clear_siblings" to ("true" to "false"))),
-        // 0075: no RP5 fazer todas as transferencias muda o desfoque do fundo (22%); cada uma
-        // destas mantem so um tipo, para ver qual faz falta (e quanto custa).
-        Opt("transferencias profundidade->profundidade", mapOf("dbz3_rt_keep_dd" to ("true" to "false"))),
-        Opt("transferencias cor->profundidade", mapOf("dbz3_rt_keep_cd" to ("true" to "false"))),
-        Opt("transferencias profundidade->cor", mapOf("dbz3_rt_keep_dc" to ("true" to "false"))),
-        Opt("transferencias cor->cor", mapOf("dbz3_rt_keep_cc" to ("true" to "false"))),
-        // 0078: qual dos pares profundidade->cor o desfoque usa (os outros podem sair: ~8 ms no Mali).
-        Opt("prof->cor D@0 -> C pitch 13", mapOf("dbz3_rt_dc_base0_to_pitch13" to ("true" to "false"))),
-        Opt("prof->cor D@0 -> C pitch 16", mapOf("dbz3_rt_dc_base0_to_pitch16" to ("true" to "false"))),
-        Opt("prof->cor outras (D@720...)", mapOf("dbz3_rt_dc_other" to ("true" to "false"))),
         Opt("uploads antes do passe", mapOf("dbz3_hoist_uploads" to ("true" to "false"))),
         Opt("resolve: leitura logo no fim", mapOf("dbz3_resolve_early_transition" to ("true" to "false"))),
         Opt("render targets diretos (DF)", mapOf("dbz3_rt_direct" to ("true" to "false"))),
