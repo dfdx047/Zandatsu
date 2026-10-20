@@ -49,6 +49,16 @@ class HelperEngine {
             handler.post { step() }
         }
 
+    /**
+     * Imagem congelada (autoteste do render): o jogo fica parado no VdSwap e a GPU repete o
+     * ultimo frame (patch 0105, cvar swordman_freeze_replay).
+     */
+    @Volatile var freeze = false
+        set(value) {
+            field = value
+            handler.post { step() }
+        }
+
     /** Pausar tambem enquanto o menu rapido do port (Back+Start) estiver aberto. */
     @Volatile var pauseQuickMenu = true
 
@@ -173,7 +183,7 @@ class HelperEngine {
     }
 
     private fun step() {
-        paused = NativeGameState.syncPause(menuOpen, pauseQuickMenu)
+        paused = NativeGameState.syncPause(menuOpen || freeze, pauseQuickMenu)
         side = NativeGameState.p1Side()
         if (!paused) {
             trackBattle(NativeGameState.fightFlag())

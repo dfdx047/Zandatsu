@@ -1,0 +1,165 @@
+diff --git a/include/rex/graphics/command_processor.h b/include/rex/graphics/command_processor.h
+index ea093ba..333827d 100644
+--- a/include/rex/graphics/command_processor.h
++++ b/include/rex/graphics/command_processor.h
+@@ -261,6 +261,21 @@ class CommandProcessor {
+   uint32_t primary_buffer_size_ = 0;
+ 
+   uint32_t read_ptr_index_ = 0;
++
++  // Project SwordMan: congelar a imagem com o jogo parado (autoteste do render). O jogo fica
++  // preso no VdSwap seguinte (pausa do app) e o CP volta a executar os comandos do ultimo
++  // frame completo (de um swap ao seguinte, no anel) e apresenta-o outra vez, com as cvars
++  // de agora.
++  void SwordManReplayFrozenFrame();
++  const memory::RingBuffer* swordman_primary_reader_ = nullptr;
++  bool swordman_replaying_ = false;
++  bool swordman_frame_valid_ = false;
++  uint32_t swordman_frame_start_index_ = 0;    // depois do ultimo swap (frame em curso)
++  uint32_t swordman_last_frame_start_ = 0;     // ultimo frame completo: inicio
++  uint32_t swordman_last_frame_end_ = 0;       // ... e o pacote do swap dele
++  uint32_t swordman_swap_ptr_ = 0;
++  uint32_t swordman_swap_width_ = 0;
++  uint32_t swordman_swap_height_ = 0;
+   uint32_t read_ptr_update_freq_ = 0;
+   uint32_t read_ptr_writeback_ptr_ = 0;
+ 
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+index af96b46..99282cf 100644
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -49,6 +49,10 @@ REXCVAR_DEFINE_BOOL(clear_memory_page_state, false, "GPU",
+ 
+ REXCVAR_DEFINE_BOOL(occlusion_query_enable, true, "GPU", "Enable host occlusion query handling")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
++REXCVAR_DEFINE_BOOL(swordman_freeze_replay, false, "GPU",
++                    "Project SwordMan: com o jogo pausado no VdSwap, repete o ultimo frame "
++                    "(imagem congelada que segue as cvars ao vivo; autoteste do render)")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ 
+ REXCVAR_DEFINE_STRING(readback_resolve, "none", "GPU",
+                       "Controls CPU readback of render-to-texture resolve results.\n"
+@@ -222,6 +226,13 @@ void CommandProcessor::WorkerThreadMain() {
+     }
+ 
+     uint32_t write_ptr_index = write_ptr_index_.load();
++    // Project SwordMan: imagem congelada - o CP ja executou tudo e o jogo esta preso no
++    // VdSwap: repete o ultimo frame ~60 vezes por segundo.
++    if (REXCVAR_GET(swordman_freeze_replay) && read_ptr_index_ == write_ptr_index) {
++      SwordManReplayFrozenFrame();
++      rex::thread::Sleep(std::chrono::milliseconds(16));
++      continue;
++    }
+     if (write_ptr_index == 0xBAADF00D || read_ptr_index_ == write_ptr_index) {
+       SCOPE_profile_cpu_i("gpu", "rex::graphics::CommandProcessor::Stall");
+       // We've run out of commands to execute.
+@@ -241,6 +252,7 @@ void CommandProcessor::WorkerThreadMain() {
+         loop_count++;
+         write_ptr_index = write_ptr_index_.load();
+       } while (worker_running_ && pending_fns_.empty() &&
++               !REXCVAR_GET(swordman_freeze_replay) &&
+                (write_ptr_index == 0xBAADF00D || read_ptr_index_ == write_ptr_index));
+       ReturnFromWait();
+       if (!worker_running_ || !pending_fns_.empty()) {
+@@ -630,6 +642,7 @@ uint32_t CommandProcessor::ExecutePrimaryBuffer(uint32_t read_index, uint32_t wr
+   memory::RingBuffer reader(memory_->TranslatePhysical(primary_buffer_ptr_), primary_buffer_size_);
+   reader.set_read_offset(read_index * sizeof(uint32_t));
+   reader.set_write_offset(write_index * sizeof(uint32_t));
++  swordman_primary_reader_ = &reader;
+   do {
+     if (!ExecutePacket(&reader)) {
+       // This probably should be fatal - but we're going to continue anyways.
+@@ -638,12 +651,43 @@ uint32_t CommandProcessor::ExecutePrimaryBuffer(uint32_t read_index, uint32_t wr
+       break;
+     }
+   } while (reader.read_count());
++  swordman_primary_reader_ = nullptr;
+ 
+   OnPrimaryBufferEnd();
+ 
+   return write_index;
+ }
+ 
++void CommandProcessor::SwordManReplayFrozenFrame() {
++  if (!swordman_frame_valid_ || swordman_last_frame_start_ == swordman_last_frame_end_) {
++    return;
++  }
++  // O frame tem de continuar inteiro no anel (o frame seguinte, ja comecado, nao o pode ter
++  // escrito por cima).
++  const uint32_t ring = primary_buffer_size_ / sizeof(uint32_t);
++  auto dist = [ring](uint32_t from, uint32_t to) { return (to + ring - from) % ring; };
++  const uint32_t frame_len = dist(swordman_last_frame_start_, swordman_last_frame_end_);
++  const uint32_t after_len = dist(swordman_last_frame_end_, read_ptr_index_);
++  static uint32_t logged_state = 0;
++  if (!ring || frame_len + after_len >= ring) {
++    if (logged_state != 2) {
++      logged_state = 2;
++      REXGPU_WARN("swordman: imagem congelada indisponivel (frame {} + {} palavras, anel {})",
++                  frame_len, after_len, ring);
++    }
++    return;
++  }
++  if (logged_state != 1) {
++    logged_state = 1;
++    REXGPU_INFO("swordman: imagem congelada (repete o anel {}..{}, {} palavras)",
++                swordman_last_frame_start_, swordman_last_frame_end_, frame_len);
++  }
++  swordman_replaying_ = true;
++  ExecutePrimaryBuffer(swordman_last_frame_start_, swordman_last_frame_end_);
++  swordman_replaying_ = false;
++  IssueSwap(swordman_swap_ptr_, swordman_swap_width_, swordman_swap_height_);
++}
++
+ void CommandProcessor::ExecuteIndirectBuffer(uint32_t ptr, uint32_t count) {
+   SCOPE_profile_cpu_f("gpu");
+ 
+@@ -763,6 +807,14 @@ bool CommandProcessor::ExecutePacketType3(memory::RingBuffer* reader, uint32_t p
+     }
+   }
+ 
++  // Project SwordMan: ao repetir um frame congelado, nada de interrupcoes, esperas ou swaps
++  // (o jogo esta parado; as escritas de cercas repetem os mesmos valores).
++  if (swordman_replaying_ &&
++      (opcode == PM4_INTERRUPT || opcode == PM4_WAIT_REG_MEM || opcode == PM4_XE_SWAP)) {
++    reader->AdvanceRead(count * sizeof(uint32_t));
++    return true;
++  }
++
+   bool result = false;
+   switch (opcode) {
+     case PM4_ME_INIT:
+@@ -961,6 +1013,13 @@ bool CommandProcessor::ExecutePacketType3_XE_SWAP(memory::RingBuffer* reader, ui
+   // VdSwap will post this to tell us we need to swap the screen/fire an
+   // interrupt.
+   // 63 words here, but only the first has any data.
++  // Project SwordMan: posicao do pacote do swap no anel (o cabecalho e a palavra antes).
++  const bool swordman_in_primary = reader == swordman_primary_reader_;
++  const uint32_t swordman_ring = primary_buffer_size_ / sizeof(uint32_t);
++  const uint32_t swordman_swap_index =
++      swordman_ring ? static_cast<uint32_t>((reader->read_offset() / sizeof(uint32_t) +
++                                             swordman_ring - 1) % swordman_ring)
++                    : 0;
+   uint32_t magic = reader->ReadAndSwap<memory::fourcc_t>();
+   assert_true(magic == kSwapSignature);
+ 
+@@ -973,6 +1032,20 @@ bool CommandProcessor::ExecutePacketType3_XE_SWAP(memory::RingBuffer* reader, ui
+ 
+   IssueSwap(frontbuffer_ptr, frontbuffer_width, frontbuffer_height);
+ 
++  // Project SwordMan: o proximo frame comeca aqui (para o congelamento).
++  swordman_swap_ptr_ = frontbuffer_ptr;
++  swordman_swap_width_ = frontbuffer_width;
++  swordman_swap_height_ = frontbuffer_height;
++  if (swordman_in_primary && swordman_ring) {
++    swordman_last_frame_start_ = swordman_frame_start_index_;
++    swordman_last_frame_end_ = swordman_swap_index;
++    swordman_frame_start_index_ =
++        static_cast<uint32_t>((reader->read_offset() / sizeof(uint32_t)) % swordman_ring);
++    swordman_frame_valid_ = true;
++  } else {
++    swordman_frame_valid_ = false;
++  }
++
+   ++counter_;
+   return true;
+ }

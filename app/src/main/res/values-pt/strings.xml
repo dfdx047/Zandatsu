@@ -302,7 +302,7 @@
     <string name="menu_restart_needed">Vale na próxima vez que o jogo abrir.</string>
     <string name="menu_hints">LB/RB abas · ↑↓ mover · ◀▶ mudar · A escolher · B fechar</string>
     <string name="menu_selftest">Autoteste do render (cerca de 1,5 min)</string>
-    <string name="menu_selftest_help">Pausa o jogo sozinho (o Start do jogo, para a cena ficar parada) e desliga os atalhos do renderizador um de cada vez, comparando imagens: mostra qual estraga a imagem e quanto cada um vale. No fim tira a pausa. Resultado no Exportar logs.</string>
+    <string name="menu_selftest_help">Congela a imagem (o jogo para e a GPU continua a desenhar o mesmo frame) e desliga os atalhos do renderizador um de cada vez, comparando imagens: mostra qual estraga a imagem e quanto cada um vale. No fim descongela. Resultado no Exportar logs.</string>
     <string name="menu_selftest_refused">Já tem um autoteste rodando.</string>
     <string name="menu_export_logs_help">Junta todos os logs, o resultado do autoteste e a última captura num zip em Download/.</string>
     <string name="menu_exporting">Exportando...</string>
@@ -323,7 +323,7 @@
     <string name="perf_effects_pending">Os interruptores dos efeitos do MGR (profundidade de campo, desfoque de movimento, brilho) chegam numa próxima versão: primeiro é preciso capturar frames do jogo.</string>
     <string name="perf_fps_30_hack">30 (hack)</string>
     <string name="perf_fps_30_note">Hack de 30 FPS: mesma velocidade do jogo, metade dos frames desenhados.</string>
-    <string name="debug_selftest_text">Autoteste do render: no jogo, abra o menu → Depuração → Autoteste do render. Ele pausa o jogo sozinho, desliga os atalhos da GPU um a um e compara as imagens.</string>
+    <string name="debug_selftest_text">Autoteste do render: no jogo, abra o menu → Depuração → Autoteste do render. Ele congela a imagem sozinho, desliga os atalhos da GPU um a um e compara as imagens.</string>
     <string name="controls_scheme_title">Controles do MGR na tela</string>
     <string name="controls_scheme_sub">O mínimo de botões, combos já juntos</string>
     <string name="controls_scheme_text">Analógico esquerdo: andar · arrastar à direita: câmera (toque = centralizar, R3)\nX ataque leve (+ analógico na direção do inimigo = aparar) · Y ataque forte · A pular · B ação / agarrar no Zandatsu\nLB segurar: Blade Mode (corte arrastando a câmera ou com X/Y) · RB segurar: Ninja Run · RT mira · LT arma secundária\nBotão de esquiva = X+A (com uma direção) · cruz pequena: ↑ Augment, ← → armas/itens, ↓ usar item · L3+R3: Ripper Mode\nStart pausa · Back Codec</string>
@@ -342,7 +342,7 @@
     <string name="menu_tab_video">Vídeo</string>
     <string name="menu_touch_off_note">Os controles da tela estão desligados. A engrenagem e o botão de pausa continuam na tela, e o Back abre sempre este menu: ligue-os de novo aqui.</string>
     <string name="msg_log_saved">Log salvo.</string>
-    <string name="selftest_start">Autoteste do render: pausando o jogo e preparando…</string>
+    <string name="selftest_start">Autoteste do render: congelando a imagem…</string>
     <string name="selftest_step">Autoteste do render %1$d/%2$d: %3$s</string>
     <string name="selftest_exporting">Autoteste terminado: exportando os logs para Download/…</string>
     <string name="selftest_done">Autoteste terminado: Download/%1$s</string>
