@@ -1,0 +1,181 @@
+diff --git a/include/rex/graphics/command_processor.h b/include/rex/graphics/command_processor.h
+index 333827d..1d90981 100644
+--- a/include/rex/graphics/command_processor.h
++++ b/include/rex/graphics/command_processor.h
+@@ -276,6 +276,17 @@ class CommandProcessor {
+   uint32_t swordman_swap_ptr_ = 0;
+   uint32_t swordman_swap_width_ = 0;
+   uint32_t swordman_swap_height_ = 0;
++  // 0109: frame gravado "achatado" (pacotes do anel e dos buffers indiretos copiados em ordem,
++  // os INDIRECT_BUFFER expandidos), para repetir mesmo quando o swap vem de um buffer indireto
++  // (MGR). Grava com swordman_freeze_record ou swordman_freeze_replay ligados.
++  void SwordManRecordPacket(const memory::RingBuffer& reader, uint32_t from_offset);
++  bool SwordManReplayRecorded();
++  bool swordman_rec_on_ = false;
++  bool swordman_rec_synced_ = false;     // ja passou um swap desde que comecou a gravar
++  bool swordman_rec_swap_ = false;       // o pacote em curso e o XE_SWAP
++  uint32_t swordman_rec_ib_calls_ = 0;   // buffers indiretos executados (para nao gravar o pacote)
++  std::vector<uint32_t> swordman_rec_;   // frame em curso
++  std::vector<uint32_t> swordman_rec_last_;  // ultimo frame completo
+   uint32_t read_ptr_update_freq_ = 0;
+   uint32_t read_ptr_writeback_ptr_ = 0;
+ 
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+index c41a247..5971683 100644
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -49,6 +49,11 @@ REXCVAR_DEFINE_BOOL(clear_memory_page_state, false, "GPU",
+ 
+ REXCVAR_DEFINE_BOOL(occlusion_query_enable, true, "GPU", "Enable host occlusion query handling")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
++REXCVAR_DEFINE_BOOL(swordman_freeze_record, false, "GPU",
++                    "Project SwordMan (0109): grava os comandos de cada frame (com os buffers "
++                    "indiretos expandidos) para a imagem congelada os poder repetir")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++
+ REXCVAR_DEFINE_BOOL(swordman_freeze_replay, false, "GPU",
+                     "Project SwordMan: com o jogo pausado no VdSwap, repete o ultimo frame "
+                     "(imagem congelada que segue as cvars ao vivo; autoteste do render)")
+@@ -643,13 +648,31 @@ uint32_t CommandProcessor::ExecutePrimaryBuffer(uint32_t read_index, uint32_t wr
+   reader.set_read_offset(read_index * sizeof(uint32_t));
+   reader.set_write_offset(write_index * sizeof(uint32_t));
+   swordman_primary_reader_ = &reader;
++  if (!swordman_replaying_) {
++    const bool rec = REXCVAR_GET(swordman_freeze_record) || REXCVAR_GET(swordman_freeze_replay);
++    if (rec != swordman_rec_on_) {
++      swordman_rec_on_ = rec;
++      swordman_rec_synced_ = false;
++      swordman_rec_.clear();
++      if (!rec) {
++        swordman_rec_last_.clear();
++        swordman_rec_last_.shrink_to_fit();
++        swordman_rec_.shrink_to_fit();
++      }
++    }
++  }
+   do {
++    const uint32_t rec_from = reader.read_offset();
++    const uint32_t rec_ibs = swordman_rec_ib_calls_;
+     if (!ExecutePacket(&reader)) {
+       // This probably should be fatal - but we're going to continue anyways.
+       REXGPU_ERROR("**** PRIMARY RINGBUFFER: Failed to execute packet.");
+       assert_always();
+       break;
+     }
++    if (swordman_rec_on_ && !swordman_replaying_ && rec_ibs == swordman_rec_ib_calls_) {
++      SwordManRecordPacket(reader, rec_from);
++    }
+   } while (reader.read_count());
+   swordman_primary_reader_ = nullptr;
+ 
+@@ -662,6 +685,9 @@ void CommandProcessor::SwordManReplayFrozenFrame() {
+   if (swordman_replaying_) {
+     return;
+   }
++  if (SwordManReplayRecorded()) {
++    return;
++  }
+   if (!swordman_frame_valid_ || swordman_last_frame_start_ == swordman_last_frame_end_) {
+     static bool logged_invalid = false;
+     if (!logged_invalid) {
+@@ -700,19 +726,90 @@ void CommandProcessor::SwordManReplayFrozenFrame() {
+   IssueSwap(swordman_swap_ptr_, swordman_swap_width_, swordman_swap_height_);
+ }
+ 
++// 0109: copia o pacote acabado de executar (de from_offset ate a posicao do leitor, com a volta
++// do anel) para o frame em curso; no XE_SWAP o frame passa a ser o "ultimo completo".
++void CommandProcessor::SwordManRecordPacket(const memory::RingBuffer& reader,
++                                            uint32_t from_offset) {
++  const uint32_t cap = uint32_t(reader.capacity());
++  const uint32_t to_offset = uint32_t(reader.read_offset());
++  const uint32_t* base = reinterpret_cast<const uint32_t*>(reader.buffer());
++  if (cap) {
++    uint32_t i = from_offset % cap;
++    const uint32_t end = to_offset % cap;
++    // Um pacote nunca e maior que o anel; i == end com o leitor no fim de um buffer indireto
++    // (write_offset = 0) quer dizer "ate ao fim".
++    uint32_t guard = cap / sizeof(uint32_t) + 1;
++    do {
++      swordman_rec_.push_back(base[i / sizeof(uint32_t)]);
++      i = (i + sizeof(uint32_t)) % cap;
++    } while (i != end && --guard);
++  }
++  if (swordman_rec_.size() > (16u << 20)) {  // 64 MB: algo correu mal, recomeca
++    swordman_rec_.clear();
++    swordman_rec_synced_ = false;
++  }
++  if (swordman_rec_swap_) {
++    swordman_rec_swap_ = false;
++    if (swordman_rec_synced_) {
++      swordman_rec_last_.swap(swordman_rec_);
++      static bool logged = false;
++      if (!logged) {
++        logged = true;
++        REXGPU_INFO("swordman: frame gravado para a imagem congelada ({} palavras)",
++                    swordman_rec_last_.size());
++      }
++    }
++    swordman_rec_synced_ = true;
++    swordman_rec_.clear();
++  }
++}
++
++bool CommandProcessor::SwordManReplayRecorded() {
++  if (swordman_rec_last_.empty()) {
++    return false;
++  }
++  static bool logged = false;
++  if (!logged) {
++    logged = true;
++    REXGPU_INFO("swordman: imagem congelada (repete o frame gravado, {} palavras)",
++                swordman_rec_last_.size());
++  }
++  const memory::RingBuffer* outer_reader = swordman_primary_reader_;
++  memory::RingBuffer reader(reinterpret_cast<uint8_t*>(swordman_rec_last_.data()),
++                            swordman_rec_last_.size() * sizeof(uint32_t));
++  reader.set_write_offset(swordman_rec_last_.size() * sizeof(uint32_t));
++  swordman_replaying_ = true;
++  do {
++    if (!ExecutePacket(&reader)) {
++      REXGPU_ERROR("swordman: pacote invalido ao repetir o frame gravado");
++      break;
++    }
++  } while (reader.read_count());
++  swordman_replaying_ = false;
++  swordman_primary_reader_ = outer_reader;
++  IssueSwap(swordman_swap_ptr_, swordman_swap_width_, swordman_swap_height_);
++  return true;
++}
++
+ void CommandProcessor::ExecuteIndirectBuffer(uint32_t ptr, uint32_t count) {
+   SCOPE_profile_cpu_f("gpu");
+ 
+   // Execute commands!
+   memory::RingBuffer reader(memory_->TranslatePhysical(ptr), count * sizeof(uint32_t));
+   reader.set_write_offset(count * sizeof(uint32_t));
++  ++swordman_rec_ib_calls_;  // 0109: o pacote INDIRECT_BUFFER de fora nao e gravado
+   do {
++    const uint32_t rec_from = reader.read_offset();
++    const uint32_t rec_ibs = swordman_rec_ib_calls_;
+     if (!ExecutePacket(&reader)) {
+       // Return up a level if we encounter a bad packet.
+       REXGPU_ERROR("**** INDIRECT RINGBUFFER: Failed to execute packet.");
+       assert_always();
+       break;
+     }
++    if (swordman_rec_on_ && !swordman_replaying_ && rec_ibs == swordman_rec_ib_calls_) {
++      SwordManRecordPacket(reader, rec_from);
++    }
+   } while (reader.read_count());
+ }
+ 
+@@ -1045,6 +1142,9 @@ bool CommandProcessor::ExecutePacketType3_XE_SWAP(memory::RingBuffer* reader, ui
+   IssueSwap(frontbuffer_ptr, frontbuffer_width, frontbuffer_height);
+ 
+   // Project SwordMan: o proximo frame comeca aqui (para o congelamento).
++  if (swordman_rec_on_ && !swordman_replaying_) {
++    swordman_rec_swap_ = true;  // 0109: SwordManRecordPacket fecha o frame depois deste pacote
++  }
+   swordman_swap_ptr_ = frontbuffer_ptr;
+   swordman_swap_width_ = frontbuffer_width;
+   swordman_swap_height_ = frontbuffer_height;

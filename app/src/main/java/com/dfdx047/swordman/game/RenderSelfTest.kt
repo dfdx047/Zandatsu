@@ -119,6 +119,10 @@ class RenderSelfTest(
                             baseMs = ms
                             census = NativeGameState.psCensus(reset = true)
                             NativeGameState.setCvars(mapOf("swordman_ps_census" to "false"))
+                            if (ms.isNaN()) {
+                                report.append("AVISO: a GPU nao desenhou nenhum frame com a imagem congelada (sem frame gravado?).\n")
+                                report.append("As comparacoes abaixo nao valem: a tela esta parada, nao congelada.\n")
+                            }
                             report.append(String.format(java.util.Locale.ROOT, "%-46s ruido %.3f%%, GPU %s\n", "referencia (config)", noise, fmtMs(ms)))
                             log("autoteste: referencia, ruido %.3f%%, GPU %s".format(java.util.Locale.ROOT, noise, fmtMs(ms)))
                             step(0)

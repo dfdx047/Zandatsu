@@ -405,24 +405,32 @@ class GameOverlay(private val activity: Activity) : InputManager.InputDeviceList
         // O autoteste precisa de uma imagem parada com o jogo a desenhar: congela (o jogo fica
         // preso no VdSwap e a GPU repete o ultimo frame com as opcoes de agora, patch 0105),
         // como o freeze_game do Dragon Burst, e descongela no fim.
-        engine.freeze = true
-        NativeGameState.setCvars(mapOf("swordman_freeze_replay" to "true"))
-        com.dfdx047.swordman.data.AppLog.i("selftest", "inicio (imagem congelada)")
+        // 0109: primeiro grava os comandos de alguns frames com o jogo a correr (o MGR manda o
+        // swap de um buffer indireto, por isso o anel sozinho nao chega para repetir o frame);
+        // so depois congela. Com o menu aberto o jogo estava parado: solta-o ~0,8 s.
+        engine.freeze = false
+        NativeGameState.setCvars(mapOf("swordman_freeze_record" to "true"))
+        com.dfdx047.swordman.data.AppLog.i("selftest", "inicio: a gravar frames")
         main.postDelayed({
-            selfTest = RenderSelfTest(activity, surface) {
-                selfTest = null
-                NativeGameState.setCvars(mapOf("swordman_freeze_replay" to "false"))
-                engine.freeze = false
-                com.dfdx047.swordman.data.AppLog.i("selftest", "fim (jogo a correr)")
-            }.also { it.start() }
-        }, 1500)
+            engine.freeze = true
+            NativeGameState.setCvars(mapOf("swordman_freeze_replay" to "true"))
+            com.dfdx047.swordman.data.AppLog.i("selftest", "imagem congelada")
+            main.postDelayed({
+                selfTest = RenderSelfTest(activity, surface) {
+                    selfTest = null
+                    NativeGameState.setCvars(mapOf("swordman_freeze_replay" to "false", "swordman_freeze_record" to "false"))
+                    engine.freeze = false
+                    com.dfdx047.swordman.data.AppLog.i("selftest", "fim (jogo a correr)")
+                }.also { it.start() }
+            }, 1500)
+        }, 800)
         return true
     }
 
     override fun exitToLauncher() {
         setScreen(InGameScreen.CLOSED)
         NativeGameState.forceResume()
-        NativeGameState.setCvars(mapOf("swordman_freeze_replay" to "false"))
+        NativeGameState.setCvars(mapOf("swordman_freeze_replay" to "false", "swordman_freeze_record" to "false"))
         com.dfdx047.swordman.data.SessionState.markEnded(AppPaths.appDir)
         com.dfdx047.swordman.data.AppLog.i("game", "saida pelo menu")
         activity.startActivity(
