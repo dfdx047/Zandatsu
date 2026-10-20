@@ -19,11 +19,11 @@ import kotlin.math.abs
 import kotlin.math.log10
 
 /**
- * Autoteste do renderizador (menu do jogo > Depuracao). Com o jogo na pausa do proprio MGR
- * (Start: a cena fica parada por tras do menu) a imagem e sempre a mesma; o teste tira uma foto com todas as otimizacoes ligadas (a
- * referencia), depois desliga UMA de cada vez e compara a foto com a referencia. Se
- * desligar uma otimizacao muda a imagem, e essa que esta a estragar alguma coisa. Cada
- * estado fica ~8 s, para a linha "perf" do log (a cada 5 s) mostrar quanto cada uma vale.
+ * Autoteste do renderizador (menu do jogo > Depuracao). Com a imagem congelada (0105: a GPU
+ * repete o ultimo frame com o jogo a correr) a imagem e sempre a mesma; o teste tira uma foto
+ * com todas as otimizacoes ligadas (a referencia), depois desliga UMA de cada vez, compara a
+ * foto com a referencia e mede o tempo de GPU por frame. Depois (fase de efeitos) salta UM
+ * pixel shader de cada vez e mede quanto cada passe do MGR custa.
  *
  * Resultado em logs/autoteste.txt (+ uma foto por estado, logs/autoteste_NN.jpg), que entram
  * no "Exportar logs".
@@ -106,7 +106,7 @@ class RenderSelfTest(
             .append('\n')
         report.append("Config: " + base.entries.joinToString(" ") { "${it.key}=${it.value}" } + "\n\n")
         showStatus(activity.getString(com.dfdx047.swordman.R.string.selftest_start))
-        NativeGameState.setCvars(base)
+        NativeGameState.setCvars(base + mapOf("swordman_ps_census" to "true", "swordman_skip_ps" to ""))
         // Referencia: tudo ligado, duas fotos para medir o ruido.
         after(3500) {
             capture { a ->
@@ -114,9 +114,15 @@ class RenderSelfTest(
                     capture { b ->
                         reference = a
                         noise = if (a != null && b != null) diff(a, b).first else 0.0
-                        report.append(String.format(java.util.Locale.ROOT, "%-46s ruido %.3f%%\n", "referencia (config)", noise))
-                        log("autoteste: referencia, ruido %.3f%%".format(java.util.Locale.ROOT, noise))
-                        after(4000) { step(0) }
+                        NativeGameState.psCensus(reset = true)
+                        measureGpu { ms ->
+                            baseMs = ms
+                            census = NativeGameState.psCensus(reset = true)
+                            NativeGameState.setCvars(mapOf("swordman_ps_census" to "false"))
+                            report.append(String.format(java.util.Locale.ROOT, "%-46s ruido %.3f%%, GPU %s\n", "referencia (config)", noise, fmtMs(ms)))
+                            log("autoteste: referencia, ruido %.3f%%, GPU %s".format(java.util.Locale.ROOT, noise, fmtMs(ms)))
+                            step(0)
+                        }
                     }
                 }
             }
@@ -125,7 +131,8 @@ class RenderSelfTest(
 
     private fun step(i: Int) {
         if (i > active.size) {
-            finish()
+            NativeGameState.setCvars(base)
+            startEffects()
             return
         }
         val off: Map<String, String>
@@ -143,7 +150,7 @@ class RenderSelfTest(
         showStatus(activity.getString(com.dfdx047.swordman.R.string.selftest_step, i + 1, active.size + 1, label))
         log("autoteste: inicio '$label'")
         NativeGameState.setCvars(off)
-        after(3500) {
+        measureGpu { ms ->
             capture { img ->
                 val ref = reference
                 val line = if (img == null || ref == null) {
@@ -155,19 +162,120 @@ class RenderSelfTest(
                         pct < 2.0 -> "PEQUENA diferenca"
                         else -> "DIFERENTE"
                     }
-                    String.format(java.util.Locale.ROOT, "%-46s %.3f%% pixels, PSNR %.1f dB -> %s\n", label, pct, psnr, verdict)
+                    String.format(java.util.Locale.ROOT, "%-46s %.3f%% pixels, PSNR %.1f dB -> %s | GPU %s (%s)\n", label, pct, psnr, verdict, fmtMs(ms), fmtDelta(ms))
                 }
                 report.append(line)
                 log("autoteste: " + line.trim())
-                after(4500) { step(i + 1) }
+                step(i + 1)
             }
         }
+    }
+
+    // -------------------------------------------------------------- efeitos
+
+    /**
+     * Fase 2 (0107): com a mesma imagem congelada, salta os draws de UM pixel shader de cada
+     * vez (swordman_skip_ps) e mede quanto tempo de GPU o frame perde. Os candidatos sao os
+     * passes de pos-processamento conhecidos do MGR + os pixel shaders com mais draws neste
+     * frame (o censo da referencia). A foto de cada um mostra que efeito desaparece.
+     */
+    private class Fx(val hash: String, val draws: Long, val pitch: Int, val prim: Int)
+    private class FxResult(val fx: Fx, val ms: Double, val pct: Double, val shot: Int)
+
+    private var census = ""
+    private var fxList = emptyList<Fx>()
+    private val fxResults = ArrayList<FxResult>()
+
+    private fun startEffects() {
+        val seen = census.split(',').mapNotNull { e ->
+            val f = e.split(':')
+            if (f.size < 4) null else Fx(f[0], f[1].toLongOrNull() ?: 0, f[2].toIntOrNull() ?: 0, f[3].toIntOrNull() ?: 0)
+        }
+        if (seen.isEmpty()) {
+            report.append("\nEfeitos: censo vazio (build sem 0107?)\n")
+            finish()
+            return
+        }
+        val known = seen.filter { it.hash in KNOWN_POST }
+        val rest = seen.filter { it.hash !in KNOWN_POST }.take((MAX_FX - known.size).coerceAtLeast(0))
+        fxList = known + rest
+        report.append("\nEfeitos (salta UM pixel shader de cada vez; GPU = ms por frame, delta vs referencia)\n")
+        report.append("Censo: ${seen.size} pixel shaders, ${seen.sumOf { it.draws }} draws durante a medicao\n")
+        fxStep(0)
+    }
+
+    private fun fxStep(i: Int) {
+        if (i >= fxList.size) {
+            NativeGameState.setCvars(mapOf("swordman_skip_ps" to ""))
+            measureGpu { end ->
+                report.append(String.format(java.util.Locale.ROOT, "referencia no fim: GPU %s\n", fmtMs(end)))
+                report.append("\nOrdenado pelo ganho (o que mais pesa primeiro):\n")
+                fxResults.sortedBy { it.ms }.forEach { r ->
+                    report.append(String.format(java.util.Locale.ROOT, "  PS %s  %-10s  imagem %.2f%%  foto %02d  draws %d pitch %d\n",
+                        r.fx.hash, fmtDelta(r.ms), r.pct, r.shot, r.fx.draws, r.fx.pitch))
+                }
+                finish()
+            }
+            return
+        }
+        val fx = fxList[i]
+        showStatus(activity.getString(com.dfdx047.swordman.R.string.selftest_step, i + 1, fxList.size, "PS ${fx.hash}"))
+        log("autoteste: efeito sem PS ${fx.hash}")
+        NativeGameState.setCvars(mapOf("swordman_skip_ps" to fx.hash))
+        measureGpu { ms ->
+            val myShot = shot
+            capture { img ->
+                val ref = reference
+                val pct = if (img != null && ref != null) diff(ref, img).first else -1.0
+                fxResults += FxResult(fx, ms, pct, myShot)
+                val line = String.format(java.util.Locale.ROOT, "sem PS %s (draws %d, pitch %d, prim %d)  imagem %.2f%%  GPU %s (%s)  foto %02d\n",
+                    fx.hash, fx.draws, fx.pitch, fx.prim, pct, fmtMs(ms), fmtDelta(ms), myShot)
+                report.append(line)
+                log("autoteste: " + line.trim())
+                fxStep(i + 1)
+            }
+        }
+    }
+
+    // -------------------------------------------------------------- tempo de GPU
+
+    private var baseMs = Double.NaN
+
+    /** Espera a troca assentar e devolve os ms de GPU por frame numa janela (NaN sem dados). */
+    private fun measureGpu(done: (Double) -> Unit) {
+        after(SETTLE_MS) {
+            val a = NativeGameState.gpuStats()
+            after(MEASURE_MS) {
+                val b = NativeGameState.gpuStats()
+                val frames = b[0] - a[0]
+                done(if (frames <= 0) Double.NaN else (b[1] - a[1]) / 1000.0 / frames)
+            }
+        }
+    }
+
+    private fun fmtMs(ms: Double) = if (ms.isNaN()) "n/d" else String.format(java.util.Locale.ROOT, "%.2f ms", ms)
+
+    private fun fmtDelta(ms: Double): String =
+        if (ms.isNaN() || baseMs.isNaN()) "n/d" else String.format(java.util.Locale.ROOT, "%+.2f ms", ms - baseMs)
+
+    private companion object {
+        const val SETTLE_MS = 1200L
+        const val MEASURE_MS = 2000L
+        const val MAX_FX = 40
+
+        /** Passes de ecra inteiro do MGR vistos na captura de 19/10 (RP5). */
+        val KNOWN_POST = setOf(
+            "11C7657530951A90", "E104A745F271970A", "7BE61437FF049E59", "28AEC10B4A0E14FF",
+            "DAFD35EBE60D9860", "7ABDFEFBCADB4BF9", "E060C0FFE9EE118C", "17EE3DCA7468F67B",
+            "A755AD0AC2470588", "C45580526034B1F2", "4086D1DF9FA6220E", "38C32FC0BC7F322D",
+            "F971EBDCFE761317", "2CE21E05F9680D34", "F854BF3B7BF7AA9D", "B402E1761727D55B",
+        )
     }
 
     private fun finish() {
         // Volta tudo ao que estava.
         NativeGameState.setCvars(original.filterValues { it.isNotEmpty() })
-        report.append("\nCorrelacione com as linhas 'perf' do swordman_last.log pelos horarios 'autoteste:'.\n")
+        NativeGameState.setCvars(mapOf("swordman_skip_ps" to "", "swordman_ps_census" to "false"))
         try {
             File(AppPaths.logsDir, "autoteste.txt").writeText(report.toString())
         } catch (_: Exception) {

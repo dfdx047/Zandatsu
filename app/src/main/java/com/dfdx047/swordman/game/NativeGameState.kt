@@ -168,6 +168,26 @@ object NativeGameState {
         }
     }
 
+    /** Tempo de GPU acumulado: [frames medidos, microssegundos] (0107; zeros sem jogo). */
+    fun gpuStats(): LongArray {
+        if (!available) return LongArray(2)
+        return try {
+            nativeGpuStats()
+        } catch (_: UnsatisfiedLinkError) {
+            LongArray(2)
+        }
+    }
+
+    /** Censo de pixel shaders desde o ultimo reset: "HASH:draws:pitch:prim,..." por draws. */
+    fun psCensus(reset: Boolean): String {
+        if (!available) return ""
+        return try {
+            nativePsCensus(reset)
+        } catch (_: UnsatisfiedLinkError) {
+            ""
+        }
+    }
+
     const val SOUND_MOVE = 0
     const val SOUND_CONFIRM = 1
     const val SOUND_BACK = 2
@@ -196,6 +216,8 @@ object NativeGameState {
     @JvmStatic private external fun nativePresentInfo(): String
     @JvmStatic private external fun nativeSetVolume(percent: Int)
     @JvmStatic private external fun nativeFrames(): Long
+    @JvmStatic private external fun nativeGpuStats(): LongArray
+    @JvmStatic private external fun nativePsCensus(reset: Boolean): String
 
     @JvmStatic
     private external fun nativeFightFlag(): Int

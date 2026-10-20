@@ -10,6 +10,7 @@
 
 #include <jni.h>
 
+#include <algorithm>
 #include <atomic>
 #include <condition_variable>
 #include <cstdint>
@@ -121,6 +122,28 @@ Java_com_dfdx047_swordman_game_NativeGameState_nativeBattleDebug(JNIEnv* env, jc
 extern "C" JNIEXPORT jlong JNICALL
 Java_com_dfdx047_swordman_game_NativeGameState_nativeFrames(JNIEnv*, jclass) {
   return static_cast<jlong>(g_swordman_ticks.load(std::memory_order_relaxed));
+}
+
+// 0107: tempo de GPU acumulado e censo de pixel shaders (autoteste de efeitos).
+extern "C" void rex_swordman_gpu_stats(uint64_t* out);
+extern "C" size_t rex_swordman_ps_census(char* buf, size_t size, int reset);
+
+extern "C" JNIEXPORT jlongArray JNICALL
+Java_com_dfdx047_swordman_game_NativeGameState_nativeGpuStats(JNIEnv* env, jclass) {
+  uint64_t v[2] = {0, 0};
+  rex_swordman_gpu_stats(v);
+  jlongArray out = env->NewLongArray(2);
+  const jlong j[2] = {static_cast<jlong>(v[0]), static_cast<jlong>(v[1])};
+  env->SetLongArrayRegion(out, 0, 2, j);
+  return out;
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_dfdx047_swordman_game_NativeGameState_nativePsCensus(JNIEnv* env, jclass, jboolean reset) {
+  std::string text(rex_swordman_ps_census(nullptr, 0, 0) + 4096, '\0');
+  const size_t n = rex_swordman_ps_census(text.data(), text.size(), reset ? 1 : 0);
+  text.resize(std::min(n, text.size() - 1));
+  return env->NewStringUTF(text.c_str());
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
