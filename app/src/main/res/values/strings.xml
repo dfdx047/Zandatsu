@@ -312,7 +312,7 @@
     <string name="drivers_turnip_experimental">Turnip is experimental on this GPU (needs patched builds). The system driver is the safe choice. Builds: %1$s.</string>
     <string name="drivers_turnip_unsupported">No known Turnip support for this GPU: use the system driver. %1$s</string>
     <string name="drivers_turnip_auto">With Turnip active, TU_DEBUG=%1$s is applied automatically on this GPU.</string>
-    <string name="drivers_boot_failed">The driver %1$s closed the game on startup, so the system driver is being used. Choose another driver (or the same one again) to try it again.</string>
+    <string name="drivers_boot_failed">The driver %1$s could not start the game 3 times in a row. Try the system driver or another version.</string>
     <string name="turnip_compat_ir3_nopreamble">Shader compiler: no preamble (IR3 nopreamble)</string>
     <string name="turnip_compat_ir3_nouboopt">Shader compiler: no UBO optimization (IR3 nouboopt)</string>
     <string name="turnip_compat_ir3_nofp16">Shader compiler: no 16-bit math (IR3 nofp16)</string>
@@ -364,12 +364,13 @@
     <string name="err_dialog_crash_text">The game stopped by itself while playing. Try a lighter preset in Performance, or the system driver in Drivers. If it keeps happening, send the log.</string>
     <string name="err_dialog_noboot_title">The game didn\'t open</string>
     <string name="err_dialog_noboot_text">The game closed before showing the first frame. Check the game files on Home (Verify files) and try again. If it keeps happening, send the log.</string>
-    <string name="err_dialog_driver_boot_title">The driver closed the game</string>
-    <string name="err_dialog_driver_boot_text">The game closed on start with an alternative Vulkan driver active. The next start uses the system driver; pick another driver build in Drivers or keep the system one.</string>
+    <string name="err_dialog_driver_boot_title">Turnip failed to start the game</string>
+    <string name="err_dialog_driver_boot_text">The game closed before showing anything 3 times in a row with the Turnip driver. Try the system driver (button below) or another Turnip version in Drivers. This port is optimized for Turnip, so please send the log too: it helps us fix it.</string>
     <string name="err_dialog_driver_title">Driver problem</string>
     <string name="err_dialog_driver_text">The driver could not be downloaded or installed. Check the connection, or that the file is an AdrenoTools .zip (with meta.json and the .so).</string>
     <string name="err_dialog_iso_title">Damaged game image</string>
     <string name="err_dialog_iso_text">The .iso or the game files are damaged, incomplete or not the expected version. Make a new dump of your disc (full XGD2 .iso) and import it again.</string>
     <string name="err_dialog_import_title">Import failed</string>
     <string name="err_dialog_import_text">The game could not be copied. Check the free space and that the file or folder is still available, then try again.</string>
+    <string name="err_dialog_use_system_driver">Use the system driver</string>
 </resources>

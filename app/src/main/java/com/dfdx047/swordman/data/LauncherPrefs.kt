@@ -77,12 +77,17 @@ class LauncherPrefs(context: Context) {
         get() = prefs.getInt("turnip_bisect_step", 0)
         set(v) = prefs.edit().putInt("turnip_bisect_step", v).apply()
 
-    /** Driver que fechou o jogo no arranque (o GameActivity voltou ao do sistema); "" = nenhum. */
+    /** Driver alternativo que falhou [DriverBootFails.LIMIT]+ arranques seguidos; "" = nenhum. */
     val driverBootFailed: String
-        get() = prefs.getString("driver_boot_failed", "") ?: ""
+        get() = if (DriverBootFails.read() >= DriverBootFails.LIMIT) {
+            com.dfdx047.swordman.drivers.DriverRepository.activeDir()?.let { java.io.File(it).name } ?: ""
+        } else {
+            ""
+        }
 
     fun clearDriverBootState() {
         prefs.edit().remove("driver_boot_failed").remove("driver_boot_pending").apply()
+        DriverBootFails.reset()
     }
 
     var controlStyle: ControlStyle

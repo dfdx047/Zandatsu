@@ -310,6 +310,12 @@ private fun ErrorDialog(vm: LauncherViewModel, report: CrashReport, openTab: (La
                         )
                     }
                 }
+                if (report.kind == ErrorKind.DRIVER_BOOT) {
+                    androidx.compose.material3.Button(onClick = {
+                        vm.useSystemDriver()
+                        vm.dismissError()
+                    }) { Text(stringResource(R.string.err_dialog_use_system_driver)) }
+                }
                 Text(stringResource(R.string.err_dialog_discord_help), style = MaterialTheme.typography.bodySmall)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     androidx.compose.material3.FilledTonalButton(onClick = { saveLog.launch(LogExporter.suggestedName()) }) {

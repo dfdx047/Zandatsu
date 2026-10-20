@@ -311,7 +311,7 @@
     <string name="drivers_turnip_experimental">Turnip es experimental en esta GPU (necesita builds con parches). El driver del sistema es la opción segura. Builds: %1$s.</string>
     <string name="drivers_turnip_unsupported">Sin soporte conocido de Turnip en esta GPU: usa el driver del sistema. %1$s</string>
     <string name="drivers_turnip_auto">Con Turnip activo, TU_DEBUG=%1$s se aplica automáticamente en esta GPU.</string>
-    <string name="drivers_boot_failed">El driver %1$s cerró el juego al arrancar y se está usando el del sistema. Elige otro driver (o el mismo de nuevo) para volver a probar.</string>
+    <string name="drivers_boot_failed">El driver %1$s no pudo abrir el juego 3 veces seguidas. Prueba el driver del sistema u otra versión.</string>
     <string name="turnip_compat_ir3_nopreamble">Compilador de shaders: sin preámbulo (IR3 nopreamble)</string>
     <string name="turnip_compat_ir3_nouboopt">Compilador de shaders: sin optimización de UBO (IR3 nouboopt)</string>
     <string name="turnip_compat_ir3_nofp16">Compilador de shaders: sin cálculos de 16 bits (IR3 nofp16)</string>
@@ -363,12 +363,13 @@
     <string name="err_dialog_crash_text">El juego se detuvo solo mientras jugabas. Prueba un preajuste más ligero en Rendimiento, o el driver del sistema en Drivers. Si sigue pasando, envía el log.</string>
     <string name="err_dialog_noboot_title">El juego no se abrió</string>
     <string name="err_dialog_noboot_text">El juego se cerró antes de mostrar el primer frame. Revisa los archivos en Inicio (Verificar archivos) e inténtalo de nuevo. Si sigue pasando, envía el log.</string>
-    <string name="err_dialog_driver_boot_title">El driver cerró el juego</string>
-    <string name="err_dialog_driver_boot_text">El juego se cerró al iniciar con un driver Vulkan alternativo activo. El próximo inicio usa el driver del sistema; elige otra versión en Drivers o quédate con el del sistema.</string>
+    <string name="err_dialog_driver_boot_title">Turnip no pudo abrir el juego</string>
+    <string name="err_dialog_driver_boot_text">El juego se cerró antes de mostrar nada 3 veces seguidas con el driver Turnip. Prueba el driver del sistema (botón de abajo) u otra versión de Turnip en Drivers. Este port está optimizado para Turnip, así que envía también el log: ayuda a corregirlo.</string>
     <string name="err_dialog_driver_title">Problema con el driver</string>
     <string name="err_dialog_driver_text">No se pudo descargar o instalar el driver. Revisa la conexión, o que el archivo sea un .zip de AdrenoTools (con meta.json y el .so).</string>
     <string name="err_dialog_iso_title">Imagen del juego dañada</string>
     <string name="err_dialog_iso_text">La .iso o los archivos del juego están dañados, incompletos o no son la versión esperada. Haz un nuevo volcado de tu disco (.iso XGD2 completa) e impórtalo de nuevo.</string>
     <string name="err_dialog_import_title">La importación falló</string>
     <string name="err_dialog_import_text">No se pudo copiar el juego. Revisa el espacio libre y que el archivo o la carpeta sigan disponibles, e inténtalo de nuevo.</string>
+    <string name="err_dialog_use_system_driver">Usar el driver del sistema</string>
 </resources>

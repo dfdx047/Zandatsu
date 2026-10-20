@@ -67,15 +67,17 @@ object CrashReports {
         }
         prefs.lastCrashShown = exit.timestamp
         SessionState.acknowledge()
-        // Com driver alternativo ativo, um jogo que nao chegou ao primeiro frame aponta para ele.
-        val bootFailed = prefs.driverBootFailed.isNotEmpty() ||
-            com.dfdx047.swordman.drivers.DriverRepository.activeDir() != null
+        // Com driver alternativo (Turnip) ativo, conta os arranques seguidos sem frames; a partir
+        // do 3o sugere o driver do sistema (o jogo nunca troca sozinho: otimizamos para o Turnip).
+        val custom = com.dfdx047.swordman.drivers.DriverRepository.activeDir() != null
+        val fails = if (state == SessionState.State.STARTING && custom) DriverBootFails.increment() else 0
         val kind = when {
-            state == SessionState.State.STARTING && bootFailed -> ErrorKind.DRIVER_BOOT
+            fails >= DriverBootFails.LIMIT -> ErrorKind.DRIVER_BOOT
             state == SessionState.State.STARTING -> ErrorKind.NO_BOOT
             else -> ErrorKind.CRASH
         }
-        val report = CrashReport(kind, describe(exit), tail(), exit.timestamp)
+        val detail = describe(exit) + if (fails > 0) " | driver alternativo: falha $fails/${DriverBootFails.LIMIT}" else ""
+        val report = CrashReport(kind, detail, tail(), exit.timestamp)
         AppLog.e("crash", "${report.kind}: ${report.detail}")
         return report
     }

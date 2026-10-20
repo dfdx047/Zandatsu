@@ -117,7 +117,7 @@ public class GameActivity extends SDLActivity {
                 if (NativeGameState.INSTANCE.frames() > 30) {
                     com.dfdx047.swordman.data.SessionState.INSTANCE.markRunning(appDir);
                     com.dfdx047.swordman.data.AppLog.INSTANCE.i("game", "primeiros frames apresentados");
-                    clearDriverBootPending();
+                    com.dfdx047.swordman.data.DriverBootFails.reset(appDir);
                 } else if (++tries < 120) {
                     h.postDelayed(this, 1000);
                 } else {
@@ -173,7 +173,6 @@ public class GameActivity extends SDLActivity {
 
     @Override
     protected void onPause() {
-        clearDriverBootPending();
         if (mOverlay != null) {
             mOverlay.onPause();
         }
@@ -451,45 +450,26 @@ public class GameActivity extends SDLActivity {
             // compilado (as texturas do jogo no RP5 com Turnip, 16/10), um destes muda-a.
             TURNIP_IR3_NOPREAMBLE = 128, TURNIP_IR3_NOUBOOPT = 256, TURNIP_IR3_NOFP16 = 512;
 
-    /**
-     * Protecao contra um driver que faz o jogo fechar logo no arranque (sem isto o utilizador
-     * ficava preso num ciclo de crashes ate apagar o driver). Antes de carregar o driver fica
-     * "driver_boot_pending" = nome:tamanho; nos primeiros frames (ou ao sair normalmente) apaga-se. Se ao
-     * abrir de novo ainda la estiver para o mesmo driver, este arranque usa o do sistema e o
-     * launcher mostra o aviso ("driver_boot_failed"). Trocar ou reinstalar o driver limpa-o.
-     */
     /** Que driver Vulkan este arranque usa (vai para o AppLog). */
     private String mDriverNote = "sistema";
 
+    /**
+     * O jogo nunca volta sozinho ao driver do sistema: as otimizacoes deste port sao feitas para
+     * o Turnip. Se o Turnip fechar o jogo antes do primeiro frame, o launcher conta a falha
+     * (DriverBootFails) e, a partir da 3a seguida, sugere o driver do sistema com o log para
+     * enviar. Aqui so se limpam as chaves da protecao antiga (que trocava sozinha de driver).
+     */
     private boolean driverCrashedBefore(File appDir) {
-        File[] drivers = new File(appDir, "driver").listFiles((dir, name) -> name.endsWith(".so"));
         @SuppressWarnings("deprecation")
         SharedPreferences prefs = getSharedPreferences("swordman", MODE_MULTI_PROCESS);
-        if (drivers == null || drivers.length == 0) {
+        if (prefs.contains("driver_boot_pending") || prefs.contains("driver_boot_failed")) {
             prefs.edit().remove("driver_boot_pending").remove("driver_boot_failed").commit();
-            return false;
         }
-        String id = drivers[0].getName() + ":" + drivers[0].length();
-        if (id.equals(prefs.getString("driver_boot_failed", ""))
-                || id.equals(prefs.getString("driver_boot_pending", ""))) {
-            prefs.edit().putString("driver_boot_failed", id).remove("driver_boot_pending").commit();
-            Log.w(TAG, "Driver " + id + " fechou o jogo no arranque anterior: a usar o do sistema");
-            mDriverNote = "sistema (" + id + " fechou o jogo antes do primeiro frame; reinstale-o na aba Drivers para tentar de novo)";
-            return true;
+        int fails = com.dfdx047.swordman.data.DriverBootFails.INSTANCE.read(appDir);
+        if (fails > 0) {
+            mDriverNote = "(" + fails + " arranque(s) seguidos sem frames com o driver alternativo)";
         }
-        // Apaga-se quando o jogo apresenta os primeiros frames (nao com um tempo fixo: um crash
-        // nao relacionado depois do arranque, ex. o 0104 aos 20 s, deixava o Turnip desligado
-        // para sempre no RP5 e os testes corriam no driver da Qualcomm sem ninguem saber).
-        prefs.edit().putString("driver_boot_pending", id).commit();
         return false;
-    }
-
-    private void clearDriverBootPending() {
-        @SuppressWarnings("deprecation")
-        SharedPreferences prefs = getSharedPreferences("swordman", MODE_MULTI_PROCESS);
-        if (prefs.contains("driver_boot_pending")) {
-            prefs.edit().remove("driver_boot_pending").apply();
-        }
     }
 
     /** TU_DEBUG que a tabela do TurnipSupport aplica sozinho (vazio = nenhum). */
@@ -651,7 +631,7 @@ public class GameActivity extends SDLActivity {
             setEnv("REX_VULKAN_DRIVER_DIR", internalDir.getAbsolutePath() + "/");
             setEnv("REX_VULKAN_DRIVER_NAME", target.getName());
             Log.i(TAG, "Driver Vulkan alternativo: " + target.getName());
-            mDriverNote = "alternativo: " + target.getName();
+            mDriverNote = "alternativo: " + target.getName() + (mDriverNote.startsWith("(") ? " " + mDriverNote : "");
         } catch (IOException e) {
             Log.e(TAG, "Falha a instalar o driver " + source, e);
             mDriverNote = "sistema (falha a copiar " + source.getName() + ": " + e.getMessage() + ")";
