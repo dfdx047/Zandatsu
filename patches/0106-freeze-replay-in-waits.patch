@@ -1,0 +1,55 @@
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+index 99282cf..c41a247 100644
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -659,9 +659,20 @@ uint32_t CommandProcessor::ExecutePrimaryBuffer(uint32_t read_index, uint32_t wr
+ }
+ 
+ void CommandProcessor::SwordManReplayFrozenFrame() {
++  if (swordman_replaying_) {
++    return;
++  }
+   if (!swordman_frame_valid_ || swordman_last_frame_start_ == swordman_last_frame_end_) {
++    static bool logged_invalid = false;
++    if (!logged_invalid) {
++      logged_invalid = true;
++      REXGPU_WARN("swordman: imagem congelada sem frame (swap no anel principal: {}, {}..{})",
++                  swordman_frame_valid_, swordman_last_frame_start_, swordman_last_frame_end_);
++    }
+     return;
+   }
++  // Pode ser chamado a meio de um pacote (WAIT_REG_MEM): guarda o leitor em curso.
++  const memory::RingBuffer* outer_reader = swordman_primary_reader_;
+   // O frame tem de continuar inteiro no anel (o frame seguinte, ja comecado, nao o pode ter
+   // escrito por cima).
+   const uint32_t ring = primary_buffer_size_ / sizeof(uint32_t);
+@@ -685,6 +696,7 @@ void CommandProcessor::SwordManReplayFrozenFrame() {
+   swordman_replaying_ = true;
+   ExecutePrimaryBuffer(swordman_last_frame_start_, swordman_last_frame_end_);
+   swordman_replaying_ = false;
++  swordman_primary_reader_ = outer_reader;
+   IssueSwap(swordman_swap_ptr_, swordman_swap_width_, swordman_swap_height_);
+ }
+ 
+@@ -1115,6 +1127,21 @@ bool CommandProcessor::ExecutePacketType3_WAIT_REG_MEM(memory::RingBuffer* reade
+         matched = true;
+         break;
+     }
++    if (!matched && REXCVAR_GET(swordman_freeze_replay) && !swordman_replaying_) {
++      // Project SwordMan: o jogo congelou com a GPU a meio de um frame, a espera de algo que
++      // so o jogo escreve: repete o ultimo frame completo daqui ate descongelar.
++      static bool logged_wait = false;
++      if (!logged_wait) {
++        logged_wait = true;
++        REXGPU_INFO("swordman: imagem congelada a partir de um WAIT_REG_MEM");
++      }
++      SwordManReplayFrozenFrame();
++      rex::thread::Sleep(std::chrono::milliseconds(16));
++      if (!worker_running_) {
++        return false;
++      }
++      continue;
++    }
+     if (!matched) {
+       // Wait.
+       if (wait >= 0x100) {
