@@ -414,7 +414,7 @@ class GameOverlay(private val activity: Activity) : InputManager.InputDeviceList
                 tapStart()
                 com.dfdx047.swordman.data.AppLog.i("selftest", "fim (Start do jogo para continuar)")
             }.also { it.start() }
-        }, 1200)
+        }, 3000)  // a pausa do MGR tem um fade de ~1-2 s (no Cube a 30 FPS a 1.a foto ainda era o jogo)
         return true
     }
 
