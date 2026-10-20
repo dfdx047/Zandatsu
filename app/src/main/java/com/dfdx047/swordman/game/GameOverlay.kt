@@ -402,8 +402,28 @@ class GameOverlay(private val activity: Activity) : InputManager.InputDeviceList
         val surface = GameActivity.gameSurface() ?: return false
         if (selfTest != null) return false
         setScreen(InGameScreen.CLOSED)
-        selfTest = RenderSelfTest(activity, surface) { selfTest = null }.also { it.start() }
+        // O autoteste precisa de uma imagem parada: carrega no Start do jogo (a pausa do MGR
+        // congela a cena por tras do menu) e, no fim, carrega outra vez para voltar ao jogo.
+        // A pausa do app nao serve: com ela o jogo deixa de desenhar e nao ha o que comparar.
+        ensurePad()
+        tapStart()
+        com.dfdx047.swordman.data.AppLog.i("selftest", "inicio (Start do jogo para pausar)")
+        main.postDelayed({
+            selfTest = RenderSelfTest(activity, surface) {
+                selfTest = null
+                tapStart()
+                com.dfdx047.swordman.data.AppLog.i("selftest", "fim (Start do jogo para continuar)")
+            }.also { it.start() }
+        }, 1200)
         return true
+    }
+
+    /** Start do comando virtual por um instante (6 frames). */
+    private fun tapStart() {
+        engine.press(
+            "selftest_start",
+            ControlAction.Sequence(listOf(MacroStep(setOf(PadInput.START), 6)), holdLast = false),
+        )
     }
 
     override fun exitToLauncher() {
