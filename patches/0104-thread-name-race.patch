@@ -1,0 +1,41 @@
+diff --git a/src/core/threading_posix.cpp b/src/core/threading_posix.cpp
+index e5e726b..44ea09a 100644
+--- a/src/core/threading_posix.cpp
++++ b/src/core/threading_posix.cpp
+@@ -1573,6 +1573,10 @@ class PosixThread : public PosixConditionHandle<Thread> {
+ 
+   void set_name(std::string name) override {
+     handle_.WaitStarted();
++    // Project SwordMan: o nome pode ser mudado por duas threads ao mesmo tempo (a propria, ao
++    // arrancar, e o SetThreadName do jogo): um lock global para o name_.
++    static std::mutex set_name_mutex;
++    std::lock_guard<std::mutex> name_lock(set_name_mutex);
+     Thread::set_name(name);
+     if (name.length() > 15) {
+       name = name.substr(0, 15);
+diff --git a/src/system/xthread.cpp b/src/system/xthread.cpp
+index 77bce25..375ee2a 100644
+--- a/src/system/xthread.cpp
++++ b/src/system/xthread.cpp
+@@ -439,10 +439,18 @@ X_STATUS XThread::Create() {
+     // Set thread ID override. This is used by logging.
+     rex::thread::set_current_thread_id(handle());
+ 
+-    // Set name immediately, if we have one.
+-    thread_->set_name(thread_name_);
++    // Set name immediately, if we have one. Project SwordMan: copia sob o thread_lock_ (o
++    // jogo da nome a thread logo depois de a criar, noutra thread: SetThreadName mexe no
++    // thread_name_ ao mesmo tempo e a copia sem lock libertava a string duas vezes - Scudo
++    // "invalid chunk state" no RG Cube, 20/10).
++    std::string start_name;
++    {
++      std::lock_guard<std::mutex> name_lock(thread_lock_);
++      start_name = thread_name_;
++    }
++    thread_->set_name(start_name);
+ 
+-    PROFILE_THREAD_ENTER(thread_name_.c_str());
++    PROFILE_THREAD_ENTER(start_name.c_str());
+     PROFILE_THREAD_CREATED();
+ 
+     // Execute user code.
