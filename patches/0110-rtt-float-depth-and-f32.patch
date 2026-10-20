@@ -1,0 +1,333 @@
+diff --git a/include/rex/graphics/vulkan/render_target_cache.h b/include/rex/graphics/vulkan/render_target_cache.h
+index 5dcc856..47d78a2 100644
+--- a/include/rex/graphics/vulkan/render_target_cache.h
++++ b/include/rex/graphics/vulkan/render_target_cache.h
+@@ -996,6 +996,9 @@ class VulkanRenderTargetCache final : public RenderTargetCache {
+   VkDescriptorSet Dbz3DrawCopyTextureSet(VkImageView view);
+   bool Dbz3TryResolveDepthToTexture(const draw_util::ResolveInfo& resolve_info,
+                                     VulkanTextureCache& texture_cache, bool skip_memory);
++  // 0110 (MGR): cor k_32_FLOAT -> texturas k_32_FLOAT sem passar pela memoria.
++  bool SwordManTryResolveF32ToTexture(const draw_util::ResolveInfo& resolve_info,
++                                      VulkanTextureCache& texture_cache, bool skip_memory);
+ 
+   // Writes contents of host render targets within rectangles from
+   // ResolveInfo::GetCopyEdramTileSpan to edram_buffer_.
+diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
+index 171ae95..f88c2a6 100644
+--- a/src/graphics/vulkan/render_target_cache.cpp
++++ b/src/graphics/vulkan/render_target_cache.cpp
+@@ -73,6 +73,11 @@ REXCVAR_DEFINE_STRING(render_target_path_vulkan, "", "GPU/Vulkan",
+ //     "always FB because the FSI path is much slower now).",
+ //     "GPU");
+ 
++REXCVAR_DEFINE_BOOL(swordman_rtt_float, true, "GPU/Vulkan",
++                    "Project SwordMan (0110): atalho resolve->textura tambem para a profundidade "
++                    "float (k_24_8_FLOAT) e a cor k_32_FLOAT")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++
+ REXCVAR_DEFINE_INT32(dbz3_resolve_debug, 0, "GPU",
+                      "DBZ3-Android: 1 = resolves sem trabalho na GPU (so para medir o custo)");
+ 
+@@ -6421,6 +6426,7 @@ struct Dbz3DirectResolveState {
+ };
+ Dbz3DirectResolveState g_dbz3_direct;
+ Dbz3DirectResolveState g_dbz3_direct_depth;
++Dbz3DirectResolveState g_swordman_direct_f32;  // 0110: cor k_32_FLOAT -> textura k_32_FLOAT
+ 
+ // Diagnostico: porque e que o atalho de profundidade nao se aplicou (uma vez por motivo).
+ bool Dbz3DepthFail(int reason) {
+@@ -6461,6 +6467,22 @@ bool Dbz3ColorFail(int reason, const draw_util::ResolveInfo& ri) {
+ 
+ // Profundidade + stencil do render target -> buffer linear. mode 0: float (textura
+ // k_24_8, R32_SFLOAT); mode 1: uint (depth24 << 8) | stencil (textura k_8_8_8_8).
++// 0110: render target k_32_FLOAT (R32_SFLOAT no host) -> buffer linear de floats.
++const char* SwordManDirectResolveF32Source() {
++  return R"(#version 450
++#extension GL_EXT_samplerless_texture_functions : require
++layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
++layout(set = 0, binding = 0, std430) writeonly buffer Dest { uint dest[]; };
++layout(set = 1, binding = 0) uniform texture2D src;
++layout(push_constant) uniform Constants { uint width; uint height; uint unused; } pc;
++void main() {
++  uvec2 p = gl_GlobalInvocationID.xy;
++  if (p.x >= pc.width || p.y >= pc.height) return;
++  dest[p.y * pc.width + p.x] = floatBitsToUint(texelFetch(src, ivec2(p), 0).r);
++}
++)";
++}
++
+ const char* Dbz3DirectResolveDepthSource() {
+   return R"(#version 450
+ #extension GL_EXT_samplerless_texture_functions : require
+@@ -6784,6 +6806,16 @@ bool VulkanRenderTargetCache::Dbz3TryResolveToTexture(const draw_util::ResolveIn
+     Dbz3DepthFail(0);  // so regista que chegou aqui
+     return Dbz3TryResolveDepthToTexture(resolve_info, texture_cache, skip_memory);
+   }
++  // 0110 (MGR): cor k_32_FLOAT -> textura k_32_FLOAT (ex. profundidade linear 1280x720).
++  if (resolve_info.copy_dest_info.copy_dest_format == xenos::ColorFormat::k_32_FLOAT &&
++      !resolve_info.color_edram_info.format_is_64bpp &&
++      xenos::ColorRenderTargetFormat(resolve_info.color_edram_info.format) ==
++          xenos::ColorRenderTargetFormat::k_32_FLOAT) {
++    if (!REXCVAR_GET(swordman_rtt_float)) {
++      return false;
++    }
++    return SwordManTryResolveF32ToTexture(resolve_info, texture_cache, skip_memory);
++  }
+   // Copias de cor 8888, sem escala, de um retangulo a comecar em (0,0) do render target e
+   // do destino, com o destino tiled de pitch = largura alinhada a 32.
+   if (resolve_info.copy_dest_info.copy_dest_exp_bias != 0 ||
+@@ -7343,6 +7375,194 @@ bool VulkanRenderTargetCache::Dbz3DrawCopyToTexture(VkDescriptorSet source_set,
+   return true;
+ }
+ 
++// 0110 (MGR): resolve de cor k_32_FLOAT para as texturas k_32_FLOAT ja existentes no destino,
++// sem passar pela memoria do guest: compute -> buffer linear -> copia para a imagem (as
++// texturas R32_SFLOAT nao precisam de conversao). So 1x de amostras, de (0,0).
++bool VulkanRenderTargetCache::SwordManTryResolveF32ToTexture(
++    const draw_util::ResolveInfo& resolve_info, VulkanTextureCache& texture_cache,
++    bool skip_memory) {
++  const draw_util::ResolveEdramInfo& src_info = resolve_info.color_edram_info;
++  if (resolve_info.copy_dest_info.copy_dest_exp_bias != 0 ||
++      src_info.msaa_samples != xenos::MsaaSamples::k1X ||
++      resolve_info.coordinate_info.edram_offset_x_div_8 != 0 ||
++      resolve_info.coordinate_info.edram_offset_y_div_8 != 0 ||
++      resolve_info.copy_dest_coordinate_info.offset_x_div_8 != 0 ||
++      resolve_info.copy_dest_coordinate_info.offset_y_div_8 != 0) {
++    return Dbz3ColorFail(20, resolve_info);
++  }
++  const uint32_t width = uint32_t(resolve_info.coordinate_info.width_div_8) * 8;
++  const uint32_t height = resolve_info.height_div_8 * 8;
++  const uint32_t guest_width = resolve_info.dbz3_guest_width;
++  const uint32_t guest_height = resolve_info.dbz3_guest_height;
++  if (width < 8 || height < 8 || guest_width < 8 || guest_height < 8 ||
++      uint32_t(resolve_info.copy_dest_coordinate_info.pitch_aligned_div_32) * 32 !=
++          ((guest_width + 31) & ~31u) ||
++      resolve_info.copy_dest_base != resolve_info.copy_dest_extent_start) {
++    return Dbz3ColorFail(21, resolve_info);
++  }
++  VulkanRenderTarget* rt_ptr = nullptr;
++  {
++    RenderTargetKey want;
++    want.base_tiles = src_info.base_tiles;
++    want.pitch_tiles_at_32bpp = src_info.pitch_tiles;
++    want.msaa_samples = src_info.msaa_samples;
++    want.is_depth = 0;
++    want.resource_format = uint32_t(xenos::ColorRenderTargetFormat::k_32_FLOAT);
++    rt_ptr = static_cast<VulkanRenderTarget*>(Dbz3FindRenderTarget(want));
++  }
++  if (!rt_ptr && dump_rectangles_.size() == 1 && dump_rectangles_[0].render_target) {
++    rt_ptr = static_cast<VulkanRenderTarget*>(dump_rectangles_[0].render_target);
++  }
++  if (!rt_ptr) {
++    return Dbz3ColorFail(22, resolve_info);
++  }
++  auto& rt = *rt_ptr;
++  const RenderTargetKey rt_key = rt.key();
++  if (rt_key.is_depth || rt_key.msaa_samples != xenos::MsaaSamples::k1X ||
++      rt_key.GetColorFormat() != xenos::ColorRenderTargetFormat::k_32_FLOAT ||
++      rt_key.base_tiles != src_info.base_tiles ||
++      rt_key.pitch_tiles_at_32bpp != src_info.pitch_tiles) {
++    return Dbz3ColorFail(23, resolve_info);
++  }
++  void* textures[4];
++  const uint32_t texture_count = texture_cache.Dbz3FindResolveTextures(
++      resolve_info.copy_dest_base, guest_width, guest_height, xenos::TextureFormat::k_32_FLOAT,
++      true, xenos::Endian::kNone, textures, 4);
++  if (!texture_count) {
++    return Dbz3ColorFail(24, resolve_info, [&] {
++      return texture_cache.Dbz3DescribeTexturesAt((resolve_info.copy_dest_base & 0x1FFFFFFF) >>
++                                                  12);
++    });
++  }
++  for (uint32_t i = 0; i < texture_count; ++i) {
++    if (texture_cache.Dbz3TextureWidth(textures[i]) > width ||
++        texture_cache.Dbz3TextureHeight(textures[i]) > height) {
++      return Dbz3ColorFail(25, resolve_info);
++    }
++  }
++
++  const ui::vulkan::VulkanDevice* const vulkan_device = command_processor_.GetVulkanDevice();
++  const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
++  const VkDevice device = vulkan_device->device();
++  Dbz3DirectResolveState& st = g_swordman_direct_f32;
++  if (!st.init_tried) {
++    st.init_tried = true;
++    std::vector<uint32_t> spirv;
++    std::string error;
++    if (!command_processor_.CompileGlslToSpirv(VK_SHADER_STAGE_COMPUTE_BIT,
++                                               SwordManDirectResolveF32Source(), spirv, error)) {
++      REXGPU_ERROR("swordman: atalho 32_FLOAT->textura: shader nao compilou: {}", error);
++      return false;
++    }
++    VkDescriptorSetLayout set_layouts[2] = {
++        command_processor_.GetSingleTransientDescriptorLayout(
++            VulkanCommandProcessor::SingleTransientDescriptorLayout::kStorageBufferCompute),
++        descriptor_set_layout_sampled_image_};
++    VkPushConstantRange push_range = {VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(uint32_t) * 3};
++    VkPipelineLayoutCreateInfo layout_info = {};
++    layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
++    layout_info.setLayoutCount = 2;
++    layout_info.pSetLayouts = set_layouts;
++    layout_info.pushConstantRangeCount = 1;
++    layout_info.pPushConstantRanges = &push_range;
++    if (dfn.vkCreatePipelineLayout(device, &layout_info, nullptr, &st.layout) != VK_SUCCESS) {
++      REXGPU_ERROR("swordman: atalho 32_FLOAT->textura: vkCreatePipelineLayout falhou");
++      return false;
++    }
++    VkShaderModuleCreateInfo module_info = {};
++    module_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
++    module_info.codeSize = spirv.size() * sizeof(uint32_t);
++    module_info.pCode = spirv.data();
++    VkShaderModule module = VK_NULL_HANDLE;
++    if (dfn.vkCreateShaderModule(device, &module_info, nullptr, &module) != VK_SUCCESS) {
++      REXGPU_ERROR("swordman: atalho 32_FLOAT->textura: vkCreateShaderModule falhou");
++      return false;
++    }
++    VkComputePipelineCreateInfo pipeline_info = {};
++    pipeline_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
++    pipeline_info.stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
++    pipeline_info.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
++    pipeline_info.stage.module = module;
++    pipeline_info.stage.pName = "main";
++    pipeline_info.layout = st.layout;
++    const VkResult result = dfn.vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipeline_info,
++                                                         nullptr, &st.pipeline);
++    dfn.vkDestroyShaderModule(device, module, nullptr);
++    if (result != VK_SUCCESS) {
++      st.pipeline = VK_NULL_HANDLE;
++      REXGPU_ERROR("swordman: atalho 32_FLOAT->textura: vkCreateComputePipelines falhou");
++      return false;
++    }
++    REXGPU_INFO("swordman: atalho 32_FLOAT->textura ativo");
++  }
++  if (st.pipeline == VK_NULL_HANDLE) {
++    return false;
++  }
++
++  if (skip_memory) {
++    texture_cache.MarkRangeAsResolved(resolve_info.copy_dest_extent_start,
++                                      resolve_info.copy_dest_extent_length);
++    dbz3_gpuprof::CountSkippedMemory();
++  }
++  command_processor_.PushImageMemoryBarrier(
++      rt.image(), ui::vulkan::util::InitializeSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT),
++      rt.current_stage_mask(), VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, rt.current_access_mask(),
++      VK_ACCESS_SHADER_READ_BIT, rt.current_layout(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
++  rt.SetUsage(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT,
++              VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
++
++  DeferredCommandBuffer& command_buffer = command_processor_.deferred_command_buffer();
++  bool any = false;
++  for (uint32_t i = 0; i < texture_count; ++i) {
++    const uint32_t tex_height = std::min(height, texture_cache.Dbz3TextureHeight(textures[i]));
++    const uint32_t tex_width = std::min(width, texture_cache.Dbz3TextureWidth(textures[i]));
++    const VkDeviceSize buffer_size = VkDeviceSize(tex_width) * tex_height * 4;
++    VulkanCommandProcessor::ScratchBufferAcquisition scratch =
++        command_processor_.AcquireScratchGpuBuffer(buffer_size, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
++                                                   VK_ACCESS_SHADER_WRITE_BIT);
++    VkBuffer scratch_buffer = scratch.buffer();
++    if (scratch_buffer == VK_NULL_HANDLE) {
++      return any;
++    }
++    VkDescriptorSet dest_set = command_processor_.AllocateSingleTransientDescriptor(
++        VulkanCommandProcessor::SingleTransientDescriptorLayout::kStorageBufferCompute);
++    if (dest_set == VK_NULL_HANDLE) {
++      return any;
++    }
++    VkDescriptorBufferInfo dest_buffer_info = {scratch_buffer, 0, buffer_size};
++    VkWriteDescriptorSet write = {};
++    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
++    write.dstSet = dest_set;
++    write.dstBinding = 0;
++    write.descriptorCount = 1;
++    write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
++    write.pBufferInfo = &dest_buffer_info;
++    dfn.vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
++    command_processor_.BindExternalComputePipeline(st.pipeline);
++    VkDescriptorSet sets[2] = {dest_set, rt.GetDescriptorSetTransferSource()};
++    command_buffer.CmdVkBindDescriptorSets(VK_PIPELINE_BIND_POINT_COMPUTE, st.layout, 0, 2, sets,
++                                           0, nullptr);
++    const uint32_t constants[3] = {tex_width, tex_height, 0};
++    command_buffer.CmdVkPushConstants(st.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0,
++                                      sizeof(constants), constants);
++    command_processor_.SubmitBarriers(true);
++    command_buffer.CmdVkDispatch((tex_width + 7) / 8, (tex_height + 7) / 8, 1);
++    texture_cache.Dbz3CopyToResolveTexture(textures[i], scratch_buffer, tex_width, tex_height,
++                                           scratch.SetStageMask(VK_PIPELINE_STAGE_TRANSFER_BIT),
++                                           scratch.SetAccessMask(VK_ACCESS_TRANSFER_READ_BIT));
++    any = true;
++  }
++  if (any) {
++    dbz3_gpuprof::CountDirectResolve();
++    if (st.logged < 4) {
++      ++st.logged;
++      REXGPU_INFO("swordman: atalho 32_FLOAT->textura {}x{} dest={:08X} texturas={}", width,
++                  height, resolve_info.copy_dest_base, texture_count);
++    }
++  }
++  return any;
++}
++
+ bool VulkanRenderTargetCache::Dbz3TryResolveDepthToTexture(
+     const draw_util::ResolveInfo& resolve_info, VulkanTextureCache& texture_cache,
+     bool skip_memory) {
+@@ -7351,14 +7571,23 @@ bool VulkanRenderTargetCache::Dbz3TryResolveDepthToTexture(
+   // Formato de destino: GetResolveInfo substitui-o por k_24_8 (22, que o enum
+   // ColorFormat nao nomeia) nos resolves de profundidade; so o endian conta. O jogo le o
+   // destino como k_24_8 ou k_8_8_8_8.
++  // 0110 (MGR): tambem profundidade float (kD24FS8 -> k_24_8_FLOAT, 23): no host as duas sao
++  // R32_SFLOAT com a profundidade em [0, 1], e o render target guarda-a em float.
+   const uint32_t dest_format = uint32_t(resolve_info.copy_dest_info.copy_dest_format);
+-  if ((dest_format != uint32_t(xenos::ColorFormat::k_8_8_8_8) && dest_format != 22u) ||
++  if ((dest_format != uint32_t(xenos::ColorFormat::k_8_8_8_8) && dest_format != 22u &&
++       dest_format != 23u) ||
+       resolve_info.copy_dest_info.copy_dest_exp_bias != 0) {
+     return Dbz3DepthFail(1);
+   }
+   const draw_util::ResolveEdramInfo& src_info = resolve_info.depth_edram_info;
++  const bool depth_is_float =
++      xenos::DepthRenderTargetFormat(src_info.format) == xenos::DepthRenderTargetFormat::kD24FS8;
++  if (depth_is_float && !REXCVAR_GET(swordman_rtt_float)) {
++    return Dbz3DepthFail(8);
++  }
+   if (src_info.msaa_samples != xenos::MsaaSamples::k1X ||
+-      xenos::DepthRenderTargetFormat(src_info.format) != xenos::DepthRenderTargetFormat::kD24S8 ||
++      (xenos::DepthRenderTargetFormat(src_info.format) != xenos::DepthRenderTargetFormat::kD24S8 &&
++       !depth_is_float) ||
+       resolve_info.coordinate_info.edram_offset_x_div_8 != 0 ||
+       resolve_info.coordinate_info.edram_offset_y_div_8 != 0 ||
+       resolve_info.copy_dest_coordinate_info.offset_x_div_8 != 0 ||
+@@ -7393,9 +7622,11 @@ bool VulkanRenderTargetCache::Dbz3TryResolveDepthToTexture(
+   };
+   Target targets[8];
+   uint32_t target_count = 0;
+-  for (uint32_t f = 0; f < 2; ++f) {
+-    const xenos::TextureFormat tf = f == 0 ? xenos::TextureFormat::k_24_8
+-                                           : xenos::TextureFormat::k_8_8_8_8;
++  // Float: so k_24_8_FLOAT (empacotar float em 24 bits unorm para 8888 nao seria o mesmo).
++  for (uint32_t f = 0; f < (depth_is_float ? 1u : 2u); ++f) {
++    const xenos::TextureFormat tf = depth_is_float ? xenos::TextureFormat::k_24_8_FLOAT
++                                    : f == 0       ? xenos::TextureFormat::k_24_8
++                                                   : xenos::TextureFormat::k_8_8_8_8;
+     void* found[4];
+     const uint32_t n = texture_cache.Dbz3FindResolveTextures(resolve_info.copy_dest_base,
+                                                              guest_width, guest_height, tf, true,
+diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
+index b4aae4c..3439fa2 100644
+--- a/src/graphics/vulkan/texture_cache.cpp
++++ b/src/graphics/vulkan/texture_cache.cpp
+@@ -2079,6 +2079,14 @@ void* VulkanTextureCache::Dbz3FindResolveTexture(uint32_t base, uint32_t width,
+     }
+     return texture;
+   }
++  if (format == xenos::TextureFormat::k_24_8_FLOAT) {
++    // 0110 (MGR): profundidade float resolvida: no host R32_SFLOAT com a profundidade em [0, 1].
++    if (host_format_pair.format_unsigned.format != VK_FORMAT_R32_SFLOAT ||
++        host_format_pair.format_unsigned.load_shader != kLoadShaderIndexDepthFloat) {
++      return nullptr;
++    }
++    return texture;
++  }
+   if (format == xenos::TextureFormat::k_32_FLOAT) {
+     // Dragon Burst: profundidade linear (render nativo, passo 2), R32_SFLOAT direto.
+     if (host_format_pair.format_unsigned.format != VK_FORMAT_R32_SFLOAT ||

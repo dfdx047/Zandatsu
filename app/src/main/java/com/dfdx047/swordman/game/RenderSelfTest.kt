@@ -55,6 +55,8 @@ class RenderSelfTest(
         Opt("RT diretos: Clear 4x direto em 1x", mapOf("dbz3_clear_to_1x" to ("true" to "false"))),
         Opt("uploads antes do passe", mapOf("dbz3_hoist_uploads" to ("true" to "false"))),
         Opt("resolve: leitura logo no fim", mapOf("dbz3_resolve_early_transition" to ("true" to "false"))),
+        // 0110: atalho resolve -> textura para a profundidade float e a cor 32_FLOAT (MGR).
+        Opt("atalho profundidade float / 32_FLOAT (0110)", mapOf("swordman_rtt_float" to ("true" to "false"))),
         Opt("render targets diretos (DF)", mapOf("dbz3_rt_direct" to ("true" to "false"))),
         Opt("resolve sem memoria (DF)", mapOf("dbz3_direct_resolve_skip_memory" to ("true" to "false"))),
     )
@@ -125,7 +127,9 @@ class RenderSelfTest(
                             }
                             report.append(String.format(java.util.Locale.ROOT, "%-46s ruido %.3f%%, GPU %s\n", "referencia (config)", noise, fmtMs(ms)))
                             log("autoteste: referencia, ruido %.3f%%, GPU %s".format(java.util.Locale.ROOT, noise, fmtMs(ms)))
-                            step(0)
+                            // Efeitos primeiro: alguns interruptores abaixo (resolve sem
+                            // memoria) deixam a memoria do frame congelado diferente ate ao fim.
+                            startEffects()
                         }
                     }
                 }
@@ -136,7 +140,7 @@ class RenderSelfTest(
     private fun step(i: Int) {
         if (i > active.size) {
             NativeGameState.setCvars(base)
-            startEffects()
+            finish()
             return
         }
         val off: Map<String, String>
@@ -197,12 +201,15 @@ class RenderSelfTest(
         }
         if (seen.isEmpty()) {
             report.append("\nEfeitos: censo vazio (build sem 0107?)\n")
-            finish()
+            step(0)
             return
         }
         val known = seen.filter { it.hash in KNOWN_POST }
         val rest = seen.filter { it.hash !in KNOWN_POST }.take((MAX_FX - known.size).coerceAtLeast(0))
-        fxList = known + rest
+        // Grupos: passes que so fazem sentido juntos (a cadeia pequena de 320x176 = brilho).
+        val groups = GROUPS.filter { g -> g.split(',').all { h -> seen.any { it.hash == h } } }
+            .map { g -> Fx(g, g.split(',').sumOf { h -> seen.first { it.hash == h }.draws }, 320, 6) }
+        fxList = groups + known + rest
         report.append("\nEfeitos (salta UM pixel shader de cada vez; GPU = ms por frame, delta vs referencia)\n")
         report.append("Censo: ${seen.size} pixel shaders, ${seen.sumOf { it.draws }} draws durante a medicao\n")
         fxStep(0)
@@ -218,7 +225,8 @@ class RenderSelfTest(
                     report.append(String.format(java.util.Locale.ROOT, "  PS %s  %-10s  imagem %.2f%%  foto %02d  draws %d pitch %d\n",
                         r.fx.hash, fmtDelta(r.ms), r.pct, r.shot, r.fx.draws, r.fx.pitch))
                 }
-                finish()
+                report.append("\nOtimizacoes (cada uma trocada sozinha):\n")
+                step(0)
             }
             return
         }
@@ -265,7 +273,13 @@ class RenderSelfTest(
     private companion object {
         const val SETTLE_MS = 1200L
         const val MEASURE_MS = 2000L
-        const val MAX_FX = 40
+        const val MAX_FX = 60
+
+        /** Grupos medidos juntos (hashes separados por virgula, como o swordman_skip_ps). */
+        val GROUPS = listOf(
+            "C45580526034B1F2,4086D1DF9FA6220E,38C32FC0BC7F322D",
+            "C45580526034B1F2,4086D1DF9FA6220E",
+        )
 
         /** Passes de ecra inteiro do MGR vistos na captura de 19/10 (RP5). */
         val KNOWN_POST = setOf(
