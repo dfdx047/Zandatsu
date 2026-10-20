@@ -163,3 +163,15 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
+
+// O codigo nativo vem de fora do modulo (external/rexglue-sdk com os patches, generated/default
+// do codegen): o Gradle nao ve essas mudancas e marcava a compilacao nativa como "up-to-date",
+// gerando um APK com as .so antigas. Assim o ninja corre sempre (ele proprio e incremental:
+// sem mudancas leva poucos segundos).
+tasks.configureEach {
+    if (name.startsWith("buildCMake") || name.startsWith("externalNativeBuild") ||
+        name.startsWith("configureCMake")
+    ) {
+        outputs.upToDateWhen { false }
+    }
+}
