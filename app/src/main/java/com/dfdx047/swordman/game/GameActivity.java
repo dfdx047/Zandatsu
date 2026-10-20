@@ -69,6 +69,8 @@ public class GameActivity extends SDLActivity {
         }
         prepareLogFile(appDir);
         com.dfdx047.swordman.data.AppLog.INSTANCE.setProcess("game");
+        // O driver que este arranque usa fica no registo do app (entra no "Exportar logs").
+        com.dfdx047.swordman.data.AppLog.INSTANCE.i("driver", mDriverNote);
         com.dfdx047.swordman.data.SessionState.INSTANCE.markStarting(appDir);
         com.dfdx047.swordman.data.AppLog.INSTANCE.i("game", "arranque: pasta " + appDir.getAbsolutePath() + "/game");
         super.onCreate(savedInstanceState);
@@ -115,6 +117,7 @@ public class GameActivity extends SDLActivity {
                 if (NativeGameState.INSTANCE.frames() > 30) {
                     com.dfdx047.swordman.data.SessionState.INSTANCE.markRunning(appDir);
                     com.dfdx047.swordman.data.AppLog.INSTANCE.i("game", "primeiros frames apresentados");
+                    clearDriverBootPending();
                 } else if (++tries < 120) {
                     h.postDelayed(this, 1000);
                 } else {
@@ -451,10 +454,13 @@ public class GameActivity extends SDLActivity {
     /**
      * Protecao contra um driver que faz o jogo fechar logo no arranque (sem isto o utilizador
      * ficava preso num ciclo de crashes ate apagar o driver). Antes de carregar o driver fica
-     * "driver_boot_pending" = nome:tamanho; 30 s depois (ou ao sair normalmente) apaga-se. Se ao
+     * "driver_boot_pending" = nome:tamanho; nos primeiros frames (ou ao sair normalmente) apaga-se. Se ao
      * abrir de novo ainda la estiver para o mesmo driver, este arranque usa o do sistema e o
      * launcher mostra o aviso ("driver_boot_failed"). Trocar ou reinstalar o driver limpa-o.
      */
+    /** Que driver Vulkan este arranque usa (vai para o AppLog). */
+    private String mDriverNote = "sistema";
+
     private boolean driverCrashedBefore(File appDir) {
         File[] drivers = new File(appDir, "driver").listFiles((dir, name) -> name.endsWith(".so"));
         @SuppressWarnings("deprecation")
@@ -468,11 +474,13 @@ public class GameActivity extends SDLActivity {
                 || id.equals(prefs.getString("driver_boot_pending", ""))) {
             prefs.edit().putString("driver_boot_failed", id).remove("driver_boot_pending").commit();
             Log.w(TAG, "Driver " + id + " fechou o jogo no arranque anterior: a usar o do sistema");
+            mDriverNote = "sistema (" + id + " fechou o jogo antes do primeiro frame; reinstale-o na aba Drivers para tentar de novo)";
             return true;
         }
+        // Apaga-se quando o jogo apresenta os primeiros frames (nao com um tempo fixo: um crash
+        // nao relacionado depois do arranque, ex. o 0104 aos 20 s, deixava o Turnip desligado
+        // para sempre no RP5 e os testes corriam no driver da Qualcomm sem ninguem saber).
         prefs.edit().putString("driver_boot_pending", id).commit();
-        new android.os.Handler(android.os.Looper.getMainLooper())
-                .postDelayed(this::clearDriverBootPending, 30000);
         return false;
     }
 
@@ -643,8 +651,10 @@ public class GameActivity extends SDLActivity {
             setEnv("REX_VULKAN_DRIVER_DIR", internalDir.getAbsolutePath() + "/");
             setEnv("REX_VULKAN_DRIVER_NAME", target.getName());
             Log.i(TAG, "Driver Vulkan alternativo: " + target.getName());
+            mDriverNote = "alternativo: " + target.getName();
         } catch (IOException e) {
             Log.e(TAG, "Falha a instalar o driver " + source, e);
+            mDriverNote = "sistema (falha a copiar " + source.getName() + ": " + e.getMessage() + ")";
         }
     }
 
