@@ -470,16 +470,6 @@ public class GameActivity extends SDLActivity {
             return false;
         }
         String id = drivers[0].getName() + ":" + drivers[0].length();
-        // Regra dos ports: no Adreno o Turnip e obrigatorio. Um arranque que falhou fica
-        // registado (o launcher mostra o aviso), mas o proximo continua no Turnip.
-        if (com.dfdx047.swordman.drivers.DriverRepository.INSTANCE.isAdreno()) {
-            if (id.equals(prefs.getString("driver_boot_pending", ""))) {
-                mDriverNote = "alternativo (o arranque anterior com " + id
-                        + " fechou antes do primeiro frame; Turnip obrigatorio no Adreno, mantido)";
-            }
-            prefs.edit().putString("driver_boot_pending", id).commit();
-            return false;
-        }
         if (id.equals(prefs.getString("driver_boot_failed", ""))
                 || id.equals(prefs.getString("driver_boot_pending", ""))) {
             prefs.edit().putString("driver_boot_failed", id).remove("driver_boot_pending").commit();
@@ -661,9 +651,7 @@ public class GameActivity extends SDLActivity {
             setEnv("REX_VULKAN_DRIVER_DIR", internalDir.getAbsolutePath() + "/");
             setEnv("REX_VULKAN_DRIVER_NAME", target.getName());
             Log.i(TAG, "Driver Vulkan alternativo: " + target.getName());
-            if (!mDriverNote.startsWith("alternativo")) {
-                mDriverNote = "alternativo: " + target.getName();
-            }
+            mDriverNote = "alternativo: " + target.getName();
         } catch (IOException e) {
             Log.e(TAG, "Falha a instalar o driver " + source, e);
             mDriverNote = "sistema (falha a copiar " + source.getName() + ": " + e.getMessage() + ")";

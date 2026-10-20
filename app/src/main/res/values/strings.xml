@@ -372,6 +372,4 @@
     <string name="err_dialog_iso_text">The .iso or the game files are damaged, incomplete or not the expected version. Make a new dump of your disc (full XGD2 .iso) and import it again.</string>
     <string name="err_dialog_import_title">Import failed</string>
     <string name="err_dialog_import_text">The game could not be copied. Check the free space and that the file or folder is still available, then try again.</string>
-    <string name="msg_turnip_auto">Adreno: Turnip enabled automatically (%1$s)</string>
-    <string name="err_turnip_required">This device has an Adreno GPU: the game only runs on Turnip. Install one in the Drivers tab (needs internet).</string>
 </resources>

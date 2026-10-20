@@ -112,11 +112,8 @@ fun DriversScreen(vm: LauncherViewModel) {
                     style = MaterialTheme.typography.bodyLarge,
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    // No Adreno o Turnip e obrigatorio (regra dos ports): sem botao do driver do sistema.
-                    if (!com.dfdx047.swordman.drivers.DriverRepository.isAdreno()) {
-                        OutlinedButton(onClick = { vm.useSystemDriver() }, enabled = active != null) {
-                            Text(stringResource(R.string.drivers_use_system))
-                        }
+                    OutlinedButton(onClick = { vm.useSystemDriver() }, enabled = active != null) {
+                        Text(stringResource(R.string.drivers_use_system))
                     }
                     FilledTonalButton(onClick = { pickFile.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) }, enabled = vm.busy == null) {
                         Icon(Icons.Filled.FileOpen, null)
