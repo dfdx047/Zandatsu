@@ -107,6 +107,13 @@ data class GameConfig(
             "dbz3_fx_dof" to true,
             "dbz3_fx_fxaa" to true,
             "dbz3_rt_restore_shaders" to "",
+            // Occlusion queries do jogo (o MGR usa-as cerca de 45 s depois de abrir): o driver da
+            // Mali cai em vkCmdEndQuery (RG Cube, 20/10). Fora do Adreno ficam desligadas e o
+            // jogo recebe o numero fixo de amostras (tudo "visivel").
+            "occlusion_query_enable" to adreno,
+            // Os contornos 0102/0103 eram para o crash acima (diagnostico errado): desligados.
+            "dbz3_empty_fs_for_depth_only" to 0,
+            "dbz3_skip_vertex_shaders" to "",
             // Memoria do jogo num buffer normal (sem sparse binding): menos um caminho com bugs.
             "vulkan_sparse_shared_memory" to false,
             "dbz3_ignore_fetch_lod_bias" to false,
