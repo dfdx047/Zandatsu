@@ -27,7 +27,7 @@ data class GameConfig(
     val frameInterpolation: Boolean = false,
     // Desfoque do brilho do MGR (cadeia de 320x176, PS C4558052 + 4086D1DF): no RG Cube custa
     // ~2,6 ms e desliga-lo nao mudou a imagem em duas cenas (autoteste 20/10 23:03 e 21/10 06:40).
-    val glowBlur: Boolean = true,
+    val glowBlur: Boolean = false,  // desfoque do brilho: ~2 ms no Mali-G57, cortado por padrao (21/10)
     // 0114 (experimental): aritmetica dos pixel shaders em fp16 (RelaxedPrecision).
     val psFp16: Boolean = false,
     val showFps: Boolean = false,             // debug_overlay
@@ -83,12 +83,17 @@ data class GameConfig(
             "dbz3_perf_logging" to perfLogging,
             "dbz3_direct_resolve_texture" to if (opt) directResolve.coerceIn(0, 1) else 0,
             "dbz3_direct_resolve_skip_memory" to (opt && directResolveFast),
+            // Turnip (21/10 noite): sem gravar a memoria o resolve do RP5 cai de 13-14 para 6-7 ms
+            // por frame (60 fps fora das lutas). Imagem ainda com defeitos (Raiden branco no menu):
+            // aceite por agora para otimizar; o modo seguro desliga tudo.
+            "swordman_skip_memory_turnip" to (opt && directResolveFast),
             "dbz3_rt_direct" to (opt && rtDirect),
             "dbz3_rt_elide_restores" to (opt && adreno),
             "dbz3_skip_depth_restore" to opt,
             "dbz3_hoist_uploads" to opt,
             "dbz3_resolve_early_transition" to opt,
-            "dbz3_direct_resolve_draw" to (opt && !adreno),
+            // Copia por desenho: tambem no Adreno (Qualcomm 21/10: 9.15 -> 7.14 ms, imagem igual).
+            "dbz3_direct_resolve_draw" to opt,
             "dbz3_rit_serve_resolves" to (opt && !adreno),
             "dbz3_resolve_dedupe_unread_neutral" to (opt && !adreno),
             "dbz3_spec_texture_signs" to (opt && specShaders),
