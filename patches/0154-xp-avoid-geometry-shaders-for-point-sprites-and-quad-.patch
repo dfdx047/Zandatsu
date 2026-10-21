@@ -1,0 +1,45 @@
+diff --git a/src/graphics/vulkan/primitive_processor.cpp b/src/graphics/vulkan/primitive_processor.cpp
+index cdbedae..39a76ae 100644
+--- a/src/graphics/vulkan/primitive_processor.cpp
++++ b/src/graphics/vulkan/primitive_processor.cpp
+@@ -34,6 +34,14 @@ REXCVAR_DEFINE_BOOL(vulkan_force_convert_quad_lists_to_triangle_lists, false, "G
+                     "Force Vulkan quad list conversion to triangle lists in primitive processing, "
+                     "even when geometry shaders are available")
+     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
++// XenDroid (base) vulkan_avoid_geometry_shaders.
++REXCVAR_DEFINE_BOOL(vulkan_avoid_geometry_shaders, true, "GPU/Vulkan",
++                    "On Adreno (Qualcomm proprietary driver or Turnip), route guest point sprites "
++                    "(expanded in the vertex shader) and quad lists (converted to triangle lists on "
++                    "the CPU) around the geometry shader stage, which serializes the binning pass "
++                    "of the tiler. Rectangle lists stay on the geometry shader. No effect on other "
++                    "GPUs. Read when the GPU is initialized")
++    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+ 
+ namespace rex::graphics::vulkan {
+ 
+@@ -52,11 +60,23 @@ bool VulkanPrimitiveProcessor::Initialize() {
+   // allow opting into Vulkan fallback paths for debugging and downlevel
+   // compatibility testing.
+   bool geometry_shader_primitive_emulation_allowed = device_properties.geometryShader;
++  // vulkan_avoid_geometry_shaders: point sprites and quad lists without the geometry shader on
++  // the Adreno tilers. The CPU quad path splits along the q0-q2 diagonal as a triangle list, the
++  // geometry shader along q1-q3 - the same pixels for planar convex quads (UI, sprites).
++  const bool avoid_geometry_shaders =
++      REXCVAR_GET(vulkan_avoid_geometry_shaders) &&
++      (device_properties.driverID == VK_DRIVER_ID_QUALCOMM_PROPRIETARY ||
++       device_properties.driverID == VK_DRIVER_ID_MESA_TURNIP);
++  if (avoid_geometry_shaders && geometry_shader_primitive_emulation_allowed) {
++    REXGPU_INFO(
++        "VulkanPrimitiveProcessor: point sprites and quad lists without the geometry shader "
++        "(Adreno)");
++  }
+   bool quad_lists_supported_without_conversion =
+-      geometry_shader_primitive_emulation_allowed &&
++      geometry_shader_primitive_emulation_allowed && !avoid_geometry_shaders &&
+       !REXCVAR_GET(vulkan_force_convert_quad_lists_to_triangle_lists);
+   bool point_sprites_supported_without_vs_expansion =
+-      geometry_shader_primitive_emulation_allowed &&
++      geometry_shader_primitive_emulation_allowed && !avoid_geometry_shaders &&
+       !REXCVAR_GET(vulkan_force_expand_point_sprites_in_vs);
+   bool rectangle_lists_supported_without_vs_expansion =
+       geometry_shader_primitive_emulation_allowed &&

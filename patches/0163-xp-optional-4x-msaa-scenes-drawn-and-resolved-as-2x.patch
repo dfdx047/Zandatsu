@@ -1,0 +1,188 @@
+diff --git a/include/rex/graphics/vulkan/command_processor.h b/include/rex/graphics/vulkan/command_processor.h
+index 444b400..64f3e61 100644
+--- a/include/rex/graphics/vulkan/command_processor.h
++++ b/include/rex/graphics/vulkan/command_processor.h
+@@ -291,6 +291,17 @@ class VulkanCommandProcessor : public CommandProcessor {
+   // pixel shader. Returns whether the draw renders the samples as pixels.
+   bool RewriteMsaa4xSurfaceInfoForDraw(const Shader* pixel_shader,
+                                        bool pixel_shader_uses_position);
++  // msaa_4x_as_2x (XenDroid Plus 44b2f6fef): the guest's 4x MSAA surface info of a resolve
++  // rewritten to 2x like the draws of its surface (IssueCopy restores it).
++  void RewriteMsaa4xSurfaceInfoForCopy();
++  // msaa_4x_as_2x: records the 1x surfaces of a draw or resolve, or for a 4x one, returns whether
++  // it must stay 4x - a used surface of it is also used as 1x (its samples read as pixels), or
++  // drawn with one that is. used_render_targets: bit 0 - depth, 1 + i - color i.
++  bool TrackMsaa4xSurfacesReadAs1x(uint32_t used_render_targets);
++  // EDRAM base | pitch in tiles << 16 of the 1x surfaces seen, and of the 4x surfaces that must
++  // stay 4x.
++  std::unordered_set<uint32_t> msaa_1x_surfaces_;
++  std::unordered_set<uint32_t> msaa_keep_4x_surfaces_;
+   // The key of the current depth surface: depth base | pitch << 16.
+   uint32_t GetMsaa4xDepthSurface() const;
+   // Depth surfaces of multisampled scenes (drawn with color at 4x).
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index d288ac1..1ed83e3 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -265,6 +265,19 @@ REXCVAR_DEFINE_BOOL(vulkan_async_skip_incomplete_frames, true, "GPU/Vulkan",
+                     "used placeholder pipelines to avoid visible flashing")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ 
++// XenDroid Plus 44b2f6fef (the per-draw form; XP later moved to 2x host images keeping the 4x
++// EDRAM layout, d02120a8b, which needs its direct host resolves).
++REXCVAR_DEFINE_BOOL(msaa_4x_as_2x, false, "GPU/Vulkan",
++                    "EXPERIMENTAL quality-for-speed option, host render target path: draw and "
++                    "resolve the guest's 4x MSAA scenes (surfaces drawn with color) as 2x MSAA - "
++                    "the surface info is rewritten for each draw and resolve, so the render "
++                    "targets, pipelines and resolves all see 2x. 4x depth-only surfaces stay 4x "
++                    "(see vulkan_depth_4x_as_1x), and so do surfaces also used as 1x (their samples "
++                    "read as pixels) and whatever is drawn with them. Other reinterpretations of "
++                    "the 4x EDRAM contents break: Forza Horizon (-15% GPU time) reads its 4x scene "
++                    "color as a 4x surface of half the pitch and gets a glow around the car. "
++                    "Occlusion queries count half the samples. Read per draw and resolve")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ // XenDroid Plus 44b2f6fef / 0080f3942.
+ REXCVAR_DEFINE_BOOL(vulkan_depth_4x_as_1x, false, "GPU/Vulkan",
+                     "Host render target path: render the guest's 4x MSAA depth-only draws into "
+@@ -6829,6 +6842,13 @@ bool VulkanCommandProcessor::IssueCopy() {
+   if (dbz3_capture::Active()) {
+     dbz3_capture::OnCopy(*register_file_);
+   }
++  // msaa_4x_as_2x: the surface info of this resolve only.
++  struct CopySurfaceInfoRestore {
++    RegisterFile& register_file;
++    uint32_t surface_info;
++    ~CopySurfaceInfoRestore() { register_file.values[XE_GPU_REG_RB_SURFACE_INFO] = surface_info; }
++  } copy_surface_info_restore{*register_file_, register_file_->values[XE_GPU_REG_RB_SURFACE_INFO]};
++  RewriteMsaa4xSurfaceInfoForCopy();
+   // Dragon Burst: o resolve da preparacao do motion blur saltada (dbz3_bl_native_post_lite).
+   if (dbz3_resolve_dedupe::g_skip_next_resolve) {
+     dbz3_resolve_dedupe::g_skip_next_resolve = false;
+@@ -8177,9 +8197,81 @@ uint32_t VulkanCommandProcessor::GetMsaa4xDepthSurface() const {
+          (uint32_t(regs.Get<reg::RB_SURFACE_INFO>().surface_pitch) << 16);
+ }
+ 
++bool VulkanCommandProcessor::TrackMsaa4xSurfacesReadAs1x(uint32_t used_render_targets) {
++  // A 1x surface with the same EDRAM base and pitch in tiles as a 4x one holds its samples as
++  // pixels (titles render at 4x and read the result as a 1x surface twice as wide and tall) -
++  // which only works with the 4x layout, so such surfaces must stay 4x.
++  const RegisterFile& regs = *register_file_;
++  const auto surface_info = regs.Get<reg::RB_SURFACE_INFO>();
++  const bool is_4x = surface_info.msaa_samples == xenos::MsaaSamples::k4X;
++  if (!is_4x && surface_info.msaa_samples != xenos::MsaaSamples::k1X) {
++    return false;
++  }
++  const uint32_t pitch_tiles =
++      ((uint32_t(surface_info.surface_pitch) << uint32_t(is_4x)) +
++       (xenos::kEdramTileWidthSamples - 1)) /
++      xenos::kEdramTileWidthSamples;
++  uint32_t keys[1 + xenos::kMaxColorRenderTargets];
++  uint32_t key_count = 0;
++  bool keep_4x = false;
++  uint32_t rt_index;
++  while (rex::bit_scan_forward(used_render_targets, &rt_index)) {
++    used_render_targets &= ~(uint32_t(1) << rt_index);
++    uint32_t base;
++    if (rt_index) {
++      base = regs.Get<reg::RB_COLOR_INFO>(reg::RB_COLOR_INFO::rt_register_indices[rt_index - 1])
++                 .color_base;
++    } else {
++      base = regs.Get<reg::RB_DEPTH_INFO>().depth_base;
++    }
++    const uint32_t key = base | (pitch_tiles << 16);
++    if (is_4x) {
++      keys[key_count++] = key;
++      keep_4x = keep_4x || msaa_1x_surfaces_.count(key) != 0 ||
++                msaa_keep_4x_surfaces_.count(key) != 0;
++    } else {
++      msaa_1x_surfaces_.insert(key);
++    }
++  }
++  if (keep_4x) {
++    // Surfaces drawn together must agree on the sample count - whatever is drawn with a surface
++    // that stays 4x stays 4x too, or the same tiles would be transferred between the layouts.
++    for (uint32_t i = 0; i < key_count; ++i) {
++      msaa_keep_4x_surfaces_.insert(keys[i]);
++    }
++  }
++  return keep_4x;
++}
++
++void VulkanCommandProcessor::RewriteMsaa4xSurfaceInfoForCopy() {
++  if (!REXCVAR_GET(msaa_4x_as_2x) ||
++      render_target_cache_->GetPath() != RenderTargetCache::Path::kHostRenderTargets) {
++    return;
++  }
++  const RegisterFile& regs = *register_file_;
++  uint32_t& surface_info_value = register_file_->values[XE_GPU_REG_RB_SURFACE_INFO];
++  reg::RB_SURFACE_INFO surface_info;
++  surface_info.value = surface_info_value;
++  const uint32_t copy_src_select = regs.Get<reg::RB_COPY_CONTROL>().copy_src_select;
++  const bool copies_color = copy_src_select < xenos::kMaxColorRenderTargets;
++  // Also records the 1x surfaces copied from.
++  if (TrackMsaa4xSurfacesReadAs1x(copies_color ? uint32_t(1) << (1 + copy_src_select)
++                                               : uint32_t(1)) ||
++      surface_info.msaa_samples != xenos::MsaaSamples::k4X) {
++    return;
++  }
++  // Color surfaces are only ever drawn with color. Depth-only 4x surfaces are left 4x, as for the
++  // draws.
++  if (copies_color || msaa_4x_scene_depth_surfaces_.count(GetMsaa4xDepthSurface())) {
++    surface_info.msaa_samples = xenos::MsaaSamples::k2X;
++    surface_info_value = surface_info.value;
++  }
++}
++
+ bool VulkanCommandProcessor::RewriteMsaa4xSurfaceInfoForDraw(const Shader* pixel_shader,
+                                                              bool pixel_shader_uses_position) {
+-  if (!REXCVAR_GET(vulkan_depth_4x_as_1x) ||
++  const bool msaa_4x_as_2x = REXCVAR_GET(msaa_4x_as_2x);
++  if ((!REXCVAR_GET(vulkan_depth_4x_as_1x) && !msaa_4x_as_2x) ||
+       render_target_cache_->GetPath() != RenderTargetCache::Path::kHostRenderTargets) {
+     return false;
+   }
+@@ -8187,6 +8279,26 @@ bool VulkanCommandProcessor::RewriteMsaa4xSurfaceInfoForDraw(const Shader* pixel
+   uint32_t& surface_info_value = register_file_->values[XE_GPU_REG_RB_SURFACE_INFO];
+   reg::RB_SURFACE_INFO surface_info;
+   surface_info.value = surface_info_value;
++  if (surface_info.msaa_samples != xenos::MsaaSamples::k4X &&
++      (!msaa_4x_as_2x || surface_info.msaa_samples != xenos::MsaaSamples::k1X)) {
++    return false;
++  }
++  bool read_as_1x = false;
++  if (msaa_4x_as_2x) {
++    // The render targets the draw uses: bit 0 - depth, 1 + i - color i. Also records the 1x
++    // surfaces.
++    const uint32_t used_color_mask =
++        pixel_shader ? draw_util::GetNormalizedColorMask(regs, pixel_shader->writes_color_targets())
++                     : 0;
++    const auto depth_control = regs.Get<reg::RB_DEPTHCONTROL>();
++    uint32_t used_render_targets = uint32_t(depth_control.z_enable || depth_control.stencil_enable);
++    for (uint32_t i = 0; i < xenos::kMaxColorRenderTargets; ++i) {
++      if (used_color_mask & (uint32_t(0b1111) << (4 * i))) {
++        used_render_targets |= uint32_t(1) << (1 + i);
++      }
++    }
++    read_as_1x = TrackMsaa4xSurfacesReadAs1x(used_render_targets);
++  }
+   if (surface_info.msaa_samples != xenos::MsaaSamples::k4X) {
+     return false;
+   }
+@@ -8218,11 +8330,16 @@ bool VulkanCommandProcessor::RewriteMsaa4xSurfaceInfoForDraw(const Shader* pixel
+     scene = msaa_4x_scene_depth_surfaces_.count(depth_surface) != 0;
+   }
+   if (scene) {
++    if (msaa_4x_as_2x && !read_as_1x) {
++      surface_info.msaa_samples = xenos::MsaaSamples::k2X;
++      surface_info_value = surface_info.value;
++    }
+     return false;
+   }
+   // Depth-only draws (no pixel shader) or simple pixel shaders - nothing then depends on the
+   // sample positions or on the pixel shader seeing 4x.
+-  if ((pixel_shader && !pixel_shader_simple) || texture_cache_->IsDrawResolutionScaled() ||
++  if (!REXCVAR_GET(vulkan_depth_4x_as_1x) || (pixel_shader && !pixel_shader_simple) ||
++      texture_cache_->IsDrawResolutionScaled() ||
+       render_target_cache_->IsDrawResolutionDownscaled() ||
+       uint32_t(surface_info.surface_pitch) * 2 > xenos::kTexture2DCubeMaxWidthHeight) {
+     return false;

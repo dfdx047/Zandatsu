@@ -1,0 +1,297 @@
+diff --git a/include/rex/graphics/pipeline/shader/spirv_builder.h b/include/rex/graphics/pipeline/shader/spirv_builder.h
+index dbd6b01..f0fea1c 100644
+--- a/include/rex/graphics/pipeline/shader/spirv_builder.h
++++ b/include/rex/graphics/pipeline/shader/spirv_builder.h
+@@ -34,6 +34,10 @@ class SpirvBuilder : public spv::Builder {
+   spv::Id createQuadOp(spv::Op op_code, spv::Id type_id, spv::Id operand1, spv::Id operand2,
+                        spv::Id operand3, spv::Id operand4);
+ 
++  // XenDroid Plus spirv_ps_relaxed_math / spirv_vs_relaxed_math bit 8: the NoContraction
++  // decorations are left out, so fused multiply-add is allowed.
++  void SetAllowContraction(bool allow_contraction) { allow_contraction_ = allow_contraction; }
++
+   spv::Id createNoContractionUnaryOp(spv::Op op_code, spv::Id type_id, spv::Id operand);
+   spv::Id createNoContractionBinOp(spv::Op op_code, spv::Id type_id, spv::Id operand1,
+                                    spv::Id operand2);
+@@ -141,6 +145,8 @@ class SpirvBuilder : public spv::Builder {
+ 
+     Branch current_branch_ = Branch::kSelection;
+   };
++ private:
++  bool allow_contraction_ = false;
+ };
+ 
+ }  // namespace rex::graphics
+diff --git a/include/rex/graphics/pipeline/shader/spirv_translator.h b/include/rex/graphics/pipeline/shader/spirv_translator.h
+index a1b5540..a765187 100644
+--- a/include/rex/graphics/pipeline/shader/spirv_translator.h
++++ b/include/rex/graphics/pipeline/shader/spirv_translator.h
+@@ -394,6 +394,29 @@ class SpirvShaderTranslator : public ShaderTranslator {
+   void Dbz3SetImplicitLod(bool enabled) { dbz3_implicit_lod_ = enabled; }
+   // SwordMan 0120: teste de zero da multiplicacao nos bits (ver swordman_mul_zero_on_bits).
+   void SwordManSetMulZeroOnBits(bool enabled) { swordman_mul_zero_on_bits_ = enabled; }
++  // XenDroid Plus spirv_ps_relaxed_math / spirv_vs_relaxed_math (f46cea46b, 9031d521c): parts of
++  // the Xenos math emulation skipped in pixel and vertex shaders.
++  enum MathRelaxation : uint32_t {
++    // No Shader Model 3 "0 * anything = 0" in multiplications.
++    kMathRelaxationMultiplyZero = 1,
++    // No rounding to 21 mantissa bits after transcendentals (nothing to skip in this translator,
++    // which doesn't emulate it).
++    kMathRelaxationPrecision = 2,
++    // Floating-point contraction (fused multiply-add) allowed.
++    kMathRelaxationContraction = 8,
++  };
++  void SetMathRelaxations(uint32_t pixel_shader_relaxations, uint32_t vertex_shader_relaxations) {
++    math_relaxations_pixel_ = pixel_shader_relaxations;
++    math_relaxations_vertex_ = vertex_shader_relaxations;
++  }
++  // XenDroid Plus spirv_texture_exp_adjust_specialization (9031d521c): a boolean specialization
++  // constant, true when every texture the pixel shader fetches has a zero exponent adjustment
++  // (fetch constant word 3 bits 13:18), so the multiplication by 2^0 is folded away.
++  static constexpr uint32_t kSpecIdTextureExpAdjustZero = 1040;
++  void SetTextureExpAdjustSpecialization(bool enabled) {
++    texture_exp_adjust_specialization_ = enabled;
++  }
++  bool texture_exp_adjust_specialization() const { return texture_exp_adjust_specialization_; }
+   // Dragon Burst (diagnostico): ignora o LOD bias do fetch constant (bits 12:21 da word 4).
+   void Dbz3SetIgnoreFetchLodBias(bool enabled) { dbz3_ignore_fetch_lod_bias_ = enabled; }
+   // Rendering below 1x (draw_resolution_percent of the render target cache, as
+@@ -1003,6 +1026,13 @@ class SpirvShaderTranslator : public ShaderTranslator {
+   bool dbz3_spec_texture_signs_ = false;
+   bool dbz3_implicit_lod_ = false;
+   bool swordman_mul_zero_on_bits_ = false;
++  uint32_t math_relaxations_pixel_ = 0;
++  uint32_t math_relaxations_vertex_ = 0;
++  // Of the shader being translated, set in StartTranslation.
++  uint32_t math_relaxations_ = 0;
++  bool texture_exp_adjust_specialization_ = false;
++  spv::Id texture_exp_adjust_zero_spec_ = spv::NoResult;
++  spv::Id GetTextureExpAdjustZeroSpecConstant();
+   // Igual a min(|a|, |b|) == 0 com operandos ja absolutos, mas nos bits (UMin + IEqual).
+   spv::Id SwordManAnyAbsOperandZero(spv::Id operand_0_abs, spv::Id operand_1_abs,
+                                     int num_components);
+diff --git a/include/rex/graphics/vulkan/pipeline_cache.h b/include/rex/graphics/vulkan/pipeline_cache.h
+index 5e5fbfb..65a50a0 100644
+--- a/include/rex/graphics/vulkan/pipeline_cache.h
++++ b/include/rex/graphics/vulkan/pipeline_cache.h
+@@ -201,6 +201,10 @@ class VulkanPipelineCache {
+     xenos::StencilOp stencil_back_depth_fail_op : 3;     // 6
+     xenos::CompareFunction stencil_back_compare_op : 3;  // 9
+     uint32_t sample_rate_shading : 1;                    // 10
++    // spirv_texture_exp_adjust_specialization: every texture the pixel shader fetches has a zero
++    // exponent adjustment (its specialization constant). Zero (handled at run time) in pipeline
++    // storages written before it.
++    uint32_t texture_exp_adjust_zero : 1;  // 11
+ 
+     // Filled only for the attachments present in the render pass object.
+     PipelineRenderTarget render_targets[xenos::kMaxColorRenderTargets];
+diff --git a/src/graphics/pipeline/shader/spirv_builder.cpp b/src/graphics/pipeline/shader/spirv_builder.cpp
+index fe0aa4e..4a0798e 100644
+--- a/src/graphics/pipeline/shader/spirv_builder.cpp
++++ b/src/graphics/pipeline/shader/spirv_builder.cpp
+@@ -42,14 +42,18 @@ spv::Id SpirvBuilder::createQuadOp(spv::Op op_code, spv::Id type_id, spv::Id ope
+ spv::Id SpirvBuilder::createNoContractionUnaryOp(spv::Op op_code, spv::Id type_id,
+                                                  spv::Id operand) {
+   spv::Id result = createUnaryOp(op_code, type_id, operand);
+-  addDecoration(result, spv::DecorationNoContraction);
++  if (!allow_contraction_) {
++    addDecoration(result, spv::DecorationNoContraction);
++  }
+   return result;
+ }
+ 
+ spv::Id SpirvBuilder::createNoContractionBinOp(spv::Op op_code, spv::Id type_id, spv::Id operand1,
+                                                spv::Id operand2) {
+   spv::Id result = createBinOp(op_code, type_id, operand1, operand2);
+-  addDecoration(result, spv::DecorationNoContraction);
++  if (!allow_contraction_) {
++    addDecoration(result, spv::DecorationNoContraction);
++  }
+   return result;
+ }
+ 
+diff --git a/src/graphics/pipeline/shader/spirv_translator.cpp b/src/graphics/pipeline/shader/spirv_translator.cpp
+index d8ec930..247dc13 100644
+--- a/src/graphics/pipeline/shader/spirv_translator.cpp
++++ b/src/graphics/pipeline/shader/spirv_translator.cpp
+@@ -113,6 +113,7 @@ void SpirvShaderTranslator::Reset() {
+   for (spv::Id& id : dbz3_texture_signs_spec_) {
+     id = spv::NoResult;
+   }
++  texture_exp_adjust_zero_spec_ = spv::NoResult;
+ 
+   uniform_float_constants_ = spv::NoResult;
+ 
+@@ -179,6 +180,8 @@ void SpirvShaderTranslator::StartTranslation() {
+   // TODO(Triang3l): Logger.
+   builder_ = std::make_unique<SpirvBuilder>(features_.spirv_version, (kSpirvMagicToolId << 16) | 1,
+                                             nullptr);
++  math_relaxations_ = is_pixel_shader() ? math_relaxations_pixel_ : math_relaxations_vertex_;
++  builder_->SetAllowContraction((math_relaxations_ & kMathRelaxationContraction) != 0);
+ 
+   builder_->addCapability(IsSpirvTessEvalShader() ? spv::CapabilityTessellation
+                                                   : spv::CapabilityShader);
+diff --git a/src/graphics/pipeline/shader/spirv_translator_alu.cpp b/src/graphics/pipeline/shader/spirv_translator_alu.cpp
+index 12e4589..dd75cbe 100644
+--- a/src/graphics/pipeline/shader/spirv_translator_alu.cpp
++++ b/src/graphics/pipeline/shader/spirv_translator_alu.cpp
+@@ -24,6 +24,10 @@ namespace rex::graphics {
+ 
+ spv::Id SpirvShaderTranslator::ZeroIfAnyOperandIsZero(spv::Id value, spv::Id operand_0_abs,
+                                                       spv::Id operand_1_abs) {
++  if (math_relaxations_ & kMathRelaxationMultiplyZero) {
++    // spirv_ps_relaxed_math / spirv_vs_relaxed_math bit 1.
++    return value;
++  }
+   EnsureBuildPointAvailable();
+   int num_components = builder_->getNumComponents(value);
+   assert_true(builder_->getNumComponents(operand_0_abs) == num_components);
+diff --git a/src/graphics/pipeline/shader/spirv_translator_fetch.cpp b/src/graphics/pipeline/shader/spirv_translator_fetch.cpp
+index 9b49a39..03e323a 100644
+--- a/src/graphics/pipeline/shader/spirv_translator_fetch.cpp
++++ b/src/graphics/pipeline/shader/spirv_translator_fetch.cpp
+@@ -2087,6 +2087,14 @@ void SpirvShaderTranslator::ProcessTextureFetchInstruction(
+             type_float_, ext_inst_glsl_std_450_, GLSLstd450Ldexp, const_float_1_,
+             builder_->createTriOp(spv::OpBitFieldSExtract, type_int_, fetch_constant_word_3_signed,
+                                   builder_->makeUintConstant(13), builder_->makeUintConstant(6)));
++        // spirv_texture_exp_adjust_specialization: 1 where the pipeline knows every exponent
++        // adjustment is zero, so x * 1 folds.
++        if (is_pixel_shader() && texture_exp_adjust_specialization_) {
++          result_exponent_bias =
++              builder_->createTriOp(spv::OpSelect, type_float_,
++                                    GetTextureExpAdjustZeroSpecConstant(), const_float_1_,
++                                    result_exponent_bias);
++        }
+         {
+           uint32_t result_remaining_components = used_result_nonzero_components;
+           uint32_t result_component_index;
+@@ -2120,6 +2128,17 @@ void SpirvShaderTranslator::ProcessTextureFetchInstruction(
+   StoreResult(instr.result, result_vector);
+ }
+ 
++spv::Id SpirvShaderTranslator::GetTextureExpAdjustZeroSpecConstant() {
++  if (texture_exp_adjust_zero_spec_ == spv::NoResult) {
++    // False by default - the exponent adjustment is applied at run time.
++    texture_exp_adjust_zero_spec_ = builder_->makeBoolConstant(false, true);
++    builder_->addDecoration(texture_exp_adjust_zero_spec_, spv::DecorationSpecId,
++                            int(kSpecIdTextureExpAdjustZero));
++    builder_->addName(texture_exp_adjust_zero_spec_, "xe_texture_exp_adjust_zero");
++  }
++  return texture_exp_adjust_zero_spec_;
++}
++
+ spv::Id SpirvShaderTranslator::Dbz3TextureSignsSpecConstant(uint32_t fetch_constant_index) {
+   spv::Id& id = dbz3_texture_signs_spec_[fetch_constant_index & 31];
+   if (id == spv::NoResult) {
+diff --git a/src/graphics/vulkan/pipeline_cache.cpp b/src/graphics/vulkan/pipeline_cache.cpp
+index 03ce552..df7ec96 100644
+--- a/src/graphics/vulkan/pipeline_cache.cpp
++++ b/src/graphics/vulkan/pipeline_cache.cpp
+@@ -65,6 +65,28 @@ REXCVAR_DEFINE_BOOL(dbz3_spec_texture_signs, true, "GPU/Vulkan",
+                     "DBZ3-Android: sinais das texturas como specialization constants (o driver "
+                     "elimina os ramos por componente, a amostragem signed e o gamma por pixel)")
+     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
++// XenDroid Plus 9031d521c / f46cea46b.
++REXCVAR_DEFINE_BOOL(spirv_texture_exp_adjust_specialization, true, "GPU/Vulkan",
++                    "Pixel shaders get a specialization constant telling that every texture they "
++                    "fetch has a zero exponent adjustment, so the multiplication of each fetched "
++                    "component by 2^0 is folded away. Exact. XenDroid Plus, Forza Horizon on an "
++                    "Adreno 825: -0.2 ms of GPU time a frame. Read when shaders are translated")
++    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
++REXCVAR_DEFINE_INT32(spirv_ps_relaxed_math, 0, "GPU/Vulkan",
++                     "Skip parts of the Xenos math emulation in pixel shaders. Bit mask, read when "
++                     "shaders are translated: 1 - no Shader Model 3 '0 * anything = 0' in "
++                     "multiplications (titles relying on 0 * inf or 0 * NaN giving 0 may show "
++                     "black or white pixels); 8 - allow fused multiply-add (results may differ in "
++                     "the last bits between shaders). XenDroid Plus, Forza Horizon main pass on an "
++                     "Adreno 825: -6% GPU time with 11 (bit 2, the 21-bit rounding after "
++                     "transcendentals, isn't emulated here)")
++    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
++REXCVAR_DEFINE_INT32(spirv_vs_relaxed_math, 0, "GPU/Vulkan",
++                     "spirv_ps_relaxed_math for vertex shaders. Bit 1 gives the same results for "
++                     "finite operands (only the sign of a zero product may differ), so positions "
++                     "computed by different shaders still match. XenDroid Plus, Forza Horizon on "
++                     "an Adreno 825: -0.7 ms of GPU time a frame with 1")
++    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+ REXCVAR_DEFINE_BOOL(dbz3_tex_implicit_lod, true, "GPU/Vulkan",
+                     "DBZ3-Android: tfetch2D nos pixel shaders com LOD implicito (Bias) em vez de "
+                     "gradientes explicitos")
+@@ -471,6 +493,14 @@ bool VulkanPipelineCache::Initialize() {
+   shader_translator_->SetDrawResolutionPercent(render_target_cache_.draw_resolution_percent());
+   shader_translator_->Dbz3SetSpecTextureSigns(REXCVAR_GET(dbz3_spec_texture_signs));
+   shader_translator_->Dbz3SetImplicitLod(REXCVAR_GET(dbz3_tex_implicit_lod));
++  shader_translator_->SetTextureExpAdjustSpecialization(
++      REXCVAR_GET(spirv_texture_exp_adjust_specialization));
++  shader_translator_->SetMathRelaxations(uint32_t(REXCVAR_GET(spirv_ps_relaxed_math)),
++                                         uint32_t(REXCVAR_GET(spirv_vs_relaxed_math)));
++  if (REXCVAR_GET(spirv_ps_relaxed_math) || REXCVAR_GET(spirv_vs_relaxed_math)) {
++    REXGPU_INFO("VulkanPipelineCache: relaxed math in pixel shaders {}, vertex shaders {}",
++                REXCVAR_GET(spirv_ps_relaxed_math), REXCVAR_GET(spirv_vs_relaxed_math));
++  }
+   {
+     const int32_t mul_zero_bits = REXCVAR_GET(swordman_mul_zero_on_bits);
+     const bool turnip = command_processor_.GetVulkanDevice()->properties().driverID ==
+@@ -1687,6 +1717,22 @@ bool VulkanPipelineCache::GetCurrentStateDescription(
+         (pixel_shader_modification.pixel.depth_stencil_mode ==
+              DepthStencilMode::kFloat24Truncating ||
+          pixel_shader_modification.pixel.depth_stencil_mode == DepthStencilMode::kFloat24Rounding);
++    // spirv_texture_exp_adjust_specialization: every texture the pixel shader fetches has a zero
++    // exponent adjustment (fetch constant word 3 bits 13:18). Only for shaders with textures, so
++    // the pipelines of the others keep their descriptions.
++    if (shader_translator_->texture_exp_adjust_specialization()) {
++      uint32_t textures = static_cast<const SpirvShader&>(pixel_shader->shader())
++                              .GetUsedTextureMaskAfterTranslation();
++      bool exp_adjust_zero = textures != 0;
++      uint32_t texture_index;
++      while (exp_adjust_zero && rex::bit_scan_forward(textures, &texture_index)) {
++        textures &= ~(UINT32_C(1) << texture_index);
++        const uint32_t fetch_word_3 =
++            regs[XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0 + texture_index * 6 + 3];
++        exp_adjust_zero = ((fetch_word_3 >> 13) & 0x3F) == 0;
++      }
++      description_out.texture_exp_adjust_zero = exp_adjust_zero ? 1 : 0;
++    }
+   }
+   description_out.render_pass_key = render_pass_key;
+ 
+@@ -3371,6 +3417,31 @@ bool VulkanPipelineCache::EnsurePipelineCreated(const PipelineCreationArguments&
+     dbz3_spec_info.pData = dbz3_spec_data.data();
+     dbz3_spec = &dbz3_spec_info;
+   }
++  // The fragment shader's: the texture signs, then whether all the exponent adjustments are zero
++  // (spirv_texture_exp_adjust_specialization).
++  std::array<VkSpecializationMapEntry, 33> fragment_spec_entries;
++  std::array<uint32_t, 33> fragment_spec_data;
++  VkSpecializationInfo fragment_spec_info = {};
++  const VkSpecializationInfo* fragment_spec = dbz3_spec;
++  if (description.texture_exp_adjust_zero) {
++    uint32_t fragment_spec_count = 0;
++    if (dbz3_spec) {
++      std::copy(dbz3_spec_entries.begin(), dbz3_spec_entries.end(),
++                fragment_spec_entries.begin());
++      std::copy(dbz3_spec_data.begin(), dbz3_spec_data.end(), fragment_spec_data.begin());
++      fragment_spec_count = uint32_t(dbz3_spec_entries.size());
++    }
++    VkSpecializationMapEntry& exp_adjust_entry = fragment_spec_entries[fragment_spec_count];
++    exp_adjust_entry.constantID = SpirvShaderTranslator::kSpecIdTextureExpAdjustZero;
++    exp_adjust_entry.offset = uint32_t(sizeof(uint32_t) * fragment_spec_count);
++    exp_adjust_entry.size = sizeof(VkBool32);
++    fragment_spec_data[fragment_spec_count++] = VK_TRUE;
++    fragment_spec_info.mapEntryCount = fragment_spec_count;
++    fragment_spec_info.pMapEntries = fragment_spec_entries.data();
++    fragment_spec_info.dataSize = sizeof(uint32_t) * fragment_spec_count;
++    fragment_spec_info.pData = fragment_spec_data.data();
++    fragment_spec = &fragment_spec_info;
++  }
+ 
+   // Vertex or tessellation evaluation shader (plus helper stages for tessellation).
+   assert_true(creation_arguments.vertex_shader->is_translated());
+@@ -3455,7 +3526,7 @@ bool VulkanPipelineCache::EnsurePipelineCreated(const PipelineCreationArguments&
+     }
+     shader_stage_fragment.module = creation_arguments.pixel_shader->shader_module();
+     assert_true(shader_stage_fragment.module != VK_NULL_HANDLE);
+-    shader_stage_fragment.pSpecializationInfo = dbz3_spec;
++    shader_stage_fragment.pSpecializationInfo = fragment_spec;
+   } else {
+     if (edram_fragment_shader_interlock) {
+       shader_stage_fragment.module = depth_only_fragment_shader_;

@@ -1,0 +1,67 @@
+diff --git a/include/rex/graphics/vulkan/render_target_cache.h b/include/rex/graphics/vulkan/render_target_cache.h
+index 225c0eb..bb614f2 100644
+--- a/include/rex/graphics/vulkan/render_target_cache.h
++++ b/include/rex/graphics/vulkan/render_target_cache.h
+@@ -1011,6 +1011,8 @@ class VulkanRenderTargetCache final : public RenderTargetCache {
+                          uint32_t dump_pitch);
+ 
+   bool gamma_render_target_as_unorm16_ = false;
++  // render_target_7e3_as_r11g11b10, if the format is usable.
++  bool color_7e3_as_r11g11b10_ = false;
+ 
+   bool depth_unorm24_vulkan_format_supported_ = false;
+   bool depth_float24_round_ = false;
+diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
+index 5787fd1..31d82c5 100644
+--- a/src/graphics/vulkan/render_target_cache.cpp
++++ b/src/graphics/vulkan/render_target_cache.cpp
+@@ -50,6 +50,16 @@ REXCVAR_DEFINE_BOOL(resolve_a8_selects_alpha, true, "GPU",
+                     "lighting pass. Without resolution scaling; not from 16_16 or 16_16_16_16 "
+                     "render targets")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
++// XenDroid Plus 77c446b04.
++REXCVAR_DEFINE_BOOL(render_target_7e3_as_r11g11b10, false, "GPU/Vulkan",
++                    "Host render targets: store the guest k_2_10_10_10_FLOAT (7e3) color render "
++                    "target as B10G11R11_UFLOAT (32 bpp) instead of R16G16B16A16_SFLOAT (64 bpp), "
++                    "halving the color bandwidth of HDR scene passes. Lossy: the 2-bit alpha is "
++                    "dropped (reads back as 1.0 - destination alpha blending and alpha resolves "
++                    "break) and the mantissa shrinks from 7 bits to 6 (red, green) and 5 (blue), "
++                    "which can band dark gradients. Only for titles verified not to use 7e3 "
++                    "alpha. Read at startup")
++    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+ REXCVAR_DEFINE_BOOL(vulkan_disable_depth_unorm24, false, "GPU/Vulkan",
+                     "Do not use the native D24 host depth format even when the GPU offers it, "
+                     "emulating guest depth with 32-bit float like GPUs without D24 (desktop "
+@@ -791,6 +801,22 @@ bool VulkanRenderTargetCache::Initialize(uint32_t shared_memory_binding_count) {
+ 
+     gamma_render_target_as_unorm16_ = gamma_render_target_as_unorm16_requested;
+ 
++    // render_target_7e3_as_r11g11b10: B10G11R11_UFLOAT needs to be a blendable sampled color
++    // attachment.
++    color_7e3_as_r11g11b10_ = false;
++    if (REXCVAR_GET(render_target_7e3_as_r11g11b10)) {
++      constexpr VkFormatFeatureFlags kR11G11B10Features = VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT |
++                                                          VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT |
++                                                          VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT;
++      VkFormatProperties r11g11b10_properties;
++      ifn.vkGetPhysicalDeviceFormatProperties(physical_device, VK_FORMAT_B10G11R11_UFLOAT_PACK32,
++                                              &r11g11b10_properties);
++      color_7e3_as_r11g11b10_ =
++          (r11g11b10_properties.optimalTilingFeatures & kR11G11B10Features) == kR11G11B10Features;
++      REXGPU_INFO("VulkanRenderTargetCache: 7e3 render targets as B10G11R11_UFLOAT {}",
++                  color_7e3_as_r11g11b10_ ? "enabled" : "requested, but the format is unsupported");
++    }
++
+     depth_float24_round_ = REXCVAR_GET(depth_float24_round);
+     depth_float24_convert_in_pixel_shader_ = REXCVAR_GET(depth_float24_convert_in_pixel_shader);
+ 
+@@ -2086,7 +2112,8 @@ VkFormat VulkanRenderTargetCache::GetColorVulkanFormat(
+       return VK_FORMAT_A8B8G8R8_UNORM_PACK32;
+     case xenos::ColorRenderTargetFormat::k_2_10_10_10_FLOAT:
+     case xenos::ColorRenderTargetFormat::k_2_10_10_10_FLOAT_AS_16_16_16_16:
+-      return VK_FORMAT_R16G16B16A16_SFLOAT;
++      return color_7e3_as_r11g11b10_ ? VK_FORMAT_B10G11R11_UFLOAT_PACK32
++                                     : VK_FORMAT_R16G16B16A16_SFLOAT;
+     case xenos::ColorRenderTargetFormat::k_16_16:
+       return color_rg16_draw_format_fallback_to_float_ ? VK_FORMAT_R16G16_SFLOAT
+                                                        : VK_FORMAT_R16G16_SNORM;

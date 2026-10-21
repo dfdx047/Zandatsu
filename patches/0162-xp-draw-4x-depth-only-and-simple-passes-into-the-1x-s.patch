@@ -1,0 +1,213 @@
+diff --git a/include/rex/graphics/vulkan/command_processor.h b/include/rex/graphics/vulkan/command_processor.h
+index ec53b7c..444b400 100644
+--- a/include/rex/graphics/vulkan/command_processor.h
++++ b/include/rex/graphics/vulkan/command_processor.h
+@@ -19,6 +19,7 @@
+ #include <string>
+ #include <string_view>
+ #include <unordered_map>
++#include <unordered_set>
+ #include <utility>
+ #include <vector>
+ 
+@@ -283,6 +284,22 @@ class VulkanCommandProcessor : public CommandProcessor {
+   bool IssueDraw(xenos::PrimitiveType prim_type, uint32_t index_count,
+                  IndexBufferInfo* index_buffer_info, bool major_mode_explicit) override;
+   bool IssueCopy() override;
++  // vulkan_depth_4x_as_1x (XenDroid Plus 44b2f6fef, 0080f3942): the guest's 4x MSAA surface info
++  // rewritten for the current draw (IssueDraw restores it) - to the 1x surface of the samples for
++  // depth-only draws (and, with vulkan_samples_as_pixels_simple_ps, draws with a pixel shader
++  // reading no textures or position) into depth surfaces never drawn with color by any other
++  // pixel shader. Returns whether the draw renders the samples as pixels.
++  bool RewriteMsaa4xSurfaceInfoForDraw(const Shader* pixel_shader,
++                                       bool pixel_shader_uses_position);
++  // The key of the current depth surface: depth base | pitch << 16.
++  uint32_t GetMsaa4xDepthSurface() const;
++  // Depth surfaces of multisampled scenes (drawn with color at 4x).
++  std::unordered_set<uint32_t> msaa_4x_scene_depth_surfaces_;
++  // vulkan_samples_as_pixels_simple_ps when msaa_4x_scene_depth_surfaces_ was filled.
++  bool msaa_4x_scene_depth_surfaces_simple_ps_ = false;
++  // The draw resolution scale of the current draw: doubled for samples drawn as pixels.
++  uint32_t GetDrawScaleX() const;
++  uint32_t GetDrawScaleY() const;
+ 
+  private:
+   struct CommandBuffer {
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 3c2ec27..d288ac1 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -265,6 +265,28 @@ REXCVAR_DEFINE_BOOL(vulkan_async_skip_incomplete_frames, true, "GPU/Vulkan",
+                     "used placeholder pipelines to avoid visible flashing")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ 
++// XenDroid Plus 44b2f6fef / 0080f3942.
++REXCVAR_DEFINE_BOOL(vulkan_depth_4x_as_1x, false, "GPU/Vulkan",
++                    "Host render target path: render the guest's 4x MSAA depth-only draws into "
++                    "surfaces never drawn with color - a title's own trick for fast depth clears "
++                    "and double-resolution depth (Forza Horizon's shadow atlas, read back as a 1x "
++                    "surface) - into that 1x surface twice as wide and tall (the same EDRAM tiles "
++                    "hold the 2x2 samples of a 4x pixel like 2x2 pixels), with the viewport and the "
++                    "scissor doubled, instead of into a 4x render target whose contents have to be "
++                    "transferred to and from the 1x one. Depth is taken at the pixel centers of "
++                    "the double-resolution grid instead of the 4x sample positions. Not with "
++                    "resolution scaling or below 1x. XenDroid Plus, Forza Horizon on an Adreno "
++                    "825: transfers 16.6k -> 12.1k tiles a frame, GPU time -3.4%. Read per draw")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++REXCVAR_DEFINE_BOOL(vulkan_samples_as_pixels_simple_ps, false, "GPU/Vulkan",
++                    "With vulkan_depth_4x_as_1x: also render 4x MSAA draws whose pixel shader reads "
++                    "no textures or position (and doesn't export memory or use alpha to coverage) "
++                    "into the 1x surface of their samples, and don't count their color as making a "
++                    "depth surface a multisampled scene's. Titles mark stencil at a quarter of the "
++                    "pixels this way. The pixel shader runs per 1x pixel instead of per 4x pixel. "
++                    "XenDroid Plus, Forza Horizon: transfers 8071 -> 3703 tiles a frame, GPU time "
++                    "-5.2%. Read per draw")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ // XenDroid Plus 0e8dea51a / 562405fec.
+ REXCVAR_DEFINE_INT32(vulkan_mid_frame_submission_draws, 0, "GPU/Vulkan",
+                      "If greater than 0, end and submit the current command buffer after this many "
+@@ -5834,6 +5856,18 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+                                                              ps_param_gen_pos))
+                    : 0;
+ 
++  // vulkan_depth_4x_as_1x rewrites the surface info for this draw only - the guest may keep
++  // drawing with it, and every draw decides for itself. Before anything below reads it.
++  struct SurfaceInfoRestore {
++    VulkanCommandProcessor& command_processor;
++    uint32_t surface_info;
++    ~SurfaceInfoRestore() {
++      command_processor.register_file_->values[XE_GPU_REG_RB_SURFACE_INFO] = surface_info;
++      command_processor.render_target_cache_->SetDrawSamplesAsPixels(false);
++    }
++  } surface_info_restore{*this, register_file_->values[XE_GPU_REG_RB_SURFACE_INFO]};
++  RewriteMsaa4xSurfaceInfoForDraw(pixel_shader, ps_param_gen_pos != UINT32_MAX);
++
+   PrimitiveProcessor::ProcessingResult primitive_processing_result;
+   SpirvShaderTranslator::Modification vertex_shader_modification;
+   SpirvShaderTranslator::Modification pixel_shader_modification;
+@@ -6126,8 +6160,8 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+ 
+   bool host_render_targets_used =
+       render_target_cache_->GetPath() == RenderTargetCache::Path::kHostRenderTargets;
+-  uint32_t draw_resolution_scale_x = texture_cache_->draw_resolution_scale_x();
+-  uint32_t draw_resolution_scale_y = texture_cache_->draw_resolution_scale_y();
++  uint32_t draw_resolution_scale_x = GetDrawScaleX();
++  uint32_t draw_resolution_scale_y = GetDrawScaleY();
+ 
+   // Get dynamic rasterizer state.
+   draw_util::ViewportInfo viewport_info;
+@@ -6377,8 +6411,8 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+   {
+     const uint32_t tl = regs[XE_GPU_REG_PA_SC_WINDOW_SCISSOR_TL];
+     const uint32_t br = regs[XE_GPU_REG_PA_SC_WINDOW_SCISSOR_BR];
+-    const uint32_t sx = texture_cache_->draw_resolution_scale_x();
+-    const uint32_t sy = texture_cache_->draw_resolution_scale_y();
++    const uint32_t sx = GetDrawScaleX();
++    const uint32_t sy = GetDrawScaleY();
+     const int32_t x0 = int32_t(tl & 0x7FFF), y0 = int32_t((tl >> 16) & 0x7FFF);
+     const int32_t x1 = int32_t(br & 0x7FFF), y1 = int32_t((br >> 16) & 0x7FFF);
+     dbz3_discard::g_draw_area.offset = {x0 * int32_t(sx), y0 * int32_t(sy)};
+@@ -8127,6 +8161,81 @@ void VulkanCommandProcessor::DestroySwapFxaaSourceImage() {
+   swap_fxaa_source_layout_ = VK_IMAGE_LAYOUT_UNDEFINED;
+ }
+ 
++uint32_t VulkanCommandProcessor::GetDrawScaleX() const {
++  return texture_cache_->draw_resolution_scale_x()
++         << uint32_t(render_target_cache_->draw_samples_as_pixels());
++}
++
++uint32_t VulkanCommandProcessor::GetDrawScaleY() const {
++  return texture_cache_->draw_resolution_scale_y()
++         << uint32_t(render_target_cache_->draw_samples_as_pixels());
++}
++
++uint32_t VulkanCommandProcessor::GetMsaa4xDepthSurface() const {
++  const RegisterFile& regs = *register_file_;
++  return regs.Get<reg::RB_DEPTH_INFO>().depth_base |
++         (uint32_t(regs.Get<reg::RB_SURFACE_INFO>().surface_pitch) << 16);
++}
++
++bool VulkanCommandProcessor::RewriteMsaa4xSurfaceInfoForDraw(const Shader* pixel_shader,
++                                                             bool pixel_shader_uses_position) {
++  if (!REXCVAR_GET(vulkan_depth_4x_as_1x) ||
++      render_target_cache_->GetPath() != RenderTargetCache::Path::kHostRenderTargets) {
++    return false;
++  }
++  const RegisterFile& regs = *register_file_;
++  uint32_t& surface_info_value = register_file_->values[XE_GPU_REG_RB_SURFACE_INFO];
++  reg::RB_SURFACE_INFO surface_info;
++  surface_info.value = surface_info_value;
++  if (surface_info.msaa_samples != xenos::MsaaSamples::k4X) {
++    return false;
++  }
++  // The scene classification depends on which pixel shaders may run per 1x pixel.
++  const bool simple_ps_allowed = REXCVAR_GET(vulkan_samples_as_pixels_simple_ps);
++  if (msaa_4x_scene_depth_surfaces_simple_ps_ != simple_ps_allowed) {
++    msaa_4x_scene_depth_surfaces_simple_ps_ = simple_ps_allowed;
++    msaa_4x_scene_depth_surfaces_.clear();
++  }
++  // A pixel shader whose result doesn't depend on running per 4x pixel rather than per 1x pixel
++  // beyond the interpolation point: no textures (implicit derivatives would halve), no position,
++  // no memory export, no alpha to coverage (no samples at 1x).
++  const bool pixel_shader_simple =
++      pixel_shader && simple_ps_allowed && !pixel_shader->uses_texture_fetch_instruction_results() &&
++      !pixel_shader_uses_position && !pixel_shader->memexport_eM_written() &&
++      !regs.Get<reg::RB_COLORCONTROL>().alpha_to_mask_enable;
++  const uint32_t color_mask =
++      pixel_shader ? draw_util::GetNormalizedColorMask(regs, pixel_shader->writes_color_targets())
++                   : 0;
++  // A depth surface drawn with color at least once (by a pixel shader that must run per 4x pixel)
++  // is a multisampled scene's. The others are depth-only or stencil marking - titles reinterpret
++  // their samples as the pixels of a 1x surface twice the size.
++  const uint32_t depth_surface = GetMsaa4xDepthSurface();
++  bool scene;
++  if (color_mask && !pixel_shader_simple) {
++    msaa_4x_scene_depth_surfaces_.insert(depth_surface);
++    scene = true;
++  } else {
++    scene = msaa_4x_scene_depth_surfaces_.count(depth_surface) != 0;
++  }
++  if (scene) {
++    return false;
++  }
++  // Depth-only draws (no pixel shader) or simple pixel shaders - nothing then depends on the
++  // sample positions or on the pixel shader seeing 4x.
++  if ((pixel_shader && !pixel_shader_simple) || texture_cache_->IsDrawResolutionScaled() ||
++      render_target_cache_->IsDrawResolutionDownscaled() ||
++      uint32_t(surface_info.surface_pitch) * 2 > xenos::kTexture2DCubeMaxWidthHeight) {
++    return false;
++  }
++  // The same EDRAM tiles as the 1x surface twice as wide (and tall): 2 horizontal samples per
++  // pixel at 4x, 1 at 1x.
++  surface_info.msaa_samples = xenos::MsaaSamples::k1X;
++  surface_info.surface_pitch = surface_info.surface_pitch * 2;
++  surface_info_value = surface_info.value;
++  render_target_cache_->SetDrawSamplesAsPixels(true);
++  return true;
++}
++
+ void VulkanCommandProcessor::UpdateDynamicState(const draw_util::ViewportInfo& viewport_info,
+                                                 bool primitive_polygonal,
+                                                 reg::RB_DEPTHCONTROL normalized_depth_control) {
+@@ -8135,8 +8244,8 @@ void VulkanCommandProcessor::UpdateDynamicState(const draw_util::ViewportInfo& v
+ #endif  // XE_GPU_FINE_GRAINED_DRAW_SCOPES
+ 
+   const RegisterFile& regs = *register_file_;
+-  uint32_t draw_resolution_scale_x = texture_cache_ ? texture_cache_->draw_resolution_scale_x() : 1;
+-  uint32_t draw_resolution_scale_y = texture_cache_ ? texture_cache_->draw_resolution_scale_y() : 1;
++  uint32_t draw_resolution_scale_x = texture_cache_ ? GetDrawScaleX() : 1;
++  uint32_t draw_resolution_scale_y = texture_cache_ ? GetDrawScaleY() : 1;
+ 
+   // Window parameters.
+   // http://ftp.tku.edu.tw/NetBSD/NetBSD-current/xsrc/external/mit/xf86-video-ati/dist/src/r600_reg_auto_r6xx.h
+@@ -8410,8 +8519,8 @@ void VulkanCommandProcessor::UpdateSystemConstantValues(
+ 
+   bool edram_fragment_shader_interlock =
+       render_target_cache_->GetPath() == RenderTargetCache::Path::kPixelShaderInterlock;
+-  uint32_t draw_resolution_scale_x = texture_cache_->draw_resolution_scale_x();
+-  uint32_t draw_resolution_scale_y = texture_cache_->draw_resolution_scale_y();
++  uint32_t draw_resolution_scale_x = GetDrawScaleX();
++  uint32_t draw_resolution_scale_y = GetDrawScaleY();
+ 
+   // Get the color info register values for each render target. Also, for FSI,
+   // exclude components that don't exist in the format from the write mask.

@@ -1,0 +1,118 @@
+diff --git a/include/rex/ui/vulkan/instance.h b/include/rex/ui/vulkan/instance.h
+index 4edde2b..ee2de93 100644
+--- a/include/rex/ui/vulkan/instance.h
++++ b/include/rex/ui/vulkan/instance.h
+@@ -140,6 +140,11 @@ class VulkanInstance {
+   VkDebugUtilsMessengerEXT debug_utils_messenger_ = VK_NULL_HANDLE;
+ };
+ 
++// adrenotools_turbo / adrenotools_turbo_reassert_seconds (Android with libadrenotools): requests
++// the KGSL GPU power control state when due - at the first call, after a pause and periodically.
++// To be called once per frame.
++void RequestGpuPowerControlIfDue();
++
+ }  // namespace vulkan
+ }  // namespace ui
+ }  // namespace rex
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 29f1b0a..3367b62 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -3511,6 +3511,9 @@ static void Dbz3LogGuestPerformanceVulkan() {
+ 
+ void VulkanCommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontbuffer_width,
+                                        uint32_t frontbuffer_height) {
++  // adrenotools_turbo: the KGSL power control state, again after a pause and periodically
++  // (XenDroid Plus 3e1766c15).
++  ui::vulkan::RequestGpuPowerControlIfDue();
+   // Dragon Burst (dbz3_native_present): a copia final deste frame foi saltada?
+   const bool np_present_frame = dbz3_native_present::g_pending;
+   dbz3_native_present::g_pending = false;
+diff --git a/src/ui/vulkan/vulkan_instance.cpp b/src/ui/vulkan/vulkan_instance.cpp
+index 17415b0..6fcf91f 100644
+--- a/src/ui/vulkan/vulkan_instance.cpp
++++ b/src/ui/vulkan/vulkan_instance.cpp
+@@ -33,7 +33,26 @@
+ #include <adrenotools/driver.h>
+ #endif
+ 
++#include <atomic>
++#include <chrono>
++#include <cerrno>
++#include <cstring>
++
+ REXCVAR_DEFINE_BOOL(vulkan_log_debug_messages, true, "UI/Vulkan", "Log Vulkan debug messages");
++// XenDroid Plus 77011a0c4 / 3e1766c15.
++REXCVAR_DEFINE_BOOL(adrenotools_turbo, false, "UI/Vulkan",
++                    "Android with libadrenotools on a Qualcomm GPU: request the KGSL GPU power "
++                    "control state that keeps the GPU at its maximum clock (thermal limits still "
++                    "apply), like \"Custom Driver Force Max Clocks\". Turning it off at run time "
++                    "returns the GPU to the kernel governor. Costs battery and heat.")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++REXCVAR_DEFINE_INT32(adrenotools_turbo_reassert_seconds, 5, "UI/Vulkan",
++                     "With adrenotools_turbo: request the state again after a pause (a gap of more "
++                     "than a second between frames, e.g. the app in the background) and every this "
++                     "many seconds, as it does not survive the app losing focus (XenDroid Plus, "
++                     "POCO F7: Forza Horizon at half its frame rate after opening the notification "
++                     "shade until restarted). 0 - only after pauses.")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ 
+ namespace rex {
+ namespace ui {
+@@ -74,6 +93,56 @@ static void* Dbz3OpenCustomVulkanDriver() {
+ }
+ #endif
+ 
++void RequestGpuPowerControlIfDue() {
++#if REX_PLATFORM_ANDROID && defined(REX_HAS_ADRENOTOOLS)
++  // Called once per frame by the GPU thread.
++  static bool unavailable = false;
++  static bool turbo_on = false;
++  static uint64_t last_call_ms = 0;
++  static uint64_t last_request_ms = 0;
++  if (unavailable) {
++    return;
++  }
++  const uint64_t now_ms =
++      uint64_t(std::chrono::duration_cast<std::chrono::milliseconds>(
++                   std::chrono::steady_clock::now().time_since_epoch())
++                   .count());
++  const bool after_pause = last_call_ms != 0 && now_ms - last_call_ms > 1000;
++  last_call_ms = now_ms;
++  if (!REXCVAR_GET(adrenotools_turbo)) {
++    if (turbo_on) {
++      // KGSL power control is device-wide state - give it back to the governor.
++      turbo_on = false;
++      if (adrenotools_set_turbo(false)) {
++        REXLOG_INFO("GPU clocks: KGSL power control returned to the kernel governor");
++      }
++    }
++    return;
++  }
++  const int32_t period_seconds = REXCVAR_GET(adrenotools_turbo_reassert_seconds);
++  if (turbo_on && !after_pause &&
++      (period_seconds <= 0 || now_ms - last_request_ms < uint64_t(period_seconds) * 1000)) {
++    return;
++  }
++  last_request_ms = now_ms;
++  if (adrenotools_set_turbo(true)) {
++    if (!turbo_on || after_pause) {
++      REXLOG_INFO("GPU clocks: KGSL power control forced on at the maximum clock ({})",
++                  !turbo_on ? "startup" : "after a pause");
++    }
++    turbo_on = true;
++    return;
++  }
++  if (!turbo_on) {
++    // Never accepted (not a Qualcomm KGSL device, or no permission) - stop trying.
++    unavailable = true;
++    REXLOG_WARN("GPU clocks: KGSL power control request failed: {}; not requesting it again",
++                std::strerror(errno));
++  } else {
++    REXLOG_WARN("GPU clocks: KGSL power control request failed: {}", std::strerror(errno));
++  }
++#endif
++}
+ 
+ std::unique_ptr<VulkanInstance> VulkanInstance::Create(const bool with_surface,
+                                                        const bool try_enable_validation) {

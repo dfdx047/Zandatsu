@@ -1,0 +1,670 @@
+diff --git a/include/rex/graphics/pipeline/render_target/cache.h b/include/rex/graphics/pipeline/render_target/cache.h
+index e9f5966..a34bf9a 100644
+--- a/include/rex/graphics/pipeline/render_target/cache.h
++++ b/include/rex/graphics/pipeline/render_target/cache.h
+@@ -176,6 +176,43 @@ class RenderTargetCache {
+     draw_resolution_percent_ = std::clamp(percent, uint32_t(1), uint32_t(100));
+   }
+ 
++  // XenDroid Plus vulkan_depth_4x_as_1x: for the current draw only, it renders into the EDRAM of a
++  // 4x MSAA surface as the 1x surface twice as wide and tall that the same tiles hold (the 2x2
++  // samples of a pixel are laid out like 2x2 pixels), with the surface info rewritten to that 1x
++  // surface - the draw's scale and its estimated extent (in the guest's 4x pixels) double.
++  void SetDrawSamplesAsPixels(bool samples_as_pixels) {
++    draw_samples_as_pixels_ = samples_as_pixels;
++  }
++  bool draw_samples_as_pixels() const { return draw_samples_as_pixels_; }
++  // XenDroid Plus skip_overwritten_transfers: for the current draw only, whether its pixel shader
++  // may leave covered pixels unwritten (kill) - such a draw never overwrites a whole area - and
++  // whether it has a pixel shader (without one, there's no alpha to test or to convert to
++  // coverage, whatever the state says).
++  void SetDrawPixelShaderKills(bool kills) { draw_pixel_shader_kills_ = kills; }
++  void SetDrawHasPixelShader(bool has_pixel_shader) { draw_has_pixel_shader_ = has_pixel_shader; }
++  // Whether the host clamps the depth of draws without clipping rather than clipping it (a
++  // rectangle at any depth then covers its whole area).
++  void SetUnclippedDepthClamped(bool clamped) {
++    draw_extent_estimator_.SetUnclippedDepthClamped(clamped);
++  }
++  // Set by a backend that reports the draw's pixel shader (SetDrawPixelShaderKills,
++  // SetDrawHasPixelShader) and honours Transfer::GetCutout - skip_overwritten_transfers is only
++  // done for it.
++  void SetOverwrittenTransferSkippingSupported(bool supported) {
++    overwritten_transfer_skipping_supported_ = supported;
++  }
++  // Ownership transfers skipped or cut because the first draw of their destination overwrites
++  // what they would have copied (skip_overwritten_transfers), since the last call.
++  void TakeOverwrittenTransferSkips(uint64_t& transfers_out, uint64_t& tiles_out,
++                                    uint64_t& cut_transfers_out) {
++    transfers_out = overwritten_transfers_skipped_;
++    tiles_out = overwritten_tiles_skipped_;
++    cut_transfers_out = overwritten_transfers_cut_;
++    overwritten_transfers_skipped_ = 0;
++    overwritten_tiles_skipped_ = 0;
++    overwritten_transfers_cut_ = 0;
++  }
++
+   // Virtual (both the common code and the implementation may do something
+   // here), don't call from destructors (does work not needed for shutdown
+   // also).
+@@ -386,6 +423,15 @@ class RenderTargetCache {
+       return source == other_transfer.source &&
+              host_depth_source == other_transfer.host_depth_source;
+     }
++    // The area of the destination the draw the transfer is made for overwrites
++    // (skip_overwritten_transfers_cutout), not to transfer - a transfer only partly covered by
++    // it. The cutout of the transfer's rectangles: this one if there is, otherwise the one for the
++    // call (a resolve clear's).
++    const Rectangle* GetCutout(const Rectangle* call_cutout) const {
++      return has_draw_cutout ? &draw_cutout : call_cutout;
++    }
++    Rectangle draw_cutout = {};
++    bool has_draw_cutout = false;
+ 
+    private:
+     static uint32_t AddRectangle(const Rectangle& rectangle, Rectangle* rectangles_out,
+@@ -621,6 +667,20 @@ class RenderTargetCache {
+   uint32_t draw_resolution_scale_x_;
+   uint32_t draw_resolution_scale_y_;
+   uint32_t draw_resolution_percent_ = 100;
++  bool draw_samples_as_pixels_ = false;
++  bool overwritten_transfer_skipping_supported_ = false;
++  bool draw_pixel_shader_kills_ = false;
++  bool draw_has_pixel_shader_ = true;
++  uint64_t overwritten_transfers_cut_ = 0;
++  uint64_t overwritten_transfers_skipped_ = 0;
++  uint64_t overwritten_tiles_skipped_ = 0;
++
++  // skip_overwritten_transfers: drops (or cuts) the transfers of the draw's targets that the
++  // draw - a single rectangle covering them, writing every pixel and sample unconditionally -
++  // overwrites anyway. rt_keys: [0] depth, [1 + i] color i.
++  void SkipTransfersOverwrittenByDraw(reg::RB_DEPTHCONTROL normalized_depth_control,
++                                      uint32_t normalized_color_mask, const Shader& vertex_shader,
++                                      const RenderTargetKey* rt_keys);
+ 
+   DrawExtentEstimator draw_extent_estimator_;
+ 
+diff --git a/include/rex/graphics/util/draw_extent_estimator.h b/include/rex/graphics/util/draw_extent_estimator.h
+index e5e4908..dab389d 100644
+--- a/include/rex/graphics/util/draw_extent_estimator.h
++++ b/include/rex/graphics/util/draw_extent_estimator.h
+@@ -31,6 +31,18 @@ class DrawExtentEstimator {
+   uint32_t EstimateVertexMaxY(const Shader& vertex_shader);
+   uint32_t EstimateMaxY(bool try_to_estimate_vertex_max_y, const Shader& vertex_shader);
+ 
++  // For a draw of a single axis-aligned rectangle (a rectangle list of 3 vertices) with a vertex
++  // shader the CPU can run: the area it covers in pixels of the render target - [left, right) x
++  // [top, bottom), pixel centers at +0.5 - clipped to the viewport when clipping is enabled,
++  // before the scissor. False for any other draw, or if the rectangle may be clipped by depth.
++  // (XenDroid Plus, skip_overwritten_transfers.)
++  bool EstimateRectangle(const Shader& vertex_shader, float& left_out, float& top_out,
++                         float& right_out, float& bottom_out);
++
++  // Whether the host clamps the depth of draws without clipping (Vulkan depthClampEnable) instead
++  // of clipping it - then a rectangle at any depth is drawn whole.
++  void SetUnclippedDepthClamped(bool clamped) { unclipped_depth_clamped_ = clamped; }
++
+  private:
+   class PositionYExportSink : public ShaderInterpreter::ExportSink {
+    public:
+@@ -38,19 +50,25 @@ class DrawExtentEstimator {
+                 uint32_t value_mask) override;
+ 
+     void Reset() {
++      position_x_.reset();
+       position_y_.reset();
++      position_z_.reset();
+       position_w_.reset();
+       point_size_.reset();
+       vertex_kill_.reset();
+     }
+ 
++    const std::optional<float>& position_x() const { return position_x_; }
+     const std::optional<float>& position_y() const { return position_y_; }
++    const std::optional<float>& position_z() const { return position_z_; }
+     const std::optional<float>& position_w() const { return position_w_; }
+     const std::optional<float>& point_size() const { return point_size_; }
+     const std::optional<uint32_t>& vertex_kill() const { return vertex_kill_; }
+ 
+    private:
++    std::optional<float> position_x_;
+     std::optional<float> position_y_;
++    std::optional<float> position_z_;
+     std::optional<float> position_w_;
+     std::optional<float> point_size_;
+     std::optional<uint32_t> vertex_kill_;
+@@ -58,6 +76,7 @@ class DrawExtentEstimator {
+ 
+   const RegisterFile& register_file_;
+   const memory::Memory& memory_;
++  bool unclipped_depth_clamped_ = false;
+ 
+   ShaderInterpreter shader_interpreter_;
+ };
+diff --git a/src/graphics/pipeline/render_target/cache.cpp b/src/graphics/pipeline/render_target/cache.cpp
+index b1c840c..bc8bf0b 100644
+--- a/src/graphics/pipeline/render_target/cache.cpp
++++ b/src/graphics/pipeline/render_target/cache.cpp
+@@ -59,6 +59,23 @@ REXCVAR_DEFINE_BOOL(dbz3_rt_elide_restores, true, "GPU",
+                     "DBZ3-Android: com dbz3_rt_direct, ignora os restauros de ecra inteiro e os "
+                     "resolves que so serviam para eles")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
++// XenDroid Plus 17b844b93 / 0080f3942 / 6ab5830f2 (on by default there since fc580e27f).
++REXCVAR_DEFINE_BOOL(skip_overwritten_transfers, false, "GPU",
++                    "Skip the EDRAM ownership transfers into a render target when the draw they "
++                    "are made for overwrites all they would copy: a single rectangle (its vertex "
++                    "shader run on the CPU) covering the transferred area and writing every pixel "
++                    "and sample unconditionally - depth with the always test and the stencil "
++                    "replaced in full, color with all components and no blending, no alpha test, "
++                    "alpha to coverage or pixel kill. Clear quads of titles reusing the EDRAM "
++                    "for other formats are such draws. XenDroid Plus, Forza Horizon on an Adreno "
++                    "825: 3.7 of 12.5 thousand tiles a frame skipped, GPU time -3.1%. Read per "
++                    "draw")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++REXCVAR_DEFINE_BOOL(skip_overwritten_transfers_cutout, false, "GPU",
++                    "With skip_overwritten_transfers: a transfer the rectangle covers only in part "
++                    "copies what's outside it alone, like around a resolve clear (the EDRAM is "
++                    "claimed by whole rows of tiles, a draw often covers less). Read per draw")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ REXCVAR_DEFINE_BOOL(dbz3_rt_direct, false, "GPU",
+                     "DBZ3-Android: render targets sem transferencias entre imagens do host "
+                     "(cada configuracao guarda a sua imagem)")
+@@ -465,6 +482,163 @@ void RenderTargetCache::BeginFrame() {
+   ResetAccumulatedRenderTargets();
+ }
+ 
++void RenderTargetCache::SkipTransfersOverwrittenByDraw(
++    reg::RB_DEPTHCONTROL normalized_depth_control, uint32_t normalized_color_mask,
++    const Shader& vertex_shader, const RenderTargetKey* rt_keys) {
++  // XenDroid Plus 17b844b93, 0080f3942, 6ab5830f2.
++  const RegisterFile& regs = register_file();
++  if (draw_pixel_shader_kills_) {
++    return;
++  }
++  // Every covered pixel, and all its samples, reaches the output merger. Face culling and polygon
++  // modes don't matter: the draws checked here are single rectangles, and rectangle lists aren't
++  // polygonal primitives for the hosts (draw_util::IsPrimitivePolygonal) - never culled, always
++  // filled. The alpha test and alpha to coverage are done on the pixel shader's alpha - none
++  // without a pixel shader, whatever the state says.
++  auto rb_colorcontrol = regs.Get<reg::RB_COLORCONTROL>();
++  if (draw_has_pixel_shader_ &&
++      ((rb_colorcontrol.alpha_test_enable &&
++        rb_colorcontrol.alpha_func != xenos::CompareFunction::kAlways) ||
++       rb_colorcontrol.alpha_to_mask_enable)) {
++    return;
++  }
++  // The targets the draw overwrites whatever they hold: bit 0 - depth and stencil, 1 + i - color
++  // i.
++  uint32_t overwritten = 0;
++  const bool stencil_overwritten =
++      normalized_depth_control.stencil_enable &&
++      normalized_depth_control.stencilfunc == xenos::CompareFunction::kAlways &&
++      normalized_depth_control.stencilzpass == xenos::StencilOp::kReplace &&
++      regs.Get<reg::RB_STENCILREFMASK>().stencilwritemask == 0xFF &&
++      (!normalized_depth_control.backface_enable ||
++       (normalized_depth_control.stencilfunc_bf == xenos::CompareFunction::kAlways &&
++        normalized_depth_control.stencilzpass_bf == xenos::StencilOp::kReplace &&
++        regs.Get<reg::RB_STENCILREFMASK>(XE_GPU_REG_RB_STENCILREFMASK_BF).stencilwritemask ==
++            0xFF));
++  if (!last_update_transfers_[0].empty() && normalized_depth_control.z_enable &&
++      normalized_depth_control.z_write_enable &&
++      normalized_depth_control.zfunc == xenos::CompareFunction::kAlways && stencil_overwritten) {
++    overwritten |= 1;
++  }
++  for (uint32_t i = 0; i < xenos::kMaxColorRenderTargets; ++i) {
++    if (last_update_transfers_[1 + i].empty() ||
++        ((normalized_color_mask >> (4 * i)) & 0b1111) != 0b1111) {
++      continue;
++    }
++    auto blend = regs.Get<reg::RB_BLENDCONTROL>(reg::RB_BLENDCONTROL::rt_register_indices[i]);
++    if (blend.color_srcblend != xenos::BlendFactor::kOne ||
++        blend.color_destblend != xenos::BlendFactor::kZero ||
++        blend.color_comb_fcn != xenos::BlendOp::kAdd ||
++        blend.alpha_srcblend != xenos::BlendFactor::kOne ||
++        blend.alpha_destblend != xenos::BlendFactor::kZero ||
++        blend.alpha_comb_fcn != xenos::BlendOp::kAdd) {
++      continue;
++    }
++    overwritten |= uint32_t(1) << (1 + i);
++  }
++  if (!overwritten) {
++    return;
++  }
++  // The pixels the rectangle covers inside the scissor.
++  float left, top, right, bottom;
++  if (!draw_extent_estimator_.EstimateRectangle(vertex_shader, left, top, right, bottom)) {
++    return;
++  }
++  draw_util::Scissor scissor;
++  draw_util::GetScissor(regs, scissor, false);
++  left = std::max(left, float(scissor.offset[0]));
++  top = std::max(top, float(scissor.offset[1]));
++  right = std::min(right, float(scissor.offset[0] + scissor.extent[0]));
++  bottom = std::min(bottom, float(scissor.offset[1] + scissor.extent[1]));
++  if (draw_samples_as_pixels_) {
++    // From the guest's 4x pixels to the pixels of the 1x surface of their samples (rt_keys), 2x2
++    // per 4x pixel - a whole 1x pixel inside the doubled rectangle has its center inside too.
++    left *= 2.0f;
++    right *= 2.0f;
++    top *= 2.0f;
++    bottom *= 2.0f;
++  }
++  // The whole pixels of the destination inside the rectangle - the part of a transfer only partly
++  // covered by the draw not to transfer (skip_overwritten_transfers_cutout).
++  Transfer::Rectangle cutout = {};
++  bool cutout_valid = false;
++  if (REXCVAR_GET(skip_overwritten_transfers_cutout)) {
++    const float cutout_left = std::ceil(std::max(left, 0.0f));
++    const float cutout_top = std::ceil(std::max(top, 0.0f));
++    const float cutout_right = std::floor(right);
++    const float cutout_bottom = std::floor(bottom);
++    if (cutout_right > cutout_left && cutout_bottom > cutout_top) {
++      cutout.x_pixels = uint32_t(cutout_left);
++      cutout.y_pixels = uint32_t(cutout_top);
++      cutout.width_pixels = uint32_t(cutout_right - cutout_left);
++      cutout.height_pixels = uint32_t(cutout_bottom - cutout_top);
++      cutout_valid = true;
++    }
++  }
++  uint32_t rts_remaining = overwritten;
++  uint32_t rt_index;
++  while (rex::bit_scan_forward(rts_remaining, &rt_index)) {
++    rts_remaining &= ~(uint32_t(1) << rt_index);
++    const RenderTargetKey& key = rt_keys[rt_index];
++    std::vector<Transfer>& transfers = last_update_transfers_[rt_index];
++    if (cutout_valid) {
++      // Transfers partly covered: only what's outside the cutout. Those fully covered are
++      // dropped below.
++      for (Transfer& transfer : transfers) {
++        Transfer::Rectangle rectangles[Transfer::kMaxRectanglesWithoutCutout];
++        uint32_t rectangle_count = transfer.GetRectangles(
++            key.base_tiles, key.GetPitchTiles(), key.msaa_samples, key.Is64bpp(), rectangles);
++        bool any_covered = false, any_outside = false;
++        for (uint32_t j = 0; j < rectangle_count; ++j) {
++          const Transfer::Rectangle& rectangle = rectangles[j];
++          const uint32_t x1 = rectangle.x_pixels + rectangle.width_pixels;
++          const uint32_t y1 = rectangle.y_pixels + rectangle.height_pixels;
++          if (rectangle.x_pixels < cutout.x_pixels + cutout.width_pixels &&
++              x1 > cutout.x_pixels && rectangle.y_pixels < cutout.y_pixels + cutout.height_pixels &&
++              y1 > cutout.y_pixels) {
++            any_covered = true;
++          }
++          if (rectangle.x_pixels < cutout.x_pixels || rectangle.y_pixels < cutout.y_pixels ||
++              x1 > cutout.x_pixels + cutout.width_pixels ||
++              y1 > cutout.y_pixels + cutout.height_pixels) {
++            any_outside = true;
++          }
++        }
++        if (any_covered && any_outside) {
++          transfer.draw_cutout = cutout;
++          transfer.has_draw_cutout = true;
++          ++overwritten_transfers_cut_;
++        }
++      }
++    }
++    transfers.erase(
++        std::remove_if(transfers.begin(), transfers.end(),
++                       [&](const Transfer& transfer) {
++                         // Whole pixels of the destination, so all samples too.
++                         Transfer::Rectangle rectangles[Transfer::kMaxRectanglesWithoutCutout];
++                         uint32_t rectangle_count =
++                             transfer.GetRectangles(key.base_tiles, key.GetPitchTiles(),
++                                                    key.msaa_samples, key.Is64bpp(), rectangles);
++                         if (!rectangle_count) {
++                           return false;
++                         }
++                         for (uint32_t j = 0; j < rectangle_count; ++j) {
++                           const Transfer::Rectangle& rectangle = rectangles[j];
++                           if (float(rectangle.x_pixels) < left ||
++                               float(rectangle.y_pixels) < top ||
++                               float(rectangle.x_pixels + rectangle.width_pixels) > right ||
++                               float(rectangle.y_pixels + rectangle.height_pixels) > bottom) {
++                             return false;
++                           }
++                         }
++                         ++overwritten_transfers_skipped_;
++                         overwritten_tiles_skipped_ += transfer.end_tiles - transfer.start_tiles;
++                         return true;
++                       }),
++        transfers.end());
++  }
++}
++
+ bool RenderTargetCache::Update(bool is_rasterization_done,
+                                reg::RB_DEPTHCONTROL normalized_depth_control,
+                                uint32_t normalized_color_mask, const Shader& vertex_shader) {
+@@ -634,13 +808,16 @@ bool RenderTargetCache::Update(bool is_rasterization_done,
+ 
+   // Estimate height used by render targets (for color for writes, for depth /
+   // stencil for both reads and writes) from various sources.
+-  uint32_t height_used =
+-      std::min(GetRenderTargetHeight(pitch_tiles_at_32bpp, msaa_samples),
+-               draw_extent_estimator_.EstimateMaxY(
+-                   interlock_barrier_only
+-                       ? REXCVAR_GET(execute_unclipped_draw_vs_on_cpu_for_psi_render_backend)
+-                       : true,
+-                   vertex_shader));
++  uint32_t height_used = draw_extent_estimator_.EstimateMaxY(
++      interlock_barrier_only ? REXCVAR_GET(execute_unclipped_draw_vs_on_cpu_for_psi_render_backend)
++                             : true,
++      vertex_shader);
++  if (draw_samples_as_pixels_) {
++    // vulkan_depth_4x_as_1x: in the guest's 4x pixels, but rounded like at 1x (the surface info is
++    // the 1x one now) - one more row covers the lower samples of the last.
++    height_used = (height_used + 1) << 1;
++  }
++  height_used = std::min(GetRenderTargetHeight(pitch_tiles_at_32bpp, msaa_samples), height_used);
+ 
+   // Sorted by EDRAM base and then by index in the pipeline - for simplicity,
+   // treat render targets placed closer to the end of the EDRAM as truncating
+@@ -763,6 +940,16 @@ bool RenderTargetCache::Update(bool is_rasterization_done,
+     return true;
+   }
+ 
++  if (overwritten_transfer_skipping_supported_ && REXCVAR_GET(skip_overwritten_transfers)) {
++    for (uint32_t i = 0; i < 1 + xenos::kMaxColorRenderTargets; ++i) {
++      if (!last_update_transfers_[i].empty()) {
++        SkipTransfersOverwrittenByDraw(normalized_depth_control, normalized_color_mask,
++                                       vertex_shader, rt_keys);
++        break;
++      }
++    }
++  }
++
+   // If everything succeeded, update the used render targets.
+   for (uint32_t i = 0; i < 1 + xenos::kMaxColorRenderTargets; ++i) {
+     last_update_used_render_targets_[i] =
+diff --git a/src/graphics/util/draw_extent_estimator.cpp b/src/graphics/util/draw_extent_estimator.cpp
+index 54f77a9..9546899 100644
+--- a/src/graphics/util/draw_extent_estimator.cpp
++++ b/src/graphics/util/draw_extent_estimator.cpp
+@@ -11,6 +11,7 @@
+ 
+ #include <algorithm>
+ #include <cfloat>
++#include <cmath>
+ #include <cstdint>
+ 
+ #include <rex/assert.h>
+@@ -62,9 +63,15 @@ namespace rex::graphics {
+ void DrawExtentEstimator::PositionYExportSink::Export(ucode::ExportRegister export_register,
+                                                       const float* value, uint32_t value_mask) {
+   if (export_register == ucode::ExportRegister::kVSPosition) {
++    if (value_mask & 0b0001) {
++      position_x_ = value[0];
++    }
+     if (value_mask & 0b0010) {
+       position_y_ = value[1];
+     }
++    if (value_mask & 0b0100) {
++      position_z_ = value[2];
++    }
+     if (value_mask & 0b1000) {
+       position_w_ = value[3];
+     }
+@@ -78,6 +85,181 @@ void DrawExtentEstimator::PositionYExportSink::Export(ucode::ExportRegister expo
+   }
+ }
+ 
++bool DrawExtentEstimator::EstimateRectangle(const Shader& vertex_shader, float& left_out,
++                                            float& top_out, float& right_out,
++                                            float& bottom_out) {
++  SCOPE_profile_cpu_f("gpu");
++
++  const RegisterFile& regs = register_file_;
++
++  auto vgt_draw_initiator = regs.Get<reg::VGT_DRAW_INITIATOR>();
++  if (vgt_draw_initiator.prim_type != xenos::PrimitiveType::kRectangleList ||
++      vgt_draw_initiator.num_indices != 3 ||
++      (vgt_draw_initiator.source_select != xenos::SourceSelect::kDMA &&
++       vgt_draw_initiator.source_select != xenos::SourceSelect::kAutoIndex)) {
++    return false;
++  }
++  if (xenos::IsMajorModeExplicit(vgt_draw_initiator.major_mode, vgt_draw_initiator.prim_type) &&
++      regs.Get<reg::VGT_OUTPUT_PATH_CNTL>().path_select ==
++          xenos::VGTOutputPath::kTessellationEnable) {
++    return false;
++  }
++  assert_true(vertex_shader.type() == xenos::ShaderType::kVertex);
++  if (!vertex_shader.is_ucode_analyzed() || !ShaderInterpreter::CanInterpretShader(vertex_shader)) {
++    return false;
++  }
++
++  uint32_t vertex_indices[3] = {0, 1, 2};
++  if (vgt_draw_initiator.source_select == xenos::SourceSelect::kDMA) {
++    // The same index handling as in EstimateVertexMaxY.
++    auto vgt_dma_size = regs.Get<reg::VGT_DMA_SIZE>();
++    if (vgt_dma_size.num_words < 3) {
++      return false;
++    }
++    xenos::Endian index_endian = vgt_dma_size.swap_mode;
++    uint32_t index_buffer_base = regs[XE_GPU_REG_VGT_DMA_BASE];
++    if (vgt_draw_initiator.index_size == xenos::IndexFormat::kInt16) {
++      if (index_endian == xenos::Endian::k8in32) {
++        index_endian = xenos::Endian::k8in16;
++      } else if (index_endian == xenos::Endian::k16in32) {
++        index_endian = xenos::Endian::kNone;
++      }
++      index_buffer_base &= ~uint32_t(sizeof(uint16_t) - 1);
++      const uint16_t* index_buffer_16 =
++          reinterpret_cast<const uint16_t*>(memory_.TranslatePhysical(index_buffer_base));
++      for (uint32_t i = 0; i < 3; ++i) {
++        vertex_indices[i] = xenos::GpuSwap(uint32_t(index_buffer_16[i]), index_endian) & 0xFFFFFF;
++      }
++    } else {
++      index_buffer_base &= ~uint32_t(sizeof(uint32_t) - 1);
++      const uint32_t* index_buffer_32 =
++          reinterpret_cast<const uint32_t*>(memory_.TranslatePhysical(index_buffer_base));
++      for (uint32_t i = 0; i < 3; ++i) {
++        vertex_indices[i] = xenos::GpuSwap(index_buffer_32[i], index_endian) & 0xFFFFFF;
++      }
++    }
++    if (regs.Get<reg::PA_SU_SC_MODE_CNTL>().multi_prim_ib_ena) {
++      uint32_t reset_index = regs.Get<reg::VGT_MULTI_PRIM_IB_RESET_INDX>().reset_indx;
++      for (uint32_t i = 0; i < 3; ++i) {
++        if (vertex_indices[i] == reset_index) {
++          return false;
++        }
++      }
++    }
++  }
++  uint32_t index_offset = regs.Get<reg::VGT_INDX_OFFSET>().indx_offset;
++  uint32_t min_index = regs.Get<reg::VGT_MIN_VTX_INDX>().min_indx;
++  uint32_t max_index = regs.Get<reg::VGT_MAX_VTX_INDX>().max_indx;
++
++  auto pa_cl_vte_cntl = regs.Get<reg::PA_CL_VTE_CNTL>();
++  const bool clip = !regs.Get<reg::PA_CL_CLIP_CNTL>().clip_disable;
++  if (clip && pa_cl_vte_cntl.vtx_xy_fmt) {
++    // Screen-space positions clipped against the clip space - unusual.
++    return false;
++  }
++  float viewport_scale_x =
++      pa_cl_vte_cntl.vport_x_scale_ena ? regs.Get<float>(XE_GPU_REG_PA_CL_VPORT_XSCALE) : 1.0f;
++  float viewport_offset_x =
++      pa_cl_vte_cntl.vport_x_offset_ena ? regs.Get<float>(XE_GPU_REG_PA_CL_VPORT_XOFFSET) : 0.0f;
++  float viewport_scale_y =
++      pa_cl_vte_cntl.vport_y_scale_ena ? regs.Get<float>(XE_GPU_REG_PA_CL_VPORT_YSCALE) : 1.0f;
++  float viewport_offset_y =
++      pa_cl_vte_cntl.vport_y_offset_ena ? regs.Get<float>(XE_GPU_REG_PA_CL_VPORT_YOFFSET) : 0.0f;
++
++  float x[3], y[3];
++  bool valid = true;
++  shader_interpreter_.SetShader(vertex_shader);
++  PositionYExportSink position_export_sink;
++  shader_interpreter_.SetExportSink(&position_export_sink);
++  for (uint32_t i = 0; i < 3; ++i) {
++    uint32_t vertex_index =
++        std::min(max_index, std::max(min_index, (vertex_indices[i] + index_offset) & 0xFFFFFF));
++    position_export_sink.Reset();
++    shader_interpreter_.temp_registers()[0] = float(vertex_index);
++    shader_interpreter_.Execute();
++    if ((position_export_sink.vertex_kill().has_value() &&
++         (position_export_sink.vertex_kill().value() & ~(UINT32_C(1) << 31))) ||
++        !position_export_sink.position_x().has_value() ||
++        !position_export_sink.position_y().has_value() ||
++        !position_export_sink.position_z().has_value()) {
++      valid = false;
++      break;
++    }
++    float vertex_x = position_export_sink.position_x().value();
++    float vertex_y = position_export_sink.position_y().value();
++    float vertex_z = position_export_sink.position_z().value();
++    if (!pa_cl_vte_cntl.vtx_xy_fmt || !pa_cl_vte_cntl.vtx_z_fmt) {
++      if (!position_export_sink.position_w().has_value() ||
++          !(position_export_sink.position_w().value() > 0.0f)) {
++        valid = false;
++        break;
++      }
++      float vertex_w = position_export_sink.position_w().value();
++      if (!pa_cl_vte_cntl.vtx_xy_fmt) {
++        vertex_x /= vertex_w;
++        vertex_y /= vertex_w;
++      }
++      if (!pa_cl_vte_cntl.vtx_z_fmt) {
++        vertex_z /= vertex_w;
++      }
++    }
++    // Outside the depth range, depth clipping may drop it - unless the host clamps the depth of
++    // draws without clipping (NaN is never safe).
++    if (!(vertex_z >= 0.0f && vertex_z <= 1.0f) &&
++        (clip || !unclipped_depth_clamped_ || std::isnan(vertex_z))) {
++      valid = false;
++      break;
++    }
++    if (clip) {
++      // Clipped to the viewport. NaN fails the checks below.
++      vertex_x = std::min(std::max(vertex_x, -1.0f), 1.0f);
++      vertex_y = std::min(std::max(vertex_y, -1.0f), 1.0f);
++    }
++    x[i] = vertex_x * viewport_scale_x + viewport_offset_x;
++    y[i] = vertex_y * viewport_scale_y + viewport_offset_y;
++  }
++  shader_interpreter_.SetExportSink(nullptr);
++  if (!valid) {
++    return false;
++  }
++
++  // Three distinct corners of an axis-aligned rectangle.
++  float left = std::min(std::min(x[0], x[1]), x[2]);
++  float right = std::max(std::max(x[0], x[1]), x[2]);
++  float top = std::min(std::min(y[0], y[1]), y[2]);
++  float bottom = std::max(std::max(y[0], y[1]), y[2]);
++  if (!(right > left) || !(bottom > top)) {
++    return false;
++  }
++  for (uint32_t i = 0; i < 3; ++i) {
++    if ((x[i] != left && x[i] != right) || (y[i] != top && y[i] != bottom)) {
++      return false;
++    }
++    for (uint32_t j = i + 1; j < 3; ++j) {
++      if (x[i] == x[j] && y[i] == y[j]) {
++        return false;
++      }
++    }
++  }
++
++  // Window offset, and the pixel centers at +0.5 like in EstimateVertexMaxY.
++  float offset_x = 0.0f, offset_y = 0.0f;
++  if (regs.Get<reg::PA_SU_SC_MODE_CNTL>().vtx_window_offset_enable) {
++    auto pa_sc_window_offset = regs.Get<reg::PA_SC_WINDOW_OFFSET>();
++    offset_x += float(pa_sc_window_offset.window_x_offset);
++    offset_y += float(pa_sc_window_offset.window_y_offset);
++  }
++  if (regs.Get<reg::PA_SU_VTX_CNTL>().pix_center == xenos::PixelCenter::kD3DZero) {
++    offset_x += 0.5f;
++    offset_y += 0.5f;
++  }
++  left_out = left + offset_x;
++  right_out = right + offset_x;
++  top_out = top + offset_y;
++  bottom_out = bottom + offset_y;
++  return true;
++}
++
+ uint32_t DrawExtentEstimator::EstimateVertexMaxY(const Shader& vertex_shader) {
+   SCOPE_profile_cpu_f("gpu");
+ 
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 7560d3a..3c2ec27 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -6057,6 +6057,10 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+ 
+   const VulkanPipelineCache::PipelineLayoutProvider* pipeline_layout_provider;
+   // Set up the render targets - this may perform dispatches and draws.
++  // A pixel shader that may kill pixels leaves covered pixels unwritten, and only a pixel shader
++  // does the alpha test (skip_overwritten_transfers).
++  render_target_cache_->SetDrawPixelShaderKills(pixel_shader && pixel_shader->kills_pixels());
++  render_target_cache_->SetDrawHasPixelShader(pixel_shader != nullptr);
+   if (!render_target_cache_->Update(is_rasterization_done, normalized_depth_control,
+                                     normalized_color_mask, *vertex_shader)) {
+     DBZ3_DRAW_RET(draw_fail("render_target_update"));
+diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
+index 31d82c5..448624d 100644
+--- a/src/graphics/vulkan/render_target_cache.cpp
++++ b/src/graphics/vulkan/render_target_cache.cpp
+@@ -1138,6 +1138,11 @@ bool VulkanRenderTargetCache::Initialize(uint32_t shared_memory_binding_count) {
+   last_update_framebuffer_ = VK_NULL_HANDLE;
+ 
+   InitializeCommon();
++  // skip_overwritten_transfers: the command processor reports the pixel shader of each draw, and
++  // the transfers honour Transfer::GetCutout; rectangles at any depth are drawn whole when the host
++  // clamps the depth of draws without clipping.
++  SetOverwrittenTransferSkippingSupported(true);
++  SetUnclippedDepthClamped(vulkan_device->properties().depthClamp);
+   return true;
+ }
+ 
+@@ -5019,7 +5024,7 @@ void VulkanRenderTargetCache::PerformTransfersAndResolveClears(
+       Transfer::Rectangle transfer_rectangles[Transfer::kMaxRectanglesWithCutout];
+       uint32_t transfer_rectangle_count = transfer.GetRectangles(
+           dest_rt_key.base_tiles, dest_rt_key.pitch_tiles_at_32bpp, dest_rt_key.msaa_samples, false,
+-          transfer_rectangles, resolve_clear_rectangle);
++          transfer_rectangles, transfer.GetCutout(resolve_clear_rectangle));
+       assert_not_zero(transfer_rectangle_count);
+       HostDepthStoreRectangleConstant host_depth_store_rectangle_constant;
+       for (uint32_t j = 0; j < transfer_rectangle_count; ++j) {
+@@ -5278,7 +5283,7 @@ void VulkanRenderTargetCache::PerformTransfersAndResolveClears(
+                                                : TransferMode::kColorToStencilBit;
+             stencil_clear_rectangle_count += transfer.GetRectangles(
+                 dest_rt_key.base_tiles, dest_pitch_tiles, dest_rt_key.msaa_samples, dest_is_64bpp,
+-                nullptr, resolve_clear_rectangle);
++                nullptr, transfer.GetCutout(resolve_clear_rectangle));
+           } else {
+             if (dest_rt_key.is_depth) {
+               if (host_depth_source_vulkan_rt) {
+@@ -5364,7 +5369,7 @@ void VulkanRenderTargetCache::PerformTransfersAndResolveClears(
+           Transfer::Rectangle transfer_stencil_clear_rectangles[Transfer::kMaxRectanglesWithCutout];
+           uint32_t transfer_stencil_clear_rectangle_count = transfer.GetRectangles(
+               dest_rt_key.base_tiles, dest_pitch_tiles, dest_rt_key.msaa_samples, dest_is_64bpp,
+-              transfer_stencil_clear_rectangles, resolve_clear_rectangle);
++              transfer_stencil_clear_rectangles, transfer.GetCutout(resolve_clear_rectangle));
+           for (uint32_t j = 0; j < transfer_stencil_clear_rectangle_count; ++j) {
+             const Transfer::Rectangle& stencil_clear_rectangle =
+                 transfer_stencil_clear_rectangles[j];
+@@ -5412,7 +5417,7 @@ void VulkanRenderTargetCache::PerformTransfersAndResolveClears(
+         auto it_merged_first = it, it_merged_last = it;
+         uint32_t transfer_rectangle_count = transfer_invocation_first.transfer.GetRectangles(
+             dest_rt_key.base_tiles, dest_pitch_tiles, dest_rt_key.msaa_samples, dest_is_64bpp,
+-            nullptr, resolve_clear_rectangle);
++            nullptr, transfer_invocation_first.transfer.GetCutout(resolve_clear_rectangle));
+         for (auto it_merge = std::next(it_merged_first);
+              it_merge != current_transfer_invocations_.cend(); ++it_merge) {
+           if (!transfer_invocation_first.CanBeMergedIntoOneDraw(*it_merge)) {
+@@ -5420,7 +5425,7 @@ void VulkanRenderTargetCache::PerformTransfersAndResolveClears(
+           }
+           transfer_rectangle_count += it_merge->transfer.GetRectangles(
+               dest_rt_key.base_tiles, dest_pitch_tiles, dest_rt_key.msaa_samples, dest_is_64bpp,
+-              nullptr, resolve_clear_rectangle);
++              nullptr, it_merge->transfer.GetCutout(resolve_clear_rectangle));
+           it_merged_last = it_merge;
+         }
+         assert_not_zero(transfer_rectangle_count);
+@@ -5459,7 +5464,7 @@ void VulkanRenderTargetCache::PerformTransfersAndResolveClears(
+           Transfer::Rectangle transfer_invocation_rectangles[Transfer::kMaxRectanglesWithCutout];
+           uint32_t transfer_invocation_rectangle_count = it_merged->transfer.GetRectangles(
+               dest_rt_key.base_tiles, dest_pitch_tiles, dest_rt_key.msaa_samples, dest_is_64bpp,
+-              transfer_invocation_rectangles, resolve_clear_rectangle);
++              transfer_invocation_rectangles, it_merged->transfer.GetCutout(resolve_clear_rectangle));
+           assert_not_zero(transfer_invocation_rectangle_count);
+           for (uint32_t j = 0; j < transfer_invocation_rectangle_count; ++j) {
+             const Transfer::Rectangle& transfer_rectangle = transfer_invocation_rectangles[j];

@@ -1,0 +1,91 @@
+diff --git a/include/rex/graphics/vulkan/command_processor.h b/include/rex/graphics/vulkan/command_processor.h
+index 6841762..ec53b7c 100644
+--- a/include/rex/graphics/vulkan/command_processor.h
++++ b/include/rex/graphics/vulkan/command_processor.h
+@@ -435,7 +435,12 @@ class VulkanCommandProcessor : public CommandProcessor {
+   bool EndSubmission(bool is_swap);
+   bool AwaitAllQueueOperationsCompletion() {
+     CheckSubmissionFenceAndDeviceLoss(GetCurrentSubmission());
+-    return !submission_open_ && submissions_in_flight_fences_.empty();
++    const bool drained = !submission_open_ && submissions_in_flight_fences_.empty();
++    if (drained) {
++      // vulkan_drained_submission_draws: the GPU now waits for the next submission.
++      drained_submission_ = GetCurrentSubmission();
++    }
++    return drained;
+   }
+   // Keep primary-buffer-end submit behavior aligned with D3D12: only submit
+   // when immediate submission is safe.
+@@ -539,6 +544,11 @@ class VulkanCommandProcessor : public CommandProcessor {
+   std::vector<VkSemaphore> semaphores_free_;
+ 
+   bool submission_open_ = false;
++  // Draws recorded into the currently open submission (vulkan_mid_frame_submission_draws).
++  uint32_t draws_since_submission_ = 0;
++  // The first submission after the GPU was last awaited until it had nothing left to do
++  // (vulkan_drained_submission_draws).
++  uint64_t drained_submission_ = 0;
+   uint64_t submission_completed_ = 0;
+   // In case vkQueueSubmit fails after something like a successful
+   // vkQueueBindSparse, to wait correctly on the next attempt.
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 3367b62..7560d3a 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -265,6 +265,23 @@ REXCVAR_DEFINE_BOOL(vulkan_async_skip_incomplete_frames, true, "GPU/Vulkan",
+                     "used placeholder pipelines to avoid visible flashing")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ 
++// XenDroid Plus 0e8dea51a / 562405fec.
++REXCVAR_DEFINE_INT32(vulkan_mid_frame_submission_draws, 0, "GPU/Vulkan",
++                     "If greater than 0, end and submit the current command buffer after this many "
++                     "draws instead of only at the swap (and primary buffer ends), so the GPU "
++                     "overlaps the frame's rendering with the building of the rest of its command "
++                     "stream. Splitting closes the current render pass, so values that are too "
++                     "small hurt tiled GPUs; try roughly half the title's per-frame draw count. "
++                     "Read per draw")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++REXCVAR_DEFINE_INT32(vulkan_drained_submission_draws, 0, "GPU/Vulkan",
++                     "If greater than 0, for the first 16 submissions after the command processor "
++                     "awaited the GPU until it had nothing left to do (memory export readback, "
++                     "resolve readback, cache clears), submit every this many draws, so the GPU "
++                     "doesn't idle while the rest of the command stream is built. Games that never "
++                     "drain the GPU get no extra submissions. XenDroid Plus: Need for Speed: Most "
++                     "Wanted 12 -> 19 fps with 100 (POCO F7, Adreno 825). Read per draw")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ REXCVAR_DEFINE_BOOL(vulkan_submit_on_primary_buffer_end, true, "GPU/Vulkan",
+                     "Submit command buffer when PM4 primary buffer ends")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+@@ -6546,6 +6563,24 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+   dbz3_resolve_dedupe::g_reader = pixel_shader ? pixel_shader->ucode_data_hash() : 0;
+   Dbz3ForEachSampled(regs, vertex_shader, pixel_shader,
+                      [](uint32_t a) { dbz3_resolve_dedupe::MarkRead(a); });
++
++  // vulkan_mid_frame_submission_draws / vulkan_drained_submission_draws (XenDroid Plus 0e8dea51a,
++  // 562405fec): submit the frame in parts so the GPU starts on it while the rest is built - every
++  // N draws, or more often right after the GPU was drained (it waits for this submission). Not
++  // while a Dragon Burst render-into-texture pass is open.
++  ++draws_since_submission_;
++  uint32_t submission_draws = uint32_t(std::max(REXCVAR_GET(vulkan_mid_frame_submission_draws), 0));
++  const int32_t drained_submission_draws = REXCVAR_GET(vulkan_drained_submission_draws);
++  if (drained_submission_draws > 0 && GetCurrentSubmission() < drained_submission_ + 16) {
++    submission_draws = submission_draws
++                           ? std::min(submission_draws, uint32_t(drained_submission_draws))
++                           : uint32_t(drained_submission_draws);
++  }
++  if (submission_draws && draws_since_submission_ >= submission_draws && submission_open_ &&
++      !scratch_buffer_used_ && CanEndSubmissionImmediately() &&
++      !render_target_cache_->Dbz3RitActive()) {
++    EndSubmission(false);
++  }
+   DBZ3_DRAW_RET(true);
+ }
+ 
+@@ -7871,6 +7906,7 @@ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
+     fences_free_.pop_back();
+ 
+     submission_open_ = false;
++    draws_since_submission_ = 0;
+   }
+ 
+   if (is_closing_frame) {
