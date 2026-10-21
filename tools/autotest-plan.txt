@@ -1,12 +1,12 @@
 # Plano do tools/autoloop.sh: uma variante por linha (sintaxe do tools/autotest.sh).
 # "rp5/..." ou "cube/..." = so nesse aparelho. "settle N" = segundos de gameplay antes do autoteste.
-# Rodada 4 (21/10 ~15h): RP5 Turnip - logos invisiveis e menu azul/verde (os videos CRI sao
-# texturas k_8 lineares, 1024x360 e 512x180). Fotos dos logos e do menu (autopilot_*.jpg).
-# Cada variante desliga UMA otimizacao do lado do jogo que mexe em uploads/texturas.
+# "@driver=system" ou "@driver=dono/repo#texto" troca o driver Vulkan so nessa variante.
+# Rodada 5 (21/10 ~15h30): o Turnip 27.0 R1 do RP5 cai (DEVICE_LOST) em 30-120 s em todas as
+# variantes do lado do jogo; o Budokai 3 funcionou com Turnip 25/26. Testar versoes do driver.
 settle 30
 base
-rp5/hoist:dbz3_hoist_uploads=false
-rp5/spec:dbz3_spec_texture_signs=false;dbz3_tex_implicit_lod=false
-rp5/rit:dbz3_rit_textures_turnip=true
-rp5/early:dbz3_resolve_early_transition=false
-rp5/skipmem:swordman_skip_memory_turnip=true
+rp5/qualcomm:@driver=system
+rp5/k11-26:@driver=K11MCH1/AdrenoToolsDrivers#26.0.0
+rp5/k11-25:@driver=K11MCH1/AdrenoToolsDrivers#25.
+rp5/purple-26:@driver=MrPurple666/purple-turnip#26
+rp5/steven:@driver=StevenMXZ/freedreno_turnip-CI#a6xx

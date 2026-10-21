@@ -122,6 +122,54 @@ if [ ${#DEVS[@]} -eq 0 ]; then
   exit 1
 fi
 
+# Driver Vulkan por variante: "@driver=system" (o do aparelho) ou "@driver=dono/repo#texto"
+# (o primeiro .zip das releases desse repositorio do GitHub cujo nome/tag contem o texto; fica em
+# cache em ~/.cache/swordman-drivers). O driver do app e reposto no fim da variante.
+fetch_driver() {  # fetch_driver dono/repo#texto -> caminho do .so (ou vazio)
+  local spec="$1" repo="${1%%#*}" match="${1#*#}" cache url dir so
+  cache="$HOME/.cache/swordman-drivers"
+  mkdir -p "$cache"
+  url="$(curl -s "https://api.github.com/repos/$repo/releases?per_page=40" |
+    python3 -c "
+import json, sys
+m = sys.argv[1].lower()
+for rel in json.load(sys.stdin):
+    for a in rel.get('assets', []):
+        n = a['name']
+        if n.lower().endswith('.zip') and (m in n.lower() or m in rel['tag_name'].lower()):
+            print(a['browser_download_url']); sys.exit()
+" "$match" 2>/dev/null)"
+  [ -z "$url" ] && return 0
+  dir="$cache/$(echo "$url" | md5sum | cut -c1-12)"
+  if [ ! -d "$dir" ]; then
+    mkdir -p "$dir"
+    curl -sL "$url" -o "$dir/driver.zip" && unzip -q -o "$dir/driver.zip" -d "$dir" || { rm -rf "$dir"; return 0; }
+  fi
+  so="$(find "$dir" -name '*.so' | head -n 1)"
+  [ -n "$so" ] && echo "$so|$(basename "$url")"
+}
+
+set_driver() {  # set_driver serial spec
+  local serial="$1" spec="$2" got so
+  adb -s "$serial" shell "rm -rf $APPDIR/driver.bak; [ -d $APPDIR/driver ] && mv $APPDIR/driver $APPDIR/driver.bak; mkdir -p $APPDIR/driver"
+  if [ "$spec" = "system" ]; then
+    echo "   driver: o do sistema"
+    return
+  fi
+  got="$(fetch_driver "$spec")"
+  if [ -z "$got" ]; then
+    echo "   driver: nada encontrado para '$spec' - fica o do sistema"
+    return
+  fi
+  so="${got%%|*}"
+  adb -s "$serial" push "$so" "$APPDIR/driver/" > /dev/null
+  echo "   driver: ${got#*|} ($(basename "$so"))"
+}
+
+restore_driver() {
+  adb -s "$1" shell "[ -d $APPDIR/driver.bak ] && { rm -rf $APPDIR/driver; mv $APPDIR/driver.bak $APPDIR/driver; }; true"
+}
+
 run_device() {
   local serial="$1" label="$2"
   local log="$OUT/$label.txt"
@@ -131,8 +179,14 @@ run_device() {
       [ "${v%%/*}" = "$label" ] || continue
       v="${v#*/}"
     fi
-    local name="${v%%:*}" cvars=""
+    local name="${v%%:*}" cvars="" driver=""
     [[ "$v" == *:* ]] && cvars="${v#*:}"
+    # "@driver=..." sai das cvars e troca o driver so nesta variante.
+    if [[ "$cvars" == *@driver=* ]]; then
+      driver="${cvars#*@driver=}"
+      driver="${driver%%;*}"
+      cvars="$(echo "$cvars" | tr ';' '\n' | grep -v '^@driver=' | paste -sd';')"
+    fi
     {
       echo "== $label / $name ($(date +%H:%M:%S))"
       # Sempre sem vibracao (os aparelhos ficam na mesa o dia todo) + as cvars da variante.
@@ -143,6 +197,7 @@ run_device() {
         if [ -n "$cvars" ]; then echo "$cvars" | tr ';' '\n' | sed 's/=/ = /'; fi
       } | adb -s "$serial" shell "cat > $APPDIR/cvars.txt"
       if [ -n "$cvars" ]; then echo "   cvars.txt: $cvars"; fi
+      if [ -n "$driver" ]; then set_driver "$serial" "$driver"; fi
       local before
       before="$(latest_zip "$serial")"
       start_game "$serial"
@@ -175,6 +230,7 @@ run_device() {
       fi
       adb -s "$serial" shell rm -f "$APPDIR/cvars.txt"
       adb -s "$serial" shell am force-stop "$APP_ID"
+      if [ -n "$driver" ]; then restore_driver "$serial"; fi
     } >> "$log" 2>&1
   done
 }
