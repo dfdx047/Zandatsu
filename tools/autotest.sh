@@ -155,8 +155,9 @@ run_device() {
         fi
         zip=""
         if ! adb -s "$serial" shell pidof "$APP_ID:game" > /dev/null; then
-          echo "   o jogo fechou (crash?) - a puxar os logs"
+          echo "   o jogo fechou (crash?) - a puxar os logs e o logcat"
           adb -s "$serial" pull "$APPDIR/logs" "$OUT/$label-$name-logs" > /dev/null 2>&1 || true
+          adb -s "$serial" logcat -d -t 3000 > "$OUT/$label-$name-logcat.txt" 2>/dev/null || true
           break
         fi
       done
@@ -164,8 +165,10 @@ run_device() {
         adb -s "$serial" pull "$zip" "$OUT/$label-$name.zip" > /dev/null
         echo "   zip: $label-$name.zip ($t s)"
       elif [ $t -ge 900 ]; then
-        echo "   sem zip em 15 min - a puxar os logs"
+        echo "   sem zip em 15 min (jogo preso?) - a puxar os logs, o logcat e a tela"
         adb -s "$serial" pull "$APPDIR/logs" "$OUT/$label-$name-logs" > /dev/null 2>&1 || true
+        adb -s "$serial" logcat -d -t 3000 > "$OUT/$label-$name-logcat.txt" 2>/dev/null || true
+        adb -s "$serial" exec-out screencap -p > "$OUT/$label-$name-tela.png" 2>/dev/null || true
       fi
       adb -s "$serial" shell rm -f "$APPDIR/cvars.txt"
       adb -s "$serial" shell am force-stop "$APP_ID"
