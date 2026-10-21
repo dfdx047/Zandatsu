@@ -2,13 +2,16 @@
 # "rp5/..." ou "cube/..." = so nesse aparelho. "settle N" = segundos de gameplay antes do autoteste.
 # "@driver=system" ou "@driver=dono/repo/texto" troca o driver Vulkan so nessa variante
 # (o primeiro .zip das releases cujo nome ou tag contem o texto). Nada de "#" nas linhas: e comentario.
-# Rodada 7 (21/10 ~17h25). Rodada 6: as fotos do Cube e do driver Qualcomm sao um ecra branco
-# (uma transicao do jogo aos ~30 s, nao um erro) -> settle 60. O Turnip 27 chegou ao gameplay com
-# as texturas em mosaico/listras; sem atalhos caiu na mesma (DEVICE_LOST) -> nao sao os atalhos.
+# "env:NOME=valor" nas cvars = variavel de ambiente.
+# Rodada 8 (21/10 ~18h20). Rodada 7: driver Qualcomm = imagem certa, sem crash, GPU 9.15 ms
+# (7.14 ms com dbz3_direct_resolve_draw). Turnip 27 = DEVICE_LOST em <1 min; Turnip 26 R8 (normal e
+# Sysmem) e Purple T26 = nao caem, mas a imagem e preta. Agora: o Qualcomm em mais cenas + com a
+# copia por desenho; e o Turnip 26 R8 sem atalhos / sem robustez / com profundidade float32.
 settle 60
 base
-rp5/no3d2d:gpu_3d_to_2d_texture=false
-rp5/k11-r8:@driver=K11MCH1/AdrenoToolsDrivers/Turnip_v26.0.0_R8.zip
-rp5/k11-r8-sysmem:@driver=K11MCH1/AdrenoToolsDrivers/Turnip_v26.0.0_R8_Sysmem
-rp5/purple-t26:@driver=MrPurple666/purple-turnip/T26-toasted
 rp5/qc:@driver=system
+rp5/qc-draw:@driver=system;dbz3_direct_resolve_draw=true
+rp5/r8-noshort:@driver=K11MCH1/AdrenoToolsDrivers/Turnip_v26.0.0_R8.zip;dbz3_rt_direct=false;dbz3_render_into_texture=false;swordman_rtt_float=false;dbz3_direct_resolve_skip_memory=false
+rp5/r8-norobust:@driver=K11MCH1/AdrenoToolsDrivers/Turnip_v26.0.0_R8.zip;env:REX_VULKAN_MASK_FEATURES=robustBufferAccess;env:REX_DBZ3_VK_DISABLE_EXTENSIONS=VK_EXT_robustness2
+rp5/r8-d32:@driver=K11MCH1/AdrenoToolsDrivers/Turnip_v26.0.0_R8.zip;env:REX_VULKAN_DISABLE_DEPTH_UNORM24=true
+cube/draw:dbz3_direct_resolve_draw=true
