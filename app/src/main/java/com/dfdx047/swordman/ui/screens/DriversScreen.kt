@@ -145,6 +145,16 @@ fun DriversScreen(vm: LauncherViewModel) {
                         checked = (vm.turnipCompatFlags and bit) != 0,
                     ) { on -> vm.setTurnipCompatFlag(bit, on) }
                 }
+                val sweepCtx = androidx.compose.ui.platform.LocalContext.current
+                androidx.compose.material3.FilledTonalButton(
+                    onClick = { vm.startTurnipSweep(sweepCtx) },
+                    enabled = vm.busy == null && vm.activeDriver != null,
+                ) { Text(stringResource(R.string.turnip_sweep_start, com.dfdx047.swordman.drivers.TurnipSupport.BISECT.size)) }
+                Text(
+                    stringResource(R.string.turnip_sweep_help),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 SettingSwitch(
                     stringResource(R.string.turnip_bisect),
                     checked = vm.turnipBisect,

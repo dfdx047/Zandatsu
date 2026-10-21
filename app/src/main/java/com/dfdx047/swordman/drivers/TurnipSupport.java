@@ -172,6 +172,19 @@ public final class TurnipSupport {
                     "REX_VULKAN_MASK_FEATURES=robustBufferAccess;REX_DBZ3_VK_DISABLE_EXTENSIONS=VK_EXT_robustness2"},
             {"10 sincronizacao total (flushall,syncdraw)", "TU_DEBUG=flushall,syncdraw"},
             {"11 depth float32", "REX_VULKAN_DISABLE_DEPTH_UNORM24=true"},
+            // Do lado do jogo (as otimizacoes do Dragon Ball/MGR), para separar driver de port.
+            {"12 sem passo 4 (render na textura)", "REX_DBZ3_RENDER_INTO_TEXTURE=false"},
+            {"13 sem atalhos resolve->textura",
+                    "REX_DBZ3_DIRECT_RESOLVE_TEXTURE=0;REX_DBZ3_DIRECT_RESOLVE_SKIP_MEMORY=false"},
+            {"14 sem render targets diretos", "REX_DBZ3_RT_DIRECT=false"},
+            {"15 Xenia puro (sem otimizacoes)",
+                    "REX_DBZ3_RENDER_INTO_TEXTURE=false;REX_DBZ3_DIRECT_RESOLVE_TEXTURE=0;"
+                            + "REX_DBZ3_DIRECT_RESOLVE_SKIP_MEMORY=false;REX_DBZ3_RT_DIRECT=false;"
+                            + "REX_DBZ3_RESOLVE_DEDUPE=false;REX_DBZ3_SKIP_NULL_DRAWS=false;"
+                            + "REX_DBZ3_DISCARD_FULL_OVERWRITE=false;REX_DBZ3_CLEAR_TO_1X=false;"
+                            + "REX_DBZ3_HOIST_UPLOADS=false"},
+            {"16 tudo do driver junto (sysmem, noubwc, nolrz, flushall, 512 MB)",
+                    "TU_DEBUG=sysmem,noubwc,nolrz,flushall,syncdraw;REX_DBZ3_VK_MAX_STORAGE_BUFFER_RANGE_MB=512"},
     };
 
     /** O kernel tem o kgsl (Android de fabrica)? Os drivers do AdrenoTools so funcionam com ele. */

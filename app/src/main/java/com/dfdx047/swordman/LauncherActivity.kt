@@ -29,6 +29,8 @@ class LauncherActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        // Varredura do Turnip: continua sozinha (sem avisos de erro pelo meio).
+        if (vm.continueTurnipSweep(this)) return
         // Ao voltar do jogo: o menu rapido pode ter mudado opcoes e ha log novo.
         vm.reloadAfterGame()
     }

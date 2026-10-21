@@ -372,4 +372,6 @@
     <string name="err_dialog_import_title">A importação falhou</string>
     <string name="err_dialog_import_text">Não deu para copiar o jogo. Confira o espaço livre e se o arquivo ou a pasta continua disponível, e tente de novo.</string>
     <string name="err_dialog_use_system_driver">Usar o driver do sistema</string>
+    <string name="turnip_sweep_start">Varredura automática do Turnip (%1$d inicializações)</string>
+    <string name="turnip_sweep_help">O jogo abre e fecha sozinho, uma opção do driver por inicialização (~40 s cada). Não mexa no aparelho; no fim o zip dos logs vai para Download.</string>
 </resources>

@@ -19,6 +19,7 @@ import androidx.lifecycle.viewModelScope
 import com.dfdx047.swordman.R
 import com.dfdx047.swordman.data.AppLanguage
 import com.dfdx047.swordman.data.AppLog
+import com.dfdx047.swordman.data.AppPaths
 import com.dfdx047.swordman.data.CrashReport
 import com.dfdx047.swordman.data.CrashReports
 import com.dfdx047.swordman.data.ControlStyle
@@ -110,6 +111,43 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
             prefs.turnipBisectStep = 0
         }
     }
+    /** Varredura automatica do Turnip (TurnipSweep): liga e abre o jogo no passo 0. */
+    fun startTurnipSweep(context: Context) {
+        com.dfdx047.swordman.game.TurnipSweep.start(context, AppPaths.appDir)
+        turnipBisect = true
+        turnipBisectStep = 0
+        play(context)
+    }
+
+    /**
+     * Ao voltar ao launcher com a varredura ligada: um crash conta como resultado do passo; se
+     * ainda ha passos abre o jogo de novo, senao desliga e exporta os logs. true = tratou.
+     */
+    fun continueTurnipSweep(activity: android.app.Activity): Boolean {
+        val sweep = com.dfdx047.swordman.game.TurnipSweep
+        if (!sweep.isActive(activity)) return false
+        val r = try {
+            CrashReports.lastGameExit(activity, prefs)
+        } catch (_: Exception) {
+            null
+        }
+        if (r != null) {
+            val label = sweep.label(activity)
+            sweep.append(AppPaths.appDir, "passo $label  CRASH (${r.detail})")
+            prefs.clearDriverBootState()
+        }
+        refreshTurnipBisect()
+        if (sweep.nextStep(activity) == 0) {
+            sweep.stop(activity)
+            turnipBisect = false
+            sweep.append(AppPaths.appDir, "fim")
+            exportLogs(activity)
+            return true
+        }
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ play(activity) }, 1500)
+        return true
+    }
+
     /** O GameActivity avanca o passo; ao voltar ao launcher le-se de novo. */
     fun refreshTurnipBisect() {
         turnipBisectStep = prefs.turnipBisectStep

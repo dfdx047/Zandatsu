@@ -373,4 +373,6 @@
     <string name="err_dialog_import_title">Import failed</string>
     <string name="err_dialog_import_text">The game could not be copied. Check the free space and that the file or folder is still available, then try again.</string>
     <string name="err_dialog_use_system_driver">Use the system driver</string>
+    <string name="turnip_sweep_start">Automatic Turnip sweep (%1$d game starts)</string>
+    <string name="turnip_sweep_help">The game opens and closes by itself, one driver option per start (~40 s each). Do not touch the device; at the end the log zip is saved to Download.</string>
 </resources>

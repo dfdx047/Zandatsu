@@ -97,6 +97,7 @@ public class GameActivity extends SDLActivity {
         mOverlay = new GameOverlay(this);
         mOverlay.onCreate();
         watchFirstFrames(appDir);
+        TurnipSweep.arm(this, appDir);
     }
 
     /**
@@ -493,7 +494,8 @@ public class GameActivity extends SDLActivity {
             // Bisect do Turnip: so o passo desta vez, nada mais (para o resultado ser claro).
             String[][] steps = com.dfdx047.swordman.drivers.TurnipSupport.BISECT;
             int step = Math.floorMod(prefs.getInt("turnip_bisect_step", 0), steps.length);
-            prefs.edit().putInt("turnip_bisect_step", (step + 1) % steps.length).commit();
+            prefs.edit().putInt("turnip_bisect_step", (step + 1) % steps.length)
+                    .putString(TurnipSweep.KEY_LABEL, steps[step][0]).commit();
             for (String kv : steps[step][1].split(";")) {
                 int eq = kv.indexOf('=');
                 if (eq > 0) setEnv(kv.substring(0, eq), kv.substring(eq + 1));
