@@ -378,4 +378,6 @@
     <string name="settings_glow_blur">Glow blur</string>
     <string name="settings_glow_blur_sub">Off saves ~2.6 ms per frame on the RG Cube with no visible change in the tested scenes.</string>
     <string name="turnip_sweep_rtt">Turnip sweep: resolve→texture shortcut (%1$d starts)</string>
+    <string name="settings_ps_fp16">Pixel shaders in fp16 (experimental)</string>
+    <string name="settings_ps_fp16_sub">Half-precision math in the game shaders: faster on Mali and Adreno; may show banding or wrong effects. Applies on the next start.</string>
 </resources>

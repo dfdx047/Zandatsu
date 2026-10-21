@@ -377,4 +377,6 @@
     <string name="settings_glow_blur">Desenfoque del brillo</string>
     <string name="settings_glow_blur_sub">Desactivado ahorra ~2,6 ms por frame en el RG Cube, sin diferencia visible en las escenas probadas.</string>
     <string name="turnip_sweep_rtt">Barrido de Turnip: atajo resolve→textura (%1$d inicios)</string>
+    <string name="settings_ps_fp16">Pixel shaders en fp16 (experimental)</string>
+    <string name="settings_ps_fp16_sub">Cálculo en media precisión en los shaders del juego: más rápido en Mali y Adreno; puede dar bandas de color o efectos incorrectos. Se aplica en el próximo inicio.</string>
 </resources>

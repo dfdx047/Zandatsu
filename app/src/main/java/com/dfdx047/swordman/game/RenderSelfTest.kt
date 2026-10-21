@@ -71,6 +71,8 @@ class RenderSelfTest(
     private val workHandler = Handler(worker.looper)
     private val report = StringBuilder()
     private var original = emptyMap<String, String>()
+    /** Lista de pixel shaders saltados da config (desfoque do brilho), reposta no fim. */
+    private var originalSkip = ""
     private var reference: IntArray? = null
     private var noise = 0.0
     private var status: TextView? = null
@@ -108,6 +110,7 @@ class RenderSelfTest(
             .append('\n')
         report.append("Config: " + base.entries.joinToString(" ") { "${it.key}=${it.value}" } + "\n\n")
         showStatus(activity.getString(com.dfdx047.swordman.R.string.selftest_start))
+        originalSkip = NativeGameState.getCvar("swordman_skip_ps")
         NativeGameState.setSkipPs("")
         NativeGameState.setCvars(base + mapOf("swordman_ps_census" to "true"), persist = false)
         // Referencia: tudo ligado, duas fotos para medir o ruido.
@@ -294,7 +297,7 @@ class RenderSelfTest(
     private fun finish() {
         // Volta tudo ao que estava.
         NativeGameState.setCvars(original.filterValues { it.isNotEmpty() }, persist = false)
-        NativeGameState.setSkipPs("")
+        NativeGameState.setSkipPs(originalSkip)
         NativeGameState.setCvars(mapOf("swordman_ps_census" to "false"), persist = false)
         try {
             File(AppPaths.logsDir, "autoteste.txt").writeText(report.toString())

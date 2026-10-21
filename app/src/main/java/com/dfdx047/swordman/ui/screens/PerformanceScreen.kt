@@ -187,6 +187,11 @@ fun PerformanceScreen(vm: LauncherViewModel) {
                 subtitle = stringResource(R.string.settings_glow_blur_sub),
                 checked = c.glowBlur,
             ) { on -> vm.updateConfig { it.copy(glowBlur = on) } }
+            SettingSwitch(
+                stringResource(R.string.settings_ps_fp16),
+                subtitle = stringResource(R.string.settings_ps_fp16_sub),
+                checked = c.psFp16,
+            ) { on -> vm.updateConfig { it.copy(psFp16 = on) } }
         }
 
         // ---------------------------------------------------- efeitos e som

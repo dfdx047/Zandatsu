@@ -28,6 +28,8 @@ data class GameConfig(
     // Desfoque do brilho do MGR (cadeia de 320x176, PS C4558052 + 4086D1DF): no RG Cube custa
     // ~2,6 ms e desliga-lo nao mudou a imagem em duas cenas (autoteste 20/10 23:03 e 21/10 06:40).
     val glowBlur: Boolean = true,
+    // 0114 (experimental): aritmetica dos pixel shaders em fp16 (RelaxedPrecision).
+    val psFp16: Boolean = false,
     val showFps: Boolean = false,             // debug_overlay
     val letterbox: Boolean = true,            // present_letterbox (16:9 com barras / esticar)
     val volume: Int = 100,                    // volume geral 0-100 (app, rex::audio::SetOutputGain)
@@ -120,6 +122,7 @@ data class GameConfig(
             "swordman_freeze_record" to false,
             "swordman_ps_census" to false,
             "swordman_skip_ps" to (if (glowBlur) "" else MGR_GLOW_BLUR_PS),
+            "swordman_ps_fp16" to psFp16,
             // Os contornos 0102/0103 eram para o crash acima (diagnostico errado): desligados.
             "dbz3_empty_fs_for_depth_only" to 0,
             "dbz3_skip_vertex_shaders" to "",
@@ -187,6 +190,7 @@ data class GameConfig(
                 },
                 frameInterpolation = interp,
                 glowBlur = !str("swordman_skip_ps", "").contains("4086D1DF9FA6220E"),
+                psFp16 = bool("swordman_ps_fp16", false),
                 showFps = bool("debug_overlay", d.showFps),
                 letterbox = bool("present_letterbox", d.letterbox),
                 volume = int("swordman_volume", d.volume).coerceIn(0, 100),

@@ -1,0 +1,175 @@
+diff --git a/src/graphics/vulkan/shader.cpp b/src/graphics/vulkan/shader.cpp
+index c2805b2..0c70cb6 100644
+--- a/src/graphics/vulkan/shader.cpp
++++ b/src/graphics/vulkan/shader.cpp
+@@ -10,12 +10,145 @@
+  */
+ 
+ #include <cstdint>
++#include <cstring>
++#include <unordered_map>
++#include <unordered_set>
++#include <vector>
+ 
+ #include <rex/assert.h>
++#include <rex/cvar.h>
+ #include <rex/graphics/vulkan/shader.h>
+ #include <rex/logging.h>
+ #include <rex/ui/vulkan/provider.h>
+ 
++REXCVAR_DEFINE_BOOL(swordman_ps_fp16, false, "GPU/Vulkan",
++                    "Project SwordMan (0114): marca a aritmetica float dos pixel shaders como "
++                    "RelaxedPrecision (fp16 na Mali/Adreno), exceto o que calcula coordenadas de "
++                    "textura, comparacoes de profundidade e gl_FragDepth")
++    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
++
++namespace {
++// 0114: acrescenta OpDecorate <id> RelaxedPrecision aos resultados float da aritmetica de um
++// fragment shader. Os valores que chegam (por qualquer cadeia de operacoes) a coordenadas de
++// amostragem, ao Dref ou ao gl_FragDepth ficam em precisao total. So mexe em decoracoes.
++bool SwordManRelaxFragmentPrecision(std::vector<uint32_t>& code, uint32_t* out_count) {
++  if (code.size() < 5 || code[0] != 0x07230203u) return false;
++  enum : uint32_t {
++    kOpExtInstImport = 11, kOpExtInst = 12, kOpEntryPoint = 15, kOpTypeFloat = 22,
++    kOpTypeVector = 23, kOpVariable = 59, kOpStore = 62, kOpDecorate = 71,
++    kOpImageSampleImplicitLod = 87, kOpImageSampleProjDrefExplicitLod = 94, kOpImageFetch = 95,
++    kOpImageGather = 96, kOpImageDrefGather = 97, kOpImageSparseSampleImplicitLod = 305,
++    kOpImageSparseGather = 316,
++  };
++  struct Inst {
++    size_t at;
++    uint32_t op, words;
++  };
++  std::vector<Inst> insts;
++  bool fragment = false;
++  std::unordered_set<uint32_t> float_types;
++  std::unordered_set<uint32_t> glsl_sets;
++  std::unordered_set<uint32_t> frag_depth_vars;
++  std::unordered_set<uint32_t> already_relaxed;
++  std::unordered_map<uint32_t, size_t> def;  // id -> indice em insts
++  for (size_t i = 5; i < code.size();) {
++    const uint32_t words = code[i] >> 16, op = code[i] & 0xFFFFu;
++    if (!words || i + words > code.size()) return false;
++    insts.push_back({i, op, words});
++    if (op == kOpEntryPoint && words > 1 && code[i + 1] == 4) fragment = true;
++    if (op == kOpTypeFloat && words >= 3 && code[i + 2] == 32) float_types.insert(code[i + 1]);
++    if (op == kOpTypeVector && words >= 3 && float_types.count(code[i + 2]))
++      float_types.insert(code[i + 1]);
++    if (op == kOpExtInstImport && words >= 3 &&
++        std::strncmp(reinterpret_cast<const char*>(&code[i + 2]), "GLSL.std.450", 12) == 0)
++      glsl_sets.insert(code[i + 1]);
++    if (op == kOpDecorate && words >= 4 && code[i + 2] == 11 /*BuiltIn*/ && code[i + 3] == 22)
++      frag_depth_vars.insert(code[i + 1]);
++    if (op == kOpDecorate && words >= 3 && code[i + 2] == 0 /*RelaxedPrecision*/)
++      already_relaxed.insert(code[i + 1]);
++    i += words;
++  }
++  if (!fragment) return false;
++  // Instrucoes com tipo + resultado: as aritmeticas float que podem ser relaxadas.
++  auto is_float_arith = [&](const Inst& in) {
++    switch (in.op) {
++      case 127: case 129: case 131: case 133: case 136: case 140: case 141:  // FNeg/Add/Sub/Mul/Div/Rem/Mod
++      case 142: case 143: case 144: case 145: case 146: case 148:  // VectorTimesScalar.. Dot
++        return in.words >= 4 && float_types.count(code[in.at + 1]) != 0;
++      case kOpExtInst:
++        return in.words >= 5 && float_types.count(code[in.at + 1]) != 0 &&
++               glsl_sets.count(code[in.at + 3]) != 0;
++      default:
++        return false;
++    }
++  };
++  // Que instrucoes tem tipo+resultado (para o mapa de definicoes): as aritmeticas acima e as de
++  // composicao/extracao/selecao/carga que passam valores (o percurso de "precisao total" segue-as).
++  auto has_result = [&](uint32_t op) {
++    return op == kOpExtInst || (op >= 79 && op <= 83) /*Vector/Composite*/ ||
++           (op >= 109 && op <= 116) /*conversoes*/ || (op >= 126 && op <= 152) ||
++           op == 169 /*Select*/ || op == 61 /*Load*/ || op == 245 /*Phi*/;
++  };
++  for (size_t k = 0; k < insts.size(); ++k) {
++    if (has_result(insts[k].op) && insts[k].words >= 3) def[code[insts[k].at + 2]] = k;
++  }
++  // Raizes de precisao total: coordenadas/Dref das operacoes de imagem e o que e gravado no
++  // gl_FragDepth.
++  std::vector<uint32_t> stack;
++  std::unordered_set<uint32_t> keep;
++  for (const Inst& in : insts) {
++    const bool sample = (in.op >= kOpImageSampleImplicitLod &&
++                         in.op <= kOpImageSampleProjDrefExplicitLod) ||
++                        in.op == kOpImageFetch || in.op == kOpImageGather ||
++                        in.op == kOpImageDrefGather ||
++                        (in.op >= kOpImageSparseSampleImplicitLod && in.op <= kOpImageSparseGather);
++    if (sample && in.words >= 5) {
++      stack.push_back(code[in.at + 4]);  // coordenada
++      // Dref (89/90/93/94/97/sparse dref) e operandos opcionais (lod, gradientes, offsets).
++      for (uint32_t w = 5; w < in.words; ++w) stack.push_back(code[in.at + w]);
++    }
++    if (in.op == kOpStore && in.words >= 3 && frag_depth_vars.count(code[in.at + 1]))
++      stack.push_back(code[in.at + 2]);
++  }
++  while (!stack.empty()) {
++    const uint32_t id = stack.back();
++    stack.pop_back();
++    if (!keep.insert(id).second) continue;
++    auto it = def.find(id);
++    if (it == def.end()) continue;
++    const Inst& in = insts[it->second];
++    const uint32_t first = in.op == kOpExtInst ? 5 : 3;
++    for (uint32_t w = first; w < in.words; ++w) stack.push_back(code[in.at + w]);
++  }
++  std::vector<uint32_t> relax;
++  for (const Inst& in : insts) {
++    if (!is_float_arith(in)) continue;
++    const uint32_t id = code[in.at + 2];
++    if (!keep.count(id) && !already_relaxed.count(id)) relax.push_back(id);
++  }
++  if (relax.empty()) return false;
++  // As decoracoes vao antes da primeira OpDecorate existente (secao de anotacoes).
++  size_t insert_at = 0;
++  for (const Inst& in : insts) {
++    if (in.op == kOpDecorate || in.op == 72 /*MemberDecorate*/) {
++      insert_at = in.at;
++      break;
++    }
++  }
++  if (!insert_at) return false;
++  std::vector<uint32_t> add;
++  add.reserve(relax.size() * 3);
++  for (uint32_t id : relax) {
++    add.push_back((3u << 16) | kOpDecorate);
++    add.push_back(id);
++    add.push_back(0);  // RelaxedPrecision
++  }
++  code.insert(code.begin() + insert_at, add.begin(), add.end());
++  if (out_count) *out_count = uint32_t(relax.size());
++  return true;
++}
++}  // namespace
++
+ namespace rex::graphics::vulkan {
+ 
+ VulkanShader::VulkanTranslation::~VulkanTranslation() {
+@@ -42,6 +175,24 @@ VkShaderModule VulkanShader::VulkanTranslation::GetOrCreateShaderModule() {
+   shader_module_create_info.flags = 0;
+   shader_module_create_info.codeSize = translated_binary().size();
+   shader_module_create_info.pCode = reinterpret_cast<const uint32_t*>(translated_binary().data());
++  // 0114: pixel shaders com a aritmetica em fp16 (swordman_ps_fp16).
++  std::vector<uint32_t> relaxed;
++  if (REXCVAR_GET(swordman_ps_fp16) && shader().type() == xenos::ShaderType::kPixel &&
++      translated_binary().size() % 4 == 0) {
++    relaxed.resize(translated_binary().size() / 4);
++    std::memcpy(relaxed.data(), translated_binary().data(), translated_binary().size());
++    uint32_t count = 0;
++    if (SwordManRelaxFragmentPrecision(relaxed, &count)) {
++      shader_module_create_info.codeSize = relaxed.size() * sizeof(uint32_t);
++      shader_module_create_info.pCode = relaxed.data();
++      static uint32_t logged = 0;
++      if (logged < 3) {
++        ++logged;
++        REXGPU_INFO("swordman: fp16 no pixel shader {:016X}: {} operacoes relaxadas",
++                    shader().ucode_data_hash(), count);
++      }
++    }
++  }
+   if (vulkan_device->functions().vkCreateShaderModule(vulkan_device->device(),
+                                                       &shader_module_create_info, nullptr,
+                                                       &shader_module_) != VK_SUCCESS) {
