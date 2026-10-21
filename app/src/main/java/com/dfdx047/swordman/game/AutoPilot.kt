@@ -112,12 +112,21 @@ class AutoPilot(
         }
         if (lines.isEmpty()) AppLog.w("autopilot", "sem ${seqFile.name}: autoteste onde o jogo estiver", null)
         whenRunning {
+            // Esperas x1.5 (os carregamentos variam de arranque para arranque; um botao carregado
+            // durante um carregamento perde-se - Cube, 21/10: ficou no menu do titulo) e, no fim,
+            // mais 3 "A" de 3 em 3 s (no menu entram no jogo; no gameplay sao so ataques).
             var t = 0L
             for (line in lines) {
                 val arg = line.substringAfter(' ', "")
                 when {
-                    line.startsWith("wait") -> t += arg.toLongOrNull() ?: 0L
+                    line.startsWith("wait") -> t += (arg.toLongOrNull() ?: 0L) * 3 / 2
                     line.startsWith("press") -> parse(arg)?.let { input -> main.postDelayed({ press(input) }, t) }
+                }
+            }
+            if (lines.isNotEmpty()) {
+                repeat(3) {
+                    t += 3000
+                    main.postDelayed({ press(PadInput.A) }, t)
                 }
             }
             main.postDelayed({

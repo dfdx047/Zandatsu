@@ -1,9 +1,11 @@
 # Plano do tools/autoloop.sh: uma variante por linha (sintaxe do tools/autotest.sh).
 # "rp5/..." ou "cube/..." = so nesse aparelho. "settle N" = segundos de gameplay antes do autoteste.
+# Rodada 2 (21/10 tarde): RP5 Turnip ja desenha o gameplay; faltam texturas em riscas (fachadas).
+# buffer512 e noubwc derrubaram o Turnip (DEVICE_LOST); fp16 estraga a imagem no Cube (fora).
 settle 30
 base
-rp5/buffer512:dbz3_vk_max_storage_buffer_range_mb=512
-rp5/noubwc:env:TU_DEBUG=noubwc,nolrz
-rp5/sysmem:env:TU_DEBUG=sysmem
-cube/fp16:swordman_ps_fp16=true
+rp5/bc:vulkan_mask_features=textureCompressionBC
+rp5/nofp16:env:IR3_SHADER_DEBUG=nofp16
+rp5/nouboopt:env:IR3_SHADER_DEBUG=nouboopt
 cube/semdesfoque:swordman_skip_ps=C45580526034B1F2,4086D1DF9FA6220E
+cube/480p:draw_resolution_percent=67
