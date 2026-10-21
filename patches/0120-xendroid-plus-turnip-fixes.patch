@@ -1,0 +1,210 @@
+diff --git a/include/rex/graphics/pipeline/shader/spirv_translator.h b/include/rex/graphics/pipeline/shader/spirv_translator.h
+index 471e86e..a1b5540 100644
+--- a/include/rex/graphics/pipeline/shader/spirv_translator.h
++++ b/include/rex/graphics/pipeline/shader/spirv_translator.h
+@@ -392,6 +392,8 @@ class SpirvShaderTranslator : public ShaderTranslator {
+   // Bias) em vez de gradientes explicitos (OpDPdxCoarse + Grad), que em Adreno e Mali correm a
+   // fracao da taxa normal da unidade de texturas.
+   void Dbz3SetImplicitLod(bool enabled) { dbz3_implicit_lod_ = enabled; }
++  // SwordMan 0120: teste de zero da multiplicacao nos bits (ver swordman_mul_zero_on_bits).
++  void SwordManSetMulZeroOnBits(bool enabled) { swordman_mul_zero_on_bits_ = enabled; }
+   // Dragon Burst (diagnostico): ignora o LOD bias do fetch constant (bits 12:21 da word 4).
+   void Dbz3SetIgnoreFetchLodBias(bool enabled) { dbz3_ignore_fetch_lod_bias_ = enabled; }
+   // Rendering below 1x (draw_resolution_percent of the render target cache, as
+@@ -1000,6 +1002,10 @@ class SpirvShaderTranslator : public ShaderTranslator {
+   // DBZ3-Android: specialization constants dos sinais por fetch constant (NoResult se ainda nao).
+   bool dbz3_spec_texture_signs_ = false;
+   bool dbz3_implicit_lod_ = false;
++  bool swordman_mul_zero_on_bits_ = false;
++  // Igual a min(|a|, |b|) == 0 com operandos ja absolutos, mas nos bits (UMin + IEqual).
++  spv::Id SwordManAnyAbsOperandZero(spv::Id operand_0_abs, spv::Id operand_1_abs,
++                                    int num_components);
+   bool dbz3_ignore_fetch_lod_bias_ = false;
+   uint32_t draw_resolution_percent_ = 100;
+   spv::Id dbz3_texture_signs_spec_[32];
+diff --git a/src/graphics/pipeline/shader/spirv_translator_alu.cpp b/src/graphics/pipeline/shader/spirv_translator_alu.cpp
+index 706ac7e..7c49ae0 100644
+--- a/src/graphics/pipeline/shader/spirv_translator_alu.cpp
++++ b/src/graphics/pipeline/shader/spirv_translator_alu.cpp
+@@ -28,6 +28,12 @@ spv::Id SpirvShaderTranslator::ZeroIfAnyOperandIsZero(spv::Id value, spv::Id ope
+   int num_components = builder_->getNumComponents(value);
+   assert_true(builder_->getNumComponents(operand_0_abs) == num_components);
+   assert_true(builder_->getNumComponents(operand_1_abs) == num_components);
++  if (swordman_mul_zero_on_bits_) {
++    return builder_->createTriOp(
++        spv::OpSelect, type_float_,
++        SwordManAnyAbsOperandZero(operand_0_abs, operand_1_abs, num_components),
++        const_float_vectors_0_[num_components - 1], value);
++  }
+   return builder_->createTriOp(
+       spv::OpSelect, type_float_,
+       builder_->createBinOp(spv::OpFOrdEqual, type_bool_vectors_[num_components - 1],
+@@ -38,6 +44,28 @@ spv::Id SpirvShaderTranslator::ZeroIfAnyOperandIsZero(spv::Id value, spv::Id ope
+       const_float_vectors_0_[num_components - 1], value);
+ }
+ 
++// SwordMan 0120 (XenDroid Plus spirv_multiply_zero_test_on_bits): o Mesa junta
++// min(|a|, |b|) == 0 ? 0 : a * b em nir_op_fmulz / fmadz, que o compilador ir3 do Turnip nao
++// implementa (aborta a compilacao do shader: o draw desaparece). Com os operandos ja absolutos,
++// os bits ordenam-se como os valores, por isso o teste nos bits e equivalente.
++spv::Id SpirvShaderTranslator::SwordManAnyAbsOperandZero(spv::Id operand_0_abs,
++                                                         spv::Id operand_1_abs,
++                                                         int num_components) {
++  spv::Id type_uint_vector = type_uint_vectors_[num_components - 1];
++  spv::Id zero = builder_->makeUintConstant(0);
++  if (num_components > 1) {
++    std::vector<spv::Id> components(size_t(num_components), zero);
++    zero = builder_->makeCompositeConstant(type_uint_vector, components);
++  }
++  return builder_->createBinOp(
++      spv::OpIEqual, type_bool_vectors_[num_components - 1],
++      builder_->createBinBuiltinCall(
++          type_uint_vector, ext_inst_glsl_std_450_, GLSLstd450UMin,
++          builder_->createUnaryOp(spv::OpBitcast, type_uint_vector, operand_0_abs),
++          builder_->createUnaryOp(spv::OpBitcast, type_uint_vector, operand_1_abs)),
++      zero);
++}
++
+ void SpirvShaderTranslator::KillPixel(spv::Id condition,
+                                       uint8_t memexport_eM_potentially_written_before) {
+   SpirvBuilder::IfBuilder kill_if(condition, spv::SelectionControlMaskNone, *builder_);
+@@ -233,11 +261,16 @@ spv::Id SpirvShaderTranslator::ProcessVectorAluOperation(
+           different_operands[i] =
+               GetAbsoluteOperand(different_operands[i], instr.vector_operands[i]);
+         }
+-        spv::Id different_zero = builder_->createBinOp(
+-            spv::OpFOrdEqual, type_bool_vectors_[different_count - 1],
+-            builder_->createBinBuiltinCall(different_type, ext_inst_glsl_std_450_, GLSLstd450NMin,
+-                                           different_operands[0], different_operands[1]),
+-            const_float_vectors_0_[different_count - 1]);
++        spv::Id different_zero =
++            swordman_mul_zero_on_bits_
++                ? SwordManAnyAbsOperandZero(different_operands[0], different_operands[1],
++                                            int(different_count))
++                : builder_->createBinOp(
++                      spv::OpFOrdEqual, type_bool_vectors_[different_count - 1],
++                      builder_->createBinBuiltinCall(different_type, ext_inst_glsl_std_450_,
++                                                     GLSLstd450NMin, different_operands[0],
++                                                     different_operands[1]),
++                      const_float_vectors_0_[different_count - 1]);
+         // Replace with +0.
+         different_result =
+             builder_->createTriOp(spv::OpSelect, different_type, different_zero,
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index b0b8af2..2efb43f 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -4955,8 +4955,10 @@ VulkanCommandProcessor::ScratchBufferAcquisition VulkanCommandProcessor::Acquire
+   scratch_buffer_ = new_scratch_buffer;
+   scratch_buffer_size_ = size;
+   // Not used yet, no need for a barrier.
+-  scratch_buffer_last_stage_mask_ = initial_access_mask;
+-  scratch_buffer_last_access_mask_ = initial_stage_mask;
++  // SwordMan 0120 (xenia-edge 915532b8 / XenDroid Plus 1554ba335): as mascaras vinham trocadas
++  // (bits de acesso como estagios na barreira seguinte - sincronizacao invalida).
++  scratch_buffer_last_stage_mask_ = initial_stage_mask;
++  scratch_buffer_last_access_mask_ = initial_access_mask;
+   scratch_buffer_last_usage_submission_ = submission_current;
+   scratch_buffer_used_ = true;
+   return ScratchBufferAcquisition(*this, new_scratch_buffer, initial_stage_mask,
+diff --git a/src/graphics/vulkan/pipeline_cache.cpp b/src/graphics/vulkan/pipeline_cache.cpp
+index 2250982..7c22a05 100644
+--- a/src/graphics/vulkan/pipeline_cache.cpp
++++ b/src/graphics/vulkan/pipeline_cache.cpp
+@@ -21,6 +21,7 @@
+ #include <memory>
+ #include <set>
+ #include <string>
++#include <cstdlib>
+ #include <string_view>
+ #include <utility>
+ #include <vector>
+@@ -69,6 +70,14 @@ REXCVAR_DEFINE_BOOL(dbz3_tex_implicit_lod, true, "GPU/Vulkan",
+                     "gradientes explicitos")
+     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+ 
++REXCVAR_DEFINE_INT32(swordman_mul_zero_on_bits, -1, "GPU/Vulkan",
++                     "SwordMan 0120: teste de zero da multiplicacao (0 * x = 0 do Shader Model 3) "
++                     "nos bits em vez de min(|a|, |b|) == 0 - o Mesa junta a forma float em "
++                     "fmulz/fmadz, que o ir3 do Turnip nao compila (XenDroid Plus). -1 = so no "
++                     "Turnip, 0 = nunca, 1 = sempre")
++    .range(-1, 1)
++    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
++
+ REXCVAR_DEFINE_INT32(dbz3_empty_fs_for_depth_only, -1, "GPU/Vulkan",
+                      "Project SwordMan: pipelines sem pixel shader (so profundidade) levam um "
+                      "fragment shader vazio em vez de nenhum. O compilador da Mali cai em alguns "
+@@ -139,6 +148,32 @@ void Dbz3SaveDriverPipelineCache(const ui::vulkan::VulkanDevice::Functions& dfn,
+   REXGPU_INFO("dbz3: cache de pipelines do driver guardada ({} KB)", data.size() >> 10);
+ }
+ 
++// SwordMan 0120 (XenDroid Plus keys the VkPipelineCache file by the ir3 flags): TU_DEBUG,
++// IR3_DEBUG, IR3_SHADER_DEBUG e FD_DEV_FEATURES mudam o que o Turnip compila mas nao o
++// driverVersion; com o mesmo ficheiro o driver pode devolver binarios feitos com outras flags
++// (resultados de A/B que nao se repetem). Sufixo = hash dessas variaveis ("" se nenhuma).
++std::string SwordManDriverEnvSuffix() {
++  const char* names[] = {"TU_DEBUG", "IR3_DEBUG", "IR3_SHADER_DEBUG", "FD_DEV_FEATURES"};
++  std::string all;
++  for (const char* name : names) {
++    if (const char* value = std::getenv(name)) {
++      all += name;
++      all += '=';
++      all += value;
++      all += ';';
++    }
++  }
++  if (all.empty()) {
++    return std::string();
++  }
++  uint32_t hash = 2166136261u;
++  for (char c : all) {
++    hash = (hash ^ uint8_t(c)) * 16777619u;
++  }
++  REXGPU_INFO("swordman: variaveis do driver {} -> cache de pipelines _{:08X}", all, hash);
++  return fmt::format("_{:08X}", hash);
++}
++
+ void Dbz3InitDriverPipelineCache(const ui::vulkan::VulkanDevice::Functions& dfn,
+                                  VkDevice device, const std::filesystem::path& path) {
+   if (g_dbz3_driver_cache.cache != VK_NULL_HANDLE) {
+@@ -430,6 +465,14 @@ bool VulkanPipelineCache::Initialize() {
+   shader_translator_->SetDrawResolutionPercent(render_target_cache_.draw_resolution_percent());
+   shader_translator_->Dbz3SetSpecTextureSigns(REXCVAR_GET(dbz3_spec_texture_signs));
+   shader_translator_->Dbz3SetImplicitLod(REXCVAR_GET(dbz3_tex_implicit_lod));
++  {
++    const int32_t mul_zero_bits = REXCVAR_GET(swordman_mul_zero_on_bits);
++    const bool turnip = command_processor_.GetVulkanDevice()->properties().driverID ==
++                        VK_DRIVER_ID_MESA_TURNIP;
++    const bool on = mul_zero_bits > 0 || (mul_zero_bits < 0 && turnip);
++    shader_translator_->SwordManSetMulZeroOnBits(on);
++    REXGPU_INFO("swordman: teste de zero da multiplicacao nos bits: {}", on);
++  }
+   shader_translator_->Dbz3SetIgnoreFetchLodBias(REXCVAR_GET(dbz3_ignore_fetch_lod_bias));
+   if (REXCVAR_GET(dbz3_ignore_fetch_lod_bias)) {
+     REXGPU_INFO("dbz3: LOD bias dos fetch constants ignorado (diagnostico)");
+@@ -582,9 +625,9 @@ void VulkanPipelineCache::InitializeShaderStorage(const std::filesystem::path& c
+     Dbz3InitDriverPipelineCache(
+         vulkan_device->functions(), vulkan_device->device(),
+         shader_storage_root /
+-            fmt::format("vulkan_driver_pipelines_{}_{:08X}.bin",
++            fmt::format("vulkan_driver_pipelines_{}_{:08X}{}.bin",
+                         uint32_t(vulkan_device->properties().driverID),
+-                        vulkan_device->properties().driverVersion));
++                        vulkan_device->properties().driverVersion, SwordManDriverEnvSuffix()));
+   }
+ 
+   // Initialize the pipeline storage stream - read pipeline descriptions and
+diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
+index 4df0d8c..5f3042e 100644
+--- a/src/graphics/vulkan/render_target_cache.cpp
++++ b/src/graphics/vulkan/render_target_cache.cpp
+@@ -1807,6 +1807,9 @@ void VulkanRenderTargetCache::GetLastUpdateRenderingAttachments(
+   for (uint32_t i = 0; i < xenos::kMaxColorRenderTargets; ++i) {
+     VkRenderingAttachmentInfo& color_attachment = color_attachments[i];
+     std::memset(&color_attachment, 0, sizeof(VkRenderingAttachmentInfo));
++    // SwordMan 0120 (XenDroid Plus 41ffbbf0f): os slots sem RT dentro de colorAttachmentCount
++    // (ex. RT0 + RT2) tambem precisam do sType (imageView nulo = slot nao usado).
++    color_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+     if ((key.depth_and_color_used & (1 << (1 + i))) && rts[1 + i]) {
+       const auto* vulkan_rt = static_cast<const VulkanRenderTarget*>(rts[1 + i]);
+       color_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;

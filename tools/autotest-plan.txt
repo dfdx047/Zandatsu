@@ -3,15 +3,17 @@
 # "@driver=system" ou "@driver=dono/repo/texto" troca o driver Vulkan so nessa variante
 # (o primeiro .zip das releases cujo nome ou tag contem o texto). Nada de "#" nas linhas: e comentario.
 # "env:NOME=valor" nas cvars = variavel de ambiente.
-# Rodada 10 (21/10 ~19h50): correcoes do XenDroid para o Turnip.
-#  - TU_DEBUG=push_consts_per_stage no a6xx (agora automatico no app): o envio de constantes
-#    partilhadas do Turnip esta partido no Adreno 6xx -> shaders leem zeros (ecra preto/verde).
-#  - depth_float24_convert_in_pixel_shader=true: o caminho de transferencia da profundidade
-#    float32 faz o GPU falhar no RP5/Adreno 650 (DEVICE_LOST) - notas do XenDroid.
+# Rodada 11 (21/10 ~20h30). Rodada 9: Turnip 26 R8 com a memoria num so buffer de 512 MB
+# = PRIMEIRO gameplay no Turnip (personagens certos, texturas do cenario em mosaico); sem ele,
+# ecra preto. Purple T19 e K11 24.3.0 R9 cairam. Agora com o patch 0120 (XenDroid Plus: teste de
+# zero nos bits para o ir3, mascaras da barreira do scratch, sType dos slots de cor, cache de
+# pipelines por TU_DEBUG) e push_consts_per_stage automatico no a6xx: 512 MB em todas, mais
+# profundidade convertida no shader, sem UBWC, e BC descomprimido (para o mosaico).
 settle 60
 base
-rp5/d24ps:depth_float24_convert_in_pixel_shader=true
-rp5/sysmem:depth_float24_convert_in_pixel_shader=true;env:TU_DEBUG=sysmem,push_consts_per_stage
-rp5/r8-d24ps:@driver=K11MCH1/AdrenoToolsDrivers/Turnip_v26.0.0_R8.zip;depth_float24_convert_in_pixel_shader=true
-rp5/qc-draw:@driver=system;dbz3_direct_resolve_draw=true
-cube/draw:dbz3_direct_resolve_draw=true
+rp5/512:env:REX_DBZ3_VK_MAX_STORAGE_BUFFER_RANGE_MB=512
+rp5/512-d24ps:env:REX_DBZ3_VK_MAX_STORAGE_BUFFER_RANGE_MB=512;depth_float24_convert_in_pixel_shader=true
+rp5/512-noubwc:env:REX_DBZ3_VK_MAX_STORAGE_BUFFER_RANGE_MB=512;env:TU_DEBUG=push_consts_per_stage,noubwc
+rp5/512-bc:env:REX_DBZ3_VK_MAX_STORAGE_BUFFER_RANGE_MB=512;env:REX_VULKAN_MASK_FEATURES=textureCompressionBC
+rp5/r8-512-d24ps:@driver=K11MCH1/AdrenoToolsDrivers/Turnip_v26.0.0_R8.zip;env:REX_DBZ3_VK_MAX_STORAGE_BUFFER_RANGE_MB=512;depth_float24_convert_in_pixel_shader=true
+cube/draw-glow:dbz3_direct_resolve_draw=true;swordman_skip_ps=C45580526034B1F2,4086D1DF9FA6220E
