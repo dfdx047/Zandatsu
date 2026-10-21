@@ -1,9 +1,12 @@
 # Plano do tools/autoloop.sh: uma variante por linha (sintaxe do tools/autotest.sh).
 # "rp5/..." ou "cube/..." = so nesse aparelho. "settle N" = segundos de gameplay antes do autoteste.
-# Rodada 3 (21/10 ~14h30): 0118 (frame congelado comeca do estado gravado: "Failed in backend" e
-# DEVICE_LOST ao descongelar); 0119 diagnostico do resolve sem memoria no Turnip (que texturas ha
-# em cada destino). No RP5 o sem-memoria vale ~10 ms (resolve 12-16 ms em gameplay).
+# Rodada 4 (21/10 ~15h): RP5 Turnip - logos invisiveis e menu azul/verde (os videos CRI sao
+# texturas k_8 lineares, 1024x360 e 512x180). Fotos dos logos e do menu (autopilot_*.jpg).
+# Cada variante desliga UMA otimizacao do lado do jogo que mexe em uploads/texturas.
 settle 30
 base
+rp5/hoist:dbz3_hoist_uploads=false
+rp5/spec:dbz3_spec_texture_signs=false;dbz3_tex_implicit_lod=false
+rp5/rit:dbz3_rit_textures_turnip=true
+rp5/early:dbz3_resolve_early_transition=false
 rp5/skipmem:swordman_skip_memory_turnip=true
-cube/semdesfoque:swordman_skip_ps=C45580526034B1F2,4086D1DF9FA6220E

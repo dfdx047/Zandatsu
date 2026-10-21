@@ -96,7 +96,7 @@ object TurnipSweep {
         }, RUN_MS)
     }
 
-    private fun capture(activity: Activity, out: File, done: (Boolean) -> Unit) {
+    fun capture(activity: Activity, out: File, done: (Boolean) -> Unit) {
         val surface = GameActivity.gameSurface()
         val w = surface?.width ?: 0
         val h = surface?.height ?: 0

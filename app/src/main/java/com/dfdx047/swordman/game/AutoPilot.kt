@@ -112,6 +112,11 @@ class AutoPilot(
         }
         if (lines.isEmpty()) AppLog.w("autopilot", "sem ${seqFile.name}: autoteste onde o jogo estiver", null)
         whenRunning {
+            // Fotos do caminho: os logos do inicio (videos CRI) e o menu antes de entrar no jogo
+            // (no Turnip, 21/10: logos invisiveis e menu azul/verde).
+            val logs = File(AppPaths.appDir, "logs")
+            main.postDelayed({ TurnipSweep.capture(activity, File(logs, "autopilot_1_logos.jpg")) {} }, 6000)
+            main.postDelayed({ TurnipSweep.capture(activity, File(logs, "autopilot_2_logos.jpg")) {} }, 12000)
             // Esperas x1.5 (os carregamentos variam de arranque para arranque; um botao carregado
             // durante um carregamento perde-se - Cube, 21/10: ficou no menu do titulo) e, no fim,
             // mais 3 "A" de 3 em 3 s (no menu entram no jogo; no gameplay sao so ataques).
@@ -124,6 +129,8 @@ class AutoPilot(
                 }
             }
             if (lines.isNotEmpty()) {
+                val menuAt = (t - 2000).coerceAtLeast(14000)
+                main.postDelayed({ TurnipSweep.capture(activity, File(logs, "autopilot_3_menu.jpg")) {} }, menuAt)
                 repeat(3) {
                     t += 3000
                     main.postDelayed({ press(PadInput.A) }, t)

@@ -99,7 +99,7 @@ slim() {
     unzip -q -o "$inner" -d "$tmp/x-$name"
     find "$tmp/x-$name" -type f \( -name '*.txt' -o -name '*.log' -o -name '*.toml' \) \
       -exec cp {} "$dir/" \;
-    find "$tmp/x-$name" -type f \( -name 'autoteste_0[0-3].jpg' -o -name 'turnip_sweep_*.jpg' \) \
+    find "$tmp/x-$name" -type f \( -name 'autoteste_0[0-3].jpg' -o -name 'turnip_sweep_*.jpg' -o -name 'autopilot_*.jpg' \) \
       -exec cp {} "$dir/" \;
   done
   find "$tmp" -maxdepth 2 -type d -name '*-logs' | while read -r d; do
