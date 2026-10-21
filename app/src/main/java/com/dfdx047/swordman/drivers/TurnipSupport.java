@@ -144,9 +144,55 @@ public final class TurnipSupport {
             String cur = env.get("TU_DEBUG");
             env.put("TU_DEBUG", cur == null || cur.isEmpty() ? gpu.tuDebug : cur + "," + gpu.tuDebug);
         }
-        // Samsung (One UI) com Adreno 740: falhas de imagem sem isto (notas do K11MCH1).
-        if (gpu.adreno == 740 && "samsung".equalsIgnoreCase(Build.MANUFACTURER)) {
+        // Adreno 6xx: o envio de constantes partilhadas (push constants) do Turnip esta partido
+        // nestes GPUs - os shaders leem constantes erradas/zeros (imagem preta, verde ou em mosaico,
+        // cores trocadas). O XenDroid (emulador de Xbox 360, vulkan_instance.cc) liga sempre
+        // TU_DEBUG=push_consts_per_stage no a6xx ("a650 4-squares": corrida com a escrita das
+        // constantes partilhadas, provada com WFI). 21/10.
+        if ("a6xx".equals(gpu.gen) || kgslGeneration() == 6) {
+            String cur = env.get("TU_DEBUG");
+            if (cur == null || cur.isEmpty()) {
+                env.put("TU_DEBUG", "push_consts_per_stage");
+            } else if (!cur.contains("push_consts_per_stage")) {
+                env.put("TU_DEBUG", cur + ",push_consts_per_stage");
+            }
+        }
+        // One UI (Samsung) e HyperOS/MIUI (Xiaomi): a pilha de framebuffer deles precisa da dica
+        // de UBWC para o Turnip amostrar bem as imagens desenhadas (XenDroid; antes so A740 Samsung).
+        if (vendorOsNeedsUbwcHint() || (gpu.adreno == 740 && "samsung".equalsIgnoreCase(Build.MANUFACTURER))) {
             env.put("FD_DEV_FEATURES", "enable_tp_ubwc_flag_hint=1");
+        }
+    }
+
+    /** Geracao do Adreno pelo kgsl (6 = a6xx), 0 se nao se le. Igual ao XenDroid. */
+    public static int kgslGeneration() {
+        try (java.io.BufferedReader r = new java.io.BufferedReader(
+                new java.io.FileReader("/sys/class/kgsl/kgsl-3d0/gpu_model"))) {
+            String line = r.readLine();
+            if (line == null) return 0;
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("(\\d+)").matcher(line);
+            return m.find() ? Integer.parseInt(m.group(1)) / 100 : 0;
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    private static boolean vendorOsNeedsUbwcHint() {
+        String[] props = {"ro.build.version.oneui", "ro.mi.os.version.name", "ro.mi.os.version.code",
+                "ro.miui.ui.version.name", "ro.miui.ui.version.code"};
+        for (String p : props) {
+            if (!sysProp(p).isEmpty()) return true;
+        }
+        return false;
+    }
+
+    private static String sysProp(String name) {
+        try {
+            Class<?> c = Class.forName("android.os.SystemProperties");
+            Object v = c.getMethod("get", String.class).invoke(null, name);
+            return v == null ? "" : v.toString();
+        } catch (Exception e) {
+            return "";
         }
     }
 

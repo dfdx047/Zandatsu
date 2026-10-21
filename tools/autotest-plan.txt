@@ -3,17 +3,15 @@
 # "@driver=system" ou "@driver=dono/repo/texto" troca o driver Vulkan so nessa variante
 # (o primeiro .zip das releases cujo nome ou tag contem o texto). Nada de "#" nas linhas: e comentario.
 # "env:NOME=valor" nas cvars = variavel de ambiente.
-# Rodada 9 (21/10 ~19h15). Rodada 8: Turnip (27, 26 R8 em 3 variantes) = ecra preto ou verde liso
-# (nao cai); o verde liso e um video CRI com Y=U=V=0, ou seja o Turnip le zeros. Qualcomm = 7.7 ms
-# com a copia por desenho. Agora: as builds que a tabela recomenda para o SM8250 (Purple T19,
-# K11 v24.3.0 R9), e no Turnip 26 R8 o buffer unico de 512 MB (o que corrigiu a geometria do
-# Budokai 3 no RP5), sysmem/sem UBWC, e a sincronizacao total (diagnostico de barreira).
+# Rodada 10 (21/10 ~19h50): correcoes do XenDroid para o Turnip.
+#  - TU_DEBUG=push_consts_per_stage no a6xx (agora automatico no app): o envio de constantes
+#    partilhadas do Turnip esta partido no Adreno 6xx -> shaders leem zeros (ecra preto/verde).
+#  - depth_float24_convert_in_pixel_shader=true: o caminho de transferencia da profundidade
+#    float32 faz o GPU falhar no RP5/Adreno 650 (DEVICE_LOST) - notas do XenDroid.
 settle 60
+base
+rp5/d24ps:depth_float24_convert_in_pixel_shader=true
+rp5/sysmem:depth_float24_convert_in_pixel_shader=true;env:TU_DEBUG=sysmem,push_consts_per_stage
+rp5/r8-d24ps:@driver=K11MCH1/AdrenoToolsDrivers/Turnip_v26.0.0_R8.zip;depth_float24_convert_in_pixel_shader=true
 rp5/qc-draw:@driver=system;dbz3_direct_resolve_draw=true
-rp5/purple-t19:@driver=MrPurple666/purple-turnip/T19
-rp5/k11-243r9:@driver=K11MCH1/AdrenoToolsDrivers/v24.3.0_R9
-rp5/r8-512:@driver=K11MCH1/AdrenoToolsDrivers/Turnip_v26.0.0_R8.zip;env:REX_DBZ3_VK_MAX_STORAGE_BUFFER_RANGE_MB=512
-rp5/r8-sysmem-ubwc:@driver=K11MCH1/AdrenoToolsDrivers/Turnip_v26.0.0_R8.zip;env:TU_DEBUG=sysmem,nolrz,noubwc
-rp5/r8-sync:@driver=K11MCH1/AdrenoToolsDrivers/Turnip_v26.0.0_R8.zip;env:TU_DEBUG=flushall,syncdraw
 cube/draw:dbz3_direct_resolve_draw=true
-cube/draw-glow:dbz3_direct_resolve_draw=true;swordman_skip_ps=C45580526034B1F2,4086D1DF9FA6220E
