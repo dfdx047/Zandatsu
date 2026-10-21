@@ -136,9 +136,13 @@ run_device() {
     {
       echo "== $label / $name ($(date +%H:%M:%S))"
       # Sempre sem vibracao (os aparelhos ficam na mesa o dia todo) + as cvars da variante.
-      { echo "vibration = false"; [ -n "$cvars" ] && echo "$cvars" | tr ';' '\n' | sed 's/=/ = /'; } |
-        adb -s "$serial" shell "cat > $APPDIR/cvars.txt"
-      [ -n "$cvars" ] && echo "   cvars.txt: $cvars"
+      # (if, nao "[ ] &&": com set -e + pipefail um teste falso no fim do grupo parava o script -
+      # as rodadas de 21/10 08:11-13:35 nao correram nenhum teste)
+      {
+        echo "vibration = false"
+        if [ -n "$cvars" ]; then echo "$cvars" | tr ';' '\n' | sed 's/=/ = /'; fi
+      } | adb -s "$serial" shell "cat > $APPDIR/cvars.txt"
+      if [ -n "$cvars" ]; then echo "   cvars.txt: $cvars"; fi
       local before
       before="$(latest_zip "$serial")"
       start_game "$serial"
