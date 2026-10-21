@@ -1,0 +1,31 @@
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 1ed83e3..128bbe9 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -368,6 +368,11 @@ REXCVAR_DEFINE_BOOL(dbz3_skip_msaa_prepass, false, "GPU",
+ REXCVAR_DECLARE(bool, dbz3_rt_direct);
+ REXCVAR_DECLARE(int32_t, draw_resolution_percent);
+ 
++REXCVAR_DEFINE_BOOL(swordman_scissor_clamp, false, "GPU/Vulkan",
++                    "SwordMan 0165: limitar o scissor ao framebuffer (0129, XenDroid Plus: draws "
++                    "fora davam DEVICE_LOST no Adreno). Desligado: cortava a sombra do MGR")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++
+ namespace rex::graphics::vulkan {
+ 
+ // DBZ3-Android: "30 FPS" de verdade (dbz3_frameskip). O jogo continua a correr a
+@@ -8432,8 +8437,12 @@ void VulkanCommandProcessor::UpdateDynamicState(const draw_util::ViewportInfo& v
+   // Keep the scissor inside the framebuffer (the render area): rendering
+   // outside it is undefined - a draw rectangle beyond the framebuffer extent
+   // was seen to cause VK_ERROR_DEVICE_LOST on Adreno (XenDroid Plus).
+-  if (const VulkanRenderTargetCache::Framebuffer* framebuffer =
+-          render_target_cache_->last_update_framebuffer()) {
++  // SwordMan 0165: so com swordman_scissor_clamp (21/10: a sombra do MGR ficava cortada ao que
++  // esta no ecra nos dois aparelhos depois do 0129).
++  const VulkanRenderTargetCache::Framebuffer* framebuffer =
++      REXCVAR_GET(swordman_scissor_clamp) ? render_target_cache_->last_update_framebuffer()
++                                          : nullptr;
++  if (framebuffer) {
+     const int64_t fb_width = int64_t(framebuffer->host_extent.width);
+     const int64_t fb_height = int64_t(framebuffer->host_extent.height);
+     const int64_t left = std::clamp(int64_t(scissor_rect.offset.x), int64_t(0), fb_width);
