@@ -1,0 +1,87 @@
+diff --git a/src/ui/overlay/debug_overlay.cpp b/src/ui/overlay/debug_overlay.cpp
+index 0854111..d7981f5 100644
+--- a/src/ui/overlay/debug_overlay.cpp
++++ b/src/ui/overlay/debug_overlay.cpp
+@@ -12,6 +12,8 @@
+ #include <rex/ui/overlay/debug_overlay.h>
+ 
+ #include <algorithm>
++#include <array>
++#include <cstdlib>
+ #include <cstdio>
+ #include <string>
+ #include <utility>
+@@ -165,10 +167,31 @@ void DebugOverlayDialog::OnDraw(ImGuiIO& io) {
+   // Frame times of the latest guest frames, for the graph.
+   std::array<float, kGraphFrames> frame_times{};
+   const size_t frame_count = rex::perf::GetGuestFrameTimes(frame_times.data(), kGraphFrames);
++  // 0112 (SwordMan): no modo 30 FPS (dbz3_frameskip = N) so 1 em cada N+1 frames do jogo e
++  // desenhado; os outros custam quase nada. O grafico de frames do jogo alternava entre ~16 ms e
++  // o custo do frame desenhado ("batimento cardiaco"). Aqui cada ponto passa a ser o tempo entre
++  // frames desenhados (soma de N+1 frames seguidos), e o FPS e o dos desenhados.
++  int frameskip = 0;
++  {
++    const std::string skip_text = rex::cvar::GetFlagByName("dbz3_frameskip");
++    frameskip = skip_text.empty() ? 0 : std::clamp(std::atoi(skip_text.c_str()), 0, 3);
++  }
++  size_t shown_count = frame_count;
++  if (frameskip > 0 && frame_count > size_t(frameskip)) {
++    std::array<float, kGraphFrames> drawn{};
++    shown_count = frame_count - size_t(frameskip);
++    for (size_t i = 0; i < shown_count; ++i) {
++      float sum = 0.0f;
++      for (int k = 0; k <= frameskip; ++k) sum += frame_times[i + size_t(k)];
++      drawn[i] = sum;
++    }
++    frame_times = drawn;
++  }
++  const size_t frame_count_shown = shown_count;
+   float frame_time_ms = 0.0f;
+-  if (frame_count) {
+-    const size_t average_frames = std::min<size_t>(frame_count, 30);
+-    for (size_t i = frame_count - average_frames; i < frame_count; ++i) {
++  if (frame_count_shown) {
++    const size_t average_frames = std::min<size_t>(frame_count_shown, 30);
++    for (size_t i = frame_count_shown - average_frames; i < frame_count_shown; ++i) {
+       frame_time_ms += frame_times[i];
+     }
+     frame_time_ms /= float(average_frames);
+@@ -238,7 +261,7 @@ void DebugOverlayDialog::OnDraw(ImGuiIO& io) {
+   {
+     const float fps_size = 46.0f * u;
+     if (guest_fps_ > 0.0) {
+-      std::snprintf(text, sizeof(text), "%.0f", guest_fps_);
++      std::snprintf(text, sizeof(text), "%.0f", guest_fps_ / double(frameskip + 1));
+     } else {
+       std::snprintf(text, sizeof(text), "--");
+     }
+@@ -272,23 +295,23 @@ void DebugOverlayDialog::OnDraw(ImGuiIO& io) {
+     const ImVec2 graph_max(content_right, y + graph_height);
+     draw_list->AddRectFilled(graph_min, graph_max, IM_COL32(255, 255, 255, 12), 6.0f * u);
+     float scale_ms = 1000.0f / 30.0f;
+-    for (size_t i = 0; i < frame_count; ++i) {
++    for (size_t i = 0; i < frame_count_shown; ++i) {
+       scale_ms = std::max(scale_ms, std::min(frame_times[i] * 1.1f, 100.0f));
+     }
+     auto graph_y = [&](float ms) {
+       return graph_max.y - 3.0f * u - (graph_height - 6.0f * u) * std::min(ms / scale_ms, 1.0f);
+     };
+-    const float line_y = graph_y(1000.0f / 60.0f);
++    const float line_y = graph_y(1000.0f * float(frameskip + 1) / 60.0f);  // 60 ou 30 FPS
+     draw_list->AddLine(ImVec2(graph_min.x + 4.0f * u, line_y), ImVec2(graph_max.x - 4.0f * u, line_y),
+                        IM_COL32(255, 255, 255, 34), 1.0f * u);
+-    if (frame_count >= 2) {
++    if (frame_count_shown >= 2) {
+       std::array<ImVec2, kGraphFrames> points;
+       const float step = (graph_max.x - graph_min.x - 8.0f * u) / float(kGraphFrames - 1);
+-      const float start_x = graph_max.x - 4.0f * u - step * float(frame_count - 1);
+-      for (size_t i = 0; i < frame_count; ++i) {
++      const float start_x = graph_max.x - 4.0f * u - step * float(frame_count_shown - 1);
++      for (size_t i = 0; i < frame_count_shown; ++i) {
+         points[i] = ImVec2(start_x + step * float(i), graph_y(frame_times[i]));
+       }
+-      draw_list->AddPolyline(points.data(), int(frame_count), IM_COL32(0, 196, 206, 255), 0,
++      draw_list->AddPolyline(points.data(), int(frame_count_shown), IM_COL32(0, 196, 206, 255), 0,
+                              2.0f * u);
+     }
+   }
