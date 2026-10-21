@@ -18,7 +18,8 @@ cd "$ROOT"
 RESULTS_DIR="${RESULTS_DIR:-$HOME/.swordman-autotest-results}"
 POLL="${POLL:-120}"
 KEEP="${KEEP:-6}"
-REMOTE_URL="$(git remote get-url origin)"
+# RESULTS_REMOTE: outro repositorio (ex. privado) para os resultados; padrao = o origin.
+REMOTE_URL="${RESULTS_REMOTE:-$(git remote get-url origin)}"
 LAST=""
 
 say() { echo "[$(date '+%d/%m %H:%M:%S')] $*"; }
