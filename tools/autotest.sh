@@ -135,12 +135,10 @@ run_device() {
     [[ "$v" == *:* ]] && cvars="${v#*:}"
     {
       echo "== $label / $name ($(date +%H:%M:%S))"
-      if [ -n "$cvars" ]; then
-        echo "$cvars" | tr ';' '\n' | sed 's/=/ = /' | adb -s "$serial" shell "cat > $APPDIR/cvars.txt"
-        echo "   cvars.txt: $cvars"
-      else
-        adb -s "$serial" shell rm -f "$APPDIR/cvars.txt"
-      fi
+      # Sempre sem vibracao (os aparelhos ficam na mesa o dia todo) + as cvars da variante.
+      { echo "vibration = false"; [ -n "$cvars" ] && echo "$cvars" | tr ';' '\n' | sed 's/=/ = /'; } |
+        adb -s "$serial" shell "cat > $APPDIR/cvars.txt"
+      [ -n "$cvars" ] && echo "   cvars.txt: $cvars"
       local before
       before="$(latest_zip "$serial")"
       start_game "$serial"
