@@ -1,0 +1,29 @@
+diff --git a/src/ui/vulkan/vulkan_instance.cpp b/src/ui/vulkan/vulkan_instance.cpp
+index 6fcf91f..07f7b1b 100644
+--- a/src/ui/vulkan/vulkan_instance.cpp
++++ b/src/ui/vulkan/vulkan_instance.cpp
+@@ -113,9 +113,9 @@ void RequestGpuPowerControlIfDue() {
+     if (turbo_on) {
+       // KGSL power control is device-wide state - give it back to the governor.
+       turbo_on = false;
+-      if (adrenotools_set_turbo(false)) {
+-        REXLOG_INFO("GPU clocks: KGSL power control returned to the kernel governor");
+-      }
++      // SwordMan 0164: the libadrenotools the app pins (8fae8ce) returns void here.
++      adrenotools_set_turbo(false);
++      REXLOG_INFO("GPU clocks: KGSL power control returned to the kernel governor");
+     }
+     return;
+   }
+@@ -125,7 +125,10 @@ void RequestGpuPowerControlIfDue() {
+     return;
+   }
+   last_request_ms = now_ms;
+-  if (adrenotools_set_turbo(true)) {
++  // SwordMan 0164: void in the pinned libadrenotools - judge success by errno.
++  errno = 0;
++  adrenotools_set_turbo(true);
++  if (errno == 0) {
+     if (!turbo_on || after_pause) {
+       REXLOG_INFO("GPU clocks: KGSL power control forced on at the maximum clock ({})",
+                   !turbo_on ? "startup" : "after a pause");
