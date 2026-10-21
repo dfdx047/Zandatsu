@@ -22,7 +22,15 @@ step() { echo; echo "== $*"; }
 
 if [ "${PULL:-1}" = "1" ]; then
   step "git pull"
-  git pull --ff-only
+  BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+  if [ "$BRANCH" != "main" ]; then
+    echo "ERRO: estas no branch '$BRANCH', o build usa o main." >&2
+    echo "  git stash        (se tiveres alteracoes por gravar)" >&2
+    echo "  git checkout main" >&2
+    echo "  (ou PULL=0 bash tools/build.sh para compilar este branch sem atualizar)" >&2
+    exit 1
+  fi
+  git pull --ff-only origin main
 fi
 
 step "patches do SDK"
