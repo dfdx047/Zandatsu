@@ -98,6 +98,7 @@ public class GameActivity extends SDLActivity {
         mOverlay.onCreate();
         watchFirstFrames(appDir);
         TurnipSweep.arm(this, appDir);
+        CpuSampler.start();
     }
 
     /**

@@ -374,4 +374,6 @@
     <string name="err_dialog_use_system_driver">Usar el driver del sistema</string>
     <string name="turnip_sweep_start">Barrido automático de Turnip (%1$d inicios)</string>
     <string name="turnip_sweep_help">El juego se abre y se cierra solo, una opción del driver por inicio (~40 s cada uno). No toques el dispositivo; al final el zip de logs va a Download.</string>
+    <string name="settings_glow_blur">Desenfoque del brillo</string>
+    <string name="settings_glow_blur_sub">Desactivado ahorra ~2,6 ms por frame en el RG Cube, sin diferencia visible en las escenas probadas.</string>
 </resources>

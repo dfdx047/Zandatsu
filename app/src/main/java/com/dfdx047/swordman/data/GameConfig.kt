@@ -25,6 +25,9 @@ data class GameConfig(
     // cada dois (patch 0092). Ver FrameMode.
     val frameRate: Int = 60,
     val frameInterpolation: Boolean = false,
+    // Desfoque do brilho do MGR (cadeia de 320x176, PS C4558052 + 4086D1DF): no RG Cube custa
+    // ~2,6 ms e desliga-lo nao mudou a imagem em duas cenas (autoteste 20/10 23:03 e 21/10 06:40).
+    val glowBlur: Boolean = true,
     val showFps: Boolean = false,             // debug_overlay
     val letterbox: Boolean = true,            // present_letterbox (16:9 com barras / esticar)
     val volume: Int = 100,                    // volume geral 0-100 (app, rex::audio::SetOutputGain)
@@ -116,7 +119,7 @@ data class GameConfig(
             "swordman_freeze_replay" to false,
             "swordman_freeze_record" to false,
             "swordman_ps_census" to false,
-            "swordman_skip_ps" to "",
+            "swordman_skip_ps" to (if (glowBlur) "" else MGR_GLOW_BLUR_PS),
             // Os contornos 0102/0103 eram para o crash acima (diagnostico errado): desligados.
             "dbz3_empty_fs_for_depth_only" to 0,
             "dbz3_skip_vertex_shaders" to "",
@@ -130,6 +133,8 @@ data class GameConfig(
         val EFFECTS = listOf("bilinear", "cas", "fsr")
         val FSR_QUALITY = listOf("auto", "quality", "balanced", "performance", "ultra_performance")
         val FXAA = listOf("none", "fxaa", "fxaa_extreme")
+        /** Pixel shaders do desfoque do brilho do MGR (swordman_skip_ps). */
+        const val MGR_GLOW_BLUR_PS = "C45580526034B1F2,4086D1DF9FA6220E"
         const val MAX_RESOLUTION_SCALE = 3
 
         /** dbz3_frame_interpolation_quality para este aparelho (2 nas GPUs de Alto/Ultra). */
@@ -181,6 +186,7 @@ data class GameConfig(
                     else -> 60
                 },
                 frameInterpolation = interp,
+                glowBlur = !str("swordman_skip_ps", "").contains("4086D1DF9FA6220E"),
                 showFps = bool("debug_overlay", d.showFps),
                 letterbox = bool("present_letterbox", d.letterbox),
                 volume = int("swordman_volume", d.volume).coerceIn(0, 100),

@@ -182,6 +182,11 @@ fun PerformanceScreen(vm: LauncherViewModel) {
             }
             if (c.resolution.scale >= 3) StatusLine(stringResource(R.string.settings_resolution_warn), Level.WARN)
             SettingSwitch(stringResource(R.string.settings_show_fps), checked = c.showFps) { on -> vm.updateConfig { it.copy(showFps = on) } }
+            SettingSwitch(
+                stringResource(R.string.settings_glow_blur),
+                subtitle = stringResource(R.string.settings_glow_blur_sub),
+                checked = c.glowBlur,
+            ) { on -> vm.updateConfig { it.copy(glowBlur = on) } }
         }
 
         // ---------------------------------------------------- efeitos e som
