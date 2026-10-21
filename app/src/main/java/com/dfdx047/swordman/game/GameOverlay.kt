@@ -409,16 +409,16 @@ class GameOverlay(private val activity: Activity) : InputManager.InputDeviceList
         // swap de um buffer indireto, por isso o anel sozinho nao chega para repetir o frame);
         // so depois congela. Com o menu aberto o jogo estava parado: solta-o ~0,8 s.
         engine.freeze = false
-        NativeGameState.setCvars(mapOf("swordman_freeze_record" to "true"))
+        NativeGameState.setCvars(mapOf("swordman_freeze_record" to "true"), persist = false)
         com.dfdx047.swordman.data.AppLog.i("selftest", "inicio: a gravar frames")
         main.postDelayed({
             engine.freeze = true
-            NativeGameState.setCvars(mapOf("swordman_freeze_replay" to "true"))
+            NativeGameState.setCvars(mapOf("swordman_freeze_replay" to "true"), persist = false)
             com.dfdx047.swordman.data.AppLog.i("selftest", "imagem congelada")
             main.postDelayed({
                 selfTest = RenderSelfTest(activity, surface) {
                     selfTest = null
-                    NativeGameState.setCvars(mapOf("swordman_freeze_replay" to "false", "swordman_freeze_record" to "false"))
+                    NativeGameState.setCvars(mapOf("swordman_freeze_replay" to "false", "swordman_freeze_record" to "false"), persist = false)
                     engine.freeze = false
                     com.dfdx047.swordman.data.AppLog.i("selftest", "fim (jogo a correr)")
                 }.also { it.start() }
@@ -430,7 +430,7 @@ class GameOverlay(private val activity: Activity) : InputManager.InputDeviceList
     override fun exitToLauncher() {
         setScreen(InGameScreen.CLOSED)
         NativeGameState.forceResume()
-        NativeGameState.setCvars(mapOf("swordman_freeze_replay" to "false", "swordman_freeze_record" to "false"))
+        NativeGameState.setCvars(mapOf("swordman_freeze_replay" to "false", "swordman_freeze_record" to "false"), persist = false)
         com.dfdx047.swordman.data.SessionState.markEnded(AppPaths.appDir)
         com.dfdx047.swordman.data.AppLog.i("game", "saida pelo menu")
         activity.startActivity(

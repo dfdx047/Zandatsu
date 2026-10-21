@@ -1,0 +1,65 @@
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+index 5971683..4701c18 100644
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -750,7 +750,10 @@ void CommandProcessor::SwordManRecordPacket(const memory::RingBuffer& reader,
+   }
+   if (swordman_rec_swap_) {
+     swordman_rec_swap_ = false;
+-    if (swordman_rec_synced_) {
++    // 0111: com a imagem congelada o frame gravado nao muda (um swap que ainda chegue, de um
++    // frame ja submetido, trocava a referencia do autoteste a meio).
++    if (swordman_rec_synced_ &&
++        !(REXCVAR_GET(swordman_freeze_replay) && !swordman_rec_last_.empty())) {
+       swordman_rec_last_.swap(swordman_rec_);
+       static bool logged = false;
+       if (!logged) {
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index c2ece3f..b0b8af2 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -93,8 +93,27 @@ std::unordered_map<uint64_t, CensusEntry> g_census;
+ std::atomic<uint64_t> g_gpu_frames{0};
+ std::atomic<uint64_t> g_gpu_us{0};
+ 
++// 0111: a lista vem do app por rex_swordman_set_skip_ps (copiada com um mutex): ler a cvar
++// string em cada draw enquanto a thread do app a troca era uma corrida de dados.
++std::mutex g_skip_set_mutex;
++std::string g_skip_set_text;
++std::atomic<uint32_t> g_skip_set_gen{0};
++uint32_t g_skip_seen_gen = 0;
++bool g_skip_from_cvar = false;
++
+ const std::vector<Skip>& SkipList() {
+-  const std::string& text = REXCVAR_GET(swordman_skip_ps);
++  std::string text;
++  const uint32_t gen = g_skip_set_gen.load(std::memory_order_acquire);
++  if (gen != g_skip_seen_gen) {
++    g_skip_seen_gen = gen;
++    std::lock_guard<std::mutex> lock(g_skip_set_mutex);
++    text = g_skip_set_text;
++  } else if (!g_skip_from_cvar) {
++    g_skip_from_cvar = true;  // valor inicial da config (uma vez, no arranque)
++    text = REXCVAR_GET(swordman_skip_ps);
++  } else {
++    return g_skip;
++  }
+   if (text != g_skip_text) {
+     g_skip_text = text;
+     g_skip.clear();
+@@ -121,6 +140,15 @@ const std::vector<Skip>& SkipList() {
+ }
+ }  // namespace swordman_ps
+ 
++// 0111: troca a lista de pixel shaders saltados (thread do app).
++extern "C" __attribute__((visibility("default"))) void rex_swordman_set_skip_ps(const char* text) {
++  {
++    std::lock_guard<std::mutex> lock(swordman_ps::g_skip_set_mutex);
++    swordman_ps::g_skip_set_text = text ? text : "";
++  }
++  swordman_ps::g_skip_set_gen.fetch_add(1, std::memory_order_release);
++}
++
+ // Tempo de GPU acumulado: out[0] = frames medidos, out[1] = microssegundos (dbz3_perf_logging).
+ // 0108: a rexgpu-xenos compila com visibilidade escondida; estas duas sao para o app.
+ extern "C" __attribute__((visibility("default"))) void rex_swordman_gpu_stats(uint64_t* out) {

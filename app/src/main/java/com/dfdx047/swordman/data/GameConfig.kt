@@ -111,6 +111,12 @@ data class GameConfig(
             // Mali cai em vkCmdEndQuery (RG Cube, 20/10). Fora do Adreno ficam desligadas e o
             // jogo recebe o numero fixo de amostras (tudo "visivel").
             "occlusion_query_enable" to adreno,
+            // So ao vivo (autoteste / imagem congelada): cada arranque comeca desligado, mesmo
+            // que um build antigo as tenha gravado no mgr.toml.
+            "swordman_freeze_replay" to false,
+            "swordman_freeze_record" to false,
+            "swordman_ps_census" to false,
+            "swordman_skip_ps" to "",
             // Os contornos 0102/0103 eram para o crash acima (diagnostico errado): desligados.
             "dbz3_empty_fs_for_depth_only" to 0,
             "dbz3_skip_vertex_shaders" to "",

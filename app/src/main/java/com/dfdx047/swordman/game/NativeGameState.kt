@@ -81,10 +81,11 @@ object NativeGameState {
     }
 
     /** Muda opcoes do jogo ao vivo e grava o mgr.toml. */
-    fun setCvars(values: Map<String, String>): Boolean {
+    /** persist = false: so ao vivo, sem gravar no mgr.toml (autoteste, imagem congelada). */
+    fun setCvars(values: Map<String, String>, persist: Boolean = true): Boolean {
         if (!available || values.isEmpty()) return false
         return try {
-            nativeSetCvars(values.keys.toTypedArray(), values.values.toTypedArray())
+            nativeSetCvars(values.keys.toTypedArray(), values.values.toTypedArray(), persist)
         } catch (e: UnsatisfiedLinkError) {
             available = false
             false
@@ -178,6 +179,15 @@ object NativeGameState {
         }
     }
 
+    /** Pixel shaders saltados (hashes separados por virgula; "" = nenhum), sem passar pela cvar. */
+    fun setSkipPs(hashes: String) {
+        if (!available) return
+        try {
+            nativeSetSkipPs(hashes)
+        } catch (_: UnsatisfiedLinkError) {
+        }
+    }
+
     /** Censo de pixel shaders desde o ultimo reset: "HASH:draws:pitch:prim,..." por draws. */
     fun psCensus(reset: Boolean): String {
         if (!available) return ""
@@ -217,6 +227,7 @@ object NativeGameState {
     @JvmStatic private external fun nativeSetVolume(percent: Int)
     @JvmStatic private external fun nativeFrames(): Long
     @JvmStatic private external fun nativeGpuStats(): LongArray
+    @JvmStatic private external fun nativeSetSkipPs(hashes: String)
     @JvmStatic private external fun nativePsCensus(reset: Boolean): String
 
     @JvmStatic
@@ -226,7 +237,7 @@ object NativeGameState {
     @JvmStatic private external fun nativeDumpFight(path: String, kind: Int, ms: Long): Boolean
 
     @JvmStatic
-    private external fun nativeSetCvars(names: Array<String>, values: Array<String>): Boolean
+    private external fun nativeSetCvars(names: Array<String>, values: Array<String>, persist: Boolean): Boolean
 
     @JvmStatic
     private external fun nativeP1Side(): Int

@@ -128,6 +128,16 @@ Java_com_dfdx047_swordman_game_NativeGameState_nativeFrames(JNIEnv*, jclass) {
 extern "C" void rex_swordman_gpu_stats(uint64_t* out);
 extern "C" size_t rex_swordman_ps_census(char* buf, size_t size, int reset);
 
+extern "C" void rex_swordman_set_skip_ps(const char* text);
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_dfdx047_swordman_game_NativeGameState_nativeSetSkipPs(JNIEnv* env, jclass, jstring text) {
+  const char* t = env->GetStringUTFChars(text, nullptr);
+  rex_swordman_set_skip_ps(t);
+  REXLOG_INFO("swordman: pixel shaders saltados: '{}'", t);
+  env->ReleaseStringUTFChars(text, t);
+}
+
 extern "C" JNIEXPORT jlongArray JNICALL
 Java_com_dfdx047_swordman_game_NativeGameState_nativeGpuStats(JNIEnv* env, jclass) {
   uint64_t v[2] = {0, 0};
@@ -157,7 +167,7 @@ Java_com_dfdx047_swordman_game_NativeGameState_nativeDumpFight(JNIEnv*, jclass, 
 // ---------------------------------------------------------------------------
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_dfdx047_swordman_game_NativeGameState_nativeSetCvars(JNIEnv* env, jclass, jobjectArray names,
-                                                              jobjectArray values) {
+                                                              jobjectArray values, jboolean persist) {
   if (!rex::Runtime::instance()) return JNI_FALSE;
   const jsize n = env->GetArrayLength(names);
   bool ok = true;
@@ -176,8 +186,12 @@ Java_com_dfdx047_swordman_game_NativeGameState_nativeSetCvars(JNIEnv* env, jclas
     env->DeleteLocalRef(jn);
     env->DeleteLocalRef(jv);
   }
-  REXLOG_INFO("swordman: cvars ao vivo: {}", changed);
-  rex::cvar::SaveConfig(rex::filesystem::GetExecutableFolder() / kConfigName);
+  REXLOG_INFO("swordman: cvars ao vivo{}: {}", persist ? "" : " (sem gravar)", changed);
+  // Autoteste e congelamento: so ao vivo. Gravados no mgr.toml ficavam ligados no arranque
+  // seguinte (20/10: a imagem congelada ativa durante o jogo inteiro no RP5).
+  if (persist) {
+    rex::cvar::SaveConfig(rex::filesystem::GetExecutableFolder() / kConfigName);
+  }
   return ok ? JNI_TRUE : JNI_FALSE;
 }
 

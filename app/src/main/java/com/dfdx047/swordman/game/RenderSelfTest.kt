@@ -108,7 +108,8 @@ class RenderSelfTest(
             .append('\n')
         report.append("Config: " + base.entries.joinToString(" ") { "${it.key}=${it.value}" } + "\n\n")
         showStatus(activity.getString(com.dfdx047.swordman.R.string.selftest_start))
-        NativeGameState.setCvars(base + mapOf("swordman_ps_census" to "true", "swordman_skip_ps" to ""))
+        NativeGameState.setSkipPs("")
+        NativeGameState.setCvars(base + mapOf("swordman_ps_census" to "true"), persist = false)
         // Referencia: tudo ligado, duas fotos para medir o ruido.
         after(3500) {
             capture { a ->
@@ -120,7 +121,7 @@ class RenderSelfTest(
                         measureGpu { ms ->
                             baseMs = ms
                             census = NativeGameState.psCensus(reset = true)
-                            NativeGameState.setCvars(mapOf("swordman_ps_census" to "false"))
+                            NativeGameState.setCvars(mapOf("swordman_ps_census" to "false"), persist = false)
                             if (ms.isNaN()) {
                                 report.append("AVISO: a GPU nao desenhou nenhum frame com a imagem congelada (sem frame gravado?).\n")
                                 report.append("As comparacoes abaixo nao valem: a tela esta parada, nao congelada.\n")
@@ -139,7 +140,7 @@ class RenderSelfTest(
 
     private fun step(i: Int) {
         if (i > active.size) {
-            NativeGameState.setCvars(base)
+            NativeGameState.setCvars(base, persist = false)
             finish()
             return
         }
@@ -157,7 +158,7 @@ class RenderSelfTest(
         }
         showStatus(activity.getString(com.dfdx047.swordman.R.string.selftest_step, i + 1, active.size + 1, label))
         log("autoteste: inicio '$label'")
-        NativeGameState.setCvars(off)
+        NativeGameState.setCvars(off, persist = false)
         measureGpu { ms ->
             capture { img ->
                 val ref = reference
@@ -217,7 +218,7 @@ class RenderSelfTest(
 
     private fun fxStep(i: Int) {
         if (i >= fxList.size) {
-            NativeGameState.setCvars(mapOf("swordman_skip_ps" to ""))
+            NativeGameState.setSkipPs("")
             measureGpu { end ->
                 report.append(String.format(java.util.Locale.ROOT, "referencia no fim: GPU %s\n", fmtMs(end)))
                 report.append("\nOrdenado pelo ganho (o que mais pesa primeiro):\n")
@@ -233,7 +234,7 @@ class RenderSelfTest(
         val fx = fxList[i]
         showStatus(activity.getString(com.dfdx047.swordman.R.string.selftest_step, i + 1, fxList.size, "PS ${fx.hash}"))
         log("autoteste: efeito sem PS ${fx.hash}")
-        NativeGameState.setCvars(mapOf("swordman_skip_ps" to fx.hash))
+        NativeGameState.setSkipPs(fx.hash)
         measureGpu { ms ->
             val myShot = shot
             capture { img ->
@@ -292,8 +293,9 @@ class RenderSelfTest(
 
     private fun finish() {
         // Volta tudo ao que estava.
-        NativeGameState.setCvars(original.filterValues { it.isNotEmpty() })
-        NativeGameState.setCvars(mapOf("swordman_skip_ps" to "", "swordman_ps_census" to "false"))
+        NativeGameState.setCvars(original.filterValues { it.isNotEmpty() }, persist = false)
+        NativeGameState.setSkipPs("")
+        NativeGameState.setCvars(mapOf("swordman_ps_census" to "false"), persist = false)
         try {
             File(AppPaths.logsDir, "autoteste.txt").writeText(report.toString())
         } catch (_: Exception) {
