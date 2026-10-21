@@ -129,7 +129,7 @@ fetch_driver() {  # fetch_driver dono/repo#texto -> caminho do .so (ou vazio)
   local spec="$1" repo="${1%%#*}" match="${1#*#}" cache url dir so
   cache="$HOME/.cache/swordman-drivers"
   mkdir -p "$cache"
-  url="$(curl -s "https://api.github.com/repos/$repo/releases?per_page=40" |
+  url="$( (curl -s "https://api.github.com/repos/$repo/releases?per_page=40" |
     python3 -c "
 import json, sys
 m = sys.argv[1].lower()
@@ -138,15 +138,15 @@ for rel in json.load(sys.stdin):
         n = a['name']
         if n.lower().endswith('.zip') and (m in n.lower() or m in rel['tag_name'].lower()):
             print(a['browser_download_url']); sys.exit()
-" "$match" 2>/dev/null)"
+" "$match" 2>/dev/null) || true)"
   [ -z "$url" ] && return 0
   dir="$cache/$(echo "$url" | md5sum | cut -c1-12)"
   if [ ! -d "$dir" ]; then
     mkdir -p "$dir"
     curl -sL "$url" -o "$dir/driver.zip" && unzip -q -o "$dir/driver.zip" -d "$dir" || { rm -rf "$dir"; return 0; }
   fi
-  so="$(find "$dir" -name '*.so' | head -n 1)"
-  [ -n "$so" ] && echo "$so|$(basename "$url")"
+  so="$(find "$dir" -name '*.so' | head -n 1 || true)"
+  if [ -n "$so" ]; then echo "$so|$(basename "$url")"; fi
 }
 
 set_driver() {  # set_driver serial spec
@@ -156,7 +156,7 @@ set_driver() {  # set_driver serial spec
     echo "   driver: o do sistema"
     return
   fi
-  got="$(fetch_driver "$spec")"
+  got="$(fetch_driver "$spec" || true)"
   if [ -z "$got" ]; then
     echo "   driver: nada encontrado para '$spec' - fica o do sistema"
     return
@@ -185,7 +185,7 @@ run_device() {
     if [[ "$cvars" == *@driver=* ]]; then
       driver="${cvars#*@driver=}"
       driver="${driver%%;*}"
-      cvars="$(echo "$cvars" | tr ';' '\n' | grep -v '^@driver=' | paste -sd';')"
+      cvars="$(echo "$cvars" | tr ';' '\n' | grep -v '^@driver=' | paste -sd';' || true)"
     fi
     {
       echo "== $label / $name ($(date +%H:%M:%S))"
