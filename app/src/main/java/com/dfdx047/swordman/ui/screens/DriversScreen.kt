@@ -150,6 +150,10 @@ fun DriversScreen(vm: LauncherViewModel) {
                     onClick = { vm.startTurnipSweep(sweepCtx) },
                     enabled = vm.busy == null && vm.activeDriver != null,
                 ) { Text(stringResource(R.string.turnip_sweep_start, com.dfdx047.swordman.drivers.TurnipSupport.BISECT.size)) }
+                androidx.compose.material3.FilledTonalButton(
+                    onClick = { vm.startTurnipSweep(sweepCtx, "rtt") },
+                    enabled = vm.busy == null && vm.activeDriver != null,
+                ) { Text(stringResource(R.string.turnip_sweep_rtt, com.dfdx047.swordman.drivers.TurnipSupport.BISECT_RTT.size)) }
                 Text(
                     stringResource(R.string.turnip_sweep_help),
                     style = MaterialTheme.typography.bodySmall,

@@ -187,6 +187,29 @@ public final class TurnipSupport {
                     "TU_DEBUG=sysmem,noubwc,nolrz,flushall,syncdraw;REX_DBZ3_VK_MAX_STORAGE_BUFFER_RANGE_MB=512"},
     };
 
+    /**
+     * Segunda varredura (21/10): a primeira mostrou que no RP5 so "sem atalhos resolve->textura"
+     * desenha certo. Cada passo desliga UMA parte desse atalho (o resto como na config).
+     */
+    public static final String[][] BISECT_RTT = {
+            {"0 base (atalhos ligados)", ""},
+            {"1 atalhos sem imageStore (buffer + copia)", "REX_SWORDMAN_RTT_STORAGE=false"},
+            {"2 atalhos, mas a memoria tambem escrita", "REX_DBZ3_DIRECT_RESOLVE_SKIP_MEMORY=false"},
+            {"3 sem o atalho float/32_FLOAT (0110)", "REX_SWORDMAN_RTT_FLOAT=false"},
+            {"4 sem imageStore e memoria escrita",
+                    "REX_SWORDMAN_RTT_STORAGE=false;REX_DBZ3_DIRECT_RESOLVE_SKIP_MEMORY=false"},
+            {"5 sem imageStore, sem 0110",
+                    "REX_SWORDMAN_RTT_STORAGE=false;REX_SWORDMAN_RTT_FLOAT=false"},
+            {"6 sem passo 4 nem resolves servidos (so os atalhos)",
+                    "REX_DBZ3_RENDER_INTO_TEXTURE=false;REX_DBZ3_RIT_SERVE_RESOLVES=false"},
+            {"7 sem atalhos (referencia que desenha)", "REX_DBZ3_DIRECT_RESOLVE_TEXTURE=0"},
+    };
+
+    /** Lista de passos da varredura: "rtt" = BISECT_RTT, senao a do driver (BISECT). */
+    public static String[][] steps(String set) {
+        return "rtt".equals(set) ? BISECT_RTT : BISECT;
+    }
+
     /** O kernel tem o kgsl (Android de fabrica)? Os drivers do AdrenoTools so funcionam com ele. */
     public static boolean hasKgsl() {
         return new File("/dev/kgsl-3d0").exists();

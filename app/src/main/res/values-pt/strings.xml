@@ -376,4 +376,5 @@
     <string name="turnip_sweep_help">O jogo abre e fecha sozinho, uma opção do driver por inicialização (~40 s cada). Não mexa no aparelho; no fim o zip dos logs vai para Download.</string>
     <string name="settings_glow_blur">Desfoque do brilho</string>
     <string name="settings_glow_blur_sub">Desligado poupa ~2,6 ms por frame no RG Cube, sem diferença visível nas cenas testadas.</string>
+    <string name="turnip_sweep_rtt">Varredura do Turnip: atalho resolve→textura (%1$d inicializações)</string>
 </resources>

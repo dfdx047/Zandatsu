@@ -376,4 +376,5 @@
     <string name="turnip_sweep_help">El juego se abre y se cierra solo, una opción del driver por inicio (~40 s cada uno). No toques el dispositivo; al final el zip de logs va a Download.</string>
     <string name="settings_glow_blur">Desenfoque del brillo</string>
     <string name="settings_glow_blur_sub">Desactivado ahorra ~2,6 ms por frame en el RG Cube, sin diferencia visible en las escenas probadas.</string>
+    <string name="turnip_sweep_rtt">Barrido de Turnip: atajo resolve→textura (%1$d inicios)</string>
 </resources>

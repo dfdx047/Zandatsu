@@ -45,25 +45,30 @@ object TurnipSweep {
     }
 
     /** Liga a varredura a partir do passo 0 e limpa os resultados antigos. */
-    fun start(ctx: Context, appDir: File) {
+    fun start(ctx: Context, appDir: File, set: String = "driver") {
         File(appDir, "logs").listFiles { f -> f.name.startsWith("turnip_sweep") }?.forEach { it.delete() }
         prefs(ctx).edit()
             .putBoolean(KEY_ACTIVE, true)
             .putBoolean("turnip_bisect", true)
             .putInt("turnip_bisect_step", 0)
+            .putString("turnip_sweep_set", set)
             .commit()
-        append(appDir, "Varredura do Turnip - ${java.util.Date()} - ${TurnipSupport.BISECT.size} passos, ${RUN_MS / 1000} s cada")
+        append(appDir, "Varredura do Turnip ($set) - ${java.util.Date()} - ${steps(ctx).size} passos, ${RUN_MS / 1000} s cada")
     }
 
     fun stop(ctx: Context) {
-        prefs(ctx).edit().putBoolean(KEY_ACTIVE, false).putBoolean("turnip_bisect", false).commit()
+        prefs(ctx).edit().putBoolean(KEY_ACTIVE, false).putBoolean("turnip_bisect", false)
+            .putString("turnip_sweep_set", "driver").commit()
     }
 
     fun label(ctx: Context): String = prefs(ctx).getString(KEY_LABEL, "?") ?: "?"
 
     /** Proximo passo a correr; 0 depois do ultimo (a varredura acabou). */
+    fun steps(ctx: Context): Array<Array<String>> =
+        TurnipSupport.steps(prefs(ctx).getString("turnip_sweep_set", "driver"))
+
     fun nextStep(ctx: Context): Int =
-        Math.floorMod(prefs(ctx).getInt("turnip_bisect_step", 0), TurnipSupport.BISECT.size)
+        Math.floorMod(prefs(ctx).getInt("turnip_bisect_step", 0), steps(ctx).size)
 
     /** No GameActivity (onCreate): ao fim de RUN_MS tira a foto, anota e volta ao launcher. */
     @JvmStatic

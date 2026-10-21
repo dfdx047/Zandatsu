@@ -377,4 +377,5 @@
     <string name="turnip_sweep_help">The game opens and closes by itself, one driver option per start (~40 s each). Do not touch the device; at the end the log zip is saved to Download.</string>
     <string name="settings_glow_blur">Glow blur</string>
     <string name="settings_glow_blur_sub">Off saves ~2.6 ms per frame on the RG Cube with no visible change in the tested scenes.</string>
+    <string name="turnip_sweep_rtt">Turnip sweep: resolve→texture shortcut (%1$d starts)</string>
 </resources>

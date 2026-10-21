@@ -112,8 +112,8 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
     /** Varredura automatica do Turnip (TurnipSweep): liga e abre o jogo no passo 0. */
-    fun startTurnipSweep(context: Context) {
-        com.dfdx047.swordman.game.TurnipSweep.start(context, AppPaths.appDir)
+    fun startTurnipSweep(context: Context, set: String = "driver") {
+        com.dfdx047.swordman.game.TurnipSweep.start(context, AppPaths.appDir, set)
         turnipBisect = true
         turnipBisectStep = 0
         play(context)

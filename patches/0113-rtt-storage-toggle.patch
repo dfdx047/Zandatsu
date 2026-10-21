@@ -1,0 +1,25 @@
+diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
+index 3439fa2..5ed152b 100644
+--- a/src/graphics/vulkan/texture_cache.cpp
++++ b/src/graphics/vulkan/texture_cache.cpp
+@@ -45,6 +45,10 @@ REXCVAR_DEFINE_BOOL(dbz3_resolve_early_transition, true, "GPU",
+ REXCVAR_DEFINE_BOOL(dbz3_rit_textures, true, "GPU",
+                     "Dragon Burst: texturas 8888 criadas para poderem ser alvo de cor (passo 4)")
+     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
++REXCVAR_DEFINE_BOOL(swordman_rtt_storage, true, "GPU",
++                    "Project SwordMan (0113): texturas destino de resolve com STORAGE (o atalho "
++                    "resolve->textura escreve por imageStore); desligado usa buffer + copia")
++    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+ REXCVAR_DEFINE_BOOL(dbz3_rit_textures_turnip, false, "GPU",
+                     "Dragon Burst: o mesmo no Turnip (desligado: la as cores saiam trocadas)")
+     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+@@ -1330,7 +1334,8 @@ std::unique_ptr<TextureCache::Texture> VulkanTextureCache::CreateTexture(Texture
+       VkFormatProperties format_properties;
+       ifn.vkGetPhysicalDeviceFormatProperties(vulkan_device->physical_device(), formats[0],
+                                               &format_properties);
+-      if (format_properties.optimalTilingFeatures & VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT) {
++      if ((format_properties.optimalTilingFeatures & VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT) &&
++          REXCVAR_GET(swordman_rtt_storage)) {
+         dbz3_storage = true;
+         image_create_info.usage |= VK_IMAGE_USAGE_STORAGE_BIT;
+         // Render nativo, passo 4: as 8888 tambem podem ser o alvo de cor de um passe.

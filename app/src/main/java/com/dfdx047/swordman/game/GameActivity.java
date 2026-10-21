@@ -493,7 +493,8 @@ public class GameActivity extends SDLActivity {
                 + " driver=" + (custom ? drivers[0].getName() : "sistema"));
         if (custom && prefs.getBoolean("turnip_bisect", false)) {
             // Bisect do Turnip: so o passo desta vez, nada mais (para o resultado ser claro).
-            String[][] steps = com.dfdx047.swordman.drivers.TurnipSupport.BISECT;
+            String[][] steps = com.dfdx047.swordman.drivers.TurnipSupport.steps(
+                    prefs.getString("turnip_sweep_set", "driver"));
             int step = Math.floorMod(prefs.getInt("turnip_bisect_step", 0), steps.length);
             prefs.edit().putInt("turnip_bisect_step", (step + 1) % steps.length)
                     .putString(TurnipSweep.KEY_LABEL, steps[step][0]).commit();
