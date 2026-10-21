@@ -80,6 +80,12 @@ while true; do
       LAST="$HEAD_NEW"
       continue
     fi
+    # Aviso logo a seguir ao build (antes dos testes, que demoram): prova que o envio funciona.
+    {
+      echo "build ok, a testar ($(date '+%d/%m %H:%M'))"
+      adb devices -l | tail -n +2
+    } > "$RUN/status.txt"
+    publish "$RUN"
     # Plano: uma variante por linha (# comentarios); a primeira linha "settle N" muda a espera.
     SETTLE=30
     VARIANTS=()
@@ -94,6 +100,7 @@ while true; do
     bash tools/autotest.sh --settle "$SETTLE" "${VARIANTS[@]}" > "$RUN/autotest.log" 2>&1
     ZIP="$(ls -t "$HOME"/Downloads/SwordMan-autotest-*.zip "$HOME"/Downloads/SwordMan-autotest-*.tar.gz 2>/dev/null | head -n 1)"
     [ -n "$ZIP" ] && cp "$ZIP" "$RUN/"
+    echo "testes acabados ($(date '+%d/%m %H:%M'))" >> "$RUN/status.txt"
     publish "$RUN"
     LAST="$HEAD_NEW"
   fi
