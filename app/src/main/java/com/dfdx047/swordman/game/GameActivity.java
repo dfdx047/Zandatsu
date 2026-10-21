@@ -206,6 +206,7 @@ public class GameActivity extends SDLActivity {
     /** Com o menu dos controles aberto, o Back do Android fecha o menu (nao vai para o jogo). */
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
+        AutoPilot.onKeyEvent(event);
         if (mOverlay != null) {
             mOverlay.onPhysicalInput(event);
             // Menu do jogo do Android: navegacao pelo comando e Back + Start para o abrir.

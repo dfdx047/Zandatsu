@@ -67,6 +67,15 @@ class GameOverlay(private val activity: Activity) : InputManager.InputDeviceList
     private val menuController = MenuController()
     private val menuModel by lazy { MenuModel(activity, prefs, this) }
     private val inputManager = activity.getSystemService(Context.INPUT_SERVICE) as InputManager
+    /** Teste automatico pelo PC (tools/autotest.sh). */
+    private val autoPilot = AutoPilot(
+        activity,
+        press = { input ->
+            engine.press("autopilot", com.dfdx047.swordman.controls.ControlAction.Sequence(
+                listOf(com.dfdx047.swordman.controls.MacroStep(setOf(input), 6)), holdLast = false))
+        },
+        selfTest = { startSelfTest() },
+    ).also { it.register() }
 
     /** Modo automatico: os controles estao a mostra (ultimo input foi toque). */
     private var autoShown = true
@@ -481,6 +490,7 @@ class GameOverlay(private val activity: Activity) : InputManager.InputDeviceList
     }
 
     fun onDestroy() {
+        autoPilot.unregister()
         gpuStats?.stop()
         NativeGameState.forceResume()
         main.removeCallbacks(attachRunnable)
