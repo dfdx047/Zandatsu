@@ -113,6 +113,25 @@ if [ "$BUILD" = 1 ]; then
   bash "$ROOT/tools/build.sh" "${ONLY:-all}"
 fi
 
+# Limpeza (21/10 ~20h: desde a rodada 9 os resultados chegavam com ficheiros vazios - o /tmp,
+# que no CachyOS e RAM, enchia com as pastas de cada rodada que nunca eram apagadas):
+# pastas temporarias de rodadas antigas (deste script e do autoloop) e zips antigos em ~/Downloads.
+cleanup_old() {
+  local tmp="${TMPDIR:-/tmp}" d
+  for d in "$tmp"/tmp.*; do
+    [ -d "$d" ] || continue
+    # So pastas nossas: com SwordMan-autotest-* (autotest) ou <data>/commit.txt (autoloop), e com
+    # mais de 90 min (a rodada atual do autoloop fica).
+    if ls -d "$d"/SwordMan-autotest-* > /dev/null 2>&1 || ls "$d"/20*/commit.txt > /dev/null 2>&1; then
+      if [ -n "$(find "$d" -maxdepth 0 -mmin +90)" ]; then rm -rf "$d"; fi
+    fi
+  done
+  ls -1t "$HOME"/Downloads/SwordMan-autotest-*.zip "$HOME"/Downloads/SwordMan-autotest-*.tar.gz 2>/dev/null |
+    tail -n +7 | while read -r f; do rm -f "$f"; done
+  echo "Espaco livre: /tmp $(df -h "$tmp" | awk 'NR == 2 { print $4 }'), ~/Downloads $(df -h "$HOME/Downloads" 2>/dev/null | awk 'NR == 2 { print $4 }')"
+}
+cleanup_old
+
 STAMP="$(date +%Y%m%d-%H%M%S)"
 OUT="$(mktemp -d)/SwordMan-autotest-$STAMP"
 mkdir -p "$OUT"
@@ -271,5 +290,7 @@ else
   FINAL="${FINAL%.zip}.tar.gz"
   tar -C "$(dirname "$OUT")" -czf "$FINAL" "$(basename "$OUT")"
 fi
+# A pasta de trabalho ja esta no zip.
+rm -rf "$(dirname "$OUT")"
 echo
 echo "Pronto: $FINAL"

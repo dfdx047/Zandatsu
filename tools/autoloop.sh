@@ -155,6 +155,7 @@ while true; do
     [ -n "$ZIP" ] && slim "$ZIP" "$RUN/results"
     echo "testes acabados ($(date '+%d/%m %H:%M'))" >> "$RUN/status.txt"
     publish "$RUN"
+    rm -rf "$(dirname "$RUN")"
     LAST="$HEAD_NEW"
   fi
   sleep "$POLL"
