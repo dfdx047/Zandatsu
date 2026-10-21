@@ -1,0 +1,46 @@
+diff --git a/include/rex/graphics/command_processor.h b/include/rex/graphics/command_processor.h
+index a1196ba..8ab3f2f 100644
+--- a/include/rex/graphics/command_processor.h
++++ b/include/rex/graphics/command_processor.h
+@@ -289,6 +289,8 @@ class CommandProcessor {
+   };
+   void SwordManSaveState(SwordManState& st);
+   void SwordManRestoreState(const SwordManState& st);
++  SwordManState swordman_rec_start_;       // 0118: estado no inicio do frame em gravacao
++  SwordManState swordman_rec_last_start_;  // ... e no inicio do ultimo frame completo
+   bool swordman_rec_on_ = false;
+   bool swordman_rec_synced_ = false;     // ja passou um swap desde que comecou a gravar
+   bool swordman_rec_swap_ = false;       // o pacote em curso e o XE_SWAP
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+index 0087a38..7777414 100644
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -788,6 +788,8 @@ void CommandProcessor::SwordManRecordPacket(const memory::RingBuffer& reader,
+     if (swordman_rec_synced_ &&
+         !(REXCVAR_GET(swordman_freeze_replay) && !swordman_rec_last_.empty())) {
+       swordman_rec_last_.swap(swordman_rec_);
++      // 0118: o estado com que este frame comecou (guardado no swap anterior).
++      std::swap(swordman_rec_last_start_, swordman_rec_start_);
+       static bool logged = false;
+       if (!logged) {
+         logged = true;
+@@ -797,6 +799,8 @@ void CommandProcessor::SwordManRecordPacket(const memory::RingBuffer& reader,
+     }
+     swordman_rec_synced_ = true;
+     swordman_rec_.clear();
++    // 0118: estado da GPU no inicio do frame seguinte (o que a gravacao vai comecar agora).
++    SwordManSaveState(swordman_rec_start_);
+   }
+ }
+ 
+@@ -816,6 +820,10 @@ bool CommandProcessor::SwordManReplayRecorded() {
+   reader.set_write_offset(swordman_rec_last_.size() * sizeof(uint32_t));
+   SwordManState saved;
+   SwordManSaveState(saved);
++  // 0118: o frame gravado comeca do estado em que foi gravado (sem isto partia do estado do frame
++  // real seguinte: "Resolve region is empty" / "Failed in backend" a cada repeticao e, no Turnip,
++  // VK_ERROR_DEVICE_LOST - RP5 e Cube, 21/10).
++  SwordManRestoreState(swordman_rec_last_start_);
+   swordman_replaying_ = true;
+   do {
+     if (!ExecutePacket(&reader)) {

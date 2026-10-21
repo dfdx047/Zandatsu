@@ -1,0 +1,47 @@
+diff --git a/src/graphics/pipeline/texture/cache.cpp b/src/graphics/pipeline/texture/cache.cpp
+index 19182f4..9c1a1c4 100644
+--- a/src/graphics/pipeline/texture/cache.cpp
++++ b/src/graphics/pipeline/texture/cache.cpp
+@@ -1153,11 +1153,12 @@ std::string TextureCache::Dbz3DescribeTexturesAt(uint32_t base_page) const {
+       out += " ...";
+       break;
+     }
+-    out += fmt::format(" [{}x{} fmt={} endian={} tiled={} pitch={} mips={} dim={}]",
++    out += fmt::format(" [{}x{} fmt={} endian={} tiled={} pitch={} mips={} dim={} signed_sep={} scaled={}]",
+                        uint32_t(key.width_minus_1) + 1, uint32_t(key.height_minus_1) + 1,
+                        uint32_t(key.format), uint32_t(key.endianness), uint32_t(key.tiled),
+                        uint32_t(key.pitch) * 32, uint32_t(key.mip_max_level),
+-                       uint32_t(key.dimension));
++                       uint32_t(key.dimension), uint32_t(key.signed_separate),
++                       uint32_t(key.scaled_resolve));
+   }
+   return count ? out : std::string(" (nenhuma)");
+ }
+diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
+index 4330fe3..4df0d8c 100644
+--- a/src/graphics/vulkan/render_target_cache.cpp
++++ b/src/graphics/vulkan/render_target_cache.cpp
+@@ -1371,6 +1371,23 @@ bool VulkanRenderTargetCache::Resolve(const memory::Memory& memory,
+     GetResolveCopyRectanglesToDump(dump_base, dump_row_length_used, dump_rows, dump_pitch,
+                                    dump_rectangles_);
+     if (Dbz3TryResolveToTexture(resolve_info, texture_cache, true)) {
++      // 0119 (diagnostico do Turnip): que texturas existem em cada destino do resolve sem
++      // memoria (uma linha por destino) - se uma delas nao for a que o atalho escreveu, e lida da
++      // memoria velha.
++      {
++        static std::vector<uint32_t> seen;
++        if (seen.size() < 48 &&
++            std::find(seen.begin(), seen.end(), resolve_info.copy_dest_base) == seen.end()) {
++          seen.push_back(resolve_info.copy_dest_base);
++          REXGPU_INFO("swordman: sem memoria dest={:08X} {}x{} fmt={} | no endereco:{}",
++                      resolve_info.copy_dest_base,
++                      uint32_t(resolve_info.coordinate_info.width_div_8) * 8,
++                      resolve_info.height_div_8 * 8,
++                      uint32_t(resolve_info.copy_dest_info.copy_dest_format),
++                      texture_cache.Dbz3DescribeTexturesAt(
++                          (resolve_info.copy_dest_base & 0x1FFFFFFF) >> 12));
++        }
++      }
+       written_address_out = resolve_info.copy_dest_extent_start;
+       written_length_out = resolve_info.copy_dest_extent_length;
+       copied = true;
