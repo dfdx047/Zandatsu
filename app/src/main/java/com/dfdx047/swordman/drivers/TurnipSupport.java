@@ -157,6 +157,13 @@ public final class TurnipSupport {
                 env.put("TU_DEBUG", cur + ",push_consts_per_stage");
             }
         }
+        // Adreno 6xx + Turnip: memoria do jogo num so storage buffer de 512 MB (o Turnip diz 128 MB
+        // e a memoria ficava partida em 4 bindings). Sem isto o RP5 ficava com ecra preto; com isto
+        // o primeiro gameplay no Turnip (21/10, rodada 9) - igual ao que corrigiu o Budokai 3.
+        if (("a6xx".equals(gpu.gen) || kgslGeneration() == 6)
+                && !env.containsKey("REX_DBZ3_VK_MAX_STORAGE_BUFFER_RANGE_MB")) {
+            env.put("REX_DBZ3_VK_MAX_STORAGE_BUFFER_RANGE_MB", "512");
+        }
         // One UI (Samsung) e HyperOS/MIUI (Xiaomi): a pilha de framebuffer deles precisa da dica
         // de UBWC para o Turnip amostrar bem as imagens desenhadas (XenDroid; antes so A740 Samsung).
         if (vendorOsNeedsUbwcHint() || (gpu.adreno == 740 && "samsung".equalsIgnoreCase(Build.MANUFACTURER))) {
