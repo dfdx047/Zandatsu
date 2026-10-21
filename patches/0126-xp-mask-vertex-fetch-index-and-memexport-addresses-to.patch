@@ -1,0 +1,159 @@
+diff --git a/src/graphics/d3d12/command_processor.cpp b/src/graphics/d3d12/command_processor.cpp
+index 2649a7a..a93a899 100644
+--- a/src/graphics/d3d12/command_processor.cpp
++++ b/src/graphics/d3d12/command_processor.cpp
+@@ -3233,18 +3233,20 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
+           return false;
+       }
+       VertexBufferState& state = vertex_buffer_states_[vfetch_index];
+-      if (state.address == vfetch_constant.address && state.size == vfetch_constant.size) {
++      // Mask to physical like the shader - the guest may use a mirror window.
++      const uint32_t vfetch_address_dwords = xenos::CpuToGpu(vfetch_constant.address << 2) >> 2;
++      if (state.address == vfetch_address_dwords && state.size == vfetch_constant.size) {
+         vertex_buffers_in_sync_[vfetch_index >> 6] |= vfetch_bit;
+         continue;
+       }
+-      if (!shared_memory_->RequestRange(vfetch_constant.address << 2, vfetch_constant.size << 2)) {
++      if (!shared_memory_->RequestRange(vfetch_address_dwords << 2, vfetch_constant.size << 2)) {
+         REXGPU_ERROR(
+             "Failed to request vertex buffer at 0x{:08X} (size {}) in the "
+             "shared memory",
+-            vfetch_constant.address << 2, vfetch_constant.size << 2);
++            vfetch_address_dwords << 2, vfetch_constant.size << 2);
+         return false;
+       }
+-      state.address = vfetch_constant.address;
++      state.address = vfetch_address_dwords;
+       state.size = vfetch_constant.size;
+       vertex_buffers_in_sync_[vfetch_index >> 6] |= vfetch_bit;
+     }
+diff --git a/src/graphics/pipeline/shader/spirv_translator_fetch.cpp b/src/graphics/pipeline/shader/spirv_translator_fetch.cpp
+index a84dede..9b49a39 100644
+--- a/src/graphics/pipeline/shader/spirv_translator_fetch.cpp
++++ b/src/graphics/pipeline/shader/spirv_translator_fetch.cpp
+@@ -67,10 +67,14 @@ void SpirvShaderTranslator::ProcessVertexFetchInstruction(
+     // not a texture fetch) here instead of dropping draws with invalid vertex
+     // fetch constants on the CPU when proper bound checks are added - vfetch
+     // may be conditional, so fetch constants may also be used conditionally.
++    // Mask to physical, in dwords - the guest may use a mirror window.
+     address = builder_->createUnaryOp(
+         spv::OpBitcast, type_int_,
+-        builder_->createBinOp(spv::OpShiftRightLogical, type_uint_, fetch_constant_word_0,
+-                              builder_->makeUintConstant(2)));
++        builder_->createBinOp(
++            spv::OpBitwiseAnd, type_uint_,
++            builder_->createBinOp(spv::OpShiftRightLogical, type_uint_, fetch_constant_word_0,
++                                  builder_->makeUintConstant(2)),
++            builder_->makeUintConstant(0x1FFFFFFF >> 2)));
+     if (instr.attributes.stride) {
+       // Convert the index to an integer by flooring or by rounding to the
+       // nearest (as floor(index + 0.5) because rounding to the nearest even
+diff --git a/src/graphics/pipeline/shader/spirv_translator_memexport.cpp b/src/graphics/pipeline/shader/spirv_translator_memexport.cpp
+index 14c0ea9..02ae306 100644
+--- a/src/graphics/pipeline/shader/spirv_translator_memexport.cpp
++++ b/src/graphics/pipeline/shader/spirv_translator_memexport.cpp
+@@ -712,12 +712,17 @@ void SpirvShaderTranslator::ExportToMemory(uint8_t export_eM) {
+   // Left-shift the stream base address by 2 to both convert it from dwords to
+   // bytes and drop the upper bits.
+   spv::Id const_uint_2 = builder_->makeUintConstant(2);
++  // Masked to physical - the guest may use a mirror window.
+   spv::Id eM0_address_bytes = builder_->createBinOp(
+-      spv::OpIAdd, type_uint_,
+-      builder_->createBinOp(spv::OpShiftLeftLogical, type_uint_,
+-                            builder_->createCompositeExtract(eA_vector, type_uint_, 0),
+-                            const_uint_2),
+-      builder_->createBinOp(spv::OpShiftLeftLogical, type_uint_, eM0_index, element_bytes_log2));
++      spv::OpBitwiseAnd, type_uint_,
++      builder_->createBinOp(
++          spv::OpIAdd, type_uint_,
++          builder_->createBinOp(spv::OpShiftLeftLogical, type_uint_,
++                                builder_->createCompositeExtract(eA_vector, type_uint_, 0),
++                                const_uint_2),
++          builder_->createBinOp(spv::OpShiftLeftLogical, type_uint_, eM0_index,
++                                element_bytes_log2)),
++      builder_->makeUintConstant(0x1FFFFFFF));
+ 
+   // Store based on the element size.
+   auto store_needed_eM = [&](std::function<void(uint32_t eM_index)> fn) {
+diff --git a/src/graphics/primitive_processor.cpp b/src/graphics/primitive_processor.cpp
+index d49e9c3..0c0ac9f 100644
+--- a/src/graphics/primitive_processor.cpp
++++ b/src/graphics/primitive_processor.cpp
+@@ -477,7 +477,8 @@ bool PrimitiveProcessor::Process(ProcessingResult& result_out) {
+       // Get the index buffer memory range.
+       uint32_t index_size_log2 = guest_index_format == xenos::IndexFormat::kInt16 ? 1 : 2;
+       // The base should already be aligned, but aligning here too for safety.
+-      guest_index_base = regs[XE_GPU_REG_VGT_DMA_BASE] & ~uint32_t((1 << index_size_log2) - 1);
++      guest_index_base = xenos::CpuToGpu(regs[XE_GPU_REG_VGT_DMA_BASE]) &
++                         ~uint32_t((1 << index_size_log2) - 1);  // Mirror windows.
+       guest_index_buffer_needed_bytes = guest_draw_vertex_count << index_size_log2;
+       if (guest_index_base > SharedMemory::kBufferSize ||
+           SharedMemory::kBufferSize - guest_index_base < guest_index_buffer_needed_bytes) {
+@@ -615,7 +616,8 @@ bool PrimitiveProcessor::Process(ProcessingResult& result_out) {
+     // Get the index buffer memory range.
+     uint32_t index_size_log2 = guest_index_format == xenos::IndexFormat::kInt16 ? 1 : 2;
+     // The base should already be aligned, but aligning here too for safety.
+-    guest_index_base = regs[XE_GPU_REG_VGT_DMA_BASE] & ~uint32_t((1 << index_size_log2) - 1);
++    guest_index_base = xenos::CpuToGpu(regs[XE_GPU_REG_VGT_DMA_BASE]) &
++                       ~uint32_t((1 << index_size_log2) - 1);  // Mirror windows.
+     guest_index_buffer_needed_bytes = guest_draw_vertex_count << index_size_log2;
+     if (guest_index_base > SharedMemory::kBufferSize ||
+         SharedMemory::kBufferSize - guest_index_base < guest_index_buffer_needed_bytes) {
+diff --git a/src/graphics/util/draw.cpp b/src/graphics/util/draw.cpp
+index e2301f5..09dada5 100644
+--- a/src/graphics/util/draw.cpp
++++ b/src/graphics/util/draw.cpp
+@@ -665,12 +665,14 @@ void AddMemExportRanges(const RegisterFile& regs, const Shader& shader,
+         break;
+     }
+     uint32_t stream_size_bytes = stream.index_count * (format_info.bits_per_pixel >> 3);
++    // Mask to physical like the shader - the guest may use a mirror window.
++    uint32_t stream_base_address_dwords = xenos::CpuToGpu(uint32_t(stream.base_address) << 2) >> 2;
+     // Try to reduce the number of shared memory operations when writing
+     // different elements into the same buffer through different exports
+     // (happens in 4D5307E6).
+     bool range_reused = false;
+     for (MemExportRange& range : ranges_out) {
+-      if (range.base_address_dwords == stream.base_address) {
++      if (range.base_address_dwords == stream_base_address_dwords) {
+         range.size_bytes = std::max(range.size_bytes, stream_size_bytes);
+         range_reused = true;
+         break;
+@@ -678,7 +680,7 @@ void AddMemExportRanges(const RegisterFile& regs, const Shader& shader,
+     }
+     // Add a new range if haven't expanded an existing one.
+     if (!range_reused) {
+-      ranges_out.emplace_back(uint32_t(stream.base_address), stream_size_bytes);
++      ranges_out.emplace_back(stream_base_address_dwords, stream_size_bytes);
+     }
+   }
+ }
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 2efb43f..48d90f6 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -6076,18 +6076,20 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+           DBZ3_DRAW_RET(false);
+       }
+       VertexBufferState& state = vertex_buffer_states_[vfetch_index];
+-      if (state.address == vfetch_constant.address && state.size == vfetch_constant.size) {
++      // Mask to physical like the shader - the guest may use a mirror window.
++      const uint32_t vfetch_address_dwords = xenos::CpuToGpu(vfetch_constant.address << 2) >> 2;
++      if (state.address == vfetch_address_dwords && state.size == vfetch_constant.size) {
+         vertex_buffers_in_sync_[vfetch_index >> 6] |= vfetch_bit;
+         continue;
+       }
+-      if (!shared_memory_->RequestRange(vfetch_constant.address << 2, vfetch_constant.size << 2)) {
++      if (!shared_memory_->RequestRange(vfetch_address_dwords << 2, vfetch_constant.size << 2)) {
+         REXGPU_ERROR(
+             "Failed to request vertex buffer at 0x{:08X} (size {}) in the shared "
+             "memory",
+-            vfetch_constant.address << 2, vfetch_constant.size << 2);
++            vfetch_address_dwords << 2, vfetch_constant.size << 2);
+         DBZ3_DRAW_RET(false);
+       }
+-      state.address = vfetch_constant.address;
++      state.address = vfetch_address_dwords;
+       state.size = vfetch_constant.size;
+       vertex_buffers_in_sync_[vfetch_index >> 6] |= vfetch_bit;
+     }

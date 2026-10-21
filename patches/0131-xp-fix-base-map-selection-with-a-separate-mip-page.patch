@@ -1,0 +1,95 @@
+diff --git a/include/rex/graphics/pipeline/texture/cache.h b/include/rex/graphics/pipeline/texture/cache.h
+index 48061d9..3ef9604 100644
+--- a/include/rex/graphics/pipeline/texture/cache.h
++++ b/include/rex/graphics/pipeline/texture/cache.h
+@@ -57,10 +57,10 @@ extern void (*g_dbz3_texture_invalidate_hook)(uint32_t base, uint32_t width, uin
+ //   However, the max level is not ignored because any mip count can be
+ //   specified when creating a texture, and another texture may be placed after
+ //   the last one.
+-// - If the texture has a mip address, but the base address is 0 or the same as
+-//   the mip address, a mipmapped texture is created, but min/max LOD is clamped
+-//   to the lower bound of 1 - the game is expected to do that anyway until the
+-//   largest LOD is loaded.
++// - If the texture has a mip address, but the base address is 0, a mipmapped
++//   texture is created with the minimum LOD clamped to 1.
++// - If the base and mip addresses are the same with a nonzero minimum mip
++//   level, level 0 is already excluded, so the base upload is skipped.
+ // TODO(Triang3l): Attach the largest LOD to existing textures with a valid
+ // mip_address but no base ever used yet (no base_address) to save memory
+ // because textures are streamed this way anyway.
+diff --git a/src/graphics/d3d12/texture_cache.cpp b/src/graphics/d3d12/texture_cache.cpp
+index 9cb0d22..ea45fd5 100644
+--- a/src/graphics/d3d12/texture_cache.cpp
++++ b/src/graphics/d3d12/texture_cache.cpp
+@@ -990,11 +990,9 @@ D3D12TextureCache::SamplerParameters D3D12TextureCache::GetSamplerParameters(
+     parameters.border_color = xenos::BorderColor::k_ABGR_Black;
+   }
+ 
+-  uint32_t mip_min_level, mip_max_level;
+-  texture_util::GetSubresourcesFromFetchConstant(fetch, nullptr, nullptr, nullptr, nullptr, nullptr,
+-                                                 &mip_min_level, &mip_max_level);
+-  parameters.mip_min_level = mip_min_level;
+-  bool has_mips = mip_max_level > mip_min_level;
++  uint32_t base_page, mip_min_level, mip_max_level;
++  texture_util::GetSubresourcesFromFetchConstant(fetch, nullptr, nullptr, nullptr, &base_page,
++                                                 nullptr, &mip_min_level, &mip_max_level);
+ 
+   xenos::TextureFilter mag_filter = binding.mag_filter == xenos::TextureFilter::kUseFetchConst
+                                         ? fetch.mag_filter
+@@ -1010,6 +1008,12 @@ D3D12TextureCache::SamplerParameters D3D12TextureCache::GetSamplerParameters(
+   bool mip_filter_bilinear_or_trilinear =
+       mip_filter == xenos::TextureFilter::kPoint || mip_filter == xenos::TextureFilter::kLinear;
+   bool mip_base_map = mip_filter == xenos::TextureFilter::kBaseMap;
++  // The base map is level 0 when the base is available.
++  if (mip_base_map && base_page != 0) {
++    mip_min_level = 0;
++  }
++  parameters.mip_min_level = mip_min_level;
++  bool has_mips = mip_max_level > mip_min_level;
+ 
+   // TODO(Triang3l): Disable filtering for texture formats not supporting it.
+   xenos::AnisoFilter aniso_filter = binding.aniso_filter == xenos::AnisoFilter::kUseFetchConst
+diff --git a/src/graphics/pipeline/texture/util.cpp b/src/graphics/pipeline/texture/util.cpp
+index 26d554c..baed4ea 100644
+--- a/src/graphics/pipeline/texture/util.cpp
++++ b/src/graphics/pipeline/texture/util.cpp
+@@ -83,12 +83,14 @@ void GetSubresourcesFromFetchConstant(const xenos::xe_gpu_texture_fetch_t& fetch
+         std::max(std::min(uint32_t(fetch.mip_max_level), size_mip_max_level), mip_min_level);
+   }
+   if (mip_max_level != 0) {
++    // mip_min_level is sampler state - it means no base only when the base
++    // and the mips share the address.
++    if (mip_min_level != 0 && base_page == mip_page) {
++      base_page = 0;
++    }
+     if (base_page == 0) {
+       mip_min_level = std::max(mip_min_level, uint32_t(1));
+     }
+-    if (mip_min_level != 0) {
+-      base_page = 0;
+-    }
+   } else {
+     mip_page = 0;
+   }
+diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
+index dd74b15..ee793de 100644
+--- a/src/graphics/vulkan/texture_cache.cpp
++++ b/src/graphics/vulkan/texture_cache.cpp
+@@ -873,9 +873,14 @@ VulkanTextureCache::SamplerParameters VulkanTextureCache::GetSamplerParameters(
+   bool mip_filter_bilinear_or_trilinear =
+       mip_filter == xenos::TextureFilter::kPoint || mip_filter == xenos::TextureFilter::kLinear;
+   parameters.mip_base_map = mip_filter == xenos::TextureFilter::kBaseMap;
+-  uint32_t mip_min_level, mip_max_level;
+-  texture_util::GetSubresourcesFromFetchConstant(fetch, nullptr, nullptr, nullptr, nullptr, nullptr,
+-                                                 &mip_min_level, &mip_max_level);
++  uint32_t subres_base_page, mip_min_level, mip_max_level;
++  texture_util::GetSubresourcesFromFetchConstant(fetch, nullptr, nullptr, nullptr,
++                                                 &subres_base_page, nullptr, &mip_min_level,
++                                                 &mip_max_level);
++  // The base map is level 0 when the base is available.
++  if (parameters.mip_base_map && subres_base_page != 0) {
++    mip_min_level = 0;
++  }
+   parameters.mip_min_level = mip_min_level;
+   bool has_mips = mip_max_level > mip_min_level;
+   int32_t anisotropic_override = REXCVAR_GET(anisotropic_override);

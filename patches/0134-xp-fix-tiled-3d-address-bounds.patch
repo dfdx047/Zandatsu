@@ -1,0 +1,50 @@
+diff --git a/include/rex/graphics/pipeline/texture/util.h b/include/rex/graphics/pipeline/texture/util.h
+index a47f944..e3eb3b9 100644
+--- a/include/rex/graphics/pipeline/texture/util.h
++++ b/include/rex/graphics/pipeline/texture/util.h
+@@ -281,9 +281,9 @@ void GetTextureTotalSize(xenos::DataDimension dimension, uint32_t base_pitch_tex
+ int32_t GetTiledOffset2D(int32_t x, int32_t y, uint32_t pitch, uint32_t bytes_per_block_log2);
+ int32_t GetTiledOffset3D(int32_t x, int32_t y, int32_t z, uint32_t pitch, uint32_t height,
+                          uint32_t bytes_per_block_log2);
+-// Because (0, 0, 0) within each 32x32x4-block tile is stored in memory first,
+-// and the tiled address grows monotonically with Z/4, then Y/32, then X/32
+-// blocks.
++// The tiled address grows monotonically between tiles with Z/4, then Y/32,
++// then X/32 blocks. Within 3D tiles, the bank swap in odd Z/4 groups makes
++// Y=8 the first stored row, not Y=0.
+ inline uint32_t GetTiledAddressLowerBound2D(uint32_t left, uint32_t top, uint32_t pitch,
+                                             uint32_t bytes_per_block_log2) {
+   return uint32_t(GetTiledOffset2D(int32_t(left & ~(xenos::kTextureTileWidthHeight - 1)),
+@@ -293,9 +293,13 @@ inline uint32_t GetTiledAddressLowerBound2D(uint32_t left, uint32_t top, uint32_
+ inline uint32_t GetTiledAddressLowerBound3D(uint32_t left, uint32_t top, uint32_t front,
+                                             uint32_t pitch, uint32_t height,
+                                             uint32_t bytes_per_block_log2) {
++  uint32_t front_aligned = front & ~(xenos::kTextureTileDepth - 1);
++  uint32_t top_aligned = top & ~(xenos::kTextureTileWidthHeight - 1);
++  if (front_aligned & xenos::kTextureTileDepth) {
++    top_aligned += 8;
++  }
+   return uint32_t(GetTiledOffset3D(int32_t(left & ~(xenos::kTextureTileWidthHeight - 1)),
+-                                   int32_t(top & ~(xenos::kTextureTileWidthHeight - 1)),
+-                                   int32_t(front & ~(xenos::kTextureTileDepth)), pitch, height,
++                                   int32_t(top_aligned), int32_t(front_aligned), pitch, height,
+                                    bytes_per_block_log2));
+ }
+ // Supporting the right > pitch and bottom > height (in tiles) cases also, for
+diff --git a/src/graphics/pipeline/texture/util.cpp b/src/graphics/pipeline/texture/util.cpp
+index fe41d4a..83085d6 100644
+--- a/src/graphics/pipeline/texture/util.cpp
++++ b/src/graphics/pipeline/texture/util.cpp
+@@ -513,6 +513,12 @@ uint32_t GetTiledAddressUpperBound3D(uint32_t right, uint32_t bottom, uint32_t b
+       // - Pitch = 64, 128, 192...: (Pitch / 64) * 0x1000 + 0xC00
+       upper_bound +=
+           ((pitch_aligned >> 6) << 12) + 0xC00 + ((pitch_aligned & (1 << 5)) << (10 - 5));
++      // There's one extra case where the last bank sits 0x800 past the base
++      // extent: if pitch and X are both in the second, 32 wide half of their
++      // 64 block wide period, while Z is still in the first 4 slices.
++      if ((pitch_aligned & (1 << 5)) && ((right - 1) & (1 << 5)) && !((back - 1) & (1 << 2))) {
++        upper_bound += 0x800;
++      }
+       break;
+     default:
+       // 32x32x8 portions have independent addressing.

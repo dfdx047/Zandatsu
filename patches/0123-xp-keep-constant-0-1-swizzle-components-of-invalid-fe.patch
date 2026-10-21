@@ -1,0 +1,181 @@
+diff --git a/include/rex/graphics/pipeline/texture/cache.h b/include/rex/graphics/pipeline/texture/cache.h
+index 3662a06..48061d9 100644
+--- a/include/rex/graphics/pipeline/texture/cache.h
++++ b/include/rex/graphics/pipeline/texture/cache.h
+@@ -155,9 +155,10 @@ class TextureCache {
+ 
+   // "ActiveTexture" means as of the latest RequestTextures call.
+ 
++  // For an invalid binding, the constant components of the fetch constant's
++  // destination swizzle, the others 0 (see RequestTextures).
+   uint32_t GetActiveTextureHostSwizzle(uint32_t fetch_constant_index) const {
+-    const TextureBinding* binding = GetValidTextureBinding(fetch_constant_index);
+-    return binding ? binding->host_swizzle : xenos::XE_GPU_TEXTURE_SWIZZLE_0000;
++    return texture_bindings_[fetch_constant_index].host_swizzle;
+   }
+   // DBZ3-Android: lista as texturas existentes nesta pagina base (diagnostico de atalhos).
+   std::string Dbz3DescribeTexturesAt(uint32_t base_page) const;
+diff --git a/include/rex/graphics/vulkan/texture_cache.h b/include/rex/graphics/vulkan/texture_cache.h
+index 0a6f145..b9aefc8 100644
+--- a/include/rex/graphics/vulkan/texture_cache.h
++++ b/include/rex/graphics/vulkan/texture_cache.h
+@@ -143,6 +143,9 @@ class VulkanTextureCache final : public TextureCache {
+ 
+   VkImageView GetActiveBindingOrNullImageView(uint32_t fetch_constant_index,
+                                               xenos::FetchOpDimension dimension, bool is_signed);
++  // The null image view for the dimension, with the components the host
++  // swizzle makes constant 1 mapped to 1.
++  VkImageView GetNullImageView(xenos::FetchOpDimension dimension, uint32_t host_swizzle);
+ 
+   SamplerParameters GetSamplerParameters(const VulkanShader::SamplerBinding& binding) const;
+ 
+@@ -455,6 +458,9 @@ class VulkanTextureCache final : public TextureCache {
+   VkImageView null_image_view_2d_array_ = VK_NULL_HANDLE;
+   VkImageView null_image_view_cube_ = VK_NULL_HANDLE;
+   VkImageView null_image_view_3d_ = VK_NULL_HANDLE;
++  // Null views per dimension (2D array, cube, 3D) and mask of constant 1
++  // components, created on first use (GetNullImageView).
++  std::array<std::array<VkImageView, 16>, 3> null_image_views_ones_{};
+   bool null_images_cleared_ = false;
+ 
+   std::array<VulkanTextureBinding, xenos::kTextureFetchConstantCount> vulkan_texture_bindings_;
+diff --git a/src/graphics/pipeline/texture/cache.cpp b/src/graphics/pipeline/texture/cache.cpp
+index 9c1a1c4..98d7526 100644
+--- a/src/graphics/pipeline/texture/cache.cpp
++++ b/src/graphics/pipeline/texture/cache.cpp
+@@ -947,10 +947,15 @@ void TextureCache::RequestTextures(uint32_t used_texture_mask) {
+     BindingInfoFromFetchConstant(fetch, binding.key, &binding.swizzled_signs);
+     texture_bindings_in_sync_ |= index_bit;
+     if (!binding.key.is_valid) {
+-      if (old_key.is_valid) {
++      // An invalid fetch constant still has a destination swizzle: its
++      // constant components read as 0 or 1, the rest as the null texture's 0.
++      const uint32_t constant_swizzle =
++          GuestToHostSwizzle(fetch.swizzle, xenos::XE_GPU_TEXTURE_SWIZZLE_0000);
++      if (old_key.is_valid || binding.host_swizzle != constant_swizzle) {
+         bindings_changed |= index_bit;
+       }
+       binding.Reset();
++      binding.host_swizzle = constant_swizzle;
+       continue;
+     }
+     uint32_t old_host_swizzle = binding.host_swizzle;
+diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
+index ef37e09..dd74b15 100644
+--- a/src/graphics/vulkan/texture_cache.cpp
++++ b/src/graphics/vulkan/texture_cache.cpp
+@@ -466,6 +466,14 @@ VulkanTextureCache::~VulkanTextureCache() {
+ 
+   ShutdownScaledResolveBuffer();
+ 
++  for (auto& views : null_image_views_ones_) {
++    for (VkImageView& view : views) {
++      if (view != VK_NULL_HANDLE) {
++        dfn.vkDestroyImageView(device, view, nullptr);
++        view = VK_NULL_HANDLE;
++      }
++    }
++  }
+   if (null_image_view_3d_ != VK_NULL_HANDLE) {
+     dfn.vkDestroyImageView(device, null_image_view_3d_, nullptr);
+   }
+@@ -726,17 +734,78 @@ VkImageView VulkanTextureCache::GetActiveBindingOrNullImageView(uint32_t fetch_c
+   if (image_view != VK_NULL_HANDLE) {
+     return image_view;
+   }
+-  if (command_processor_.GetVulkanDevice()->properties().nullDescriptor) {
+-    return VK_NULL_HANDLE;
+-  }
++  return GetNullImageView(dimension, GetActiveTextureHostSwizzle(fetch_constant_index));
++}
++
++VkImageView VulkanTextureCache::GetNullImageView(xenos::FetchOpDimension dimension,
++                                                 uint32_t host_swizzle) {
++  uint32_t dimension_index;
++  VkImageView zero_view;
+   switch (dimension) {
+     case xenos::FetchOpDimension::k3DOrStacked:
+-      return null_image_view_3d_;
++      dimension_index = 2;
++      zero_view = null_image_view_3d_;
++      break;
+     case xenos::FetchOpDimension::kCube:
+-      return null_image_view_cube_;
++      dimension_index = 1;
++      zero_view = null_image_view_cube_;
++      break;
+     default:
+-      return null_image_view_2d_array_;
++      dimension_index = 0;
++      zero_view = null_image_view_2d_array_;
++      break;
++  }
++  const ui::vulkan::VulkanDevice* const vulkan_device = command_processor_.GetVulkanDevice();
++  if (vulkan_device->properties().nullDescriptor) {
++    zero_view = VK_NULL_HANDLE;
++  }
++  // An invalid fetch constant keeps the constant components of its swizzle
++  // (Halo 4's videos take their opacity from a constant 1). The null image is
++  // (0, 0, 0, 0), so components that are constant 1 need a view mapping them
++  // to 1 (XenDroid Plus 4bc9274d0).
++  uint32_t ones = 0;
++  for (uint32_t i = 0; i < 4; ++i) {
++    if (((host_swizzle >> (3 * i)) & 0b111) == xenos::XE_GPU_TEXTURE_SWIZZLE_1) {
++      ones |= UINT32_C(1) << i;
++    }
+   }
++  if (!ones || !vulkan_device->properties().imageViewFormatSwizzle ||
++      null_image_2d_array_cube_ == VK_NULL_HANDLE || null_image_3d_ == VK_NULL_HANDLE) {
++    return zero_view;
++  }
++  VkImageView& view = null_image_views_ones_[dimension_index][ones];
++  if (view != VK_NULL_HANDLE) {
++    return view;
++  }
++  VkImageViewCreateInfo view_create_info;
++  view_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
++  view_create_info.pNext = nullptr;
++  view_create_info.flags = 0;
++  view_create_info.image = dimension_index == 2 ? null_image_3d_ : null_image_2d_array_cube_;
++  view_create_info.viewType =
++      dimension_index == 2
++          ? VK_IMAGE_VIEW_TYPE_3D
++          : (dimension_index == 1 ? VK_IMAGE_VIEW_TYPE_CUBE : VK_IMAGE_VIEW_TYPE_2D_ARRAY);
++  view_create_info.format = kInvalidTextureFetchFallbackFormat;
++  view_create_info.components.r =
++      (ones & 0b0001) ? VK_COMPONENT_SWIZZLE_ONE : VK_COMPONENT_SWIZZLE_ZERO;
++  view_create_info.components.g =
++      (ones & 0b0010) ? VK_COMPONENT_SWIZZLE_ONE : VK_COMPONENT_SWIZZLE_ZERO;
++  view_create_info.components.b =
++      (ones & 0b0100) ? VK_COMPONENT_SWIZZLE_ONE : VK_COMPONENT_SWIZZLE_ZERO;
++  view_create_info.components.a =
++      (ones & 0b1000) ? VK_COMPONENT_SWIZZLE_ONE : VK_COMPONENT_SWIZZLE_ZERO;
++  view_create_info.subresourceRange = ui::vulkan::util::InitializeSubresourceRange(
++      VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0, dimension_index == 1 ? 6 : 1);
++  const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
++  if (dfn.vkCreateImageView(vulkan_device->device(), &view_create_info, nullptr, &view) !=
++      VK_SUCCESS) {
++    REXGPU_ERROR("VulkanTextureCache: Failed to create a null image view with constant 1 "
++                 "components");
++    view = VK_NULL_HANDLE;
++    return zero_view;
++  }
++  return view;
+ }
+ 
+ VulkanTextureCache::SamplerParameters VulkanTextureCache::GetSamplerParameters(
+@@ -3726,11 +3795,9 @@ bool VulkanTextureCache::Initialize() {
+     }
+   }
+ 
+-  // Use true null descriptors when supported; otherwise, keep compatibility
+-  // fallback null images.
+-  if (device_properties.nullDescriptor) {
+-    null_images_cleared_ = true;
+-  } else {
++  // Use true null descriptors when supported; the null images are still
++  // created (tiny) for views with constant 1 components (GetNullImageView).
++  {
+     // Null images as a replacement for unneeded bindings and for bindings for
+     // which the real image hasn't been created.
+     VkImageCreateInfo null_image_create_info;

@@ -1,0 +1,98 @@
+diff --git a/include/rex/graphics/format/ucode.h b/include/rex/graphics/format/ucode.h
+index 6011d3c..ebc70f1 100644
+--- a/include/rex/graphics/format/ucode.h
++++ b/include/rex/graphics/format/ucode.h
+@@ -928,7 +928,10 @@ static_assert_size(FetchInstruction, sizeof(uint32_t) * 3);
+ //   co-issued ALU operation, denoted by `a` (the left-hand operand) and `b`
+ //   (the right-hand operand).
+ //   `a` is the [(3 + src3_swizzle[6:7]) & 3] component (W - alpha).
+-//   `b` is the [(0 + src3_swizzle[0:1]) & 3] component (X - red).
++//   For single-source two-component scalar operations, `b` is the
++//   [(0 + src3_swizzle[0:1]) & 3] component (X - red), or the
++//   [(2 + src3_swizzle[4:5]) & 3] component (Z - blue) if the vector operation
++//   uses source 3.
+ // - mulsc, addsc, subsc scalar ALU operations accept two operands - a float
+ //   constant with the `a` (W) swizzle (addressed by the third operand index and
+ //   addressing mode) being the left-hand operand, and a temporary register with
+@@ -1313,11 +1316,12 @@ enum class AluScalarOpcode : uint32_t {
+ struct AluScalarOpcodeInfo {
+   const char* name;
+   // 0 - no operands.
+-  // 1 - one single-component (W) or two-component (WX) r# or c#.
++  // 1 - one single-component (W) or two-component (WX, or WZ if the vector
++  //     operation uses source 3) r# or c#.
+   // 2 - c#.w and r#.x.
+   uint32_t operand_count;
+-  // If operand_count is 1, whether both W and X of the operand are used rather
+-  // than only W.
++  // If operand_count is 1, whether two components of the operand are used
++  // rather than only W.
+   bool single_operand_is_two_component;
+   // Note that all scalar instructions except for retain_prev modify the
+   // previous scalar register, so they must be executed even if they don't write
+diff --git a/src/graphics/pipeline/shader/interpreter.cpp b/src/graphics/pipeline/shader/interpreter.cpp
+index cc726b7..0217c36 100644
+--- a/src/graphics/pipeline/shader/interpreter.cpp
++++ b/src/graphics/pipeline/shader/interpreter.cpp
+@@ -575,7 +575,8 @@ void ShaderInterpreter::ExecuteAluInstruction(ucode::AluInstruction instr) {
+   bool scalar_src_absolute = false;
+   switch (scalar_opcode_info.operand_count) {
+     case 1: {
+-      // r#/c#.w or r#/c#.wx.
++      // r#/c#.w, or r#/c#.wx unless the paired vector opcode has three
++      // operands, in which case r#/c#.wz.
+       const float* scalar_src_ptr;
+       uint32_t scalar_src_register = instr.src_reg(3);
+       std::array<float, 4> scalar_src_float_constant;
+@@ -594,8 +595,10 @@ void ShaderInterpreter::ExecuteAluInstruction(ucode::AluInstruction instr) {
+       uint32_t scalar_src_swizzle = instr.src_swizzle(3);
+       scalar_operand_component_count = scalar_opcode_info.single_operand_is_two_component ? 2 : 1;
+       for (uint32_t i = 0; i < scalar_operand_component_count; ++i) {
++        uint32_t source_component =
++            i == 0 ? 3 : (vector_opcode_info.GetOperandCount() == 3 ? 2 : 0);
+         scalar_operands[i] = scalar_src_ptr[ucode::AluInstruction::GetSwizzledComponentIndex(
+-            scalar_src_swizzle, (3 + i) & 3)];
++            scalar_src_swizzle, source_component)];
+       }
+     } break;
+     case 2: {
+diff --git a/src/graphics/pipeline/shader/translator.cpp b/src/graphics/pipeline/shader/translator.cpp
+index e472251..9d23a41 100644
+--- a/src/graphics/pipeline/shader/translator.cpp
++++ b/src/graphics/pipeline/shader/translator.cpp
+@@ -1156,7 +1156,8 @@ uint32_t ParsedTextureFetchInstruction::GetNonZeroResultComponents() const {
+ 
+ static void ParseAluInstructionOperand(const AluInstruction& op, uint32_t i,
+                                        uint32_t swizzle_component_count,
+-                                       InstructionOperand& out_op) {
++                                       InstructionOperand& out_op,
++                                       uint32_t scalar_second_component = 0) {
+   out_op.is_negated = op.src_negate(i);
+   uint32_t reg = op.src_reg(i);
+   if (op.src_is_temp(i)) {
+@@ -1186,9 +1187,9 @@ static void ParseAluInstructionOperand(const AluInstruction& op, uint32_t i,
+     // Scalar `a` (W).
+     out_op.components[0] = GetSwizzledAluSourceComponent(swizzle, 3);
+   } else if (swizzle_component_count == 2) {
+-    // Scalar left-hand `a` (W) and right-hand `b` (X).
++    // Scalar left-hand `a` (W) and right-hand `b` (X or Z).
+     out_op.components[0] = GetSwizzledAluSourceComponent(swizzle, 3);
+-    out_op.components[1] = GetSwizzledAluSourceComponent(swizzle, 0);
++    out_op.components[1] = GetSwizzledAluSourceComponent(swizzle, scalar_second_component);
+   } else if (swizzle_component_count == 3) {
+     assert_always();
+   } else if (swizzle_component_count == 4) {
+@@ -1348,8 +1349,12 @@ void ParseAluInstruction(const AluInstruction& op, xenos::ShaderType shader_type
+   instr.scalar_operand_count = scalar_opcode_info.operand_count;
+   if (instr.scalar_operand_count) {
+     if (instr.scalar_operand_count == 1) {
++      // The scalar operation shares source 3 with the vector operation. If the
++      // vector operation uses source 3, the scalar `b` component is Z;
++      // otherwise it is X.
+       ParseAluInstructionOperand(op, 3, scalar_opcode_info.single_operand_is_two_component ? 2 : 1,
+-                                 instr.scalar_operands[0]);
++                                 instr.scalar_operands[0],
++                                 vector_opcode_info.GetOperandCount() == 3 ? 2 : 0);
+     } else {
+       // Constant and temporary register.
+ 

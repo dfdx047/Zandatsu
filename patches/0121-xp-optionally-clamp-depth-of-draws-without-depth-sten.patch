@@ -1,0 +1,32 @@
+diff --git a/src/graphics/vulkan/pipeline_cache.cpp b/src/graphics/vulkan/pipeline_cache.cpp
+index 7c22a05..03ce552 100644
+--- a/src/graphics/vulkan/pipeline_cache.cpp
++++ b/src/graphics/vulkan/pipeline_cache.cpp
+@@ -89,6 +89,12 @@ REXCVAR_DEFINE_BOOL(dbz3_ignore_fetch_lod_bias, false, "GPU/Vulkan",
+                     "Dragon Burst (diagnostico): ignora o LOD bias dos fetch constants das texturas")
+     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+ 
++REXCVAR_DEFINE_BOOL(vulkan_depth_clamp_without_depth, false, "GPU/Vulkan",
++                    "Clamp the depth of draws that neither test nor write depth or stencil "
++                    "instead of clipping them to the near and far planes (the Xenos draws "
++                    "them even entirely outside the depth range)")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++
+ REXCVAR_DEFINE_BOOL(vulkan_tessellation_wireframe, false, "GPU/Vulkan",
+                     "Render tessellation as wireframe")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+@@ -1750,8 +1756,13 @@ bool VulkanPipelineCache::GetCurrentStateDescription(
+   description_out.primitive_topology = primitive_topology;
+   description_out.primitive_restart = primitive_processing_result.host_primitive_reset_enabled;
+ 
++  // Draws without depth/stencil are clamped instead of clipped when the cvar is
++  // on: the Xenos draws them even outside the depth range (XenDroid Plus).
+   description_out.depth_clamp_enable =
+-      device_properties.depthClamp && regs.Get<reg::PA_CL_CLIP_CNTL>().clip_disable;
++      device_properties.depthClamp &&
++      (regs.Get<reg::PA_CL_CLIP_CNTL>().clip_disable ||
++       (REXCVAR_GET(vulkan_depth_clamp_without_depth) && !normalized_depth_control.z_enable &&
++        !normalized_depth_control.stencil_enable));
+ 
+   // Tessellated draws are patch-domain polygonal primitives regardless of guest
+   // register ambiguity in non-explicit major mode configurations.

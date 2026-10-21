@@ -1,0 +1,57 @@
+diff --git a/include/rex/graphics/pipeline/texture/util.h b/include/rex/graphics/pipeline/texture/util.h
+index 2c9fad6..a47f944 100644
+--- a/include/rex/graphics/pipeline/texture/util.h
++++ b/include/rex/graphics/pipeline/texture/util.h
+@@ -97,9 +97,9 @@ bool GetPackedMipOffset(uint32_t width, uint32_t height, uint32_t depth,
+ // 545407E0 (8x8 linear DXT1 - pairs of orange lights in the bottom of gambling
+ // machines).
+ //
+-// Linear texture rows are aligned to 256 bytes, for both the base and the mips
+-// (for the base, Direct3D 9 writes an already 256-byte-aligned pitch to the
+-// fetch constant).
++// Linear texture rows are aligned to max(256 / block size, 32) blocks, for both
++// the base and the mips (for the base, Direct3D 9 writes the aligned pitch to
++// the fetch constant).
+ //
+ // However, all the 32x32x4 padding, being just padding, is not necessarily
+ // being actually accessed, especially for linear textures. 4E4D083E has a
+diff --git a/src/graphics/pipeline/texture/util.cpp b/src/graphics/pipeline/texture/util.cpp
+index e0e338a..fe41d4a 100644
+--- a/src/graphics/pipeline/texture/util.cpp
++++ b/src/graphics/pipeline/texture/util.cpp
+@@ -303,7 +303,7 @@ TextureGuestLayout GetGuestTextureLayout(xenos::DataDimension dimension,
+     // For stride calculation purposes, mip dimensions are always aligned to
+     // 32x32x4 blocks (or x1 for the missing dimensions), including for linear
+     // textures.
+-    // Linear texture rows are 256-byte-aligned.
++    // Linear texture row blocks are aligned to max(256 / block size, 32).
+     uint32_t row_pitch_texels_unaligned;
+     uint32_t z_slice_stride_texel_rows_unaligned;
+     if (is_base) {
+@@ -314,17 +314,18 @@ TextureGuestLayout GetGuestTextureLayout(xenos::DataDimension dimension,
+       z_slice_stride_texel_rows_unaligned =
+           std::max(rex::next_pow2(height_texels) >> level, uint32_t(1));
+     }
++    // Aligning the row in blocks rather than in bytes matters for 96bpp
++    // (12 bytes per block), where a 256-byte-aligned pitch is not a whole
++    // number of blocks.
++    uint32_t row_pitch_blocks_alignment = xenos::kTextureTileWidthHeight;
++    if (!is_tiled && !is_base) {
++      row_pitch_blocks_alignment = std::max(
++          xenos::kTextureLinearRowAlignmentBytes / bytes_per_block, xenos::kTextureTileWidthHeight);
++    }
+     uint32_t row_pitch_blocks_tile_aligned = rex::align(
+         rex::align(row_pitch_texels_unaligned, format_info->block_width) / format_info->block_width,
+-        xenos::kTextureTileWidthHeight);
++        row_pitch_blocks_alignment);
+     level_layout.row_pitch_bytes = row_pitch_blocks_tile_aligned * bytes_per_block;
+-    // Assuming the provided pitch is already 256-byte-aligned for linear, but
+-    // considering the guest-provided pitch more important (no information about
+-    // how the GPU actually handles unaligned rows).
+-    if (!is_tiled && !is_base) {
+-      level_layout.row_pitch_bytes =
+-          rex::align(level_layout.row_pitch_bytes, xenos::kTextureLinearRowAlignmentBytes);
+-    }
+     level_layout.z_slice_stride_block_rows =
+         dimension != xenos::DataDimension::k1D
+             ? rex::align(

@@ -1,0 +1,79 @@
+diff --git a/include/rex/graphics/pipeline/shader/shader.h b/include/rex/graphics/pipeline/shader/shader.h
+index 4cf3854..bef5d04 100644
+--- a/include/rex/graphics/pipeline/shader/shader.h
++++ b/include/rex/graphics/pipeline/shader/shader.h
+@@ -11,6 +11,7 @@
+  */
+ 
+ #include <algorithm>
++#include <atomic>
+ #include <cstdint>
+ #include <filesystem>
+ #include <set>
+@@ -768,10 +769,12 @@ class Shader {
+     uint64_t modification() const { return modification_; }
+ 
+     // True if the shader was translated and prepared without error.
+-    bool is_valid() const { return is_valid_; }
++    bool is_valid() const { return is_valid_.load(std::memory_order_relaxed); }
+ 
+-    // True if the shader has already been translated.
+-    bool is_translated() const { return is_translated_; }
++    // True if the shader has already been translated. Published last by the
++    // translating thread (release), so once this is true, the binary, the
++    // validity and the shader's bindings are complete.
++    bool is_translated() const { return is_translated_.load(std::memory_order_acquire); }
+ 
+     // Errors that occurred during translation.
+     const std::vector<Error>& errors() const { return errors_; }
+@@ -804,7 +807,7 @@ class Shader {
+         : shader_(shader), modification_(modification) {}
+ 
+     // If there was some failure during preparation on the implementation side.
+-    void MakeInvalid() { is_valid_ = false; }
++    void MakeInvalid() { is_valid_.store(false, std::memory_order_relaxed); }
+ 
+    private:
+     friend class Shader;
+@@ -813,8 +816,8 @@ class Shader {
+     Shader& shader_;
+     uint64_t modification_;
+ 
+-    bool is_valid_ = false;
+-    bool is_translated_ = false;
++    std::atomic<bool> is_valid_{false};
++    std::atomic<bool> is_translated_{false};
+     std::vector<Error> errors_;
+     std::vector<uint8_t> translated_binary_;
+     std::string host_disassembly_;
+diff --git a/src/graphics/pipeline/shader/translator.cpp b/src/graphics/pipeline/shader/translator.cpp
+index 9d23a41..b6f998d 100644
+--- a/src/graphics/pipeline/shader/translator.cpp
++++ b/src/graphics/pipeline/shader/translator.cpp
+@@ -654,7 +654,6 @@ bool ShaderTranslator::TranslateAnalyzedShader(Shader::Translation& translation)
+ 
+   translation.errors_ = std::move(errors_);
+   translation.translated_binary_ = CompleteTranslation();
+-  translation.is_translated_ = true;
+ 
+   bool is_valid = true;
+   for (const auto& error : translation.errors_) {
+@@ -663,12 +662,16 @@ bool ShaderTranslator::TranslateAnalyzedShader(Shader::Translation& translation)
+       break;
+     }
+   }
+-  translation.is_valid_ = is_valid;
++  translation.is_valid_.store(is_valid, std::memory_order_relaxed);
+ 
+   PostTranslation();
+ 
+   // In case is_valid_ is modified by PostTranslation, reload.
+-  return translation.is_valid_;
++  is_valid = translation.is_valid_.load(std::memory_order_relaxed);
++  // Publish last: readers take is_translated() as the binary, the validity and
++  // (after PostTranslation) the shader's bindings being complete.
++  translation.is_translated_.store(true, std::memory_order_release);
++  return is_valid;
+ }
+ 
+ void ShaderTranslator::EmitTranslationError(const char* message, bool is_fatal) {

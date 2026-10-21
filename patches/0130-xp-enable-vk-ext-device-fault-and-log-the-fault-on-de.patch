@@ -1,0 +1,241 @@
+diff --git a/include/rex/ui/vulkan/device.h b/include/rex/ui/vulkan/device.h
+index 947817f..ba2f722 100644
+--- a/include/rex/ui/vulkan/device.h
++++ b/include/rex/ui/vulkan/device.h
+@@ -10,6 +10,7 @@
+  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
+  */
+ 
++#include <atomic>
+ #include <memory>
+ #include <mutex>
+ #include <vector>
+@@ -199,6 +200,9 @@ class VulkanDevice {
+     bool ext_1_3_KHR_maintenance4 = false;  // #414
+     // Has optional features not implied by this being true.
+     bool ext_1_3_KHR_dynamic_rendering = false;  // #55
++    // Driver-side fault description after VK_ERROR_DEVICE_LOST. Only true if
++    // the deviceFault feature is enabled and vkGetDeviceFaultInfoEXT loaded.
++    bool ext_EXT_device_fault = false;  // #342
+   };
+ 
+   const Extensions& extensions() const { return extensions_; }
+@@ -288,6 +292,11 @@ class VulkanDevice {
+ 
+   const MemoryTypes& memory_types() const { return memory_types_; }
+ 
++  // Queries VK_EXT_device_fault for the driver's fault info after
++  // VK_ERROR_DEVICE_LOST and logs it. Safe to call from multiple device loss
++  // observers - logs at most once. No-op without the extension.
++  void LogFaultInfo() const;
++
+  private:
+   explicit VulkanDevice(const VulkanInstance* vulkan_instance, VkPhysicalDevice physical_device);
+ 
+@@ -306,6 +315,9 @@ class VulkanDevice {
+   uint32_t queue_family_sparse_binding_ = UINT32_MAX;
+ 
+   MemoryTypes memory_types_;
++
++  PFN_vkGetDeviceFaultInfoEXT vkGetDeviceFaultInfoEXT_ = nullptr;
++  mutable std::atomic_flag fault_info_logged_ = ATOMIC_FLAG_INIT;
+ };
+ 
+ }  // namespace vulkan
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 434ab59..7d00712 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -7212,6 +7212,8 @@ void VulkanCommandProcessor::CheckSubmissionFenceAndDeviceLoss(uint64_t await_su
+     ++fences_awaited;
+   }
+   if (device_lost_) {
++    // The driver's fault description (VK_EXT_device_fault), logged once.
++    GetVulkanDevice()->LogFaultInfo();
+     if (graphics_system_) {
+       graphics_system_->OnHostGpuLossFromAnyThread(true);
+     }
+@@ -7640,6 +7642,7 @@ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
+       REXGPU_ERROR("Failed to submit a Vulkan command buffer");
+       if (submit_result == VK_ERROR_DEVICE_LOST && !device_lost_) {
+         device_lost_ = true;
++        GetVulkanDevice()->LogFaultInfo();
+         if (graphics_system_) {
+           graphics_system_->OnHostGpuLossFromAnyThread(true);
+         }
+diff --git a/src/ui/vulkan/vulkan_device.cpp b/src/ui/vulkan/vulkan_device.cpp
+index 6f72266..eafc625 100644
+--- a/src/ui/vulkan/vulkan_device.cpp
++++ b/src/ui/vulkan/vulkan_device.cpp
+@@ -269,6 +269,13 @@ std::unique_ptr<VulkanDevice> VulkanDevice::CreateIfSupported(
+     XE_UI_VULKAN_STRUCT_EXTENSION(KHR_swapchain)
+   }
+ 
++  // #342. Driver-side fault description after VK_ERROR_DEVICE_LOST (can be
++  // turned off with dbz3_vk_disable_extensions).
++  bool ext_EXT_device_fault = false;
++  if (get_physical_device_properties2_supported) {
++    XE_UI_VULKAN_LOCAL_EXTENSION(EXT_device_fault)
++  }
++
+   bool ext_1_2_KHR_sampler_mirror_clamp_to_edge = false;
+   bool ext_1_1_KHR_maintenance1 = false;
+   bool ext_1_2_KHR_shader_float_controls = false;
+@@ -406,6 +413,9 @@ std::unique_ptr<VulkanDevice> VulkanDevice::CreateIfSupported(
+   VulkanFeatures<VkPhysicalDeviceRobustness2FeaturesEXT,
+                  VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT>
+       features_EXT_robustness2;
++  VulkanFeatures<VkPhysicalDeviceFaultFeaturesEXT,
++                 VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FAULT_FEATURES_EXT>
++      features_EXT_device_fault;
+ 
+   if (get_physical_device_properties2_supported) {
+     if (properties.apiVersion >= VK_MAKE_API_VERSION(0, 1, 2, 0)) {
+@@ -447,6 +457,9 @@ std::unique_ptr<VulkanDevice> VulkanDevice::CreateIfSupported(
+     if (device->extensions_.ext_EXT_robustness2) {
+       features_EXT_robustness2.Link(supported_features_2, device_create_info);
+     }
++    if (ext_EXT_device_fault) {
++      features_EXT_device_fault.Link(supported_features_2, device_create_info);
++    }
+     ifn.vkGetPhysicalDeviceProperties2(physical_device, &properties_2);
+     ifn.vkGetPhysicalDeviceFeatures2(physical_device, &supported_features_2);
+   }
+@@ -809,6 +822,14 @@ std::unique_ptr<VulkanDevice> VulkanDevice::CreateIfSupported(
+     }
+   }
+ 
++  // The driver collects fault info only with deviceFault enabled at device
++  // creation, and vkGetDeviceFaultInfoEXT is only valid then. The vendor
++  // binary is not needed.
++  if (ext_EXT_device_fault) {
++    features_EXT_device_fault.enabled.deviceFault = features_EXT_device_fault.supported.deviceFault;
++    features_EXT_device_fault.enabled.deviceFaultVendorBinary = VK_FALSE;
++  }
++
+ #undef XE_UI_VULKAN_LIMIT
+ #undef XE_UI_VULKAN_ENUM_LIMIT
+ #undef XE_UI_VULKAN_FEATURE
+@@ -890,6 +911,16 @@ std::unique_ptr<VulkanDevice> VulkanDevice::CreateIfSupported(
+     return nullptr;
+   }
+ 
++  // Optional fault info function - failing to load it is not fatal.
++  if (ext_EXT_device_fault && features_EXT_device_fault.enabled.deviceFault) {
++    device->vkGetDeviceFaultInfoEXT_ = PFN_vkGetDeviceFaultInfoEXT(
++        ifn.vkGetDeviceProcAddr(device->device_, "vkGetDeviceFaultInfoEXT"));
++    device->extensions_.ext_EXT_device_fault = device->vkGetDeviceFaultInfoEXT_ != nullptr;
++    if (device->extensions_.ext_EXT_device_fault) {
++      REXLOG_INFO("* VK_EXT_device_fault");
++    }
++  }
++
+   // Get the queues.
+ 
+   for (size_t queue_family_index = 0; queue_family_index < device->queue_families_.size();
+@@ -942,6 +973,75 @@ VulkanDevice::VulkanDevice(const VulkanInstance* const vulkan_instance,
+   assert_not_null(physical_device);
+ }
+ 
++void VulkanDevice::LogFaultInfo() const {
++  if (!extensions_.ext_EXT_device_fault || !vkGetDeviceFaultInfoEXT_) {
++    return;
++  }
++  if (fault_info_logged_.test_and_set(std::memory_order_acq_rel)) {
++    return;
++  }
++
++  // First pass: counts only.
++  VkDeviceFaultCountsEXT counts = {VK_STRUCTURE_TYPE_DEVICE_FAULT_COUNTS_EXT};
++  if (vkGetDeviceFaultInfoEXT_(device_, &counts, nullptr) != VK_SUCCESS) {
++    REXLOG_ERROR("VK_EXT_device_fault: failed to query fault info counts");
++    return;
++  }
++
++  std::vector<VkDeviceFaultAddressInfoEXT> address_infos(counts.addressInfoCount);
++  std::vector<VkDeviceFaultVendorInfoEXT> vendor_infos(counts.vendorInfoCount);
++  VkDeviceFaultInfoEXT info = {VK_STRUCTURE_TYPE_DEVICE_FAULT_INFO_EXT};
++  info.pAddressInfos = address_infos.empty() ? nullptr : address_infos.data();
++  info.pVendorInfos = vendor_infos.empty() ? nullptr : vendor_infos.data();
++  // Skip the vendor binary. A driver that has one reports VK_INCOMPLETE for
++  // the rest, which is still valid.
++  counts.vendorBinarySize = 0;
++  const VkResult fault_info_result = vkGetDeviceFaultInfoEXT_(device_, &counts, &info);
++  if (fault_info_result != VK_SUCCESS && fault_info_result != VK_INCOMPLETE) {
++    REXLOG_ERROR("VK_EXT_device_fault: failed to query fault info");
++    return;
++  }
++
++  REXLOG_ERROR("VK_EXT_device_fault: \"{}\" - {} address(es), {} vendor code(s)",
++               info.description, counts.addressInfoCount, counts.vendorInfoCount);
++  for (uint32_t i = 0; i < counts.addressInfoCount; ++i) {
++    const VkDeviceFaultAddressInfoEXT& a = address_infos[i];
++    const char* type_name = "unknown";
++    switch (a.addressType) {
++      case VK_DEVICE_FAULT_ADDRESS_TYPE_NONE_EXT:
++        type_name = "none";
++        break;
++      case VK_DEVICE_FAULT_ADDRESS_TYPE_READ_INVALID_EXT:
++        type_name = "read-invalid";
++        break;
++      case VK_DEVICE_FAULT_ADDRESS_TYPE_WRITE_INVALID_EXT:
++        type_name = "write-invalid";
++        break;
++      case VK_DEVICE_FAULT_ADDRESS_TYPE_EXECUTE_INVALID_EXT:
++        type_name = "execute-invalid";
++        break;
++      case VK_DEVICE_FAULT_ADDRESS_TYPE_INSTRUCTION_POINTER_UNKNOWN_EXT:
++        type_name = "instruction-pointer-unknown";
++        break;
++      case VK_DEVICE_FAULT_ADDRESS_TYPE_INSTRUCTION_POINTER_INVALID_EXT:
++        type_name = "instruction-pointer-invalid";
++        break;
++      case VK_DEVICE_FAULT_ADDRESS_TYPE_INSTRUCTION_POINTER_FAULT_EXT:
++        type_name = "instruction-pointer-fault";
++        break;
++      default:
++        break;
++    }
++    REXLOG_ERROR("  fault addr: 0x{:016X} (precision +-0x{:X}) type={}", a.reportedAddress,
++                 a.addressPrecision, type_name);
++  }
++  for (uint32_t i = 0; i < counts.vendorInfoCount; ++i) {
++    const VkDeviceFaultVendorInfoEXT& v = vendor_infos[i];
++    REXLOG_ERROR("  vendor code: {} fault=0x{:016X} \"{}\"", v.vendorFaultCode,
++                 v.vendorFaultData, v.description);
++  }
++}
++
+ }  // namespace vulkan
+ }  // namespace ui
+ }  // namespace rex
+diff --git a/src/ui/vulkan/vulkan_presenter.cpp b/src/ui/vulkan/vulkan_presenter.cpp
+index 440ac87..e9a3741 100644
+--- a/src/ui/vulkan/vulkan_presenter.cpp
++++ b/src/ui/vulkan/vulkan_presenter.cpp
+@@ -1698,6 +1698,7 @@ Presenter::PaintResult VulkanPresenter::PaintAndPresentOnce(bool execute_ui_draw
+       REXLOG_ERROR(
+           "VulkanPresenter: Failed to acquire the swapchain image as the "
+           "device has been lost");
++      vulkan_device_->LogFaultInfo();
+       return PaintResult::kGpuLostResponsible;
+     case VK_ERROR_OUT_OF_DATE_KHR:
+     case VK_ERROR_SURFACE_LOST_KHR:
+@@ -2331,6 +2332,9 @@ Presenter::PaintResult VulkanPresenter::PaintAndPresentOnce(bool execute_ui_draw
+     }
+     if (submit_result != VK_SUCCESS) {
+       REXLOG_ERROR("VulkanPresenter: Failed to submit command buffers");
++      if (submit_result == VK_ERROR_DEVICE_LOST) {
++        vulkan_device_->LogFaultInfo();
++      }
+       fence_acqusition.SubmissionFailedOrDropped();
+       ui_fence_acquisition.SubmissionFailedOrDropped();
+       if (ui_setup_command_buffer_index != SIZE_MAX) {
+@@ -2376,6 +2380,7 @@ Presenter::PaintResult VulkanPresenter::PaintAndPresentOnce(bool execute_ui_draw
+       REXLOG_ERROR(
+           "VulkanPresenter: Failed to present the swapchain image as the "
+           "device has been lost");
++      vulkan_device_->LogFaultInfo();
+       return PaintResult::kGpuLostResponsible;
+     case VK_ERROR_OUT_OF_DATE_KHR:
+     case VK_ERROR_SURFACE_LOST_KHR:
