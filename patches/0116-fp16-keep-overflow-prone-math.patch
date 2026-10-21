@@ -1,0 +1,29 @@
+diff --git a/src/graphics/vulkan/shader.cpp b/src/graphics/vulkan/shader.cpp
+index 0c70cb6..959de5c 100644
+--- a/src/graphics/vulkan/shader.cpp
++++ b/src/graphics/vulkan/shader.cpp
+@@ -109,6 +109,24 @@ bool SwordManRelaxFragmentPrecision(std::vector<uint32_t>& code, uint32_t* out_c
+     }
+     if (in.op == kOpStore && in.words >= 3 && frag_depth_vars.count(code[in.at + 1]))
+       stack.push_back(code[in.at + 2]);
++    // 0116: contas que estouram o fp16 (maximo 65504) com vetores do mundo/vista - dot,
++    // comprimentos, normalizacoes, raizes, potencias, exp/log e divisoes - ficam em precisao
++    // total, com tudo o que chega a elas (no RG Cube o Raiden saia branco com o 0114).
++    bool overflow_prone = in.op == 148 /*Dot*/ || in.op == 136 /*FDiv*/ || in.op == 140 ||
++                          in.op == 141;
++    if (in.op == kOpExtInst && in.words >= 5 && glsl_sets.count(code[in.at + 3])) {
++      switch (code[in.at + 4]) {
++        case 26: case 27: case 28: case 29: case 30:  // Pow Exp Log Exp2 Log2
++        case 31: case 32:                             // Sqrt InverseSqrt
++        case 66: case 67: case 69:                    // Length Distance Normalize
++        case 70: case 71: case 72:                    // FaceForward Reflect Refract
++          overflow_prone = true;
++          break;
++        default:
++          break;
++      }
++    }
++    if (overflow_prone && in.words >= 4) stack.push_back(code[in.at + 2]);
+   }
+   while (!stack.empty()) {
+     const uint32_t id = stack.back();
