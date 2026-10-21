@@ -1,0 +1,99 @@
+diff --git a/include/rex/audio/audio_system.h b/include/rex/audio/audio_system.h
+index 33fd32c..cf8c6ab 100644
+--- a/include/rex/audio/audio_system.h
++++ b/include/rex/audio/audio_system.h
+@@ -12,6 +12,7 @@
+ #pragma once
+ 
+ #include <atomic>
++#include <mutex>
+ #include <queue>
+ 
+ #include <rex/kernel.h>
+@@ -76,7 +77,9 @@ class AudioSystem : public system::IAudioSystem {
+   std::atomic<bool> worker_running_ = {false};
+   system::object_ref<system::XHostThread> worker_thread_;
+ 
+-  rex::thread::global_critical_region global_critical_region_;
++  // Guards clients_. The global lock is never taken while holding it, so the
++  // global lock's holders can't delay the pump.
++  std::mutex clients_mutex_;
+   static const size_t kMaximumClientCount = 8;
+   struct {
+     AudioDriver* driver;
+diff --git a/src/audio/audio_system.cpp b/src/audio/audio_system.cpp
+index 7a711a8..141e6b5 100644
+--- a/src/audio/audio_system.cpp
++++ b/src/audio/audio_system.cpp
+@@ -134,10 +134,10 @@ void AudioSystem::WorkerThreadMain() {
+     if (result.first == rex::thread::WaitResult::kSuccess) {
+       auto index = result.second;
+ 
+-      auto global_lock = global_critical_region_.Acquire();
++      std::unique_lock<std::mutex> clients_lock(clients_mutex_);
+       uint32_t client_callback = clients_[index].callback;
+       uint32_t client_callback_arg = clients_[index].wrapped_callback_arg;
+-      global_lock.unlock();
++      clients_lock.unlock();
+ 
+       if (client_callback) {
+         if (diag_pump_count < 10) {
+@@ -230,7 +230,11 @@ void AudioSystem::Shutdown() {
+ X_STATUS AudioSystem::RegisterClient(uint32_t callback, uint32_t callback_arg, size_t* out_index) {
+   REXAPU_DEBUG("AudioSystem::RegisterClient: callback={:08X} callback_arg={:08X}", callback,
+                callback_arg);
+-  auto global_lock = global_critical_region_.Acquire();
++  // Outside clients_mutex_, as the heap takes the global lock.
++  uint32_t ptr = memory()->SystemHeapAlloc(0x4);
++  memory::store_and_swap<uint32_t>(memory()->TranslateVirtual(ptr), callback_arg);
++
++  std::unique_lock<std::mutex> clients_lock(clients_mutex_);
+ 
+   auto index = FindFreeClient();
+   assert_true(index >= 0);
+@@ -244,13 +248,12 @@ X_STATUS AudioSystem::RegisterClient(uint32_t callback, uint32_t callback_arg, s
+   AudioDriver* driver;
+   auto result = CreateDriver(index, client_semaphore, &driver);
+   if (XFAILED(result)) {
++    clients_lock.unlock();
++    memory()->SystemHeapFree(ptr);
+     return result;
+   }
+   assert_not_null(driver);
+ 
+-  uint32_t ptr = memory()->SystemHeapAlloc(0x4);
+-  memory::store_and_swap<uint32_t>(memory()->TranslateVirtual(ptr), callback_arg);
+-
+   clients_[index] = {driver, callback, callback_arg, ptr, true};
+ 
+   if (out_index) {
+@@ -270,7 +273,7 @@ void AudioSystem::SubmitFrame(size_t index, uint32_t samples_ptr) {
+     submit_count++;
+   }
+ 
+-  auto global_lock = global_critical_region_.Acquire();
++  std::lock_guard<std::mutex> clients_lock(clients_mutex_);
+   assert_true(index < kMaximumClientCount);
+   assert_true(clients_[index].driver != NULL);
+   (clients_[index].driver)->SubmitFrame(samples_ptr);
+@@ -279,11 +282,16 @@ void AudioSystem::SubmitFrame(size_t index, uint32_t samples_ptr) {
+ void AudioSystem::UnregisterClient(size_t index) {
+   SCOPE_profile_cpu_f("apu");
+ 
+-  auto global_lock = global_critical_region_.Acquire();
+   assert_true(index < kMaximumClientCount);
+-  DestroyDriver(clients_[index].driver);
+-  memory()->SystemHeapFree(clients_[index].wrapped_callback_arg);
+-  clients_[index] = {nullptr, 0, 0, 0, false};
++  uint32_t wrapped_callback_arg;
++  {
++    std::lock_guard<std::mutex> clients_lock(clients_mutex_);
++    DestroyDriver(clients_[index].driver);
++    wrapped_callback_arg = clients_[index].wrapped_callback_arg;
++    clients_[index] = {nullptr, 0, 0, 0, false};
++  }
++  // Outside clients_mutex_, as the heap takes the global lock.
++  memory()->SystemHeapFree(wrapped_callback_arg);
+ 
+   // Drain the semaphore of its count.
+   auto client_semaphore = client_semaphores_[index].get();

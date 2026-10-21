@@ -1,0 +1,38 @@
+diff --git a/src/system/xmemory.cpp b/src/system/xmemory.cpp
+index e8e0e1d..0cbe6d7 100644
+--- a/src/system/xmemory.cpp
++++ b/src/system/xmemory.cpp
+@@ -54,6 +54,9 @@ REXCVAR_DEFINE_BOOL(protect_on_release, false, "Memory",
+                     "Protect released memory to prevent accesses");
+ 
+ REXCVAR_DEFINE_BOOL(scribble_heap, false, "Memory", "Scribble 0xCD into all allocated heap memory");
++REXCVAR_DEFINE_BOOL(memory_watch_skip_watched_blocks, true, "Memory",
++                    "When enabling GPU write watches, skip whole 64-page blocks already watched "
++                    "instead of checking them page by page");
+ 
+ namespace rex::memory {
+ 
+@@ -2232,7 +2235,23 @@ void PhysicalHeap::EnableAccessCallbacks(uint32_t physical_address, uint32_t len
+   uint8_t* protect_base = membase_ + heap_base_;
+   uint32_t protect_system_page_first = UINT32_MAX;
+   auto global_lock = global_critical_region_.Acquire();
++  const bool skip_watched_blocks = REXCVAR_GET(memory_watch_skip_watched_blocks) &&
++                                   enable_invalidation_notifications && !enable_data_providers;
+   for (uint32_t i = system_page_first; i <= system_page_last; ++i) {
++    // memory_watch_skip_watched_blocks: a whole block of 64 pages already
++    // watched needs nothing per page (the GPU re-enables the callbacks of the
++    // ranges it uses after every resolve and upload, most are still watched) -
++    // close the pending protection run and skip it, as the per-page path would.
++    if (skip_watched_blocks && !(i & 63) && system_page_last - i >= 63 &&
++        system_page_flags_[i >> 6].notify_on_invalidation == UINT64_MAX) {
++      if (protect_system_page_first != UINT32_MAX) {
++        rex::memory::Protect(protect_base + protect_system_page_first * system_page_size_,
++                             (i - protect_system_page_first) * system_page_size_, protect_access);
++        protect_system_page_first = UINT32_MAX;
++      }
++      i += 63;
++      continue;
++    }
+     // Check if need to enable callbacks for the page and raise its protection.
+     //
+     // If enabling invalidation notifications:

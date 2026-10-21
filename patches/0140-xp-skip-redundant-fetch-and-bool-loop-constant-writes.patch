@@ -1,0 +1,103 @@
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 0788460..9e44444 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -281,6 +281,10 @@ REXCVAR_DEFINE_BOOL(vulkan_texture_descriptor_set_frame_reuse, true, "GPU/Vulkan
+                     "With vulkan_cache_texture_descriptors, also reuse a texture descriptor set "
+                     "written earlier in the frame with the same images and samplers, rather than "
+                     "only the one the previous draw had.");
++REXCVAR_DEFINE_BOOL(vulkan_skip_redundant_fetch_constant_writes, true, "GPU/Vulkan",
++                    "Don't invalidate texture bindings, vertex buffer residency and the "
++                    "fetch/bool-loop constant buffers when a register write doesn't change the "
++                    "register's value (games re-emit identical fetch constants every draw).");
+ REXCVAR_DEFINE_BOOL(vulkan_dynamic_rendering, true, "GPU/Vulkan",
+                     "Use VK_KHR_dynamic_rendering for Vulkan GPU emulation when supported by the "
+                     "device (falls back to render passes otherwise)")
+@@ -2920,8 +2924,29 @@ void VulkanCommandProcessor::ShutdownContext() {
+ }
+ 
+ void VulkanCommandProcessor::WriteRegister(uint32_t index, uint32_t value) {
++  // vulkan_skip_redundant_fetch_constant_writes: the state derived from the
++  // fetch and bool/loop constants (texture bindings, vertex buffer residency,
++  // the constant buffer contents) is a pure function of the register values,
++  // and games commonly re-emit identical constants every draw, so a write that
++  // doesn't change the value doesn't dirty anything. The previous value must
++  // be read before the base class stores the new one.
++  bool constant_value_unchanged = false;
++  if (index >= XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0 &&
++      index <= XE_GPU_REG_SHADER_CONSTANT_LOOP_31 &&
++      REXCVAR_GET(vulkan_skip_redundant_fetch_constant_writes)) {
++    constant_value_unchanged = register_file_->values[index] == value;
++  }
++
+   CommandProcessor::WriteRegister(index, value);
+ 
++  if (constant_value_unchanged &&
++      ((index >= XE_GPU_REG_SHADER_CONSTANT_BOOL_000_031 &&
++        index <= XE_GPU_REG_SHADER_CONSTANT_LOOP_31) ||
++       (index >= XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0 &&
++        index <= XE_GPU_REG_SHADER_CONSTANT_FETCH_31_5))) {
++    return;
++  }
++
+   if (index >= XE_GPU_REG_SHADER_CONSTANT_000_X && index <= XE_GPU_REG_SHADER_CONSTANT_511_W) {
+     if (frame_open_) {
+       uint32_t float_constant_index = (index - XE_GPU_REG_SHADER_CONSTANT_000_X) >> 2;
+@@ -3019,9 +3044,54 @@ void VulkanCommandProcessor::WriteRegistersFromMem(uint32_t start_index, uint32_
+ 
+   if (start_index >= XE_GPU_REG_SHADER_CONSTANT_BOOL_000_031 &&
+       end_index <= XE_GPU_REG_SHADER_CONSTANT_LOOP_31) {
+-    memory::copy_and_swap(register_file_->values + start_index, base, num_registers);
+-    current_constant_buffers_up_to_date_ &=
+-        ~(UINT32_C(1) << SpirvShaderTranslator::kConstantBufferBoolLoop);
++    bool changed = true;
++    if (REXCVAR_GET(vulkan_skip_redundant_fetch_constant_writes)) {
++      // Same value-compare semantics as the per-register path.
++      changed = false;
++      for (uint32_t i = 0; i < num_registers; ++i) {
++        uint32_t value = memory::load_and_swap<uint32_t>(base + i);
++        changed |= register_file_->values[start_index + i] != value;
++        register_file_->values[start_index + i] = value;
++      }
++    } else {
++      memory::copy_and_swap(register_file_->values + start_index, base, num_registers);
++    }
++    if (changed) {
++      current_constant_buffers_up_to_date_ &=
++          ~(UINT32_C(1) << SpirvShaderTranslator::kConstantBufferBoolLoop);
++    }
++    return;
++  }
++
++  if (start_index >= XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0 &&
++      end_index <= XE_GPU_REG_SHADER_CONSTANT_FETCH_31_5 &&
++      REXCVAR_GET(vulkan_skip_redundant_fetch_constant_writes)) {
++    // Per-dword value compare, same semantics as the per-register path: only
++    // the fetch constants (texture slots of 6 dwords, vertex fetches of 2)
++    // that actually changed are invalidated.
++    uint32_t changed_texture_slots = 0;
++    for (uint32_t i = 0; i < num_registers; ++i) {
++      uint32_t value = memory::load_and_swap<uint32_t>(base + i);
++      uint32_t& register_value = register_file_->values[start_index + i];
++      if (register_value == value) {
++        continue;
++      }
++      register_value = value;
++      uint32_t fetch_dword = start_index + i - XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0;
++      changed_texture_slots |= UINT32_C(1) << (fetch_dword / 6);
++      InvalidateVertexBufferResidency(fetch_dword / 2);
++    }
++    if (changed_texture_slots) {
++      current_constant_buffers_up_to_date_ &=
++          ~(UINT32_C(1) << SpirvShaderTranslator::kConstantBufferFetch);
++      if (texture_cache_) {
++        uint32_t texture_slot;
++        while (rex::bit_scan_forward(changed_texture_slots, &texture_slot)) {
++          changed_texture_slots &= ~(UINT32_C(1) << texture_slot);
++          texture_cache_->TextureFetchConstantWritten(texture_slot);
++        }
++      }
++    }
+     return;
+   }
+ 

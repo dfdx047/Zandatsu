@@ -1,0 +1,173 @@
+diff --git a/include/rex/graphics/pipeline/texture/cache.h b/include/rex/graphics/pipeline/texture/cache.h
+index 69315cc..ad81b85 100644
+--- a/include/rex/graphics/pipeline/texture/cache.h
++++ b/include/rex/graphics/pipeline/texture/cache.h
+@@ -705,6 +705,17 @@ class TextureCache {
+ 
+   std::unordered_map<TextureKey, std::unique_ptr<Texture>, TextureKey::Hasher> textures_;
+ 
++  // FindOrCreateTexture's memo in front of textures_ (texture_lookup_memo),
++  // direct-mapped by the key. An entry is dropped with its texture.
++  struct TextureFindMemoEntry {
++    TextureKey key;
++    Texture* texture = nullptr;
++  };
++  static constexpr uint32_t kTextureFindMemoSizeLog2 = 9;
++  std::array<TextureFindMemoEntry, size_t(1) << kTextureFindMemoSizeLog2> texture_find_memo_;
++  static uint32_t GetTextureFindMemoIndex(const TextureKey& key);
++  void ForgetTextureFindMemo(const Texture* texture);
++
+   uint64_t textures_total_host_memory_usage_ = 0;
+ 
+   Texture* texture_used_first_ = nullptr;
+diff --git a/include/rex/graphics/vulkan/texture_cache.h b/include/rex/graphics/vulkan/texture_cache.h
+index b9aefc8..0f8ee12 100644
+--- a/include/rex/graphics/vulkan/texture_cache.h
++++ b/include/rex/graphics/vulkan/texture_cache.h
+@@ -357,6 +357,10 @@ class VulkanTextureCache final : public TextureCache {
+     Usage usage_ = Usage::kUndefined;
+ 
+     std::unordered_map<ViewKey, VkImageView, ViewKey::Hasher> views_;
++    // GetView's memo (texture_lookup_memo): the arguments of the last call
++    // that returned a view, and the view.
++    VkImageView last_view_ = VK_NULL_HANDLE;
++    uint32_t last_view_arguments_ = 0;
+     std::unique_ptr<VulkanTexture> texture_3d_as_2d_;
+     VkImageView image_view_3d_as_2d_unsigned_ = VK_NULL_HANDLE;
+     VkImageView image_view_3d_as_2d_signed_ = VK_NULL_HANDLE;
+diff --git a/src/graphics/pipeline/texture/cache.cpp b/src/graphics/pipeline/texture/cache.cpp
+index b7ba15a..e779e3d 100644
+--- a/src/graphics/pipeline/texture/cache.cpp
++++ b/src/graphics/pipeline/texture/cache.cpp
+@@ -76,6 +76,11 @@ REXCVAR_DEFINE_BOOL(gpu_3d_to_2d_texture, true, "GPU",
+                     "Sample problematic 3D textures through 2D-compatible wrappers")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ 
++REXCVAR_DEFINE_BOOL(texture_lookup_memo, true, "GPU",
++                    "Remember the texture each texture key found last and the image view each "
++                    "texture returned last, in front of their hash tables: the draws of a frame "
++                    "keep naming textures found shortly before and sample them the same way.");
++
+ REXCVAR_DEFINE_INT32(anisotropic_override, 3, "GPU",
+                      "Forces anisotropic filtering for eligible textures.\n"
+                      "Higher values keep textures sharper at oblique angles, but increase texture "
+@@ -669,6 +674,7 @@ void TextureCache::CompletedSubmissionUpdated(uint64_t completed_submission_inde
+       NoteBindingObjectDestroyed();
+     }
+     // Remove the texture from the map and destroy it via its unique_ptr.
++    ForgetTextureFindMemo(texture);
+     auto found_texture_it = textures_.find(texture->key());
+     assert_true(found_texture_it != textures_.end());
+     if (found_texture_it != textures_.end()) {
+@@ -1252,10 +1258,29 @@ void TextureCache::WatchCallback(const std::unique_lock<std::recursive_mutex>& g
+ void TextureCache::DestroyAllTextures(bool from_destructor) {
+   ResetTextureBindings(from_destructor);
+   NoteBindingObjectDestroyed();
++  for (TextureFindMemoEntry& entry : texture_find_memo_) {
++    entry.texture = nullptr;
++  }
+   textures_.clear();
+   COUNT_profile_set("gpu/texture_cache/textures", 0);
+ }
+ 
++uint32_t TextureCache::GetTextureFindMemoIndex(const TextureKey& key) {
++  static_assert(sizeof(TextureKey) == 2 * sizeof(uint64_t));
++  uint64_t words[2];
++  std::memcpy(words, &key, sizeof(words));
++  return uint32_t((((words[0] * UINT64_C(0x9E3779B97F4A7C15)) ^ words[1]) *
++                   UINT64_C(0xBF58476D1CE4E5B9)) >>
++                  (64 - kTextureFindMemoSizeLog2));
++}
++
++void TextureCache::ForgetTextureFindMemo(const Texture* texture) {
++  TextureFindMemoEntry& entry = texture_find_memo_[GetTextureFindMemoIndex(texture->key())];
++  if (entry.texture == texture) {
++    entry.texture = nullptr;
++  }
++}
++
+ TextureCache::Texture* TextureCache::FindOrCreateTexture(TextureKey key) {
+   // Check if the texture is a scaled resolve texture.
+   if (IsDrawResolutionScaled() && key.tiled && IsScaledResolveSupportedForFormat(key)) {
+@@ -1479,8 +1504,19 @@ TextureCache::Texture* TextureCache::FindOrCreateTexture(TextureKey key) {
+   // Try to find an existing texture.
+   // TODO(Triang3l): Reuse a texture with mip_page unchanged, but base_page
+   // previously 0, now not 0, to save memory - common case in streaming.
++  // texture_lookup_memo: a direct-mapped memo by key in front of textures_
++  // (an entry is dropped with its texture).
++  const bool use_find_memo = REXCVAR_GET(texture_lookup_memo);
++  TextureFindMemoEntry& find_memo = texture_find_memo_[GetTextureFindMemoIndex(key)];
++  if (use_find_memo && find_memo.texture && find_memo.key == key) {
++    return find_memo.texture;
++  }
+   auto found_texture_it = textures_.find(key);
+   if (found_texture_it != textures_.end()) {
++    if (use_find_memo) {
++      find_memo.key = key;
++      find_memo.texture = found_texture_it->second.get();
++    }
+     return found_texture_it->second.get();
+   }
+ 
+@@ -1509,6 +1545,10 @@ TextureCache::Texture* TextureCache::FindOrCreateTexture(TextureKey key) {
+ 
+     texture = textures_.emplace(key, std::move(new_texture)).first->second.get();
+   }
++  if (use_find_memo) {
++    find_memo.key = key;
++    find_memo.texture = texture;
++  }
+   COUNT_profile_set("gpu/texture_cache/textures", textures_.size());
+   rex::perf::GetTextureCacheStats().created.fetch_add(1, std::memory_order_relaxed);
+   texture->LogAction("Created");
+diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
+index 1cf6e35..8dd1f34 100644
+--- a/src/graphics/vulkan/texture_cache.cpp
++++ b/src/graphics/vulkan/texture_cache.cpp
+@@ -53,6 +53,8 @@ REXCVAR_DEFINE_BOOL(dbz3_rit_textures_turnip, false, "GPU",
+                     "Dragon Burst: o mesmo no Turnip (desligado: la as cores saiam trocadas)")
+     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+ 
++REXCVAR_DECLARE(bool, texture_lookup_memo);
++
+ namespace rex::graphics::vulkan {
+ 
+ // Generated with `xb buildshaders`.
+@@ -2699,6 +2701,15 @@ VulkanTextureCache::VulkanTexture::~VulkanTexture() {
+ 
+ VkImageView VulkanTextureCache::VulkanTexture::GetView(bool is_signed, uint32_t host_swizzle,
+                                                        bool is_array) {
++  // texture_lookup_memo: the arguments of the last call that returned a view,
++  // and the view (the view only depends on them for a texture).
++  const uint32_t view_arguments =
++      uint32_t(is_signed) | (host_swizzle << 1) | (uint32_t(is_array) << 31);
++  const bool use_view_memo = REXCVAR_GET(texture_lookup_memo);
++  if (use_view_memo && last_view_ != VK_NULL_HANDLE && last_view_arguments_ == view_arguments) {
++    return last_view_;
++  }
++
+   xenos::DataDimension dimension = key().dimension;
+   if (dimension == xenos::DataDimension::k3D || dimension == xenos::DataDimension::kCube) {
+     is_array = false;
+@@ -2736,6 +2747,10 @@ VkImageView VulkanTextureCache::VulkanTexture::GetView(bool is_signed, uint32_t
+   // Try to find an existing view.
+   auto it = views_.find(view_key);
+   if (it != views_.end()) {
++    if (use_view_memo) {
++      last_view_ = it->second;
++      last_view_arguments_ = view_arguments;
++    }
+     return it->second;
+   }
+ 
+@@ -2778,6 +2793,10 @@ VkImageView VulkanTextureCache::VulkanTexture::GetView(bool is_signed, uint32_t
+     return VK_NULL_HANDLE;
+   }
+   views_.emplace(view_key, view);
++  if (use_view_memo) {
++    last_view_ = view;
++    last_view_arguments_ = view_arguments;
++  }
+   return view;
+ }
+ 

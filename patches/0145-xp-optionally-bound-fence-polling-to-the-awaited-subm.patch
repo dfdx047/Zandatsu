@@ -1,0 +1,35 @@
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 2d9d80e..29f1b0a 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -289,6 +289,10 @@ REXCVAR_DEFINE_BOOL(vulkan_cache_sampler_parameters, true, "GPU/Vulkan",
+                     "Reuse sampler parameters and VkSampler handles across draws, re-deriving them "
+                     "only for fetch constants written since the previous draw (or on shader "
+                     "change, new submission, or sampler/texture destruction).");
++REXCVAR_DEFINE_BOOL(vulkan_bounded_fence_collection, false, "GPU/Vulkan",
++                    "When awaiting a submission, don't poll the fences of newer submissions "
++                    "(a status poll of a pending fence blocks on Turnip/kgsl, so the unbounded "
++                    "walk waits for the GPU to drain).");
+ REXCVAR_DEFINE_BOOL(vulkan_dynamic_rendering, true, "GPU/Vulkan",
+                     "Use VK_KHR_dynamic_rendering for Vulkan GPU emulation when supported by the "
+                     "device (falls back to render passes otherwise)")
+@@ -7390,7 +7394,18 @@ void VulkanCommandProcessor::CheckSubmissionFenceAndDeviceLoss(uint64_t await_su
+   // Check how far into the submissions the GPU currently is, in order because
+   // submission themselves can be executed out of order, but Xenia serializes
+   // that for simplicity.
+-  while (fences_awaited < fences_total) {
++  // vulkan_bounded_fence_collection: a status poll of a still-pending fence
++  // blocks until it retires on Turnip/kgsl, so when awaiting a specific
++  // submission, don't poll the newer ones (which would wait for the whole
++  // queue to drain).
++  size_t fences_poll_end = fences_total;
++  if (await_submission && REXCVAR_GET(vulkan_bounded_fence_collection)) {
++    fences_poll_end = std::min(
++        fences_total, size_t(await_submission > submission_completed_
++                                 ? await_submission - submission_completed_
++                                 : 0));
++  }
++  while (fences_awaited < fences_poll_end) {
+     VkResult fence_status =
+         dfn.vkWaitForFences(device, 1, &submissions_in_flight_fences_[fences_awaited], VK_TRUE, 0);
+     if (fence_status != VK_SUCCESS) {

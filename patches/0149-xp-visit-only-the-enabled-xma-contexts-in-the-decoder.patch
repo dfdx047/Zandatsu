@@ -1,0 +1,123 @@
+diff --git a/include/rex/audio/xma/context.h b/include/rex/audio/xma/context.h
+index 8426798..18f8a75 100644
+--- a/include/rex/audio/xma/context.h
++++ b/include/rex/audio/xma/context.h
+@@ -223,7 +223,21 @@ class XmaContext {
+   void set_is_allocated(bool is_allocated) {
+     is_allocated_.store(is_allocated, std::memory_order_release);
+   }
+-  void set_is_enabled(bool is_enabled) { is_enabled_.store(is_enabled, std::memory_order_release); }
++  void set_is_enabled(bool is_enabled) {
++    is_enabled_.store(is_enabled, std::memory_order_seq_cst);
++    // Only set here: the decoder worker clears the bit itself once it sees the
++    // context disabled (re-checking, so an enable racing the clear is never
++    // lost).
++    if (is_enabled && enabled_mask_word_) {
++      enabled_mask_word_->fetch_or(enabled_mask_bit_, std::memory_order_seq_cst);
++    }
++  }
++  // The XmaDecoder's mask of the contexts to visit - the enabled ones
++  // (xma_worker_enabled_contexts_only).
++  void set_enabled_mask(std::atomic<uint64_t>* word, uint64_t bit) {
++    enabled_mask_word_ = word;
++    enabled_mask_bit_ = bit;
++  }
+ 
+   void SignalWorkDone() {
+     if (work_completion_event_) {
+@@ -274,6 +288,8 @@ class XmaContext {
+   std::mutex lock_;
+   std::atomic<bool> is_allocated_ = false;
+   std::atomic<bool> is_enabled_ = false;
++  std::atomic<uint64_t>* enabled_mask_word_ = nullptr;
++  uint64_t enabled_mask_bit_ = 0;
+ 
+   // ffmpeg structures
+   AVPacket* av_packet_ = nullptr;
+diff --git a/include/rex/audio/xma/decoder.h b/include/rex/audio/xma/decoder.h
+index df00f06..2faf4fd 100644
+--- a/include/rex/audio/xma/decoder.h
++++ b/include/rex/audio/xma/decoder.h
+@@ -83,6 +83,10 @@ class XmaDecoder {
+ 
+   static const uint32_t kContextCount = 320;
+   XmaContext contexts_[kContextCount];
++  // The enabled contexts, for the worker to visit
++  // (xma_worker_enabled_contexts_only; see XmaContext::set_is_enabled).
++  static constexpr uint32_t kEnabledContextMaskWords = (kContextCount + 63) / 64;
++  std::atomic<uint64_t> enabled_context_mask_[kEnabledContextMaskWords] = {};
+   bit::BitMap context_bitmap_;
+ 
+   uint32_t context_data_first_ptr_ = 0;
+diff --git a/src/audio/xma_decoder.cpp b/src/audio/xma_decoder.cpp
+index 95ff214..b35745b 100644
+--- a/src/audio/xma_decoder.cpp
++++ b/src/audio/xma_decoder.cpp
+@@ -9,6 +9,8 @@
+  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
+  */
+ 
++#include <bit>
++
+ #include <rex/audio/xma/context.h>
+ #include <rex/audio/xma/decoder.h>
+ #include <rex/cvar.h>
+@@ -27,6 +29,10 @@ extern "C" {
+ }  // extern "C"
+ 
+ REXCVAR_DEFINE_BOOL(ffmpeg_verbose, false, "Audio", "Verbose FFmpeg output (debug and above)");
++REXCVAR_DEFINE_BOOL(xma_worker_enabled_contexts_only, true, "Audio",
++                    "Have each pass of the XMA worker visit only the enabled (kicked) contexts, "
++                    "from a mask, instead of all 320 - a pass runs for every decoded packet while "
++                    "any context has work.");
+ 
+ // As with normal Microsoft, there are like twelve different ways to access
+ // the audio APIs. Early games use XMA*() methods almost exclusively to touch
+@@ -118,6 +124,7 @@ X_STATUS XmaDecoder::Setup(system::KernelState* kernel_state) {
+     if (context.Setup(i, memory(), guest_ptr)) {
+       assert_always();
+     }
++    context.set_enabled_mask(&enabled_context_mask_[i / 64], uint64_t(1) << (i % 64));
+   }
+   register_file_[XmaRegister::NextContextIndex] = 1;
+   context_bitmap_.Resize(kContextCount);
+@@ -141,7 +148,7 @@ void XmaDecoder::WorkerThreadMain() {
+   while (worker_running_) {
+     // Okay, let's loop through XMA contexts to find ones we need to decode!
+     bool did_work = false;
+-    for (uint32_t n = 0; n < kContextCount && worker_running_; n++) {
++    auto visit = [&](uint32_t n) {
+       XmaContext& context = contexts_[n];
+       bool worked = context.Work();
+       if (worked) {
+@@ -149,6 +156,30 @@ void XmaDecoder::WorkerThreadMain() {
+         PROFILE_XMA_FRAME_DECODED();
+       }
+       did_work = did_work || worked;
++    };
++    if (REXCVAR_GET(xma_worker_enabled_contexts_only)) {
++      for (uint32_t word = 0; word < kEnabledContextMaskWords && worker_running_; ++word) {
++        std::atomic<uint64_t>& mask = enabled_context_mask_[word];
++        uint64_t bits = mask.load(std::memory_order_seq_cst);
++        while (bits && worker_running_) {
++          const uint32_t bit = uint32_t(std::countr_zero(bits));
++          bits &= bits - 1;
++          const uint32_t n = word * 64 + bit;
++          visit(n);
++          // Done with it: drop it from the mask, then look again - an enable
++          // between the check and the clear set the bit before the clear.
++          if (!contexts_[n].is_enabled()) {
++            mask.fetch_and(~(uint64_t(1) << bit), std::memory_order_seq_cst);
++            if (contexts_[n].is_enabled()) {
++              mask.fetch_or(uint64_t(1) << bit, std::memory_order_seq_cst);
++            }
++          }
++        }
++      }
++    } else {
++      for (uint32_t n = 0; n < kContextCount && worker_running_; n++) {
++        visit(n);
++      }
+     }
+ 
+     if (paused_) {

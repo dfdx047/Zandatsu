@@ -1,0 +1,153 @@
+diff --git a/include/rex/audio/conversion.h b/include/rex/audio/conversion.h
+index 42cdddb..add754e 100644
+--- a/include/rex/audio/conversion.h
++++ b/include/rex/audio/conversion.h
+@@ -16,9 +16,14 @@
+ 
+ #include <rex/assert.h>
+ #include <rex/audio/downmix.h>
++#include <rex/audio/flags.h>
+ #include <rex/platform.h>
+ #include <rex/types.h>
+ 
++#if REX_ARCH_ARM64 && defined(__ARM_NEON)
++#include <arm_neon.h>
++#endif
++
+ namespace rex::audio::conversion {
+ 
+ #if REX_ARCH_AMD64
+@@ -129,7 +134,46 @@ inline void sequential_6_BE_to_interleaved_2_LE(float* output, const float* inpu
+   // Default 5.1 channel mapping is fl, fr, fc, lf, bl, br
+   // https://docs.microsoft.com/en-us/windows/win32/xaudio2/xaudio2-default-channel-mapping
+   const float scale = fold.scale * gain;
+-  for (size_t sample = 0; sample < ch_sample_count; sample++) {
++  size_t sample = 0;
++#if REX_ARCH_ARM64 && defined(__ARM_NEON)
++  // audio_neon_conversion: 4 samples at a time, the same operations as the
++  // scalar loop below (byte swap in the integer domain, so NaN patterns
++  // survive; std::clamp semantics, NaN kept), the scalar loop doing the tail.
++  if (REXCVAR_GET(audio_neon_conversion)) {
++    const float32x4_t center = vdupq_n_f32(fold.center);
++    const float32x4_t lfe = vdupq_n_f32(fold.lfe);
++    const float32x4_t surround = vdupq_n_f32(fold.surround);
++    const float32x4_t scale_v = vdupq_n_f32(scale);
++    const float32x4_t lo = vdupq_n_f32(-1.0f);
++    const float32x4_t hi = vdupq_n_f32(1.0f);
++    auto load_swap = [&](size_t channel, size_t s) {
++      return vreinterpretq_f32_u8(vrev32q_u8(
++          vld1q_u8(reinterpret_cast<const uint8_t*>(&input[channel * ch_sample_count + s]))));
++    };
++    auto clamp = [&](float32x4_t v) {
++      v = vbslq_f32(vcltq_f32(v, lo), lo, v);
++      return vbslq_f32(vcltq_f32(hi, v), hi, v);
++    };
++    for (; sample + 4 <= ch_sample_count; sample += 4) {
++      const float32x4_t fl = load_swap(0, sample);
++      const float32x4_t fr = load_swap(1, sample);
++      const float32x4_t fc = load_swap(2, sample);
++      const float32x4_t lf = load_swap(3, sample);
++      const float32x4_t bl = load_swap(4, sample);
++      const float32x4_t br = load_swap(5, sample);
++      // Center and LFE land on both sides.
++      const float32x4_t mid = vaddq_f32(vmulq_f32(fc, center), vmulq_f32(lf, lfe));
++      const float32x4_t left =
++          clamp(vmulq_f32(vaddq_f32(vaddq_f32(fl, mid), vmulq_f32(bl, surround)), scale_v));
++      const float32x4_t right =
++          clamp(vmulq_f32(vaddq_f32(vaddq_f32(fr, mid), vmulq_f32(br, surround)), scale_v));
++      const float32x4x2_t zipped = vzipq_f32(left, right);
++      vst1q_f32(&output[sample * 2], zipped.val[0]);
++      vst1q_f32(&output[(sample + 2) * 2], zipped.val[1]);
++    }
++  }
++#endif
++  for (; sample < ch_sample_count; sample++) {
+     const float fl = rex::byte_swap(input[0 * ch_sample_count + sample]);
+     const float fr = rex::byte_swap(input[1 * ch_sample_count + sample]);
+     const float fc = rex::byte_swap(input[2 * ch_sample_count + sample]);
+diff --git a/include/rex/audio/flags.h b/include/rex/audio/flags.h
+index c2f70ba..2eded37 100644
+--- a/include/rex/audio/flags.h
++++ b/include/rex/audio/flags.h
+@@ -15,3 +15,4 @@
+ 
+ REXCVAR_DECLARE(bool, audio_mute);
+ REXCVAR_DECLARE(bool, ffmpeg_verbose);
++REXCVAR_DECLARE(bool, audio_neon_conversion);
+diff --git a/src/audio/xma_context.cpp b/src/audio/xma_context.cpp
+index 11b83be..39ef92b 100644
+--- a/src/audio/xma_context.cpp
++++ b/src/audio/xma_context.cpp
+@@ -14,13 +14,19 @@
+ 
+ #include <rex/audio/xma/context.h>
+ #include <rex/audio/xma/decoder.h>
++#include <rex/audio/flags.h>
+ #include <rex/audio/xma/helpers.h>
++#include <rex/cvar.h>
+ #include <rex/dbg.h>
+ #include <rex/logging.h>
+ #include <rex/memory/ring_buffer.h>
+ #include <rex/platform.h>
+ #include <rex/stream.h>
+ 
++#if REX_ARCH_ARM64 && defined(__ARM_NEON)
++#include <arm_neon.h>
++#endif
++
+ extern "C" {
+ #if REX_COMPILER_MSVC
+ #pragma warning(push)
+@@ -36,6 +42,10 @@ extern "C" {
+ // Credits for most of this code goes to:
+ // https://github.com/koolkdev/libertyv/blob/master/libav_wrapper/xma2dec.c
+ 
++REXCVAR_DEFINE_BOOL(audio_neon_conversion, true, "Audio",
++                    "On ARM64, convert decoded XMA frames to 16-bit big endian and fold 5.1 to "
++                    "stereo with NEON (the same results as the scalar code, faster).");
++
+ namespace rex::audio {
+ 
+ using stream::BitStream;
+@@ -798,6 +808,41 @@ void XmaContext::ConvertFrame(const uint8_t** samples, bool is_two_channel,
+     }
+   }
+ #else
++#if REX_ARCH_ARM64 && defined(__ARM_NEON)
++  // audio_neon_conversion: 4 or 8 samples at a time, bit-exact with the scalar
++  // path below - the same clamp (NaN to -1, as clamp_float), scale and
++  // conversion toward zero (static_cast), then a byte swap to big endian.
++  if (REXCVAR_GET(audio_neon_conversion)) {
++    static_assert(kSamplesPerFrame % 8 == 0);
++    const float32x4_t scale_v = vdupq_n_f32(scale);
++    const float32x4_t lo = vdupq_n_f32(-1.0f);
++    const float32x4_t hi = vdupq_n_f32(1.0f);
++    auto convert = [&](const float* in) {
++      float32x4_t v = vld1q_f32(in);
++      // clamp_float: isgreater(v, -1) ? v : -1, then isless(v, 1) ? v : 1.
++      v = vbslq_f32(vcgtq_f32(v, lo), v, lo);
++      v = vbslq_f32(vcltq_f32(v, hi), v, hi);
++      return vqmovn_s32(vcvtq_s32_f32(vmulq_f32(v, scale_v)));
++    };
++    const auto in_channel_0 = reinterpret_cast<const float*>(samples[0]);
++    if (is_two_channel) {
++      const auto in_channel_1 = reinterpret_cast<const float*>(samples[1]);
++      for (uint32_t i = 0; i < kSamplesPerFrame; i += 4) {
++        const int16x4x2_t zipped = vzip_s16(convert(&in_channel_0[i]), convert(&in_channel_1[i]));
++        const int16x8_t interleaved = vcombine_s16(zipped.val[0], zipped.val[1]);
++        vst1q_u8(reinterpret_cast<uint8_t*>(&out[i * 2]),
++                 vrev16q_u8(vreinterpretq_u8_s16(interleaved)));
++      }
++    } else {
++      for (uint32_t i = 0; i < kSamplesPerFrame; i += 8) {
++        const int16x8_t packed =
++            vcombine_s16(convert(&in_channel_0[i]), convert(&in_channel_0[i + 4]));
++        vst1q_u8(reinterpret_cast<uint8_t*>(&out[i]), vrev16q_u8(vreinterpretq_u8_s16(packed)));
++      }
++    }
++    return;
++  }
++#endif
+   uint32_t o = 0;
+   for (uint32_t i = 0; i < kSamplesPerFrame; i++) {
+     for (uint32_t j = 0; j <= uint32_t(is_two_channel); j++) {

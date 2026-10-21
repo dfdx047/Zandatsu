@@ -1,0 +1,51 @@
+diff --git a/src/graphics/command_processor.cpp b/src/graphics/command_processor.cpp
+index 6eb1909..d69c5cb 100644
+--- a/src/graphics/command_processor.cpp
++++ b/src/graphics/command_processor.cpp
+@@ -44,6 +44,15 @@ REXCVAR_DEFINE_BOOL(gpu_read_ptr_writeback_per_block, true, "GPU",
+                     "consumed, like the hardware, rather than only after a whole burst of "
+                     "commands.");
+ 
++REXCVAR_DEFINE_BOOL(wait_reg_mem_backoff, false, "GPU",
++                    "Re-check an unmet PM4 WAIT_REG_MEM condition after short sleeps growing from "
++                    "50 us up to the guest-requested poll interval, instead of sleeping the whole "
++                    "interval (1 ms or more) before every re-check. Only helps when the guest "
++                    "satisfies such waits within a fraction of the interval.");
++REXCVAR_DEFINE_INT32(wait_reg_mem_backoff_max_us, 0, "GPU",
++                     "With wait_reg_mem_backoff: the longest sleep between the re-checks, in "
++                     "microseconds (0: up to the guest-requested interval; 200 re-checks at least "
++                     "every 200 us).");
+ REXCVAR_DEFINE_BOOL(clear_memory_page_state, false, "GPU",
+                     "At the end of every frame, forget which pages the GPU has from the CPU, so "
+                     "everything used is uploaded again (a coherency safety net for titles writing "
+@@ -1271,6 +1280,8 @@ bool CommandProcessor::ExecutePacketType3_WAIT_REG_MEM(memory::RingBuffer* reade
+   bool is_memory = (wait_info & 0x10) != 0;
+ 
+   bool matched = false;
++  // Sleep before the next re-check with wait_reg_mem_backoff.
++  uint64_t backoff_us = 50;
+   do {
+     uint32_t value = 0;
+     if (is_memory) {
+@@ -1330,9 +1341,21 @@ bool CommandProcessor::ExecutePacketType3_WAIT_REG_MEM(memory::RingBuffer* reade
+       if (wait >= 0x100) {
+         const auto dbz3_wait_start = std::chrono::steady_clock::now();
+         PrepareForWait();
++        const uint64_t guest_interval_us = uint64_t(wait / 0x100) * 1000;
+         if (!REXCVAR_GET(vsync)) {
+           // User wants it fast and dangerous.
+           rex::thread::MaybeYield();
++        } else if (REXCVAR_GET(wait_reg_mem_backoff) && backoff_us < guest_interval_us) {
++          // Most of these waits are met by the guest CPU long before the
++          // guest's poll interval runs out - re-check early and often, then
++          // settle on the guest interval for genuinely long waits (vblank
++          // counters), or on wait_reg_mem_backoff_max_us.
++          rex::thread::Sleep(std::chrono::microseconds(backoff_us));
++          backoff_us *= 2;
++          const int32_t backoff_max_us = REXCVAR_GET(wait_reg_mem_backoff_max_us);
++          if (backoff_max_us > 0) {
++            backoff_us = std::min(backoff_us, uint64_t(backoff_max_us));
++          }
+         } else {
+           rex::thread::Sleep(std::chrono::milliseconds(wait / 0x100));
+         }

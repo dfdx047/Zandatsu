@@ -1,0 +1,49 @@
+diff --git a/src/kernel/xboxkrnl/xboxkrnl_threading.cpp b/src/kernel/xboxkrnl/xboxkrnl_threading.cpp
+index 57fd161..ac3e1fc 100644
+--- a/src/kernel/xboxkrnl/xboxkrnl_threading.cpp
++++ b/src/kernel/xboxkrnl/xboxkrnl_threading.cpp
+@@ -19,6 +19,7 @@
+ #include <vector>
+ 
+ #include <rex/chrono/clock.h>
++#include <rex/cvar.h>
+ #include <rex/dbg.h>
+ #include <rex/kernel/xboxkrnl/private.h>
+ #include <rex/kernel/xboxkrnl/threading.h>
+@@ -39,6 +40,13 @@
+ #include <rex/thread/atomic.h>
+ #include <rex/thread/mutex.h>
+ 
++REXCVAR_DEFINE_INT32(guest_yield_sleep_us, 0, "Kernel",
++                     "Experimental: once a guest thread has called NtYieldExecution 256 times in a "
++                     "row, each within 10 us of the last (a spin-wait), sleep this many "
++                     "microseconds per further call instead of only yielding, giving the host "
++                     "core back. Delays the spinner's reaction to new work by up to as much. "
++                     "0 - off.");
++
+ namespace rex::kernel::xboxkrnl {
+ using namespace rex::system;
+ using rex::runtime::current_ppc_context;
+@@ -390,6 +398,22 @@ u32 KeDelayExecutionThread_entry(u32 processor_mode, u32 alertable, mapped_u64 i
+ }
+ 
+ u32 NtYieldExecution_entry() {
++  // guest_yield_sleep_us: a spin-wait is a long run of yields close together;
++  // a thread back from doing work between them starts a new run.
++  const int32_t sleep_us = REXCVAR_GET(guest_yield_sleep_us);
++  if (sleep_us > 0) {
++    thread_local uint32_t yield_streak = 0;
++    thread_local std::chrono::steady_clock::time_point yield_last;
++    const auto now = std::chrono::steady_clock::now();
++    yield_streak = now - yield_last <= std::chrono::microseconds(10) ? yield_streak + 1 : 0;
++    yield_last = now;
++    if (yield_streak >= 256) {
++      rex::thread::Sleep(std::chrono::microseconds(std::min(sleep_us, 1000)));
++      // The sleep is not a gap in the spin.
++      yield_last = std::chrono::steady_clock::now();
++      return X_STATUS_SUCCESS;
++    }
++  }
+   rex::thread::MaybeYield();
+   return X_STATUS_SUCCESS;
+ }
