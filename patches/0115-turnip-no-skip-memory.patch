@@ -1,0 +1,70 @@
+diff --git a/include/rex/graphics/vulkan/render_target_cache.h b/include/rex/graphics/vulkan/render_target_cache.h
+index 47d78a2..38f36b7 100644
+--- a/include/rex/graphics/vulkan/render_target_cache.h
++++ b/include/rex/graphics/vulkan/render_target_cache.h
+@@ -996,6 +996,8 @@ class VulkanRenderTargetCache final : public RenderTargetCache {
+   VkDescriptorSet Dbz3DrawCopyTextureSet(VkImageView view);
+   bool Dbz3TryResolveDepthToTexture(const draw_util::ResolveInfo& resolve_info,
+                                     VulkanTextureCache& texture_cache, bool skip_memory);
++  // 0115: resolve sem memoria permitido neste driver (nao no Turnip, salvo cvar).
++  bool SwordManSkipMemoryAllowed() const;
+   // 0110 (MGR): cor k_32_FLOAT -> texturas k_32_FLOAT sem passar pela memoria.
+   bool SwordManTryResolveF32ToTexture(const draw_util::ResolveInfo& resolve_info,
+                                       VulkanTextureCache& texture_cache, bool skip_memory);
+diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
+index f88c2a6..4330fe3 100644
+--- a/src/graphics/vulkan/render_target_cache.cpp
++++ b/src/graphics/vulkan/render_target_cache.cpp
+@@ -78,6 +78,12 @@ REXCVAR_DEFINE_BOOL(swordman_rtt_float, true, "GPU/Vulkan",
+                     "float (k_24_8_FLOAT) e a cor k_32_FLOAT")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ 
++REXCVAR_DEFINE_BOOL(swordman_skip_memory_turnip, false, "GPU/Vulkan",
++                    "Project SwordMan (0115): permite o resolve sem memoria no Turnip. No RP5 "
++                    "(Adreno 650, Mesa 27) a imagem so sai certa com a memoria escrita "
++                    "(varredura de 21/10); desligado = no Turnip a memoria e sempre escrita")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++
+ REXCVAR_DEFINE_INT32(dbz3_resolve_debug, 0, "GPU",
+                      "DBZ3-Android: 1 = resolves sem trabalho na GPU (so para medir o custo)");
+ 
+@@ -1358,7 +1364,8 @@ bool VulkanRenderTargetCache::Resolve(const memory::Memory& memory,
+   // mesmo endereco (ou o CPU) o veriam, e no Budokai 3 ninguem le estes destinos
+   // de outra forma (logs de 2026-10-12/13).
+   if (resolve_info.copy_dest_extent_length && dbz3_step_rtt && !dbz3_capture_readback &&
+-      rex::cvar::GetFlagByName("dbz3_direct_resolve_skip_memory") == "true") {
++      rex::cvar::GetFlagByName("dbz3_direct_resolve_skip_memory") == "true" &&
++      SwordManSkipMemoryAllowed()) {
+     uint32_t dump_base, dump_row_length_used, dump_rows, dump_pitch;
+     resolve_info.GetCopyEdramTileSpan(dump_base, dump_row_length_used, dump_rows, dump_pitch);
+     GetResolveCopyRectanglesToDump(dump_base, dump_row_length_used, dump_rows, dump_pitch,
+@@ -6788,6 +6795,21 @@ bool VulkanRenderTargetCache::Dbz3StoreToTexture(uint32_t variant, VkDescriptorS
+   return true;
+ }
+ 
++// 0115: no Turnip o resolve sem memoria deixa a imagem errada (RP5, varredura 21/10): la a
++// memoria do guest e sempre escrita, salvo swordman_skip_memory_turnip.
++bool VulkanRenderTargetCache::SwordManSkipMemoryAllowed() const {
++  const VkDriverId driver = command_processor_.GetVulkanDevice()->properties().driverID;
++  if (driver != VK_DRIVER_ID_MESA_TURNIP || REXCVAR_GET(swordman_skip_memory_turnip)) {
++    return true;
++  }
++  static bool logged = false;
++  if (!logged) {
++    logged = true;
++    REXGPU_INFO("swordman: Turnip: resolve sem memoria desligado (a memoria e sempre escrita)");
++  }
++  return false;
++}
++
+ bool VulkanRenderTargetCache::Dbz3TryResolveToTexture(const draw_util::ResolveInfo& resolve_info,
+                                                       VulkanTextureCache& texture_cache,
+                                                       bool skip_memory) {
+@@ -8382,6 +8404,7 @@ bool VulkanRenderTargetCache::Dbz3RitServeStale(VulkanTextureCache& texture_cach
+   if (!REXCVAR_GET(dbz3_rit_serve_resolves)) return fail(0);
+   if (!g_stale_clean) return fail(1);
+   if (rex::cvar::GetFlagByName("dbz3_direct_resolve_skip_memory") != "true" ||
++      !SwordManSkipMemoryAllowed() ||
+       !Dbz3NativeStepOn(kDbz3StepResolveToTexture) || dbz3_capture::WantsResolveReadback() ||
+       rex::cvar::GetFlagByName("dbz3_direct_resolve_texture").empty() ||
+       std::atoi(rex::cvar::GetFlagByName("dbz3_direct_resolve_texture").c_str()) <= 0) {
