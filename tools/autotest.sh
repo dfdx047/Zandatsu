@@ -123,7 +123,8 @@ if [ ${#DEVS[@]} -eq 0 ]; then
 fi
 
 run_device() {
-  local serial="$1" label="$2" log="$OUT/$label.txt"
+  local serial="$1" label="$2"
+  local log="$OUT/$label.txt"
   for v in "${VARIANTS[@]}"; do
     # "rp5/nome:..." = so nesse aparelho.
     if [[ "${v%%:*}" == */* ]]; then

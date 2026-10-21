@@ -56,9 +56,20 @@ publish() {
     git -c user.name="SwordMan autoloop" -c user.email="autoloop@localhost" commit -qm "autotest $name"
     git branch -D autotest-results > /dev/null 2>&1
     git branch -m autotest-results
-    git push -q -f origin autotest-results
+    for try in 1 2 3; do
+      git push -q -f origin autotest-results && exit 0
+      sleep 10
+    done
+    exit 1
   ) && say "resultado enviado: runs/$name" || say "ERRO: nao consegui enviar o resultado (git push)"
 }
+
+# Um loop so: dois ao mesmo tempo disputam os aparelhos e o envio (21/10 07:45).
+exec 9> "${TMPDIR:-/tmp}/swordman-autoloop.lock"
+if ! flock -n 9; then
+  echo "ERRO: ja ha um autoloop a correr (feche o outro terminal)." >&2
+  exit 1
+fi
 
 say "loop iniciado (a verificar o main a cada $POLL s)"
 while true; do
