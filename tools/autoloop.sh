@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+# Loop de testes sem ninguem: deixe a correr com o PC ligado e os aparelhos por USB.
+#
+#   bash tools/autoloop.sh
+#
+# A cada commit novo no main (ou mudanca do plano): git pull, compila, instala nos aparelhos,
+# corre o plano de testes (tools/autotest-plan.txt) com tools/autotest.sh e manda o resultado
+# para o branch "autotest-results" do GitHub (runs/<data>/). Se a compilacao falhar, manda o log
+# do build no lugar dos testes. Quem corrige le esse branch, faz push de um commit novo e o
+# loop recomeca sozinho. Ctrl+C para parar.
+#
+# Antes da primeira vez: grave o caminho ate ao gameplay em cada aparelho
+# (bash tools/autotest.sh record rp5 / record cube) e confirme que o git consegue fazer push.
+set -uo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
+RESULTS_DIR="${RESULTS_DIR:-$HOME/.swordman-autotest-results}"
+POLL="${POLL:-120}"
+KEEP="${KEEP:-6}"
+REMOTE_URL="$(git remote get-url origin)"
+LAST=""
+
+say() { echo "[$(date '+%d/%m %H:%M:%S')] $*"; }
+
+# Aparelhos acordados e sem bloqueio de ecra enquanto estao na USB.
+keep_awake() {
+  adb devices | awk 'NR > 1 && $2 == "device" { print $1 }' | while read -r s; do
+    adb -s "$s" shell svc power stayon usb < /dev/null > /dev/null 2>&1
+    adb -s "$s" shell input keyevent KEYCODE_WAKEUP < /dev/null > /dev/null 2>&1
+  done
+}
+
+# Publica a pasta $1 em runs/<nome> do branch autotest-results (so os ultimos $KEEP).
+publish() {
+  local src="$1" name
+  name="$(basename "$src")"
+  if [ ! -d "$RESULTS_DIR/.git" ]; then
+    rm -rf "$RESULTS_DIR"
+    git clone -q --depth 1 --branch autotest-results "$REMOTE_URL" "$RESULTS_DIR" 2>/dev/null ||
+      { mkdir -p "$RESULTS_DIR" && git -C "$RESULTS_DIR" init -q &&
+        git -C "$RESULTS_DIR" remote add origin "$REMOTE_URL" &&
+        git -C "$RESULTS_DIR" checkout -q -b autotest-results; }
+  fi
+  mkdir -p "$RESULTS_DIR/runs"
+  rm -rf "${RESULTS_DIR:?}/runs/$name"
+  cp -r "$src" "$RESULTS_DIR/runs/$name"
+  # So os ultimos $KEEP (o branch e refeito a cada envio: nada de historico pesado).
+  ls -1d "$RESULTS_DIR"/runs/*/ 2>/dev/null | sort | head -n -"$KEEP" | xargs -r rm -rf
+  ls -1 "$RESULTS_DIR/runs" | sort > "$RESULTS_DIR/INDEX.txt"
+  (
+    cd "$RESULTS_DIR" || exit 1
+    git checkout -q --orphan publish-tmp
+    git add -A
+    git -c user.name="SwordMan autoloop" -c user.email="autoloop@localhost" commit -qm "autotest $name"
+    git branch -D autotest-results > /dev/null 2>&1
+    git branch -m autotest-results
+    git push -q -f origin autotest-results
+  ) && say "resultado enviado: runs/$name" || say "ERRO: nao consegui enviar o resultado (git push)"
+}
+
+say "loop iniciado (a verificar o main a cada $POLL s)"
+while true; do
+  git fetch -q origin main 2>/dev/null
+  HEAD_NEW="$(git rev-parse origin/main 2>/dev/null)"
+  if [ -n "$HEAD_NEW" ] && [ "$HEAD_NEW" != "$LAST" ]; then
+    git pull -q --ff-only origin main || { say "ERRO: git pull falhou (alteracoes locais?)"; sleep "$POLL"; continue; }
+    COMMIT="$(git log -1 --format='%h %s')"
+    say "commit novo: $COMMIT"
+    STAMP="$(date +%Y%m%d-%H%M%S)"
+    RUN="$(mktemp -d)/$STAMP"
+    mkdir -p "$RUN"
+    echo "$COMMIT" > "$RUN/commit.txt"
+    keep_awake
+    if ! PULL=0 bash tools/build.sh all > "$RUN/build.log" 2>&1; then
+      say "build falhou - a enviar o log"
+      tail -n 400 "$RUN/build.log" > "$RUN/build-tail.log"
+      publish "$RUN"
+      LAST="$HEAD_NEW"
+      continue
+    fi
+    # Plano: uma variante por linha (# comentarios); a primeira linha "settle N" muda a espera.
+    SETTLE=30
+    VARIANTS=()
+    while read -r line; do
+      line="${line%%#*}"
+      line="$(echo "$line" | xargs)"
+      [ -z "$line" ] && continue
+      if [[ "$line" == settle* ]]; then SETTLE="${line#settle }"; continue; fi
+      VARIANTS+=("$line")
+    done < tools/autotest-plan.txt
+    say "a testar: ${VARIANTS[*]}"
+    bash tools/autotest.sh --settle "$SETTLE" "${VARIANTS[@]}" > "$RUN/autotest.log" 2>&1
+    ZIP="$(ls -t "$HOME"/Downloads/SwordMan-autotest-*.zip "$HOME"/Downloads/SwordMan-autotest-*.tar.gz 2>/dev/null | head -n 1)"
+    [ -n "$ZIP" ] && cp "$ZIP" "$RUN/"
+    publish "$RUN"
+    LAST="$HEAD_NEW"
+  fi
+  sleep "$POLL"
+done
