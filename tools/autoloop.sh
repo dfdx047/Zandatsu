@@ -13,7 +13,14 @@
 # (bash tools/autotest.sh record rp5 / record cube) e confirme que o git consegue fazer push.
 set -uo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# O git pull do loop troca este ficheiro enquanto o bash o le: corre-se de uma copia.
+if [ -z "${AUTOLOOP_ROOT:-}" ]; then
+  AUTOLOOP_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+  COPY="$(mktemp "${TMPDIR:-/tmp}/swordman-autoloop.XXXXXX")"
+  cp "${BASH_SOURCE[0]}" "$COPY"
+  AUTOLOOP_ROOT="$AUTOLOOP_ROOT" exec bash "$COPY" "$@"
+fi
+ROOT="$AUTOLOOP_ROOT"
 cd "$ROOT"
 RESULTS_DIR="${RESULTS_DIR:-$HOME/.swordman-autotest-results}"
 POLL="${POLL:-120}"
