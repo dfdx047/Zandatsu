@@ -1,14 +1,14 @@
 # Plano do tools/autoloop.sh: uma variante por linha (sintaxe do tools/autotest.sh).
 # "rp5/..." ou "cube/..." = so nesse aparelho. "settle N" = segundos de gameplay antes do autoteste.
-# "@driver=system" ou "@driver=dono/repo#texto" troca o driver Vulkan so nessa variante.
-# Rodada 6 (21/10 ~16h40). Rodada 5: Turnip 27 caiu de novo (DEVICE_LOST); o driver Qualcomm
-# nao cai (5 de 5), mas a imagem do autoteste saiu toda branca - o mesmo sintoma do "resolve sem
-# memoria" no Turnip. Logo os atalhos estao errados no Adreno em geral, nao so no Turnip.
-# Os downloads de Turnip falharam (agora o log diz porque).
-settle 30
+# "@driver=system" ou "@driver=dono/repo/texto" troca o driver Vulkan so nessa variante
+# (o primeiro .zip das releases cujo nome ou tag contem o texto). Nada de "#" nas linhas: e comentario.
+# Rodada 7 (21/10 ~17h25). Rodada 6: as fotos do Cube e do driver Qualcomm sao um ecra branco
+# (uma transicao do jogo aos ~30 s, nao um erro) -> settle 60. O Turnip 27 chegou ao gameplay com
+# as texturas em mosaico/listras; sem atalhos caiu na mesma (DEVICE_LOST) -> nao sao os atalhos.
+settle 60
 base
-rp5/qc-mem:@driver=system;dbz3_direct_resolve_skip_memory=false
-rp5/qc-noshort:@driver=system;dbz3_rt_direct=false;dbz3_render_into_texture=false;swordman_rtt_float=false
-rp5/tn-noshort:dbz3_rt_direct=false;dbz3_render_into_texture=false;swordman_rtt_float=false
-rp5/k11-26:@driver=K11MCH1/AdrenoToolsDrivers#26
-rp5/purple:@driver=MrPurple666/purple-turnip#turnip
+rp5/no3d2d:gpu_3d_to_2d_texture=false
+rp5/k11-r8:@driver=K11MCH1/AdrenoToolsDrivers/Turnip_v26.0.0_R8.zip
+rp5/k11-r8-sysmem:@driver=K11MCH1/AdrenoToolsDrivers/Turnip_v26.0.0_R8_Sysmem
+rp5/purple-t26:@driver=MrPurple666/purple-turnip/T26-toasted
+rp5/qc:@driver=system

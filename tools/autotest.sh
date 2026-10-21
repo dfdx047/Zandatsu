@@ -122,11 +122,14 @@ if [ ${#DEVS[@]} -eq 0 ]; then
   exit 1
 fi
 
-# Driver Vulkan por variante: "@driver=system" (o do aparelho) ou "@driver=dono/repo#texto"
+# Driver Vulkan por variante: "@driver=system" (o do aparelho) ou "@driver=dono/repo/texto"
 # (o primeiro .zip das releases desse repositorio do GitHub cujo nome/tag contem o texto; fica em
 # cache em ~/.cache/swordman-drivers). O driver do app e reposto no fim da variante.
-fetch_driver() {  # fetch_driver dono/repo#texto -> caminho do .so (ou vazio)
-  local spec="$1" repo="${1%%#*}" match="${1#*#}" cache url dir so
+fetch_driver() {  # fetch_driver dono/repo/texto -> caminho do .so (ou vazio)
+  # dono/repo/texto ("#" nao serve: o autoloop corta o plano no "#" como comentario - 21/10 16:53)
+  local spec="$1" repo match cache url dir so
+  repo="$(echo "$spec" | cut -d/ -f1-2)"
+  match="$(echo "$spec" | cut -d/ -f3-)"
   cache="$HOME/.cache/swordman-drivers"
   mkdir -p "$cache"
   # Diagnostico no log (stderr): na rodada de 21/10 15:49 nada foi encontrado sem dizer porque.
