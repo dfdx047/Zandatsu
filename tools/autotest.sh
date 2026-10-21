@@ -9,12 +9,14 @@
 #   bash tools/autotest.sh                          # a config atual, nos aparelhos ligados
 #   bash tools/autotest.sh --build                  # compila e instala antes (build.sh all)
 #   bash tools/autotest.sh base fp16:swordman_ps_fp16=true
+#   bash tools/autotest.sh base 'rp5/sysmem:env:TU_DEBUG=sysmem' 'cube/fp16:swordman_ps_fp16=true'
 #                                                   # duas variantes seguidas em cada aparelho
 #   bash tools/autotest.sh --only cube ...          # so um aparelho
 #   bash tools/autotest.sh --settle 45 ...          # segundos no gameplay antes do autoteste
 #
-# Variante: "nome" (config atual) ou "nome:cvar=valor,cvar=valor" (cvars.txt do aparelho so
-# nessa rodada). Em cada aparelho e variante: fecha o jogo, abre-o, repete o caminho gravado,
+# Variante: "nome" (config atual) ou "nome:cvar=valor;cvar=valor" (cvars.txt do aparelho so
+# nessa rodada; "env:VAR=valor" para variaveis do driver, ex. env:TU_DEBUG=sysmem). Com
+# "rp5/nome:..." a variante so corre nesse aparelho. Em cada aparelho e variante: fecha o jogo, abre-o, repete o caminho gravado,
 # espera, corre o autoteste do render (que exporta o zip) e puxa o zip. No fim junta tudo em
 # ~/Downloads/SwordMan-autotest-<data>.zip - e so mandar esse ficheiro.
 set -euo pipefail
@@ -123,12 +125,17 @@ fi
 run_device() {
   local serial="$1" label="$2" log="$OUT/$label.txt"
   for v in "${VARIANTS[@]}"; do
+    # "rp5/nome:..." = so nesse aparelho.
+    if [[ "${v%%:*}" == */* ]]; then
+      [ "${v%%/*}" = "$label" ] || continue
+      v="${v#*/}"
+    fi
     local name="${v%%:*}" cvars=""
     [[ "$v" == *:* ]] && cvars="${v#*:}"
     {
       echo "== $label / $name ($(date +%H:%M:%S))"
       if [ -n "$cvars" ]; then
-        echo "$cvars" | tr ',' '\n' | sed 's/=/ = /' | adb -s "$serial" shell "cat > $APPDIR/cvars.txt"
+        echo "$cvars" | tr ';' '\n' | sed 's/=/ = /' | adb -s "$serial" shell "cat > $APPDIR/cvars.txt"
         echo "   cvars.txt: $cvars"
       else
         adb -s "$serial" shell rm -f "$APPDIR/cvars.txt"
