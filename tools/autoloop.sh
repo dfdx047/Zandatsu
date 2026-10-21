@@ -55,6 +55,7 @@ publish() {
   cp -r "$src" "$RESULTS_DIR/runs/$name"
   # So os ultimos $KEEP (o branch e refeito a cada envio: nada de historico pesado).
   ls -1d "$RESULTS_DIR"/runs/*/ 2>/dev/null | sort | head -n -"$KEEP" | xargs -r rm -rf
+  find "$RESULTS_DIR/runs" -type f -size +90M -delete
   ls -1 "$RESULTS_DIR/runs" | sort > "$RESULTS_DIR/INDEX.txt"
   (
     cd "$RESULTS_DIR" || exit 1
@@ -77,6 +78,40 @@ if ! flock -n 9; then
   echo "ERRO: ja ha um autoloop a correr (feche o outro terminal)." >&2
   exit 1
 fi
+
+# O zip completo passa de 200 MB (o GitHub recusa ficheiros acima de 100 MB, 21/10): para o
+# GitHub vai so o que se analisa - textos, logs comprimidos e as primeiras fotos de cada teste.
+# O zip completo fica em ~/Downloads.
+slim() {
+  local zip="$1" out="$2" tmp
+  tmp="$(mktemp -d)"
+  mkdir -p "$out"
+  case "$zip" in
+    *.zip) unzip -q -o "$zip" -d "$tmp" ;;
+    *) tar -C "$tmp" -xzf "$zip" ;;
+  esac
+  # Os zips do "Exportar logs" de cada aparelho/variante, e as pastas de logs de um crash.
+  find "$tmp" -name '*.zip' | while read -r inner; do
+    local name dir
+    name="$(basename "$inner" .zip)"
+    dir="$out/$name"
+    mkdir -p "$dir"
+    unzip -q -o "$inner" -d "$tmp/x-$name"
+    find "$tmp/x-$name" -type f \( -name '*.txt' -o -name '*.log' -o -name '*.toml' \) \
+      -exec cp {} "$dir/" \;
+    find "$tmp/x-$name" -type f \( -name 'autoteste_0[0-3].jpg' -o -name 'turnip_sweep_*.jpg' \) \
+      -exec cp {} "$dir/" \;
+  done
+  find "$tmp" -maxdepth 2 -type d -name '*-logs' | while read -r d; do
+    cp -r "$d" "$out/"
+    find "$out/$(basename "$d")" -name '*.jpg' ! -name 'autoteste_0[0-3].jpg' -delete
+  done
+  find "$tmp" -maxdepth 2 \( -name '*.txt' -o -name '*.png' \) -exec cp {} "$out/" \;
+  # Logs grandes comprimidos; nada acima de 40 MB.
+  find "$out" -type f \( -name '*.log' -o -name '*.txt' \) -size +1M -exec gzip -9f {} \;
+  find "$out" -type f -size +40M -delete
+  rm -rf "$tmp"
+}
 
 say "loop iniciado (a verificar o main a cada $POLL s)"
 while true; do
@@ -117,7 +152,7 @@ while true; do
     say "a testar: ${VARIANTS[*]}"
     bash tools/autotest.sh --settle "$SETTLE" "${VARIANTS[@]}" > "$RUN/autotest.log" 2>&1
     ZIP="$(ls -t "$HOME"/Downloads/SwordMan-autotest-*.zip "$HOME"/Downloads/SwordMan-autotest-*.tar.gz 2>/dev/null | head -n 1)"
-    [ -n "$ZIP" ] && cp "$ZIP" "$RUN/"
+    [ -n "$ZIP" ] && slim "$ZIP" "$RUN/results"
     echo "testes acabados ($(date '+%d/%m %H:%M'))" >> "$RUN/status.txt"
     publish "$RUN"
     LAST="$HEAD_NEW"
