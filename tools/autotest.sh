@@ -129,23 +129,40 @@ fetch_driver() {  # fetch_driver dono/repo#texto -> caminho do .so (ou vazio)
   local spec="$1" repo="${1%%#*}" match="${1#*#}" cache url dir so
   cache="$HOME/.cache/swordman-drivers"
   mkdir -p "$cache"
-  url="$( (curl -s "https://api.github.com/repos/$repo/releases?per_page=40" |
-    python3 -c "
+  # Diagnostico no log (stderr): na rodada de 21/10 15:49 nada foi encontrado sem dizer porque.
+  local api="$cache/releases-$(echo "$repo" | tr '/' '_').json" auth=()
+  if command -v gh > /dev/null && gh auth token > /dev/null 2>&1; then
+    auth=(-H "Authorization: Bearer $(gh auth token)")
+  fi
+  curl -sS "${auth[@]}" "https://api.github.com/repos/$repo/releases?per_page=60" -o "$api" >&2 || true
+  url="$(python3 - "$match" "$api" <<'PY' || true
 import json, sys
-m = sys.argv[1].lower()
-for rel in json.load(sys.stdin):
-    for a in rel.get('assets', []):
-        n = a['name']
-        if n.lower().endswith('.zip') and (m in n.lower() or m in rel['tag_name'].lower()):
-            print(a['browser_download_url']); sys.exit()
-" "$match" 2>/dev/null) || true)"
+m, path = sys.argv[1].lower(), sys.argv[2]
+try:
+    rels = json.load(open(path))
+except Exception as e:
+    print("   driver: resposta da API ilegivel: %s" % e, file=sys.stderr); sys.exit()
+if not isinstance(rels, list):
+    print("   driver: API do GitHub: %s" % str(rels.get("message", rels))[:200], file=sys.stderr); sys.exit()
+names = []
+for rel in rels:
+    for a in rel.get("assets", []):
+        n = a["name"]
+        names.append(rel["tag_name"] + " / " + n)
+        if n.lower().endswith(".zip") and (m in n.lower() or m in rel["tag_name"].lower()):
+            print(a["browser_download_url"]); sys.exit()
+print("   driver: %d releases, nenhum .zip com '%s'. Primeiros: %s" % (len(rels), m, "; ".join(names[:12])), file=sys.stderr)
+PY
+)"
   [ -z "$url" ] && return 0
   dir="$cache/$(echo "$url" | md5sum | cut -c1-12)"
   if [ ! -d "$dir" ]; then
     mkdir -p "$dir"
-    curl -sL "$url" -o "$dir/driver.zip" && unzip -q -o "$dir/driver.zip" -d "$dir" || { rm -rf "$dir"; return 0; }
+    curl -sSL "$url" -o "$dir/driver.zip" >&2 && unzip -q -o "$dir/driver.zip" -d "$dir" >&2 ||
+      { echo "   driver: falhou baixar/extrair $url" >&2; rm -rf "$dir"; return 0; }
   fi
   so="$(find "$dir" -name '*.so' | head -n 1 || true)"
+  if [ -z "$so" ]; then echo "   driver: sem .so em $(basename "$url")" >&2; fi
   if [ -n "$so" ]; then echo "$so|$(basename "$url")"; fi
 }
 

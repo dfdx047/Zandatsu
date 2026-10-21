@@ -1,12 +1,14 @@
 # Plano do tools/autoloop.sh: uma variante por linha (sintaxe do tools/autotest.sh).
 # "rp5/..." ou "cube/..." = so nesse aparelho. "settle N" = segundos de gameplay antes do autoteste.
 # "@driver=system" ou "@driver=dono/repo#texto" troca o driver Vulkan so nessa variante.
-# Rodada 5 (21/10 ~15h30): o Turnip 27.0 R1 do RP5 cai (DEVICE_LOST) em 30-120 s em todas as
-# variantes do lado do jogo; o Budokai 3 funcionou com Turnip 25/26. Testar versoes do driver.
+# Rodada 6 (21/10 ~16h40). Rodada 5: Turnip 27 caiu de novo (DEVICE_LOST); o driver Qualcomm
+# nao cai (5 de 5), mas a imagem do autoteste saiu toda branca - o mesmo sintoma do "resolve sem
+# memoria" no Turnip. Logo os atalhos estao errados no Adreno em geral, nao so no Turnip.
+# Os downloads de Turnip falharam (agora o log diz porque).
 settle 30
 base
-rp5/qualcomm:@driver=system
-rp5/k11-26:@driver=K11MCH1/AdrenoToolsDrivers#26.0.0
-rp5/k11-25:@driver=K11MCH1/AdrenoToolsDrivers#25.
-rp5/purple-26:@driver=MrPurple666/purple-turnip#26
-rp5/steven:@driver=StevenMXZ/freedreno_turnip-CI#a6xx
+rp5/qc-mem:@driver=system;dbz3_direct_resolve_skip_memory=false
+rp5/qc-noshort:@driver=system;dbz3_rt_direct=false;dbz3_render_into_texture=false;swordman_rtt_float=false
+rp5/tn-noshort:dbz3_rt_direct=false;dbz3_render_into_texture=false;swordman_rtt_float=false
+rp5/k11-26:@driver=K11MCH1/AdrenoToolsDrivers#26
+rp5/purple:@driver=MrPurple666/purple-turnip#turnip
