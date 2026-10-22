@@ -1,13 +1,16 @@
 # Plano do tools/autoloop.sh: uma variante por linha (sintaxe do tools/autotest.sh).
 # "rp5/..." ou "cube/..." = so nesse aparelho. "settle N" = segundos de gameplay antes do autoteste.
 # "attack" = o Raiden ataca (X/Y) durante a espera e o autoteste: cena com os efeitos dos golpes.
-# "capture" = captura 2 frames (.dfc) a meio da espera; o PC tira o mapa do frame e os shaders
-# com o OptXbox e publica so o texto (a captura tem ~200 MB).
+# "capture" = captura 2 frames (.dfc) a meio da espera; o PC publica o mapa e os shaders (texto).
 # "@driver=system" ou "@driver=dono/repo/texto" troca o driver Vulkan so nessa variante.
 # Nada de "#" dentro de uma linha de variante: e comentario.
-# Rodada N1 (22/10 manha): base dos dois aparelhos com captura, para o mapa dos efeitos do MGR
-# (render nativo so dos efeitos: passes P13-P26 da captura de 19/10).
+# Rodada Q1 (22/10 ~17h): base do menu de qualidade. Resolucao interna com FSR e brilho, nos dois
+# aparelhos, com o Raiden a atacar. Mede-se o FPS e a GPU de cada nivel (autoteste ao vivo) e as
+# fotos dizem se a imagem estraga (bug abaixo de 720p).
 settle 45
-capture
 attack
 base
+r85:draw_resolution_percent=85;present_effect=fsr
+r75:draw_resolution_percent=75;present_effect=fsr
+r67:draw_resolution_percent=67;present_effect=fsr
+glow:swordman_glow_blur=true;swordman_skip_ps=
