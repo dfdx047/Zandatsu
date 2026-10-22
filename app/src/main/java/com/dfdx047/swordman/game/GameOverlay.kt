@@ -87,8 +87,24 @@ class GameOverlay(private val activity: Activity) : InputManager.InputDeviceList
     private val attachRunnable = Runnable { attachPad() }
     private var gpuStats: GpuStatsSampler? = null
 
+    /** Cheat "saltar logos": Start a cada 0,7 s, dos 2 s ate skipLogosSeconds depois do arranque. */
+    private val skipLogosRunnable = object : Runnable {
+        var until = 0L
+        override fun run() {
+            if (android.os.SystemClock.uptimeMillis() > until) return
+            engine.press("skiplogos", com.dfdx047.swordman.controls.ControlAction.Sequence(
+                listOf(com.dfdx047.swordman.controls.MacroStep(setOf(PadInput.START), 6)), holdLast = false))
+            main.postDelayed(this, 700)
+        }
+    }
+
     fun onCreate() {
         AppPaths.init(activity)
+        if (prefs.skipLogos) {
+            skipLogosRunnable.until = android.os.SystemClock.uptimeMillis() + prefs.skipLogosSeconds * 1000L
+            main.postDelayed(skipLogosRunnable, 2000)
+            com.dfdx047.swordman.data.AppLog.i("cheats", "saltar logos: Start ate ${prefs.skipLogosSeconds} s")
+        }
         if (GameConfig.load().perfLogging) {
             val f = java.io.File(AppPaths.logsDir, "gpu_stats.log")
             f.delete()
@@ -490,6 +506,7 @@ class GameOverlay(private val activity: Activity) : InputManager.InputDeviceList
     }
 
     fun onDestroy() {
+        main.removeCallbacks(skipLogosRunnable)
         autoPilot.unregister()
         gpuStats?.stop()
         NativeGameState.forceResume()

@@ -379,4 +379,10 @@
     <string name="turnip_sweep_rtt">Varredura do Turnip: atalho resolve→textura (%1$d inicializações)</string>
     <string name="settings_ps_fp16">Pixel shaders em fp16 (experimental)</string>
     <string name="settings_ps_fp16_sub">Conta em meia precisão nos shaders do jogo: mais rápido na Mali e no Adreno; pode dar faixas de cor ou efeitos errados. Vale na próxima inicialização.</string>
+    <string name="tab_cheats">Cheats</string>
+    <string name="cheats_boot_title">Arranque</string>
+    <string name="cheats_skip_logos">Pular as logos</string>
+    <string name="cheats_skip_logos_sub">Aperta Start sozinho no começo do jogo até passar as logos das empresas.</string>
+    <string name="cheats_skip_logos_seconds">Apertar Start durante</string>
+    <string name="cheats_skip_logos_seconds_sub">Quanto tempo depois de abrir o jogo. Se passar da tela de título, diminua.</string>
 </resources>

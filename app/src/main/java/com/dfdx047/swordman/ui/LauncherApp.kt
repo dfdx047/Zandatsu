@@ -26,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.Gamepad
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
@@ -69,6 +70,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.dfdx047.swordman.R
 import com.dfdx047.swordman.ui.screens.AboutScreen
+import com.dfdx047.swordman.ui.screens.CheatsScreen
 import com.dfdx047.swordman.ui.screens.ControlsScreen
 import com.dfdx047.swordman.ui.screens.DebugScreen
 import com.dfdx047.swordman.ui.screens.DriversScreen
@@ -81,6 +83,7 @@ enum class LauncherTab(@StringRes val title: Int, val icon: ImageVector) {
     HOME(R.string.tab_home, Icons.Filled.Home),
     PERFORMANCE(R.string.tab_performance, Icons.Filled.Speed),
     CONTROLS(R.string.tab_controls, Icons.Filled.Gamepad),
+    CHEATS(R.string.tab_cheats, Icons.Filled.FastForward),
     DRIVERS(R.string.tab_drivers, Icons.Filled.Memory),
     DEBUG(R.string.tab_debug, Icons.Filled.BugReport),
     SETTINGS(R.string.tab_settings, Icons.Filled.Settings),
@@ -179,6 +182,7 @@ private fun TabContent(tab: LauncherTab, vm: LauncherViewModel, goTo: (LauncherT
             LauncherTab.HOME -> HomeScreen(vm, goTo)
             LauncherTab.PERFORMANCE -> PerformanceScreen(vm)
             LauncherTab.CONTROLS -> ControlsScreen(vm)
+            LauncherTab.CHEATS -> CheatsScreen(vm)
             LauncherTab.DRIVERS -> DriversScreen(vm)
             LauncherTab.DEBUG -> DebugScreen(vm)
             LauncherTab.SETTINGS -> SettingsScreen(vm)

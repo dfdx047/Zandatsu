@@ -380,4 +380,10 @@
     <string name="turnip_sweep_rtt">Turnip sweep: resolve→texture shortcut (%1$d starts)</string>
     <string name="settings_ps_fp16">Pixel shaders in fp16 (experimental)</string>
     <string name="settings_ps_fp16_sub">Half-precision math in the game shaders: faster on Mali and Adreno; may show banding or wrong effects. Applies on the next start.</string>
+    <string name="tab_cheats">Cheats</string>
+    <string name="cheats_boot_title">Startup</string>
+    <string name="cheats_skip_logos">Skip the logos</string>
+    <string name="cheats_skip_logos_sub">Presses Start by itself at startup until the company logos are skipped.</string>
+    <string name="cheats_skip_logos_seconds">Press Start for</string>
+    <string name="cheats_skip_logos_seconds_sub">How long after the game opens. If it goes past the title screen, lower it.</string>
 </resources>
