@@ -149,12 +149,19 @@ public final class TurnipSupport {
         // cores trocadas). O XenDroid (emulador de Xbox 360, vulkan_instance.cc) liga sempre
         // TU_DEBUG=push_consts_per_stage no a6xx ("a650 4-squares": corrida com a escrita das
         // constantes partilhadas, provada com WFI). 21/10.
+        // + sysmem (22/10): o RP5 caia com VK_ERROR_DEVICE_LOST ("submit failed: Protocol error",
+        // GPU a 98-99%) em todas as sessoes no Turnip desde 16/10. O XenDroid e o XenDroid Plus
+        // usam TU_DEBUG=sysmem por padrao porque evita uma classe de travamentos do GPU no modo
+        // por blocos (GMEM). Custa ~10% de GPU no RP5. Um TU_DEBUG no cvars.txt substitui isto.
         if ("a6xx".equals(gpu.gen) || kgslGeneration() == 6) {
             String cur = env.get("TU_DEBUG");
+            String add = "push_consts_per_stage,sysmem";
             if (cur == null || cur.isEmpty()) {
-                env.put("TU_DEBUG", "push_consts_per_stage");
-            } else if (!cur.contains("push_consts_per_stage")) {
-                env.put("TU_DEBUG", cur + ",push_consts_per_stage");
+                env.put("TU_DEBUG", add);
+            } else {
+                if (!cur.contains("push_consts_per_stage")) cur += ",push_consts_per_stage";
+                if (!cur.contains("sysmem")) cur += ",sysmem";
+                env.put("TU_DEBUG", cur);
             }
         }
         // Adreno 6xx + Turnip: memoria do jogo num so storage buffer de 512 MB (o Turnip diz 128 MB
