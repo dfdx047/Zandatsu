@@ -34,7 +34,7 @@ fun CheatsScreen(vm: LauncherViewModel) {
                 title = stringResource(R.string.cheats_skip_logos),
                 subtitle = stringResource(R.string.cheats_skip_logos_sub),
                 checked = vm.skipLogos,
-            ) { vm.setSkipLogos(it) }
+            ) { vm.changeSkipLogos(it) }
             SettingSlider(
                 title = stringResource(R.string.cheats_skip_logos_seconds),
                 value = vm.skipLogosSeconds.toFloat(),
@@ -42,7 +42,7 @@ fun CheatsScreen(vm: LauncherViewModel) {
                 steps = 9,
                 subtitle = stringResource(R.string.cheats_skip_logos_seconds_sub),
                 label = { "${it.roundToInt()} s" },
-            ) { vm.setSkipLogosSeconds(it.roundToInt()) }
+            ) { vm.changeSkipLogosSeconds(it.roundToInt()) }
         }
     }
 }

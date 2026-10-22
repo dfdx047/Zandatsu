@@ -71,7 +71,7 @@ class LauncherPrefs(context: Context) {
 
     /** Cheats: o jogo aperta Start sozinho no arranque para saltar as logos (GameOverlay). */
     var skipLogos: Boolean
-        get() = prefs.getBoolean("cheat_skip_logos", true)
+        get() = prefs.getBoolean("cheat_skip_logos", false)
         set(v) = prefs.edit().putBoolean("cheat_skip_logos", v).apply()
     /** Segundos, desde o arranque, em que o Start e apertado. */
     var skipLogosSeconds: Int

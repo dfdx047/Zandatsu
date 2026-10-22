@@ -74,8 +74,8 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var skipLogosSeconds by mutableStateOf(prefs.skipLogosSeconds)
         private set
-    fun setSkipLogos(v: Boolean) { skipLogos = v; prefs.skipLogos = v }
-    fun setSkipLogosSeconds(v: Int) { skipLogosSeconds = v; prefs.skipLogosSeconds = v }
+    fun changeSkipLogos(v: Boolean) { skipLogos = v; prefs.skipLogos = v }
+    fun changeSkipLogosSeconds(v: Int) { skipLogosSeconds = v; prefs.skipLogosSeconds = v }
     fun setDark(v: DarkMode) { darkMode = v; prefs.darkMode = v }
 
     fun setLanguage(v: AppLanguage) {
