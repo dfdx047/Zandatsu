@@ -59,6 +59,13 @@ class RenderSelfTest(
         Opt("atalho profundidade float / 32_FLOAT (0110)", mapOf("swordman_rtt_float" to ("true" to "false"))),
         Opt("render targets diretos (DF)", mapOf("dbz3_rt_direct" to ("true" to "false"))),
         Opt("resolve sem memoria (DF)", mapOf("dbz3_direct_resolve_skip_memory" to ("true" to "false"))),
+        Opt("resolve sem memoria no Turnip", mapOf("swordman_skip_memory_turnip" to ("true" to "false"))),
+        // Lote 2 do XenDroid Plus (22/10): desligados por padrao; o autoteste liga cada um ("com ...").
+        Opt("MSAA 4x como 2x (XP)", mapOf("msaa_4x_as_2x" to ("true" to "false"))),
+        Opt("4x de profundidade/simples em 1x (XP)", mapOf(
+            "vulkan_depth_4x_as_1x" to ("true" to "false"),
+            "vulkan_samples_as_pixels_simple_ps" to ("true" to "false"))),
+        Opt("pular transfers sobrescritos (XP)", mapOf("skip_overwritten_transfers" to ("true" to "false"))),
     )
 
     /** Estado de referencia: o que o jogo tem agora (o da config, ex. sem restauros ignorados no Mali). */
