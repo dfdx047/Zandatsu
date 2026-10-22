@@ -127,6 +127,9 @@ data class GameConfig(
             "swordman_freeze_record" to false,
             "swordman_ps_census" to false,
             "swordman_skip_ps" to (if (glowBlur) "" else MGR_GLOW_BLUR_PS),
+            // Escolha explicita do brilho (22/10): as configs antigas gravaram "" (brilho ligado)
+            // como padrao; so esta chave conta para manter o brilho.
+            "swordman_glow_blur" to glowBlur,
             "swordman_ps_fp16" to psFp16,
             // Os contornos 0102/0103 eram para o crash acima (diagnostico errado): desligados.
             "dbz3_empty_fs_for_depth_only" to 0,
@@ -194,7 +197,9 @@ data class GameConfig(
                     else -> 60
                 },
                 frameInterpolation = interp,
-                glowBlur = !str("swordman_skip_ps", "").contains("4086D1DF9FA6220E"),
+                // 22/10: autoteste ao vivo no RP5 numa luta: -3.5 ms sem o desfoque do brilho (Cube:
+                // -2.1 ms). Cortado por padrao tambem nas configs antigas; volta com o interruptor.
+                glowBlur = bool("swordman_glow_blur", false),
                 psFp16 = bool("swordman_ps_fp16", false),
                 showFps = bool("debug_overlay", d.showFps),
                 letterbox = bool("present_letterbox", d.letterbox),
