@@ -302,7 +302,7 @@
     <string name="menu_restart_badge">Restart needed</string>
     <string name="menu_restart_needed">Applies the next time the game starts.</string>
     <string name="menu_hints">LB/RB tabs · ↑↓ move · ◀▶ change · A choose · B close</string>
-    <string name="menu_selftest">Render self-test (about 1.5 min)</string>
+    <string name="menu_selftest">Render self-test, live (about 4 min, keep playing)</string>
     <string name="menu_selftest_help">Freezes the picture (the game stops, the GPU keeps redrawing the same frame) and turns the renderer shortcuts off one at a time, comparing pictures: shows which one breaks the image and how much each is worth. Unfreezes at the end. Result in Export logs.</string>
     <string name="menu_selftest_refused">A self-test is already running.</string>
     <string name="menu_export_logs_help">Puts all logs, the self-test result and the latest capture in a zip in Download/.</string>

@@ -427,28 +427,16 @@ class GameOverlay(private val activity: Activity) : InputManager.InputDeviceList
         val surface = GameActivity.gameSurface() ?: return false
         if (selfTest != null) return false
         setScreen(InGameScreen.CLOSED)
-        // O autoteste precisa de uma imagem parada com o jogo a desenhar: congela (o jogo fica
-        // preso no VdSwap e a GPU repete o ultimo frame com as opcoes de agora, patch 0105),
-        // como o freeze_game do Dragon Burst, e descongela no fim.
-        // 0109: primeiro grava os comandos de alguns frames com o jogo a correr (o MGR manda o
-        // swap de um buffer indireto, por isso o anel sozinho nao chega para repetir o frame);
-        // so depois congela. Com o menu aberto o jogo estava parado: solta-o ~0,8 s.
+        // 22/10: a imagem congelada (replay do frame gravado) saia branca e o jogo caia (RP5 e
+        // Cube). O autoteste corre ao vivo: cada estado medido A/B/A/B com o jogo a correr.
+        // O modo congelado fica no codigo (RenderSelfTest(live = false)) para quando o replay
+        // for corrigido.
         engine.freeze = false
-        NativeGameState.setCvars(mapOf("swordman_freeze_record" to "true"), persist = false)
-        com.dfdx047.swordman.data.AppLog.i("selftest", "inicio: a gravar frames")
-        main.postDelayed({
-            engine.freeze = true
-            NativeGameState.setCvars(mapOf("swordman_freeze_replay" to "true"), persist = false)
-            com.dfdx047.swordman.data.AppLog.i("selftest", "imagem congelada")
-            main.postDelayed({
-                selfTest = RenderSelfTest(activity, surface) {
-                    selfTest = null
-                    NativeGameState.setCvars(mapOf("swordman_freeze_replay" to "false", "swordman_freeze_record" to "false"), persist = false)
-                    engine.freeze = false
-                    com.dfdx047.swordman.data.AppLog.i("selftest", "fim (jogo a correr)")
-                }.also { it.start() }
-            }, 1500)
-        }, 800)
+        com.dfdx047.swordman.data.AppLog.i("selftest", "inicio (ao vivo)")
+        selfTest = RenderSelfTest(activity, surface, live = true) {
+            selfTest = null
+            com.dfdx047.swordman.data.AppLog.i("selftest", "fim")
+        }.also { it.start() }
         return true
     }
 

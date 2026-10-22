@@ -31,6 +31,12 @@ import kotlin.math.log10
 class RenderSelfTest(
     private val activity: Activity,
     private val surface: SurfaceView,
+    /**
+     * Ao vivo (22/10): sem imagem congelada (o replay saia branco e o jogo caia). Cada estado e
+     * medido A/B/A/B com o jogo a correr (como o XenDroid Plus): ms de GPU = referencia + media
+     * das diferencas. Sem comparacao de imagem (a cena muda); as fotos ficam para ver a olho.
+     */
+    private val live: Boolean = false,
     private val onDone: () -> Unit,
 ) {
     /** Otimizacao: rotulo + cvars que a ligam (valor "ligado"/"desligado"). */
@@ -115,6 +121,7 @@ class RenderSelfTest(
             .append(" | frame_rate=").append(NativeGameState.getCvar("frame_rate"))
             .append(" dbz3_frame_interpolation=").append(NativeGameState.getCvar("dbz3_frame_interpolation"))
             .append('\n')
+        if (live) report.append("MODO AO VIVO: sem imagem congelada; GPU medida A/B/A/B com o jogo a correr; sem comparacao de imagem.\n")
         report.append("Config: " + base.entries.joinToString(" ") { "${it.key}=${it.value}" } + "\n\n")
         showStatus(activity.getString(com.dfdx047.swordman.R.string.selftest_start))
         originalSkip = NativeGameState.getCvar("swordman_skip_ps")
@@ -169,10 +176,12 @@ class RenderSelfTest(
         showStatus(activity.getString(com.dfdx047.swordman.R.string.selftest_step, i + 1, active.size + 1, label))
         log("autoteste: inicio '$label'")
         NativeGameState.setCvars(off, persist = false)
-        measureGpu { ms ->
+        measure({ NativeGameState.setCvars(off, persist = false) }, { NativeGameState.setCvars(base, persist = false) }) { ms ->
             capture { img ->
                 val ref = reference
-                val line = if (img == null || ref == null) {
+                val line = if (live) {
+                    String.format(java.util.Locale.ROOT, "%-46s GPU %s (%s)  foto %02d\n", label, fmtMs(ms), fmtDelta(ms), shot - 1)
+                } else if (img == null || ref == null) {
                     String.format(java.util.Locale.ROOT, "%-46s sem foto\n", label)
                 } else {
                     val (pct, psnr) = diff(ref, img)
@@ -216,11 +225,12 @@ class RenderSelfTest(
             return
         }
         val known = seen.filter { it.hash in KNOWN_POST }
-        val rest = seen.filter { it.hash !in KNOWN_POST }.take((MAX_FX - known.size).coerceAtLeast(0))
+        val maxFx = if (live) MAX_FX_LIVE else MAX_FX
+        val rest = seen.filter { it.hash !in KNOWN_POST }.take((maxFx - known.size).coerceAtLeast(0))
         // Grupos: passes que so fazem sentido juntos (a cadeia pequena de 320x176 = brilho).
         val groups = GROUPS.filter { g -> g.split(',').all { h -> seen.any { it.hash == h } } }
             .map { g -> Fx(g, g.split(',').sumOf { h -> seen.first { it.hash == h }.draws }, 320, 6) }
-        fxList = groups + known + rest
+        fxList = if (live) (groups + rest.take(MAX_FX_LIVE) + known).distinctBy { it.hash }.take(MAX_FX_LIVE) else groups + known + rest
         report.append("\nEfeitos (salta UM pixel shader de cada vez; GPU = ms por frame, delta vs referencia)\n")
         report.append("Censo: ${seen.size} pixel shaders, ${seen.sumOf { it.draws }} draws durante a medicao\n")
         fxStep(0)
@@ -245,11 +255,11 @@ class RenderSelfTest(
         showStatus(activity.getString(com.dfdx047.swordman.R.string.selftest_step, i + 1, fxList.size, "PS ${fx.hash}"))
         log("autoteste: efeito sem PS ${fx.hash}")
         NativeGameState.setSkipPs(fx.hash)
-        measureGpu { ms ->
+        measure({ NativeGameState.setSkipPs(fx.hash) }, { NativeGameState.setSkipPs("") }) { ms ->
             val myShot = shot
             capture { img ->
                 val ref = reference
-                val pct = if (img != null && ref != null) diff(ref, img).first else -1.0
+                val pct = if (!live && img != null && ref != null) diff(ref, img).first else -1.0
                 fxResults += FxResult(fx, ms, pct, myShot)
                 val line = String.format(java.util.Locale.ROOT, "sem PS %s (draws %d, pitch %d, prim %d)  imagem %.2f%%  GPU %s (%s)  foto %02d\n",
                     fx.hash, fx.draws, fx.pitch, fx.prim, pct, fmtMs(ms), fmtDelta(ms), myShot)
@@ -264,11 +274,43 @@ class RenderSelfTest(
 
     private var baseMs = Double.NaN
 
+    /**
+     * Imagem congelada: mede o estado atual. Ao vivo: alterna referencia/teste LIVE_ROUNDS vezes e
+     * devolve baseMs + media(teste - referencia), para o delta nao depender da cena.
+     */
+    private fun measure(test: () -> Unit, ref: () -> Unit, done: (Double) -> Unit) {
+        if (!live) {
+            measureGpu(done)
+            return
+        }
+        var sum = 0.0
+        var n = 0
+        fun round(k: Int) {
+            if (k >= LIVE_ROUNDS) {
+                test()
+                done(if (n == 0 || baseMs.isNaN()) Double.NaN else baseMs + sum / n)
+                return
+            }
+            ref()
+            measureGpu { a ->
+                test()
+                measureGpu { b ->
+                    if (!a.isNaN() && !b.isNaN()) {
+                        sum += b - a
+                        n++
+                    }
+                    round(k + 1)
+                }
+            }
+        }
+        round(0)
+    }
+
     /** Espera a troca assentar e devolve os ms de GPU por frame numa janela (NaN sem dados). */
     private fun measureGpu(done: (Double) -> Unit) {
-        after(SETTLE_MS) {
+        after(if (live) LIVE_SETTLE_MS else SETTLE_MS) {
             val a = NativeGameState.gpuStats()
-            after(MEASURE_MS) {
+            after(if (live) LIVE_MEASURE_MS else MEASURE_MS) {
                 val b = NativeGameState.gpuStats()
                 val frames = b[0] - a[0]
                 done(if (frames <= 0) Double.NaN else (b[1] - a[1]) / 1000.0 / frames)
@@ -285,6 +327,10 @@ class RenderSelfTest(
         const val SETTLE_MS = 1200L
         const val MEASURE_MS = 2000L
         const val MAX_FX = 60
+        const val MAX_FX_LIVE = 14
+        const val LIVE_ROUNDS = 2
+        const val LIVE_SETTLE_MS = 600L
+        const val LIVE_MEASURE_MS = 1400L
 
         /** Grupos medidos juntos (hashes separados por virgula, como o swordman_skip_ps). */
         val GROUPS = listOf(

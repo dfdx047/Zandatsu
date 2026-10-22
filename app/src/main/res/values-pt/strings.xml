@@ -301,7 +301,7 @@
     <string name="menu_restart_badge">Requer reinício</string>
     <string name="menu_restart_needed">Vale na próxima vez que o jogo abrir.</string>
     <string name="menu_hints">LB/RB abas · ↑↓ mover · ◀▶ mudar · A escolher · B fechar</string>
-    <string name="menu_selftest">Autoteste do render (cerca de 1,5 min)</string>
+    <string name="menu_selftest">Autoteste do render, ao vivo (cerca de 4 min, continue jogando)</string>
     <string name="menu_selftest_help">Congela a imagem (o jogo para e a GPU continua a desenhar o mesmo frame) e desliga os atalhos do renderizador um de cada vez, comparando imagens: mostra qual estraga a imagem e quanto cada um vale. No fim descongela. Resultado no Exportar logs.</string>
     <string name="menu_selftest_refused">Já tem um autoteste rodando.</string>
     <string name="menu_export_logs_help">Junta todos os logs, o resultado do autoteste e a última captura num zip em Download/.</string>
