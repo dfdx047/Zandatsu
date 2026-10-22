@@ -95,6 +95,9 @@ class RenderSelfTest(
         val all = opts.flatMap { it.cvars.keys }
         original = all.associateWith { NativeGameState.getCvar(it) }
         active = opts.filter { o -> o.cvars.keys.all { original[it].orEmpty().isNotEmpty() } }
+            // Ao vivo (22/10, RP5 a cair a cada teste): so as trocas que nao mexem na estrutura
+            // dos render targets a meio do jogo; o resto so com a imagem congelada.
+            .filter { o -> !live || o.cvars.keys.all { it in LIVE_SAFE } }
         base = active.flatMap { o -> o.cvars.map { it.key to original[it.key].orEmpty() } }.toMap()
         report.append("Autoteste do render - ").append(java.util.Date()).append('\n')
         report.append("Referencia: as otimizacoes como estao na config. Cada linha troca UMA delas\n")
@@ -156,7 +159,7 @@ class RenderSelfTest(
     }
 
     private fun step(i: Int) {
-        if (i > active.size) {
+        if (i > active.size || (live && i == active.size)) {
             NativeGameState.setCvars(base, persist = false)
             finish()
             return
@@ -328,6 +331,10 @@ class RenderSelfTest(
         const val MEASURE_MS = 2000L
         const val MAX_FX = 60
         const val MAX_FX_LIVE = 14
+        val LIVE_SAFE = setOf(
+            "dbz3_direct_resolve_draw", "swordman_skip_memory_turnip", "msaa_4x_as_2x",
+            "vulkan_depth_4x_as_1x", "vulkan_samples_as_pixels_simple_ps", "skip_overwritten_transfers",
+        )
         const val LIVE_ROUNDS = 2
         const val LIVE_SETTLE_MS = 600L
         const val LIVE_MEASURE_MS = 1400L
