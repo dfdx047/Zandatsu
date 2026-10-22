@@ -1,19 +1,11 @@
 # Plano do tools/autoloop.sh: uma variante por linha (sintaxe do tools/autotest.sh).
 # "rp5/..." ou "cube/..." = so nesse aparelho. "settle N" = segundos de gameplay antes do autoteste.
-# "@driver=system" ou "@driver=dono/repo/texto" troca o driver Vulkan so nessa variante
-# (o primeiro .zip das releases cujo nome ou tag contem o texto). Nada de "#" nas linhas: e comentario.
-# "env:NOME=valor" nas cvars = variavel de ambiente.
-# Rodada 11 (21/10 ~20h30). Rodada 9: Turnip 26 R8 com a memoria num so buffer de 512 MB
-# = PRIMEIRO gameplay no Turnip (personagens certos, texturas do cenario em mosaico); sem ele,
-# ecra preto. Purple T19 e K11 24.3.0 R9 cairam. Agora com o patch 0120 (XenDroid Plus: teste de
-# zero nos bits para o ir3, mascaras da barreira do scratch, sType dos slots de cor, cache de
-# pipelines por TU_DEBUG) e push_consts_per_stage automatico no a6xx: 512 MB em todas, mais
-# profundidade convertida no shader, sem UBWC, e BC descomprimido (para o mosaico).
-settle 60
+# "capture" = captura 2 frames (.dfc) a meio da espera; o PC tira o mapa do frame e os shaders
+# com o OptXbox e publica so o texto (a captura tem ~200 MB).
+# "@driver=system" ou "@driver=dono/repo/texto" troca o driver Vulkan so nessa variante.
+# Nada de "#" dentro de uma linha de variante: e comentario.
+# Rodada N1 (22/10 manha): base dos dois aparelhos com captura, para o mapa dos efeitos do MGR
+# (render nativo so dos efeitos: passes P13-P26 da captura de 19/10).
+settle 45
+capture
 base
-rp5/512:env:REX_DBZ3_VK_MAX_STORAGE_BUFFER_RANGE_MB=512
-rp5/512-d24ps:env:REX_DBZ3_VK_MAX_STORAGE_BUFFER_RANGE_MB=512;depth_float24_convert_in_pixel_shader=true
-rp5/512-noubwc:env:REX_DBZ3_VK_MAX_STORAGE_BUFFER_RANGE_MB=512;env:TU_DEBUG=push_consts_per_stage,noubwc
-rp5/512-bc:env:REX_DBZ3_VK_MAX_STORAGE_BUFFER_RANGE_MB=512;env:REX_VULKAN_MASK_FEATURES=textureCompressionBC
-rp5/r8-512-d24ps:@driver=K11MCH1/AdrenoToolsDrivers/Turnip_v26.0.0_R8.zip;env:REX_DBZ3_VK_MAX_STORAGE_BUFFER_RANGE_MB=512;depth_float24_convert_in_pixel_shader=true
-cube/draw-glow:dbz3_direct_resolve_draw=true;swordman_skip_ps=C45580526034B1F2,4086D1DF9FA6220E

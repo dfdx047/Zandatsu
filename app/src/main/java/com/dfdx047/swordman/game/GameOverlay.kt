@@ -75,6 +75,7 @@ class GameOverlay(private val activity: Activity) : InputManager.InputDeviceList
                 listOf(com.dfdx047.swordman.controls.MacroStep(setOf(input), 6)), holdLast = false))
         },
         selfTest = { startSelfTest() },
+        captureFrames = { captureFrames() },
     ).also { it.register() }
 
     /** Modo automatico: os controles estao a mostra (ultimo input foi toque). */

@@ -23,6 +23,11 @@ fi
 ROOT="$AUTOLOOP_ROOT"
 cd "$ROOT"
 RESULTS_DIR="${RESULTS_DIR:-$HOME/.swordman-autotest-results}"
+# OptXbox no PC (para analisar as capturas .dfc): clonado/atualizado aqui se faltar.
+OPTXBOX_DIR="${OPTXBOX_DIR:-$HOME/.cache/swordman-optxbox}"
+if [ ! -d "$OPTXBOX_DIR/.git" ]; then
+  git clone -q https://github.com/dfdx047/optxbox "$OPTXBOX_DIR" 2>/dev/null || OPTXBOX_DIR=""
+fi
 POLL="${POLL:-120}"
 KEEP="${KEEP:-6}"
 # RESULTS_REMOTE: outro repositorio (ex. privado) para os resultados; padrao = o origin.
@@ -107,6 +112,20 @@ slim() {
     find "$out/$(basename "$d")" -name '*.jpg' ! -name 'autoteste_0[0-3].jpg' -delete
   done
   find "$tmp" -maxdepth 2 \( -name '*.txt' -o -name '*.png' \) -exec cp {} "$out/" \;
+  # Capturas de frames (.dfc, ~200 MB): nao cabem no GitHub. O mapa do frame, a analise e os
+  # shaders (ucode) saem daqui pelo OptXbox e so o texto e publicado (render nativo, 22/10).
+  find "$tmp" -name '*.dfc' -size +1M | while read -r dfc; do
+    local name
+    name="$(basename "$(dirname "$(dirname "$(dirname "$dfc")")")")-$(basename "$dfc" .dfc)"
+    mkdir -p "$out/captures/$name"
+    if [ -n "$OPTXBOX_DIR" ] && [ -d "$OPTXBOX_DIR/optxbox" ]; then
+      (cd "$OPTXBOX_DIR" && python3 -m optxbox timeline "$dfc" > "$out/captures/$name/timeline.md" 2>&1 || true)
+      (cd "$OPTXBOX_DIR" && python3 -m optxbox analyze "$dfc" > "$out/captures/$name/analyze.md" 2>&1 || true)
+      (cd "$OPTXBOX_DIR" && python3 -m optxbox shaders "$dfc" --dump "$out/captures/$name/shaders" > "$out/captures/$name/shaders.log" 2>&1 || true)
+    else
+      echo "OptXbox nao encontrado (OPTXBOX_DIR=$OPTXBOX_DIR)" > "$out/captures/$name/ERRO.txt"
+    fi
+  done
   # Logs grandes comprimidos; nada acima de 40 MB.
   find "$out" -type f \( -name '*.log' -o -name '*.txt' \) -size +1M -exec gzip -9f {} \;
   find "$out" -type f -size +40M -delete
@@ -126,6 +145,7 @@ while true; do
     mkdir -p "$RUN"
     echo "$COMMIT" > "$RUN/commit.txt"
     keep_awake
+    if [ -n "$OPTXBOX_DIR" ]; then git -C "$OPTXBOX_DIR" pull -q --ff-only 2>/dev/null || true; fi
     if ! PULL=0 bash tools/build.sh all > "$RUN/build.log" 2>&1; then
       say "build falhou - a enviar o log"
       tail -n 400 "$RUN/build.log" > "$RUN/build-tail.log"
@@ -141,16 +161,18 @@ while true; do
     publish "$RUN"
     # Plano: uma variante por linha (# comentarios); a primeira linha "settle N" muda a espera.
     SETTLE=30
+    CAPTURE_ARG=()
     VARIANTS=()
     while read -r line; do
       line="${line%%#*}"
       line="$(echo "$line" | xargs)"
       [ -z "$line" ] && continue
       if [[ "$line" == settle* ]]; then SETTLE="${line#settle }"; continue; fi
+      if [[ "$line" == capture ]]; then CAPTURE_ARG=(--capture); continue; fi
       VARIANTS+=("$line")
     done < tools/autotest-plan.txt
     say "a testar: ${VARIANTS[*]}"
-    bash tools/autotest.sh --settle "$SETTLE" "${VARIANTS[@]}" > "$RUN/autotest.log" 2>&1
+    bash tools/autotest.sh --settle "$SETTLE" "${CAPTURE_ARG[@]}" "${VARIANTS[@]}" > "$RUN/autotest.log" 2>&1
     ZIP="$(ls -t "$HOME"/Downloads/SwordMan-autotest-*.zip "$HOME"/Downloads/SwordMan-autotest-*.tar.gz 2>/dev/null | head -n 1)"
     [ -n "$ZIP" ] && slim "$ZIP" "$RUN/results"
     echo "testes acabados ($(date '+%d/%m %H:%M'))" >> "$RUN/status.txt"

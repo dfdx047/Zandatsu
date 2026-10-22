@@ -137,6 +137,13 @@ class RenderSelfTest(
                     capture { b ->
                         reference = a
                         noise = if (a != null && b != null) diff(a, b).first else 0.0
+                        // 22/10: rodadas inteiras mediram uma tela branca/preta (transicao ou replay
+                        // estragado) sem ninguem perceber. Imagem quase lisa = resultado invalido.
+                        if (a != null && stddev(a) < 6.0) {
+                            report.append(String.format(java.util.Locale.ROOT,
+                                "INVALIDO: imagem de referencia quase uniforme (desvio %.1f) - tela branca/preta, nao gameplay\n", stddev(a)))
+                            log("autoteste: INVALIDO imagem uniforme")
+                        }
                         NativeGameState.psCensus(reset = true)
                         measureGpu { ms ->
                             baseMs = ms
@@ -413,6 +420,19 @@ class RenderSelfTest(
         } catch (e: Exception) {
             done(null)
         }
+    }
+
+    /** Desvio padrao da luminancia (0-255): perto de 0 = imagem lisa. */
+    private fun stddev(px: IntArray): Double {
+        var sum = 0.0
+        var sq = 0.0
+        for (p in px) {
+            val l = 0.299 * Color.red(p) + 0.587 * Color.green(p) + 0.114 * Color.blue(p)
+            sum += l
+            sq += l * l
+        }
+        val m = sum / px.size
+        return kotlin.math.sqrt((sq / px.size - m * m).coerceAtLeast(0.0))
     }
 
     /** % de pixels com diferenca visivel (>24 em algum canal) e PSNR. */
