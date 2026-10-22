@@ -26,6 +26,7 @@ import java.io.File
  *    (que no fim exporta o zip para Download, onde o script o vai buscar).
  *  - "press A" / "selftest" / "capture": um botao, so o autoteste, ou captura de frames (.dfc).
  *  - "auto" com --ez capture true: captura 2 frames a meio da espera (mapa do frame).
+ *  - "auto" com --ez attack true: golpes X/Y durante a espera e o autoteste (cena de luta).
  *
  * Comando: adb shell am broadcast -a com.dfdx047.swordman.CMD -p com.dfdx047.swordman --es cmd auto
  */
@@ -48,7 +49,7 @@ class AutoPilot(
                 cmd == "rec-start" -> startRecording()
                 cmd == "rec-stop" -> stopRecording()
                 cmd == "auto" -> runAuto(intent.getIntExtra("settle", SETTLE_MS / 1000) * 1000L,
-                    intent.getBooleanExtra("capture", false))
+                    intent.getBooleanExtra("capture", false), intent.getBooleanExtra("attack", false))
                 cmd == "capture" -> captureFrames()
                 cmd == "selftest" -> selfTest()
                 cmd.startsWith("press ") -> parse(cmd.substringAfter(' '))?.let(press)
@@ -109,7 +110,7 @@ class AutoPilot(
 
     // --------------------------------------------------------------- repetir
 
-    private fun runAuto(settleMs: Long, withCapture: Boolean = false) {
+    private fun runAuto(settleMs: Long, withCapture: Boolean = false, attack: Boolean = false) {
         val lines = try {
             seqFile.readLines().map { it.trim() }.filter { it.isNotEmpty() && !it.startsWith("#") }
         } catch (_: Exception) {
@@ -144,6 +145,17 @@ class AutoPilot(
             main.postDelayed({
                 AppLog.i("autopilot", "caminho repetido; autoteste em ${settleMs / 1000} s")
             }, t)
+            // Com "attack" (22/10): golpes leves (X) e fortes (Y) durante a espera e o autoteste,
+            // para a cena ter os efeitos dos golpes (o que pesa nas lutas) e nao o Raiden parado.
+            if (attack) {
+                var a = t + 2000
+                val end = t + settleMs + 240_000
+                while (a < end) {
+                    main.postDelayed({ press(PadInput.X) }, a)
+                    if ((a / 450) % 3 == 0L) main.postDelayed({ press(PadInput.Y) }, a + 200)
+                    a += 450
+                }
+            }
             // Com captura: 2 frames gravados em .dfc a meio da espera, antes do autoteste.
             if (withCapture) main.postDelayed({
                 AppLog.i("autopilot", "captura de frames")

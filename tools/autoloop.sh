@@ -168,7 +168,8 @@ while true; do
       line="$(echo "$line" | xargs)"
       [ -z "$line" ] && continue
       if [[ "$line" == settle* ]]; then SETTLE="${line#settle }"; continue; fi
-      if [[ "$line" == capture ]]; then CAPTURE_ARG=(--capture); continue; fi
+      if [[ "$line" == capture ]]; then CAPTURE_ARG+=(--capture); continue; fi
+      if [[ "$line" == attack ]]; then CAPTURE_ARG+=(--attack); continue; fi
       VARIANTS+=("$line")
     done < tools/autotest-plan.txt
     say "a testar: ${VARIANTS[*]}"

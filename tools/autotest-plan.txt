@@ -1,5 +1,6 @@
 # Plano do tools/autoloop.sh: uma variante por linha (sintaxe do tools/autotest.sh).
 # "rp5/..." ou "cube/..." = so nesse aparelho. "settle N" = segundos de gameplay antes do autoteste.
+# "attack" = o Raiden ataca (X/Y) durante a espera e o autoteste: cena com os efeitos dos golpes.
 # "capture" = captura 2 frames (.dfc) a meio da espera; o PC tira o mapa do frame e os shaders
 # com o OptXbox e publica so o texto (a captura tem ~200 MB).
 # "@driver=system" ou "@driver=dono/repo/texto" troca o driver Vulkan so nessa variante.
@@ -8,4 +9,5 @@
 # (render nativo so dos efeitos: passes P13-P26 da captura de 19/10).
 settle 45
 capture
+attack
 base

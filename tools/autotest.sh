@@ -31,6 +31,7 @@ BUILD=0
 ONLY=""
 SETTLE=30
 CAPTURE=false
+ATTACK=false
 VARIANTS=()
 MODE="test"
 REC_TARGET=""
@@ -41,6 +42,7 @@ while [ $# -gt 0 ]; do
     --only) ONLY="$2"; shift ;;
     --settle) SETTLE="$2"; shift ;;
     --capture) CAPTURE=true ;;
+    --attack) ATTACK=true ;;
     *) VARIANTS+=("$1") ;;
   esac
   shift
@@ -242,7 +244,7 @@ run_device() {
       local before
       before="$(latest_zip "$serial")"
       start_game "$serial"
-      cmd "$serial" auto --ei settle "$SETTLE" --ez capture "$CAPTURE"
+      cmd "$serial" auto --ei settle "$SETTLE" --ez capture "$CAPTURE" --ez attack "$ATTACK"
       local t=0 zip=""
       while [ $t -lt 900 ]; do
         sleep 10
