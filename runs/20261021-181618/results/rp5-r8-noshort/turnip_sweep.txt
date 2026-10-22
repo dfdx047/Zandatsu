@@ -1,0 +1,10 @@
+Varredura do Turnip (rtt) - Wed Oct 21 06:52:39 GMT+01:00 2026 - 8 passos, 35 s cada
+passo 0 base (atalhos ligados)                            37.1 fps  foto turnip_sweep_00.jpg
+passo 1 atalhos sem imageStore (buffer + copia)           36.7 fps  foto turnip_sweep_01.jpg
+passo 2 atalhos, mas a memoria tambem escrita             35.7 fps  foto turnip_sweep_02.jpg
+passo 3 sem o atalho float/32_FLOAT (0110)                36.3 fps  foto turnip_sweep_03.jpg
+passo 4 sem imageStore e memoria escrita                  35.6 fps  foto turnip_sweep_04.jpg
+passo 5 sem imageStore, sem 0110                          36.2 fps  foto turnip_sweep_05.jpg
+passo 6 sem passo 4 nem resolves servidos (so os atalhos)  36.8 fps  foto turnip_sweep_06.jpg
+passo 7 sem atalhos (referencia que desenha)              36.5 fps  foto turnip_sweep_07.jpg
+fim

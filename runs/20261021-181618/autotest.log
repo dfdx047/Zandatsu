@@ -1,0 +1,41 @@
+Aparelhos: rp5 cube 
+Variantes: base rp5/qc:@driver=system rp5/qc-draw:@driver=system;dbz3_direct_resolve_draw=true rp5/r8-noshort:@driver=K11MCH1/AdrenoToolsDrivers/Turnip_v26.0.0_R8.zip;dbz3_rt_direct=false;dbz3_render_into_texture=false;swordman_rtt_float=false;dbz3_direct_resolve_skip_memory=false rp5/r8-norobust:@driver=K11MCH1/AdrenoToolsDrivers/Turnip_v26.0.0_R8.zip;env:REX_VULKAN_MASK_FEATURES=robustBufferAccess;env:REX_DBZ3_VK_DISABLE_EXTENSIONS=VK_EXT_robustness2 rp5/r8-d32:@driver=K11MCH1/AdrenoToolsDrivers/Turnip_v26.0.0_R8.zip;env:REX_VULKAN_DISABLE_DEPTH_UNORM24=true cube/draw:dbz3_direct_resolve_draw=true  (gameplay 60 s antes do autoteste)
+== cube / base (18:16:47)
+/sdcard/Download/SwordMan-logs-20261021-182326.zip: 1 file pulled, 0 skipped. 32.7 MB/s (660670 bytes in 0.019s)
+   zip: cube-base.zip (400 s)
+== cube / draw (18:23:38)
+   cvars.txt: dbz3_direct_resolve_draw=true
+/sdcard/Download/SwordMan-logs-20261021-183016.zip: 1 file pulled, 0 skipped. 36.1 MB/s (662971 bytes in 0.018s)
+   zip: cube-draw.zip (400 s)
+== rp5 / base (18:16:47)
+/sdcard/Download/SwordMan-logs-20261021-182328.zip: 1 file pulled, 0 skipped. 39.4 MB/s (36354242 bytes in 0.879s)
+   zip: rp5-base.zip (400 s)
+== rp5 / qc (18:23:38)
+   driver: o do sistema
+/sdcard/Download/SwordMan-logs-20261021-183016.zip: 1 file pulled, 0 skipped. 39.6 MB/s (36696410 bytes in 0.883s)
+   zip: rp5-qc.zip (400 s)
+== rp5 / qc-draw (18:30:28)
+   cvars.txt: dbz3_direct_resolve_draw=true
+   driver: o do sistema
+/sdcard/Download/SwordMan-logs-20261021-183416.zip: 1 file pulled, 0 skipped. 41.3 MB/s (37523240 bytes in 0.867s)
+   zip: rp5-qc-draw.zip (230 s)
+== rp5 / r8-noshort (18:34:28)
+   cvars.txt: dbz3_rt_direct=false;dbz3_render_into_texture=false;swordman_rtt_float=false;dbz3_direct_resolve_skip_memory=false
+/home/dfdx047/.cache/swordman-drivers/b3850c58bca5/vulkan.ad07xx.so: 1 file pushed, 0 skipped. 529.4 MB/s (17159433 bytes in 0.031s)
+   driver: Turnip_v26.0.0_R8.zip (vulkan.ad07xx.so)
+/sdcard/Download/SwordMan-logs-20261021-184114.zip: 1 file pulled, 0 skipped. 41.1 MB/s (36583024 bytes in 0.848s)
+   zip: rp5-r8-noshort.zip (400 s)
+== rp5 / r8-norobust (18:41:20)
+   cvars.txt: env:REX_VULKAN_MASK_FEATURES=robustBufferAccess;env:REX_DBZ3_VK_DISABLE_EXTENSIONS=VK_EXT_robustness2
+/home/dfdx047/.cache/swordman-drivers/b3850c58bca5/vulkan.ad07xx.so: 1 file pushed, 0 skipped. 754.7 MB/s (17159433 bytes in 0.022s)
+   driver: Turnip_v26.0.0_R8.zip (vulkan.ad07xx.so)
+/sdcard/Download/SwordMan-logs-20261021-184757.zip: 1 file pulled, 0 skipped. 38.6 MB/s (36507714 bytes in 0.901s)
+   zip: rp5-r8-norobust.zip (400 s)
+== rp5 / r8-d32 (18:48:12)
+   cvars.txt: env:REX_VULKAN_DISABLE_DEPTH_UNORM24=true
+/home/dfdx047/.cache/swordman-drivers/b3850c58bca5/vulkan.ad07xx.so: 1 file pushed, 0 skipped. 537.4 MB/s (17159433 bytes in 0.030s)
+   driver: Turnip_v26.0.0_R8.zip (vulkan.ad07xx.so)
+/sdcard/Download/SwordMan-logs-20261021-185449.zip: 1 file pulled, 0 skipped. 39.9 MB/s (36498260 bytes in 0.873s)
+   zip: rp5-r8-d32.zip (400 s)
+
+Pronto: /home/dfdx047/Downloads/SwordMan-autotest-20261021-181647.zip

@@ -1,0 +1,1 @@
+dabf84b Autopilot attack mode: X/Y strikes during settle and self-test so the loop measures fight effects

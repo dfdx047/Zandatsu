@@ -1,0 +1,2 @@
+vibration = false
+dbz3_direct_resolve_draw = true

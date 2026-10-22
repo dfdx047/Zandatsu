@@ -1,0 +1,3 @@
+vibration = false
+depth_float24_convert_in_pixel_shader = true
+env:TU_DEBUG = sysmem,push_consts_per_stage

@@ -1,0 +1,7 @@
+== cube / base (18:16:47)
+/sdcard/Download/SwordMan-logs-20261021-182326.zip: 1 file pulled, 0 skipped. 32.7 MB/s (660670 bytes in 0.019s)
+   zip: cube-base.zip (400 s)
+== cube / draw (18:23:38)
+   cvars.txt: dbz3_direct_resolve_draw=true
+/sdcard/Download/SwordMan-logs-20261021-183016.zip: 1 file pulled, 0 skipped. 36.1 MB/s (662971 bytes in 0.018s)
+   zip: cube-draw.zip (400 s)

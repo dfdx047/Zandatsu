@@ -1,0 +1,3 @@
+== cube / base (13:53:07)
+/sdcard/Download/SwordMan-logs-20261022-135747.zip: 1 file pulled, 0 skipped. 39.9 MB/s (37750444 bytes in 0.901s)
+   zip: cube-base.zip (280 s)

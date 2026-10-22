@@ -1,0 +1,5 @@
+vibration = false
+dbz3_rt_direct = false
+dbz3_render_into_texture = false
+swordman_rtt_float = false
+dbz3_direct_resolve_skip_memory = false

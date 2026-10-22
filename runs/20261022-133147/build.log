@@ -1,0 +1,27 @@
+
+== patches do SDK
+Patches aplicados. Proximo passo: bash tools/codegen.sh (so na primeira vez ou com o default.xex novo).
+
+== codegen: nada mudou, saltado
+
+== APK
+Note: /home/dfdx047/AndroidStudioProjects/ProjectSwordMan/app/src/main/java/com/dfdx047/swordman/game/GameActivity.java uses or overrides a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+APK: 131M, 22/10 13:32
+
+== instalar (all)
+APK: app-debug.apk (131M, 22/10 13:32)
+== Retroid Pocket 5 (611e0fa0)
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1792672333.599760  744710 adb_install.cpp:153] pm command: 'package install -r -S 136892210'
+Performing Streamed Install
+Success
+   instalado
+== TrebleDroid with GApps (RGCUBE13528869)
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1792672337.463875  744722 adb_install.cpp:153] pm command: 'package install -r -S 136892210'
+Performing Streamed Install
+Success
+   instalado
+
+Pronto em 33 s.

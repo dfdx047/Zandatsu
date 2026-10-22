@@ -1,0 +1,53 @@
+Autoteste do render - Wed Oct 21 19:21:56 GMT+01:00 2026
+Referencia: as otimizacoes como estao na config. Cada linha troca UMA delas
+('sem' = desligada, 'com' = ligada) e compara a imagem com a referencia.
+Se a diferenca for maior que o ruido, essa otimizacao muda a imagem (provavel erro).
+Resolucao interna: draw_resolution_percent=100
+Apresentacao: FIFO, tela 60 Hz, jogo 60 FPS, interpolacao de frames: desligada | frame_rate= dbz3_frame_interpolation=false
+Config: dbz3_resolve_dedupe=true dbz3_skip_null_draws=true dbz3_discard_full_overwrite=true dbz3_render_into_texture=true dbz3_direct_resolve_draw=false dbz3_rit_serve_resolves=false dbz3_resolve_dedupe_unread_neutral=false dbz3_rt_elide_restores=true dbz3_skip_depth_restore=true dbz3_clear_to_1x=true dbz3_hoist_uploads=true dbz3_resolve_early_transition=true swordman_rtt_float=true dbz3_rt_direct=true dbz3_direct_resolve_skip_memory=true
+
+AVISO: a GPU nao desenhou nenhum frame com a imagem congelada (sem frame gravado?).
+As comparacoes abaixo nao valem: a tela esta parada, nao congelada.
+referencia (config)                            ruido 0.000%, GPU n/d
+
+Efeitos (salta UM pixel shader de cada vez; GPU = ms por frame, delta vs referencia)
+Censo: 9 pixel shaders, 14430 draws durante a medicao
+sem PS E060C0FFE9EE118C (draws 2220, pitch 1280, prim 4)  imagem 0.00%  GPU n/d (n/d)  foto 02
+sem PS 17EE3DCA7468F67B (draws 370, pitch 1280, prim 4)  imagem 0.00%  GPU n/d (n/d)  foto 03
+sem PS 59B2332CE973997A (draws 5920, pitch 1280, prim 4)  imagem 0.00%  GPU n/d (n/d)  foto 04
+sem PS 75F9DF2732797388 (draws 3515, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 05
+sem PS AF038115631EBD16 (draws 1110, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 06
+sem PS CC0010E15A113731 (draws 555, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 07
+sem PS F4F164727712FDF5 (draws 370, pitch 1280, prim 6)  imagem 73.36%  GPU n/d (n/d)  foto 08
+sem PS 01A62A46B2F996DA (draws 185, pitch 1280, prim 4)  imagem 0.00%  GPU n/d (n/d)  foto 09
+sem PS 4B6823FAC15C4CD5 (draws 185, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 10
+referencia no fim: GPU n/d
+
+Ordenado pelo ganho (o que mais pesa primeiro):
+  PS E060C0FFE9EE118C  n/d         imagem 0.00%  foto 02  draws 2220 pitch 1280
+  PS 17EE3DCA7468F67B  n/d         imagem 0.00%  foto 03  draws 370 pitch 1280
+  PS 59B2332CE973997A  n/d         imagem 0.00%  foto 04  draws 5920 pitch 1280
+  PS 75F9DF2732797388  n/d         imagem 0.00%  foto 05  draws 3515 pitch 1280
+  PS AF038115631EBD16  n/d         imagem 0.00%  foto 06  draws 1110 pitch 1280
+  PS CC0010E15A113731  n/d         imagem 0.00%  foto 07  draws 555 pitch 1280
+  PS F4F164727712FDF5  n/d         imagem 73.36%  foto 08  draws 370 pitch 1280
+  PS 01A62A46B2F996DA  n/d         imagem 0.00%  foto 09  draws 185 pitch 1280
+  PS 4B6823FAC15C4CD5  n/d         imagem 0.00%  foto 10  draws 185 pitch 1280
+
+Otimizacoes (cada uma trocada sozinha):
+sem resolves repetidos/sem leitor (passo 3)    0.000% pixels, PSNR 99.0 dB -> igual | GPU n/d (n/d)
+sem draws nulos (passo 3)                      0.000% pixels, PSNR 99.0 dB -> igual | GPU n/d (n/d)
+sem passe sem carregar a cor (passo 3)         0.000% pixels, PSNR 99.0 dB -> igual | GPU n/d (n/d)
+sem passes direto na textura (passo 4)         0.000% pixels, PSNR 99.0 dB -> igual | GPU n/d (n/d)
+com copia por desenho no atalho resolve -> textura 0.000% pixels, PSNR 99.0 dB -> igual | GPU n/d (n/d)
+com resolves servidos pela textura do passo 4  0.000% pixels, PSNR 99.0 dB -> igual | GPU n/d (n/d)
+com escritas sem leitor neutras (passo 3)      0.000% pixels, PSNR 99.0 dB -> igual | GPU n/d (n/d)
+sem RT diretos: restauros ignorados            0.000% pixels, PSNR 99.0 dB -> igual | GPU n/d (n/d)
+sem RT diretos: restauro da profundidade       0.000% pixels, PSNR 99.0 dB -> igual | GPU n/d (n/d)
+sem RT diretos: Clear 4x direto em 1x          0.000% pixels, PSNR 99.0 dB -> igual | GPU n/d (n/d)
+sem uploads antes do passe                     0.000% pixels, PSNR 99.0 dB -> igual | GPU n/d (n/d)
+sem resolve: leitura logo no fim               0.000% pixels, PSNR 99.0 dB -> igual | GPU n/d (n/d)
+sem atalho profundidade float / 32_FLOAT (0110) 0.000% pixels, PSNR 99.0 dB -> igual | GPU n/d (n/d)
+sem render targets diretos (DF)                0.000% pixels, PSNR 99.0 dB -> igual | GPU n/d (n/d)
+sem resolve sem memoria (DF)                   0.000% pixels, PSNR 99.0 dB -> igual | GPU n/d (n/d)
+TUDO desligado                                 0.000% pixels, PSNR 99.0 dB -> igual | GPU n/d (n/d)

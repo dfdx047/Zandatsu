@@ -1,0 +1,2 @@
+vibration = false
+env:REX_VULKAN_DISABLE_DEPTH_UNORM24 = true

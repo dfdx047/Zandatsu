@@ -1,0 +1,2 @@
+== rp5 / base (13:53:07)
+   o jogo fechou (crash?) - a puxar os logs e o logcat

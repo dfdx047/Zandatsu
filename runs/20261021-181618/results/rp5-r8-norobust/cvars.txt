@@ -1,0 +1,3 @@
+vibration = false
+env:REX_VULKAN_MASK_FEATURES = robustBufferAccess
+env:REX_DBZ3_VK_DISABLE_EXTENSIONS = VK_EXT_robustness2

@@ -1,0 +1,157 @@
+Autoteste do render - Wed Oct 21 18:25:54 GMT+01:00 2026
+Referencia: as otimizacoes como estao na config. Cada linha troca UMA delas
+('sem' = desligada, 'com' = ligada) e compara a imagem com a referencia.
+Se a diferenca for maior que o ruido, essa otimizacao muda a imagem (provavel erro).
+Resolucao interna: draw_resolution_percent=100
+Apresentacao: FIFO, tela 60 Hz, jogo 60 FPS, interpolacao de frames: desligada | frame_rate= dbz3_frame_interpolation=false
+Config: dbz3_resolve_dedupe=true dbz3_skip_null_draws=true dbz3_discard_full_overwrite=true dbz3_render_into_texture=true dbz3_direct_resolve_draw=false dbz3_rit_serve_resolves=false dbz3_resolve_dedupe_unread_neutral=false dbz3_rt_elide_restores=true dbz3_skip_depth_restore=true dbz3_clear_to_1x=true dbz3_hoist_uploads=true dbz3_resolve_early_transition=true swordman_rtt_float=true dbz3_rt_direct=true dbz3_direct_resolve_skip_memory=true
+
+referencia (config)                            ruido 0.000%, GPU 23.51 ms
+
+Efeitos (salta UM pixel shader de cada vez; GPU = ms por frame, delta vs referencia)
+Censo: 80 pixel shaders, 93091 draws durante a medicao
+sem PS C45580526034B1F2,4086D1DF9FA6220E,38C32FC0BC7F322D (draws 1143, pitch 320, prim 6)  imagem 0.00%  GPU 23.38 ms (-0.12 ms)  foto 02
+sem PS C45580526034B1F2,4086D1DF9FA6220E (draws 762, pitch 320, prim 6)  imagem 0.00%  GPU 23.45 ms (-0.06 ms)  foto 03
+sem PS E104A745F271970A (draws 7874, pitch 1280, prim 4)  imagem 0.00%  GPU 23.13 ms (-0.37 ms)  foto 04
+sem PS E060C0FFE9EE118C (draws 7112, pitch 1280, prim 4)  imagem 0.00%  GPU 22.91 ms (-0.59 ms)  foto 05
+sem PS 28AEC10B4A0E14FF (draws 2413, pitch 1040, prim 4)  imagem 0.00%  GPU 23.45 ms (-0.06 ms)  foto 06
+sem PS 2CE21E05F9680D34 (draws 762, pitch 1280, prim 6)  imagem 0.00%  GPU 23.67 ms (+0.16 ms)  foto 07
+sem PS A755AD0AC2470588 (draws 508, pitch 320, prim 6)  imagem 0.00%  GPU 23.44 ms (-0.07 ms)  foto 08
+sem PS B402E1761727D55B (draws 381, pitch 1280, prim 6)  imagem 0.00%  GPU 23.57 ms (+0.06 ms)  foto 09
+sem PS 7ABDFEFBCADB4BF9 (draws 381, pitch 1280, prim 6)  imagem 0.00%  GPU 23.78 ms (+0.27 ms)  foto 10
+sem PS C45580526034B1F2 (draws 381, pitch 320, prim 6)  imagem 0.00%  GPU 23.50 ms (-0.01 ms)  foto 11
+sem PS 4086D1DF9FA6220E (draws 381, pitch 320, prim 6)  imagem 0.00%  GPU 23.56 ms (+0.06 ms)  foto 12
+sem PS 38C32FC0BC7F322D (draws 381, pitch 320, prim 6)  imagem 0.00%  GPU 23.51 ms (+0.00 ms)  foto 13
+sem PS 7BE61437FF049E59 (draws 127, pitch 1280, prim 6)  imagem 0.00%  GPU 23.19 ms (-0.32 ms)  foto 14
+sem PS F854BF3B7BF7AA9D (draws 127, pitch 1280, prim 6)  imagem 0.00%  GPU 23.09 ms (-0.42 ms)  foto 15
+sem PS 11C7657530951A90 (draws 127, pitch 1280, prim 6)  imagem 0.00%  GPU 23.59 ms (+0.08 ms)  foto 16
+sem PS 59B2332CE973997A (draws 7747, pitch 1280, prim 4)  imagem 0.00%  GPU 23.05 ms (-0.45 ms)  foto 17
+sem PS 9AD669DECC901755 (draws 6858, pitch 1280, prim 6)  imagem 0.00%  GPU 20.70 ms (-2.80 ms)  foto 18
+sem PS 06AF22B469A121E4 (draws 6350, pitch 1280, prim 6)  imagem 0.00%  GPU 23.11 ms (-0.39 ms)  foto 19
+sem PS A48490965E7C834D (draws 4953, pitch 1280, prim 6)  imagem 0.00%  GPU 22.03 ms (-1.48 ms)  foto 20
+sem PS C9769A4005A60F77 (draws 3937, pitch 1280, prim 6)  imagem 0.00%  GPU 23.59 ms (+0.08 ms)  foto 21
+sem PS AF038115631EBD16 (draws 3683, pitch 1280, prim 6)  imagem 0.00%  GPU 22.89 ms (-0.62 ms)  foto 22
+sem PS CFD7160391146423 (draws 3683, pitch 1280, prim 6)  imagem 0.00%  GPU 23.19 ms (-0.32 ms)  foto 23
+sem PS C1D2AF15BA1F1EAC (draws 2667, pitch 1280, prim 5)  imagem 0.00%  GPU 23.64 ms (+0.13 ms)  foto 24
+sem PS D47E656630A5D1FD (draws 2413, pitch 1280, prim 6)  imagem 0.00%  GPU 22.49 ms (-1.01 ms)  foto 25
+sem PS 20E9E2EE7402ADFB (draws 2413, pitch 1280, prim 6)  imagem 0.00%  GPU 23.40 ms (-0.11 ms)  foto 26
+sem PS 98F7AAEB1C255FEE (draws 2286, pitch 1280, prim 6)  imagem 0.00%  GPU 22.82 ms (-0.69 ms)  foto 27
+sem PS 75F9DF2732797388 (draws 2032, pitch 1280, prim 6)  imagem 0.00%  GPU 23.67 ms (+0.17 ms)  foto 28
+sem PS 483647F90A97963D (draws 1778, pitch 1280, prim 6)  imagem 0.00%  GPU 23.58 ms (+0.08 ms)  foto 29
+sem PS 758982A45D868AA8 (draws 1524, pitch 1280, prim 6)  imagem 0.00%  GPU 23.50 ms (-0.00 ms)  foto 30
+sem PS E664840CC5314C1D (draws 1397, pitch 1280, prim 6)  imagem 0.00%  GPU 23.66 ms (+0.16 ms)  foto 31
+sem PS F81FA1A59C2D8E60 (draws 1143, pitch 1280, prim 4)  imagem 0.00%  GPU 23.39 ms (-0.12 ms)  foto 32
+sem PS C11BC9E406E20255 (draws 1016, pitch 1280, prim 6)  imagem 0.00%  GPU 23.50 ms (-0.00 ms)  foto 33
+sem PS DD663ECF1E31C0C6 (draws 1016, pitch 1280, prim 6)  imagem 0.00%  GPU 23.71 ms (+0.21 ms)  foto 34
+sem PS F605139DFD74A118 (draws 889, pitch 1280, prim 6)  imagem 0.00%  GPU 23.55 ms (+0.05 ms)  foto 35
+sem PS C342E93094FD6494 (draws 889, pitch 1280, prim 6)  imagem 0.00%  GPU 23.47 ms (-0.03 ms)  foto 36
+sem PS B85152FC2323BBBE (draws 889, pitch 1280, prim 4)  imagem 0.00%  GPU 23.30 ms (-0.20 ms)  foto 37
+sem PS 2AD6811FD37BE03C (draws 762, pitch 1280, prim 4)  imagem 0.00%  GPU 23.22 ms (-0.29 ms)  foto 38
+sem PS 3BEF81079BADF848 (draws 762, pitch 1280, prim 6)  imagem 0.00%  GPU 23.10 ms (-0.41 ms)  foto 39
+sem PS 40F840D1BD3A442C (draws 762, pitch 1280, prim 4)  imagem 0.00%  GPU 23.10 ms (-0.41 ms)  foto 40
+sem PS 6BFA19A29B2E4EB4 (draws 635, pitch 1280, prim 6)  imagem 0.00%  GPU 23.45 ms (-0.05 ms)  foto 41
+sem PS 5254691DA3CD61CD (draws 635, pitch 1280, prim 6)  imagem 0.00%  GPU 23.78 ms (+0.27 ms)  foto 42
+sem PS 1FEF1762629AE38D (draws 508, pitch 1280, prim 6)  imagem 0.00%  GPU 23.36 ms (-0.15 ms)  foto 43
+sem PS C88AA4828A511074 (draws 508, pitch 1280, prim 4)  imagem 0.00%  GPU 23.54 ms (+0.03 ms)  foto 44
+sem PS D6A2646F4C74F1D6 (draws 381, pitch 1280, prim 4)  imagem 0.00%  GPU 23.50 ms (-0.01 ms)  foto 45
+sem PS 1D202F49D488945C (draws 381, pitch 1280, prim 4)  imagem 0.00%  GPU 23.47 ms (-0.04 ms)  foto 46
+sem PS AE0C6AF80190CD31 (draws 381, pitch 1280, prim 6)  imagem 0.00%  GPU 23.45 ms (-0.06 ms)  foto 47
+sem PS 6C7A92A6B5AF86D5 (draws 381, pitch 1280, prim 6)  imagem 0.00%  GPU 23.62 ms (+0.11 ms)  foto 48
+sem PS ABCC37322A7606BF (draws 381, pitch 1280, prim 6)  imagem 0.00%  GPU 23.58 ms (+0.08 ms)  foto 49
+sem PS 5C6E4C6742C142A6 (draws 381, pitch 1280, prim 6)  imagem 0.00%  GPU 23.37 ms (-0.14 ms)  foto 50
+sem PS E7CCDAB50C420399 (draws 254, pitch 1280, prim 4)  imagem 0.00%  GPU 23.50 ms (-0.01 ms)  foto 51
+sem PS 81EDB2CCDD44BC68 (draws 254, pitch 1280, prim 6)  imagem 0.00%  GPU 23.10 ms (-0.41 ms)  foto 52
+sem PS A4A965C189287B99 (draws 254, pitch 320, prim 8)  imagem 0.00%  GPU 23.69 ms (+0.19 ms)  foto 53
+sem PS 7F2B2D267FC9FD72 (draws 254, pitch 1280, prim 6)  imagem 0.00%  GPU 23.71 ms (+0.20 ms)  foto 54
+sem PS 915B1C7305CE007C (draws 254, pitch 1280, prim 4)  imagem 0.00%  GPU 23.47 ms (-0.04 ms)  foto 55
+sem PS 9110077DC2714E0F (draws 254, pitch 1280, prim 4)  imagem 0.00%  GPU 23.85 ms (+0.35 ms)  foto 56
+sem PS 72F16952F56FDB02 (draws 254, pitch 1280, prim 4)  imagem 0.00%  GPU 23.68 ms (+0.17 ms)  foto 57
+sem PS 8FC814CC2E26E730 (draws 254, pitch 1280, prim 6)  imagem 0.00%  GPU 23.69 ms (+0.18 ms)  foto 58
+sem PS EAE4D0C83C97D138 (draws 254, pitch 1280, prim 6)  imagem 0.00%  GPU 23.51 ms (+0.01 ms)  foto 59
+sem PS DC5F410960BCB163 (draws 254, pitch 1280, prim 6)  imagem 0.00%  GPU 23.55 ms (+0.05 ms)  foto 60
+sem PS 43A64782F4F0ADE7 (draws 254, pitch 1280, prim 4)  imagem 0.00%  GPU 23.61 ms (+0.10 ms)  foto 61
+sem PS 9D014D721D28488D (draws 254, pitch 1280, prim 6)  imagem 0.00%  GPU 23.56 ms (+0.06 ms)  foto 62
+sem PS 287B6E3F63A875C0 (draws 127, pitch 1280, prim 6)  imagem 0.00%  GPU 23.54 ms (+0.04 ms)  foto 63
+referencia no fim: GPU 23.78 ms
+
+Ordenado pelo ganho (o que mais pesa primeiro):
+  PS 9AD669DECC901755  -2.80 ms    imagem 0.00%  foto 18  draws 6858 pitch 1280
+  PS A48490965E7C834D  -1.48 ms    imagem 0.00%  foto 20  draws 4953 pitch 1280
+  PS D47E656630A5D1FD  -1.01 ms    imagem 0.00%  foto 25  draws 2413 pitch 1280
+  PS 98F7AAEB1C255FEE  -0.69 ms    imagem 0.00%  foto 27  draws 2286 pitch 1280
+  PS AF038115631EBD16  -0.62 ms    imagem 0.00%  foto 22  draws 3683 pitch 1280
+  PS E060C0FFE9EE118C  -0.59 ms    imagem 0.00%  foto 05  draws 7112 pitch 1280
+  PS 59B2332CE973997A  -0.45 ms    imagem 0.00%  foto 17  draws 7747 pitch 1280
+  PS F854BF3B7BF7AA9D  -0.42 ms    imagem 0.00%  foto 15  draws 127 pitch 1280
+  PS 81EDB2CCDD44BC68  -0.41 ms    imagem 0.00%  foto 52  draws 254 pitch 1280
+  PS 40F840D1BD3A442C  -0.41 ms    imagem 0.00%  foto 40  draws 762 pitch 1280
+  PS 3BEF81079BADF848  -0.41 ms    imagem 0.00%  foto 39  draws 762 pitch 1280
+  PS 06AF22B469A121E4  -0.39 ms    imagem 0.00%  foto 19  draws 6350 pitch 1280
+  PS E104A745F271970A  -0.37 ms    imagem 0.00%  foto 04  draws 7874 pitch 1280
+  PS 7BE61437FF049E59  -0.32 ms    imagem 0.00%  foto 14  draws 127 pitch 1280
+  PS CFD7160391146423  -0.32 ms    imagem 0.00%  foto 23  draws 3683 pitch 1280
+  PS 2AD6811FD37BE03C  -0.29 ms    imagem 0.00%  foto 38  draws 762 pitch 1280
+  PS B85152FC2323BBBE  -0.20 ms    imagem 0.00%  foto 37  draws 889 pitch 1280
+  PS 1FEF1762629AE38D  -0.15 ms    imagem 0.00%  foto 43  draws 508 pitch 1280
+  PS 5C6E4C6742C142A6  -0.14 ms    imagem 0.00%  foto 50  draws 381 pitch 1280
+  PS C45580526034B1F2,4086D1DF9FA6220E,38C32FC0BC7F322D  -0.12 ms    imagem 0.00%  foto 02  draws 1143 pitch 320
+  PS F81FA1A59C2D8E60  -0.12 ms    imagem 0.00%  foto 32  draws 1143 pitch 1280
+  PS 20E9E2EE7402ADFB  -0.11 ms    imagem 0.00%  foto 26  draws 2413 pitch 1280
+  PS A755AD0AC2470588  -0.07 ms    imagem 0.00%  foto 08  draws 508 pitch 320
+  PS AE0C6AF80190CD31  -0.06 ms    imagem 0.00%  foto 47  draws 381 pitch 1280
+  PS C45580526034B1F2,4086D1DF9FA6220E  -0.06 ms    imagem 0.00%  foto 03  draws 762 pitch 320
+  PS 28AEC10B4A0E14FF  -0.06 ms    imagem 0.00%  foto 06  draws 2413 pitch 1040
+  PS 6BFA19A29B2E4EB4  -0.05 ms    imagem 0.00%  foto 41  draws 635 pitch 1280
+  PS 1D202F49D488945C  -0.04 ms    imagem 0.00%  foto 46  draws 381 pitch 1280
+  PS 915B1C7305CE007C  -0.04 ms    imagem 0.00%  foto 55  draws 254 pitch 1280
+  PS C342E93094FD6494  -0.03 ms    imagem 0.00%  foto 36  draws 889 pitch 1280
+  PS E7CCDAB50C420399  -0.01 ms    imagem 0.00%  foto 51  draws 254 pitch 1280
+  PS D6A2646F4C74F1D6  -0.01 ms    imagem 0.00%  foto 45  draws 381 pitch 1280
+  PS C45580526034B1F2  -0.01 ms    imagem 0.00%  foto 11  draws 381 pitch 320
+  PS C11BC9E406E20255  -0.00 ms    imagem 0.00%  foto 33  draws 1016 pitch 1280
+  PS 758982A45D868AA8  -0.00 ms    imagem 0.00%  foto 30  draws 1524 pitch 1280
+  PS 38C32FC0BC7F322D  +0.00 ms    imagem 0.00%  foto 13  draws 381 pitch 320
+  PS EAE4D0C83C97D138  +0.01 ms    imagem 0.00%  foto 59  draws 254 pitch 1280
+  PS C88AA4828A511074  +0.03 ms    imagem 0.00%  foto 44  draws 508 pitch 1280
+  PS 287B6E3F63A875C0  +0.04 ms    imagem 0.00%  foto 63  draws 127 pitch 1280
+  PS F605139DFD74A118  +0.05 ms    imagem 0.00%  foto 35  draws 889 pitch 1280
+  PS DC5F410960BCB163  +0.05 ms    imagem 0.00%  foto 60  draws 254 pitch 1280
+  PS 4086D1DF9FA6220E  +0.06 ms    imagem 0.00%  foto 12  draws 381 pitch 320
+  PS 9D014D721D28488D  +0.06 ms    imagem 0.00%  foto 62  draws 254 pitch 1280
+  PS B402E1761727D55B  +0.06 ms    imagem 0.00%  foto 09  draws 381 pitch 1280
+  PS ABCC37322A7606BF  +0.08 ms    imagem 0.00%  foto 49  draws 381 pitch 1280
+  PS 483647F90A97963D  +0.08 ms    imagem 0.00%  foto 29  draws 1778 pitch 1280
+  PS 11C7657530951A90  +0.08 ms    imagem 0.00%  foto 16  draws 127 pitch 1280
+  PS C9769A4005A60F77  +0.08 ms    imagem 0.00%  foto 21  draws 3937 pitch 1280
+  PS 43A64782F4F0ADE7  +0.10 ms    imagem 0.00%  foto 61  draws 254 pitch 1280
+  PS 6C7A92A6B5AF86D5  +0.11 ms    imagem 0.00%  foto 48  draws 381 pitch 1280
+  PS C1D2AF15BA1F1EAC  +0.13 ms    imagem 0.00%  foto 24  draws 2667 pitch 1280
+  PS E664840CC5314C1D  +0.16 ms    imagem 0.00%  foto 31  draws 1397 pitch 1280
+  PS 2CE21E05F9680D34  +0.16 ms    imagem 0.00%  foto 07  draws 762 pitch 1280
+  PS 75F9DF2732797388  +0.17 ms    imagem 0.00%  foto 28  draws 2032 pitch 1280
+  PS 72F16952F56FDB02  +0.17 ms    imagem 0.00%  foto 57  draws 254 pitch 1280
+  PS 8FC814CC2E26E730  +0.18 ms    imagem 0.00%  foto 58  draws 254 pitch 1280
+  PS A4A965C189287B99  +0.19 ms    imagem 0.00%  foto 53  draws 254 pitch 320
+  PS 7F2B2D267FC9FD72  +0.20 ms    imagem 0.00%  foto 54  draws 254 pitch 1280
+  PS DD663ECF1E31C0C6  +0.21 ms    imagem 0.00%  foto 34  draws 1016 pitch 1280
+  PS 7ABDFEFBCADB4BF9  +0.27 ms    imagem 0.00%  foto 10  draws 381 pitch 1280
+  PS 5254691DA3CD61CD  +0.27 ms    imagem 0.00%  foto 42  draws 635 pitch 1280
+  PS 9110077DC2714E0F  +0.35 ms    imagem 0.00%  foto 56  draws 254 pitch 1280
+
+Otimizacoes (cada uma trocada sozinha):
+sem resolves repetidos/sem leitor (passo 3)    0.000% pixels, PSNR 99.0 dB -> igual | GPU 23.81 ms (+0.30 ms)
+sem draws nulos (passo 3)                      0.000% pixels, PSNR 99.0 dB -> igual | GPU 23.25 ms (-0.26 ms)
+sem passe sem carregar a cor (passo 3)         0.000% pixels, PSNR 99.0 dB -> igual | GPU 23.59 ms (+0.08 ms)
+sem passes direto na textura (passo 4)         0.000% pixels, PSNR 99.0 dB -> igual | GPU 23.55 ms (+0.04 ms)
+com copia por desenho no atalho resolve -> textura 0.000% pixels, PSNR 99.0 dB -> igual | GPU 22.18 ms (-1.33 ms)
+com resolves servidos pela textura do passo 4  0.000% pixels, PSNR 99.0 dB -> igual | GPU 23.72 ms (+0.21 ms)
+com escritas sem leitor neutras (passo 3)      0.000% pixels, PSNR 99.0 dB -> igual | GPU 23.54 ms (+0.03 ms)
+sem RT diretos: restauros ignorados            0.000% pixels, PSNR 99.0 dB -> igual | GPU 24.40 ms (+0.89 ms)
+sem RT diretos: restauro da profundidade       0.000% pixels, PSNR 99.0 dB -> igual | GPU 23.54 ms (+0.03 ms)
+sem RT diretos: Clear 4x direto em 1x          0.000% pixels, PSNR 99.0 dB -> igual | GPU 25.21 ms (+1.70 ms)
+sem uploads antes do passe                     0.000% pixels, PSNR 99.0 dB -> igual | GPU 24.69 ms (+1.18 ms)
+sem resolve: leitura logo no fim               0.000% pixels, PSNR 99.0 dB -> igual | GPU 24.78 ms (+1.27 ms)
+sem atalho profundidade float / 32_FLOAT (0110) 0.000% pixels, PSNR 99.0 dB -> igual | GPU 24.65 ms (+1.14 ms)
+sem render targets diretos (DF)                0.000% pixels, PSNR 99.0 dB -> igual | GPU 27.87 ms (+4.37 ms)
+sem resolve sem memoria (DF)                   0.000% pixels, PSNR 99.0 dB -> igual | GPU 22.62 ms (-0.88 ms)
+TUDO desligado                                 0.000% pixels, PSNR 99.0 dB -> igual | GPU 30.50 ms (+7.00 ms)

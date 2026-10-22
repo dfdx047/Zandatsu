@@ -1,0 +1,51 @@
+Autoteste do render - Thu Oct 22 13:55:06 GMT+01:00 2026
+Referencia: as otimizacoes como estao na config. Cada linha troca UMA delas
+('sem' = desligada, 'com' = ligada) e compara a imagem com a referencia.
+Se a diferenca for maior que o ruido, essa otimizacao muda a imagem (provavel erro).
+Resolucao interna: draw_resolution_percent=75
+Apresentacao: FIFO, tela 60 Hz, jogo 60 FPS, interpolacao de frames: desligada | frame_rate= dbz3_frame_interpolation=false
+MODO AO VIVO: sem imagem congelada; GPU medida A/B/A/B com o jogo a correr; sem comparacao de imagem.
+Config: dbz3_direct_resolve_draw=true swordman_skip_memory_turnip=true msaa_4x_as_2x=false vulkan_depth_4x_as_1x=false vulkan_samples_as_pixels_simple_ps=false skip_overwritten_transfers=false
+
+referencia (config)                            ruido 23.606%, GPU 47.08 ms
+
+Efeitos (salta UM pixel shader de cada vez; GPU = ms por frame, delta vs referencia)
+Censo: 57 pixel shaders, 14665 draws durante a medicao
+sem PS C45580526034B1F2,4086D1DF9FA6220E,38C32FC0BC7F322D (draws 369, pitch 320, prim 6)  imagem -1.00%  GPU 43.00 ms (-4.08 ms)  foto 02
+sem PS C45580526034B1F2,4086D1DF9FA6220E (draws 246, pitch 320, prim 6)  imagem -1.00%  GPU 44.32 ms (-2.76 ms)  foto 03
+sem PS 59B2332CE973997A (draws 1066, pitch 1280, prim 4)  imagem -1.00%  GPU 48.21 ms (+1.13 ms)  foto 04
+sem PS C1D2AF15BA1F1EAC (draws 815, pitch 1280, prim 6)  imagem -1.00%  GPU 46.69 ms (-0.39 ms)  foto 05
+sem PS 43A64782F4F0ADE7 (draws 804, pitch 1280, prim 4)  imagem -1.00%  GPU 45.95 ms (-1.13 ms)  foto 06
+sem PS D47E656630A5D1FD (draws 779, pitch 1280, prim 6)  imagem -1.00%  GPU 44.51 ms (-2.57 ms)  foto 07
+sem PS E104A745F271970A (draws 2320, pitch 1280, prim 6)  imagem -1.00%  GPU 47.48 ms (+0.40 ms)  foto 08
+sem PS E060C0FFE9EE118C (draws 369, pitch 1280, prim 4)  imagem -1.00%  GPU 46.94 ms (-0.14 ms)  foto 09
+sem PS A755AD0AC2470588 (draws 164, pitch 320, prim 6)  imagem -1.00%  GPU 46.80 ms (-0.28 ms)  foto 10
+sem PS 2CE21E05F9680D34 (draws 123, pitch 1280, prim 6)  imagem -1.00%  GPU 47.30 ms (+0.22 ms)  foto 11
+sem PS C45580526034B1F2 (draws 123, pitch 320, prim 6)  imagem -1.00%  GPU 44.52 ms (-2.56 ms)  foto 12
+sem PS 4086D1DF9FA6220E (draws 123, pitch 320, prim 6)  imagem -1.00%  GPU 43.85 ms (-3.24 ms)  foto 13
+sem PS 38C32FC0BC7F322D (draws 123, pitch 320, prim 6)  imagem -1.00%  GPU 45.67 ms (-1.41 ms)  foto 14
+sem PS 11C7657530951A90 (draws 41, pitch 1280, prim 6)  imagem -1.00%  GPU 46.84 ms (-0.25 ms)  foto 15
+referencia no fim: GPU 46.84 ms
+
+Ordenado pelo ganho (o que mais pesa primeiro):
+  PS C45580526034B1F2,4086D1DF9FA6220E,38C32FC0BC7F322D  -4.08 ms    imagem -1.00%  foto 02  draws 369 pitch 320
+  PS 4086D1DF9FA6220E  -3.24 ms    imagem -1.00%  foto 13  draws 123 pitch 320
+  PS C45580526034B1F2,4086D1DF9FA6220E  -2.76 ms    imagem -1.00%  foto 03  draws 246 pitch 320
+  PS D47E656630A5D1FD  -2.57 ms    imagem -1.00%  foto 07  draws 779 pitch 1280
+  PS C45580526034B1F2  -2.56 ms    imagem -1.00%  foto 12  draws 123 pitch 320
+  PS 38C32FC0BC7F322D  -1.41 ms    imagem -1.00%  foto 14  draws 123 pitch 320
+  PS 43A64782F4F0ADE7  -1.13 ms    imagem -1.00%  foto 06  draws 804 pitch 1280
+  PS C1D2AF15BA1F1EAC  -0.39 ms    imagem -1.00%  foto 05  draws 815 pitch 1280
+  PS A755AD0AC2470588  -0.28 ms    imagem -1.00%  foto 10  draws 164 pitch 320
+  PS 11C7657530951A90  -0.25 ms    imagem -1.00%  foto 15  draws 41 pitch 1280
+  PS E060C0FFE9EE118C  -0.14 ms    imagem -1.00%  foto 09  draws 369 pitch 1280
+  PS 2CE21E05F9680D34  +0.22 ms    imagem -1.00%  foto 11  draws 123 pitch 1280
+  PS E104A745F271970A  +0.40 ms    imagem -1.00%  foto 08  draws 2320 pitch 1280
+  PS 59B2332CE973997A  +1.13 ms    imagem -1.00%  foto 04  draws 1066 pitch 1280
+
+Otimizacoes (cada uma trocada sozinha):
+sem copia por desenho no atalho resolve -> textura GPU 49.11 ms (+2.03 ms)  foto 16
+sem resolve sem memoria no Turnip              GPU 48.98 ms (+1.90 ms)  foto 17
+com MSAA 4x como 2x (XP)                       GPU 47.65 ms (+0.57 ms)  foto 18
+com 4x de profundidade/simples em 1x (XP)      GPU 47.20 ms (+0.12 ms)  foto 19
+com pular transfers sobrescritos (XP)          GPU 46.06 ms (-1.02 ms)  foto 20

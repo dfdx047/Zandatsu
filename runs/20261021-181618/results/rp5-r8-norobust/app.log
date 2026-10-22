@@ -1,0 +1,696 @@
+2026-10-19 22:39:26.540 I app [app] arranque 0.1.0 (1) processo app
+2026-10-19 22:39:50.203 I app [drivers] descarregado: Turnip v27.0.0-R1
+2026-10-19 22:39:54.024 I app [drivers] ativo: Turnip v27.0.0-R1
+2026-10-19 22:40:14.214 I app [import] ISO: content://com.android.providers.downloads.documents/document/raw%3A%2Fstorage%2Femulated%2F0%2FDownload%2FMetal%20Gear%20Rising%20-%20Revengeance%20(USA%2C%20Europe)%20(En%2CJa%2CFr%2CDe%2CEs%2CIt%2CPt).iso
+2026-10-19 22:40:57.017 I app [import] ISO importada
+2026-10-19 22:41:17.650 I app [launcher] jogar: 720p FPS60 bilinear
+2026-10-19 22:41:17.917 I game [app] arranque 0.1.0 (1) processo game
+2026-10-19 22:41:18.001 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-19 22:41:22.128 I game [game] primeiros frames apresentados
+2026-10-19 22:42:03.419 I game [menu] aberto
+2026-10-19 22:42:29.580 I game [menu] aberto
+2026-10-19 22:42:35.715 I game [logs] exportado: Download/SwordMan-logs-20261019-224231.zip
+2026-10-19 22:42:40.900 I game [game] saida pelo menu
+2026-10-19 23:06:55.047 I app [app] arranque 0.1.0 (1) processo app
+2026-10-19 23:06:56.510 I app [launcher] jogar: 720p FPS60 bilinear
+2026-10-19 23:06:56.709 I game [app] arranque 0.1.0 (1) processo game
+2026-10-19 23:06:56.727 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-19 23:06:59.819 I game [game] primeiros frames apresentados
+2026-10-19 23:10:00.168 I game [menu] aberto
+2026-10-19 23:10:39.741 I game [menu] aberto
+2026-10-19 23:10:47.997 I game [logs] exportado: Download/SwordMan-logs-20261019-231043.zip
+2026-10-20 06:42:19.937 I app [app] arranque 0.1.0 (1) processo app
+2026-10-20 06:42:20.118 E app [crash] CRASH: crash nativo - crash
+2026-10-20 06:42:23.897 I app [launcher] jogar: 720p FPS60 bilinear
+2026-10-20 06:42:24.099 I game [app] arranque 0.1.0 (1) processo game
+2026-10-20 06:42:24.117 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-20 06:42:27.206 I game [game] primeiros frames apresentados
+2026-10-20 06:43:03.099 I game [menu] aberto
+2026-10-20 06:45:19.041 E app [crash] CRASH: crash nativo - crash
+2026-10-20 06:45:36.461 I app [logs] exportado para content://com.android.providers.downloads.documents/document/47
+2026-10-20 07:03:30.150 I app [app] arranque 0.1.0 (1) processo app
+2026-10-20 07:03:33.480 I app [launcher] jogar: 720p FPS60 bilinear
+2026-10-20 07:03:33.688 I game [app] arranque 0.1.0 (1) processo game
+2026-10-20 07:03:33.706 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-20 07:03:36.796 I game [game] primeiros frames apresentados
+2026-10-20 07:04:18.191 I game [menu] aberto
+2026-10-20 07:06:37.142 I game [logs] exportado: Download/SwordMan-logs-20261020-070632.zip
+2026-10-20 07:13:07.475 I game [menu] aberto
+2026-10-20 07:13:11.785 I game [game] saida pelo menu
+2026-10-20 07:22:54.863 I app [launcher] jogar: 720p FPS60 bilinear
+2026-10-20 07:22:55.063 I game [app] arranque 0.1.0 (1) processo game
+2026-10-20 07:22:55.082 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-20 07:22:57.972 E app [crash] DRIVER_BOOT: crash nativo - crash
+2026-10-20 07:23:00.058 I app [launcher] jogar: 720p FPS60 bilinear
+2026-10-20 07:23:00.257 I game [app] arranque 0.1.0 (1) processo game
+2026-10-20 07:23:00.274 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-20 07:23:07.366 I game [game] primeiros frames apresentados
+2026-10-20 07:23:57.396 I game [menu] aberto
+2026-10-20 07:24:38.429 E app [crash] CRASH: crash nativo - crash
+2026-10-20 07:28:44.346 I app [launcher] jogar: 720p FPS60 bilinear
+2026-10-20 07:28:44.540 I game [app] arranque 0.1.0 (1) processo game
+2026-10-20 07:28:44.557 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-20 07:28:48.648 I game [game] primeiros frames apresentados
+2026-10-20 07:31:20.120 E app [crash] CRASH: crash nativo - crash
+2026-10-20 07:31:45.311 I app [logs] exportado para content://com.android.providers.downloads.documents/document/48
+2026-10-20 07:42:45.054 I app [app] arranque 0.1.0 (1) processo app
+2026-10-20 07:42:48.877 I app [launcher] jogar: 720p FPS60 bilinear
+2026-10-20 07:42:49.076 I game [app] arranque 0.1.0 (1) processo game
+2026-10-20 07:42:49.092 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-20 07:42:53.183 I game [game] primeiros frames apresentados
+2026-10-20 07:50:35.452 I game [menu] aberto
+2026-10-20 07:52:54.130 I game [logs] exportado: Download/SwordMan-logs-20261020-075249.zip
+2026-10-20 07:52:55.420 I game [menu] aberto
+2026-10-20 07:52:58.765 I game [game] saida pelo menu
+2026-10-20 14:22:26.315 I app [app] arranque 0.1.0 (1) processo app
+2026-10-20 14:22:28.278 I app [launcher] jogar: 720p FPS60 bilinear
+2026-10-20 14:22:28.481 I game [app] arranque 0.1.0 (1) processo game
+2026-10-20 14:22:28.499 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-20 14:22:32.595 I game [game] primeiros frames apresentados
+2026-10-20 14:23:23.601 I game [menu] aberto
+2026-10-20 14:23:27.087 I game [selftest] inicio (Start do jogo para pausar)
+2026-10-20 14:25:42.275 I game [logs] exportado: Download/SwordMan-logs-20261020-142537.zip
+2026-10-20 14:25:43.225 I game [menu] aberto
+2026-10-20 14:25:45.187 I game [game] saida pelo menu
+2026-10-20 21:03:09.801 I app [app] arranque 0.1.0 (1) processo app
+2026-10-20 21:03:17.646 I app [launcher] jogar: 720p FPS60 bilinear
+2026-10-20 21:03:17.847 I game [app] arranque 0.1.0 (1) processo game
+2026-10-20 21:03:17.863 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-20 21:03:21.956 I game [game] primeiros frames apresentados
+2026-10-20 21:04:11.186 I game [menu] aberto
+2026-10-20 21:04:14.989 I game [selftest] inicio (imagem congelada)
+2026-10-20 21:06:29.152 I game [logs] exportado: Download/SwordMan-logs-20261020-210624.zip
+2026-10-20 21:06:35.154 I game [selftest] fim (jogo a correr)
+2026-10-20 21:08:02.358 I game [menu] aberto
+2026-10-20 21:08:05.316 I game [game] saida pelo menu
+2026-10-20 22:03:11.033 I app [app] arranque 0.1.0 (1) processo app
+2026-10-20 22:03:20.114 I app [launcher] jogar: 720p FPS60 bilinear
+2026-10-20 22:03:20.321 I game [app] arranque 0.1.0 (1) processo game
+2026-10-20 22:03:20.337 I game [driver] sistema (libvulkan_freedreno.so:13487456 fechou o jogo antes do primeiro frame; reinstale-o na aba Drivers para tentar de novo)
+2026-10-20 22:03:20.339 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-20 22:03:24.427 I game [game] primeiros frames apresentados
+2026-10-20 22:05:07.359 I game [menu] aberto
+2026-10-20 22:05:10.086 I game [selftest] inicio (imagem congelada)
+2026-10-20 22:06:11.450 I game [logs] exportado: Download/SwordMan-logs-20261020-220607.zip
+2026-10-20 22:06:17.453 I game [selftest] fim (jogo a correr)
+2026-10-20 22:06:25.067 I game [menu] aberto
+2026-10-20 22:06:26.769 I game [game] saida pelo menu
+2026-10-20 22:26:03.807 I app [app] arranque 0.1.0 (1) processo app
+2026-10-20 22:26:06.931 I app [launcher] jogar: 720p FPS60 bilinear
+2026-10-20 22:26:07.134 I game [app] arranque 0.1.0 (1) processo game
+2026-10-20 22:26:07.151 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-20 22:26:07.152 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-20 22:26:14.243 I game [game] primeiros frames apresentados
+2026-10-20 22:26:57.841 I game [menu] aberto
+2026-10-20 22:27:10.310 I game [menu] aberto
+2026-10-20 22:27:15.336 I game [selftest] inicio: a gravar frames
+2026-10-20 22:27:16.138 I game [selftest] imagem congelada
+2026-10-20 22:30:31.647 I game [logs] exportado: Download/SwordMan-logs-20261020-223027.zip
+2026-10-20 22:30:33.845 E app [crash] CRASH: crash nativo - crash
+2026-10-20 22:30:47.057 I app [logs] exportado para content://com.android.providers.downloads.documents/document/49
+2026-10-20 22:57:16.602 I app [app] arranque 0.1.0 (1) processo app
+2026-10-20 22:57:18.813 I app [launcher] jogar: 720p FPS60 bilinear
+2026-10-20 22:57:19.017 I game [app] arranque 0.1.0 (1) processo game
+2026-10-20 22:57:19.033 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-20 22:57:19.034 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-20 22:57:22.125 I game [game] primeiros frames apresentados
+2026-10-20 23:00:11.580 I game [menu] aberto
+2026-10-20 23:00:14.104 I game [selftest] inicio: a gravar frames
+2026-10-20 23:00:14.905 I game [selftest] imagem congelada
+2026-10-20 23:04:42.839 I game [logs] exportado: Download/SwordMan-logs-20261020-230438.zip
+2026-10-20 23:04:48.841 I game [selftest] fim (jogo a correr)
+2026-10-20 23:04:56.664 I game [menu] aberto
+2026-10-20 23:04:58.623 I game [game] saida pelo menu
+2026-10-21 06:13:59.612 I app [app] arranque 0.1.0 (1) processo app
+2026-10-21 06:14:10.135 I app [launcher] jogar: 720p FPS60 bilinear
+2026-10-21 06:14:10.333 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 06:14:10.350 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 06:14:10.351 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 06:14:13.440 I game [game] primeiros frames apresentados
+2026-10-21 06:15:14.098 I game [menu] aberto
+2026-10-21 06:15:15.869 I game [selftest] inicio: a gravar frames
+2026-10-21 06:15:16.670 I game [selftest] imagem congelada
+2026-10-21 06:15:36.696 E app [crash] CRASH: crash nativo - crash
+2026-10-21 06:15:50.902 I app [logs] exportado para content://com.android.providers.downloads.documents/document/50
+2026-10-21 06:35:39.572 I app [app] arranque 0.1.0 (1) processo app
+2026-10-21 06:35:44.652 I app [launcher] jogar: 720p FPS60 bilinear
+2026-10-21 06:35:44.849 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 06:35:44.865 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 06:35:44.867 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 06:35:47.956 I game [game] primeiros frames apresentados
+2026-10-21 06:35:51.515 I game [menu] aberto
+2026-10-21 06:35:52.940 I game [game] saida pelo menu
+2026-10-21 06:36:05.623 I app [turnip] Varredura do Turnip - Wed Oct 21 06:36:05 GMT+01:00 2026 - 17 passos, 35 s cada
+2026-10-21 06:36:05.629 I app [launcher] jogar: 720p FPS60 bilinear
+2026-10-21 06:36:05.825 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 06:36:05.844 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 06:36:05.845 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 06:36:08.934 I game [game] primeiros frames apresentados
+2026-10-21 06:36:41.040 I game [turnip] passo 0 base (nada mudado)                                37.0 fps  foto turnip_sweep_00.jpg
+2026-10-21 06:36:42.572 I app [launcher] jogar: 720p FPS60 bilinear
+2026-10-21 06:36:42.763 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 06:36:42.782 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 06:36:42.783 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 06:36:50.872 I game [game] primeiros frames apresentados
+2026-10-21 06:37:17.905 I game [turnip] passo 1 sem dynamic rendering nem stencil export          51.7 fps  foto turnip_sweep_01.jpg
+2026-10-21 06:37:19.430 I app [launcher] jogar: 720p FPS60 bilinear
+2026-10-21 06:37:19.621 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 06:37:19.640 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 06:37:19.641 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 06:37:27.729 I game [game] primeiros frames apresentados
+2026-10-21 06:37:54.762 I game [turnip] passo 2 ir3 nopreamble                                    51.5 fps  foto turnip_sweep_02.jpg
+2026-10-21 06:37:56.293 I app [launcher] jogar: 720p FPS60 bilinear
+2026-10-21 06:37:56.491 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 06:37:56.511 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 06:37:56.512 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 06:38:03.601 I game [game] primeiros frames apresentados
+2026-10-21 06:38:31.634 I game [turnip] passo 3 ir3 nouboopt                                      49.3 fps  foto turnip_sweep_03.jpg
+2026-10-21 06:38:33.167 I app [launcher] jogar: 720p FPS60 bilinear
+2026-10-21 06:38:33.369 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 06:38:33.388 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 06:38:33.389 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 06:38:41.479 I game [game] primeiros frames apresentados
+2026-10-21 06:39:08.527 I game [turnip] passo 4 ir3 nofp16                                        52.3 fps  foto turnip_sweep_04.jpg
+2026-10-21 06:39:10.055 I app [launcher] jogar: 720p FPS60 bilinear
+2026-10-21 06:39:10.249 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 06:39:10.268 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 06:39:10.269 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 06:39:13.357 I game [game] primeiros frames apresentados
+2026-10-21 06:39:45.404 I game [turnip] passo 5 sysmem (sem GMEM)                                 36.9 fps  foto turnip_sweep_05.jpg
+2026-10-21 06:39:46.934 I app [launcher] jogar: 720p FPS60 bilinear
+2026-10-21 06:39:47.129 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 06:39:47.148 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 06:39:47.149 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 06:39:50.236 I game [game] primeiros frames apresentados
+2026-10-21 06:40:22.299 I game [turnip] passo 6 sem UBWC nem LRZ                                  35.8 fps  foto turnip_sweep_06.jpg
+2026-10-21 06:40:23.831 I app [launcher] jogar: 720p FPS60 bilinear
+2026-10-21 06:40:24.024 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 06:40:24.043 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 06:40:24.045 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 06:40:27.133 I game [game] primeiros frames apresentados
+2026-10-21 06:40:59.186 I game [turnip] passo 7 BC descomprimido                                  36.7 fps  foto turnip_sweep_07.jpg
+2026-10-21 06:41:00.713 I app [launcher] jogar: 720p FPS60 bilinear
+2026-10-21 06:41:00.903 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 06:41:00.922 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 06:41:00.923 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 06:41:08.013 I game [game] primeiros frames apresentados
+2026-10-21 06:41:36.039 I game [turnip] passo 8 memoria num so buffer de 512 MB                   48.9 fps  foto turnip_sweep_08.jpg
+2026-10-21 06:41:37.569 I app [launcher] jogar: 720p FPS60 bilinear
+2026-10-21 06:41:37.762 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 06:41:37.781 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 06:41:37.783 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 06:41:40.871 I game [game] primeiros frames apresentados
+2026-10-21 06:42:12.932 I game [turnip] passo 9 sem robustez (robustBufferAccess, VK_EXT_robustness2)  37.0 fps  foto turnip_sweep_09.jpg
+2026-10-21 06:42:14.461 I app [launcher] jogar: 720p FPS60 bilinear
+2026-10-21 06:42:14.653 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 06:42:14.672 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 06:42:14.673 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 06:42:17.766 I game [game] primeiros frames apresentados
+2026-10-21 06:42:49.927 I game [turnip] passo 10 sincronizacao total (flushall,syncdraw)          33.9 fps  foto turnip_sweep_10.jpg
+2026-10-21 06:42:51.453 I app [launcher] jogar: 720p FPS60 bilinear
+2026-10-21 06:42:51.645 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 06:42:51.664 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 06:42:51.665 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 06:42:54.753 I game [game] primeiros frames apresentados
+2026-10-21 06:43:26.797 I game [turnip] passo 11 depth float32                                    36.7 fps  foto turnip_sweep_11.jpg
+2026-10-21 06:43:28.333 I app [launcher] jogar: 720p FPS60 bilinear
+2026-10-21 06:43:28.525 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 06:43:28.545 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 06:43:28.546 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 06:43:31.635 I game [game] primeiros frames apresentados
+2026-10-21 06:44:03.747 I game [turnip] passo 12 sem passo 4 (render na textura)                  36.7 fps  foto turnip_sweep_12.jpg
+2026-10-21 06:44:05.275 I app [launcher] jogar: 720p FPS60 bilinear
+2026-10-21 06:44:05.470 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 06:44:05.490 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 06:44:05.491 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 06:44:08.582 I game [game] primeiros frames apresentados
+2026-10-21 06:44:40.675 I game [turnip] passo 13 sem atalhos resolve->textura                     36.1 fps  foto turnip_sweep_13.jpg
+2026-10-21 06:44:42.203 I app [launcher] jogar: 720p FPS60 bilinear
+2026-10-21 06:44:42.393 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 06:44:42.412 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 06:44:42.414 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 06:44:45.502 I game [game] primeiros frames apresentados
+2026-10-21 06:45:17.606 I game [turnip] passo 14 sem render targets diretos                       36.7 fps  foto turnip_sweep_14.jpg
+2026-10-21 06:45:19.136 I app [launcher] jogar: 720p FPS60 bilinear
+2026-10-21 06:45:19.326 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 06:45:19.344 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 06:45:19.346 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 06:45:22.436 I game [game] primeiros frames apresentados
+2026-10-21 06:45:54.606 I game [turnip] passo 15 Xenia puro (sem otimizacoes)                     40.5 fps  foto turnip_sweep_15.jpg
+2026-10-21 06:45:56.139 I app [launcher] jogar: 720p FPS60 bilinear
+2026-10-21 06:45:56.335 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 06:45:56.354 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 06:45:56.356 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 06:45:59.448 I game [game] primeiros frames apresentados
+2026-10-21 06:46:31.484 I game [turnip] passo 16 tudo do driver junto (sysmem, noubwc, nolrz, flushall, 512 MB)  37.0 fps  foto turnip_sweep_16.jpg
+2026-10-21 06:46:31.510 I app [turnip] fim
+2026-10-21 06:46:35.844 I app [logs] exportado: Download/SwordMan-logs-20261021-064631.zip
+2026-10-21 06:52:30.660 I app [app] arranque 0.1.0 (1) processo app
+2026-10-21 06:52:39.829 I app [turnip] Varredura do Turnip (rtt) - Wed Oct 21 06:52:39 GMT+01:00 2026 - 8 passos, 35 s cada
+2026-10-21 06:52:39.832 I app [launcher] jogar: 720p FPS60 bilinear
+2026-10-21 06:52:40.031 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 06:52:40.049 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 06:52:40.050 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 06:52:43.139 I game [game] primeiros frames apresentados
+2026-10-21 06:53:15.270 I game [turnip] passo 0 base (atalhos ligados)                            37.1 fps  foto turnip_sweep_00.jpg
+2026-10-21 06:53:16.791 I app [launcher] jogar: 720p FPS60 bilinear
+2026-10-21 06:53:16.981 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 06:53:17.000 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 06:53:17.001 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 06:53:20.091 I game [game] primeiros frames apresentados
+2026-10-21 06:53:52.133 I game [turnip] passo 1 atalhos sem imageStore (buffer + copia)           36.7 fps  foto turnip_sweep_01.jpg
+2026-10-21 06:53:53.660 I app [launcher] jogar: 720p FPS60 bilinear
+2026-10-21 06:53:53.848 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 06:53:53.866 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 06:53:53.868 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 06:53:56.954 I game [game] primeiros frames apresentados
+2026-10-21 06:54:29.036 I game [turnip] passo 2 atalhos, mas a memoria tambem escrita             35.7 fps  foto turnip_sweep_02.jpg
+2026-10-21 06:54:30.562 I app [launcher] jogar: 720p FPS60 bilinear
+2026-10-21 06:54:30.759 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 06:54:30.779 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 06:54:30.780 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 06:54:33.868 I game [game] primeiros frames apresentados
+2026-10-21 06:55:05.956 I game [turnip] passo 3 sem o atalho float/32_FLOAT (0110)                36.3 fps  foto turnip_sweep_03.jpg
+2026-10-21 06:55:07.490 I app [launcher] jogar: 720p FPS60 bilinear
+2026-10-21 06:55:07.684 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 06:55:07.703 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 06:55:07.704 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 06:55:10.794 I game [game] primeiros frames apresentados
+2026-10-21 06:55:42.958 I game [turnip] passo 4 sem imageStore e memoria escrita                  35.6 fps  foto turnip_sweep_04.jpg
+2026-10-21 06:55:44.483 I app [launcher] jogar: 720p FPS60 bilinear
+2026-10-21 06:55:44.675 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 06:55:44.694 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 06:55:44.696 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 06:55:47.786 I game [game] primeiros frames apresentados
+2026-10-21 06:56:19.898 I game [turnip] passo 5 sem imageStore, sem 0110                          36.2 fps  foto turnip_sweep_05.jpg
+2026-10-21 06:56:21.428 I app [launcher] jogar: 720p FPS60 bilinear
+2026-10-21 06:56:21.621 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 06:56:21.640 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 06:56:21.641 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 06:56:24.729 I game [game] primeiros frames apresentados
+2026-10-21 06:56:56.811 I game [turnip] passo 6 sem passo 4 nem resolves servidos (so os atalhos)  36.8 fps  foto turnip_sweep_06.jpg
+2026-10-21 06:56:58.336 I app [launcher] jogar: 720p FPS60 bilinear
+2026-10-21 06:56:58.530 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 06:56:58.549 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 06:56:58.551 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 06:57:01.640 I game [game] primeiros frames apresentados
+2026-10-21 06:57:33.722 I game [turnip] passo 7 sem atalhos (referencia que desenha)              36.5 fps  foto turnip_sweep_07.jpg
+2026-10-21 06:57:33.758 I app [turnip] fim
+2026-10-21 06:57:38.126 I app [logs] exportado: Download/SwordMan-logs-20261021-065733.zip
+2026-10-21 07:08:09.261 I app [app] arranque 0.1.0 (1) processo app
+2026-10-21 07:08:34.042 I app [launcher] jogar: 720p FPS60 bilinear
+2026-10-21 07:08:34.241 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 07:08:34.259 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 07:08:34.260 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 07:08:43.352 I game [game] primeiros frames apresentados
+2026-10-21 07:09:32.334 I game [menu] aberto
+2026-10-21 07:09:44.447 E app [crash] CRASH: crash nativo - crash
+2026-10-21 07:09:49.829 I app [launcher] jogar: 720p FPS60 bilinear
+2026-10-21 07:09:50.023 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 07:09:50.039 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 07:09:50.041 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 07:09:53.127 I game [game] primeiros frames apresentados
+2026-10-21 07:10:44.231 I game [menu] aberto
+2026-10-21 07:10:46.434 I game [selftest] inicio: a gravar frames
+2026-10-21 07:10:47.235 I game [selftest] imagem congelada
+2026-10-21 07:12:53.291 E app [crash] CRASH: crash nativo - crash
+2026-10-21 07:13:21.636 I app [logs] exportado para content://com.android.providers.downloads.documents/document/51
+2026-10-21 07:26:51.397 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 07:26:51.415 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 07:26:51.416 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 07:26:55.265 I game [autopilot] comando: rec-start
+2026-10-21 07:27:00.268 I game [autopilot] a gravar os botoes (primeiros frames ja apresentados)
+2026-10-21 07:27:00.508 I game [game] primeiros frames apresentados
+2026-10-21 07:27:47.399 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 07:27:47.415 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 07:27:47.417 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 07:27:50.510 I game [game] primeiros frames apresentados
+2026-10-21 07:28:36.258 I game [autopilot] comando: rec-stop
+2026-10-21 07:28:36.260 I game [autopilot] gravado autoplay.seq: 0 botoes
+2026-10-21 07:39:03.855 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 07:39:03.876 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 07:39:03.877 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 07:39:06.967 I game [game] primeiros frames apresentados
+2026-10-21 07:39:07.671 I game [autopilot] comando: rec-start
+2026-10-21 07:39:07.672 I game [autopilot] a gravar os botoes (primeiros frames ja apresentados)
+2026-10-21 07:39:51.472 I game [autopilot] comando: rec-stop
+2026-10-21 07:39:51.475 I game [autopilot] gravado autoplay.seq: 32 botoes
+2026-10-21 07:48:11.016 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 07:48:11.035 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 07:48:11.037 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 07:48:14.126 I game [game] primeiros frames apresentados
+2026-10-21 07:48:14.840 I game [autopilot] comando: auto
+2026-10-21 07:48:18.010 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 07:48:18.027 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 07:48:18.028 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 07:48:21.122 I game [game] primeiros frames apresentados
+2026-10-21 07:48:21.852 I game [autopilot] comando: auto
+2026-10-21 07:48:59.864 I game [autopilot] caminho repetido; autoteste em 30 s
+2026-10-21 07:49:29.865 I game [selftest] inicio: a gravar frames
+2026-10-21 07:49:30.666 I game [selftest] imagem congelada
+2026-10-21 07:53:59.683 I game [logs] exportado: Download/SwordMan-logs-20261021-075354.zip
+2026-10-21 07:54:05.685 I game [selftest] fim (jogo a correr)
+2026-10-21 07:54:08.457 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 07:54:08.478 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 07:54:08.480 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 07:54:11.483 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 07:54:11.499 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 07:54:11.501 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 07:54:12.292 I game [autopilot] comando: auto
+2026-10-21 07:54:15.350 I game [autopilot] comando: auto
+2026-10-21 07:54:19.591 I game [game] primeiros frames apresentados
+2026-10-21 07:54:57.308 I game [autopilot] caminho repetido; autoteste em 30 s
+2026-10-21 07:54:57.364 I game [autopilot] caminho repetido; autoteste em 30 s
+2026-10-21 07:55:27.309 I game [selftest] inicio: a gravar frames
+2026-10-21 07:55:27.365 I game [selftest] inicio: a gravar frames
+2026-10-21 07:55:28.110 I game [selftest] imagem congelada
+2026-10-21 07:55:28.169 I game [selftest] imagem congelada
+2026-10-21 07:55:59.053 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 07:55:59.070 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 07:55:59.072 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 07:56:02.162 I game [game] primeiros frames apresentados
+2026-10-21 07:56:02.902 I game [autopilot] comando: auto
+2026-10-21 07:56:08.375 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 07:56:08.392 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 07:56:08.394 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 07:56:11.485 I game [game] primeiros frames apresentados
+2026-10-21 07:56:12.223 I game [autopilot] comando: auto
+2026-10-21 07:56:50.235 I game [autopilot] caminho repetido; autoteste em 30 s
+2026-10-21 07:57:20.236 I game [selftest] inicio: a gravar frames
+2026-10-21 07:57:21.038 I game [selftest] imagem congelada
+2026-10-21 08:02:03.229 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 08:02:03.246 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 08:02:03.248 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 08:02:06.137 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 08:02:06.152 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 08:02:06.154 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 08:02:07.059 I game [autopilot] comando: auto
+2026-10-21 08:02:09.243 I game [game] primeiros frames apresentados
+2026-10-21 08:02:09.972 I game [autopilot] comando: auto
+2026-10-21 08:02:47.320 I game [autopilot] caminho repetido; autoteste em 30 s
+2026-10-21 08:02:47.982 I game [autopilot] caminho repetido; autoteste em 30 s
+2026-10-21 08:03:17.321 I game [selftest] inicio: a gravar frames
+2026-10-21 08:03:17.982 I game [selftest] inicio: a gravar frames
+2026-10-21 08:03:18.122 I game [selftest] imagem congelada
+2026-10-21 08:03:18.783 I game [selftest] imagem congelada
+2026-10-21 08:04:24.576 I game [logs] exportado: Download/SwordMan-logs-20261021-080420.zip
+2026-10-21 08:04:30.578 I game [selftest] fim (jogo a correr)
+2026-10-21 13:40:56.525 I app [app] arranque 0.1.0 (1) processo app
+2026-10-21 13:40:56.633 I app [crash] jogo terminou: fechado pelo utilizador - stop com.dfdx047.swordman due to from pid 32007
+2026-10-21 13:40:58.437 I app [launcher] jogar: 720p FPS60 bilinear
+2026-10-21 13:40:58.639 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 13:40:58.655 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 13:40:58.657 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 13:41:01.748 I game [game] primeiros frames apresentados
+2026-10-21 13:42:25.785 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 13:42:25.801 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 13:42:25.803 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 13:42:28.893 I game [game] primeiros frames apresentados
+2026-10-21 13:42:29.633 I game [autopilot] comando: auto
+2026-10-21 13:43:35.641 I game [autopilot] caminho repetido; autoteste em 30 s
+2026-10-21 13:44:05.641 I game [selftest] inicio: a gravar frames
+2026-10-21 13:44:06.442 I game [selftest] imagem congelada
+2026-10-21 13:48:43.509 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 13:48:43.528 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 13:48:43.529 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 13:48:46.619 I game [game] primeiros frames apresentados
+2026-10-21 13:48:47.351 I game [autopilot] comando: auto
+2026-10-21 13:49:39.587 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 13:49:39.603 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 13:49:39.604 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 13:49:43.435 I game [autopilot] comando: auto
+2026-10-21 13:49:48.693 I game [game] primeiros frames apresentados
+2026-10-21 13:50:55.666 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 13:50:55.683 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 13:50:55.684 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 13:50:59.580 I game [autopilot] comando: auto
+2026-10-21 13:51:03.772 I game [game] primeiros frames apresentados
+2026-10-21 13:52:09.590 I game [autopilot] caminho repetido; autoteste em 30 s
+2026-10-21 13:52:39.591 I game [selftest] inicio: a gravar frames
+2026-10-21 13:52:40.392 I game [selftest] imagem congelada
+2026-10-21 13:57:09.224 I game [logs] exportado: Download/SwordMan-logs-20261021-135704.zip
+2026-10-21 14:19:06.509 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 14:19:06.528 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 14:19:06.529 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 14:19:09.617 I game [game] primeiros frames apresentados
+2026-10-21 14:19:10.346 I game [autopilot] comando: auto
+2026-10-21 14:20:02.467 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 14:20:02.483 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 14:20:02.485 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 14:20:05.574 I game [game] primeiros frames apresentados
+2026-10-21 14:20:06.300 I game [autopilot] comando: auto
+2026-10-21 14:34:34.633 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 14:34:34.649 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 14:34:34.651 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 14:34:37.740 I game [game] primeiros frames apresentados
+2026-10-21 14:34:38.473 I game [autopilot] comando: auto
+2026-10-21 14:35:50.758 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 14:35:50.774 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 14:35:50.775 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 14:35:53.866 I game [game] primeiros frames apresentados
+2026-10-21 14:35:54.607 I game [autopilot] comando: auto
+2026-10-21 14:37:16.889 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 14:37:16.904 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 14:37:16.906 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 14:37:20.768 I game [autopilot] comando: auto
+2026-10-21 14:37:27.996 I game [game] primeiros frames apresentados
+2026-10-21 14:38:33.284 I game [autopilot] caminho repetido; autoteste em 30 s
+2026-10-21 14:39:03.285 I game [selftest] inicio: a gravar frames
+2026-10-21 14:39:04.087 I game [selftest] imagem congelada
+2026-10-21 14:43:38.451 I game [logs] exportado: Download/SwordMan-logs-20261021-144334.zip
+2026-10-21 14:43:44.453 I game [selftest] fim (jogo a correr)
+2026-10-21 14:43:47.535 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 14:43:47.550 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 14:43:47.552 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 14:43:51.385 I game [autopilot] comando: auto
+2026-10-21 14:43:51.640 I game [game] primeiros frames apresentados
+2026-10-21 14:44:57.393 I game [autopilot] caminho repetido; autoteste em 30 s
+2026-10-21 14:45:27.393 I game [selftest] inicio: a gravar frames
+2026-10-21 14:45:28.194 I game [selftest] imagem congelada
+2026-10-21 14:49:59.069 I game [logs] exportado: Download/SwordMan-logs-20261021-144954.zip
+2026-10-21 14:50:05.070 I game [selftest] fim (jogo a correr)
+2026-10-21 14:50:08.094 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 14:50:08.110 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 14:50:08.112 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 14:50:11.200 I game [game] primeiros frames apresentados
+2026-10-21 14:50:11.935 I game [autopilot] comando: auto
+2026-10-21 14:50:54.054 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 14:50:54.071 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 14:50:54.072 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 14:50:57.163 I game [game] primeiros frames apresentados
+2026-10-21 14:50:57.901 I game [autopilot] comando: auto
+2026-10-21 14:52:03.909 I game [autopilot] caminho repetido; autoteste em 30 s
+2026-10-21 14:52:33.910 I game [selftest] inicio: a gravar frames
+2026-10-21 14:52:34.711 I game [selftest] imagem congelada
+2026-10-21 15:10:21.020 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 15:10:21.037 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 15:10:21.038 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 15:10:24.864 I game [autopilot] comando: auto
+2026-10-21 15:10:25.132 I game [game] primeiros frames apresentados
+2026-10-21 15:11:30.871 I game [autopilot] caminho repetido; autoteste em 30 s
+2026-10-21 15:49:33.227 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 15:49:33.244 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 15:49:33.246 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 15:49:36.335 I game [game] primeiros frames apresentados
+2026-10-21 15:49:37.068 I game [autopilot] comando: auto
+2026-10-21 15:50:43.075 I game [autopilot] caminho repetido; autoteste em 30 s
+2026-10-21 15:51:13.076 I game [selftest] inicio: a gravar frames
+2026-10-21 15:51:13.878 I game [selftest] imagem congelada
+2026-10-21 15:52:19.775 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 15:52:19.793 I game [driver] sistema
+2026-10-21 15:52:19.795 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 15:52:23.648 I game [autopilot] comando: auto
+2026-10-21 15:52:36.886 I game [game] primeiros frames apresentados
+2026-10-21 15:53:42.413 I game [autopilot] caminho repetido; autoteste em 30 s
+2026-10-21 15:54:12.414 I game [selftest] inicio: a gravar frames
+2026-10-21 15:54:13.215 I game [selftest] imagem congelada
+2026-10-21 15:58:41.815 I game [logs] exportado: Download/SwordMan-logs-20261021-155837.zip
+2026-10-21 15:58:47.818 I game [selftest] fim (jogo a correr)
+2026-10-21 15:58:51.282 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 15:58:51.300 I game [driver] sistema
+2026-10-21 15:58:51.301 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 15:58:55.116 I game [autopilot] comando: auto
+2026-10-21 15:58:55.390 I game [game] primeiros frames apresentados
+2026-10-21 16:00:01.124 I game [autopilot] caminho repetido; autoteste em 30 s
+2026-10-21 16:00:31.125 I game [selftest] inicio: a gravar frames
+2026-10-21 16:00:31.926 I game [selftest] imagem congelada
+2026-10-21 16:05:01.973 I game [logs] exportado: Download/SwordMan-logs-20261021-160457.zip
+2026-10-21 16:05:07.975 I game [selftest] fim (jogo a correr)
+2026-10-21 16:05:12.554 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 16:05:12.571 I game [driver] sistema
+2026-10-21 16:05:12.572 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 16:05:16.399 I game [autopilot] comando: auto
+2026-10-21 16:05:16.662 I game [game] primeiros frames apresentados
+2026-10-21 16:06:22.407 I game [autopilot] caminho repetido; autoteste em 30 s
+2026-10-21 16:06:52.408 I game [selftest] inicio: a gravar frames
+2026-10-21 16:06:53.208 I game [selftest] imagem congelada
+2026-10-21 16:11:17.056 I game [logs] exportado: Download/SwordMan-logs-20261021-161112.zip
+2026-10-21 16:11:23.672 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 16:11:23.688 I game [driver] sistema
+2026-10-21 16:11:23.690 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 16:11:27.512 I game [autopilot] comando: auto
+2026-10-21 16:11:27.779 I game [game] primeiros frames apresentados
+2026-10-21 16:12:33.520 I game [autopilot] caminho repetido; autoteste em 30 s
+2026-10-21 16:13:03.521 I game [selftest] inicio: a gravar frames
+2026-10-21 16:13:04.322 I game [selftest] imagem congelada
+2026-10-21 16:17:34.638 I game [logs] exportado: Download/SwordMan-logs-20261021-161730.zip
+2026-10-21 16:17:40.640 I game [selftest] fim (jogo a correr)
+2026-10-21 16:17:44.646 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 16:17:44.664 I game [driver] sistema
+2026-10-21 16:17:44.666 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 16:17:48.486 I game [autopilot] comando: auto
+2026-10-21 16:17:48.757 I game [game] primeiros frames apresentados
+2026-10-21 16:18:54.493 I game [autopilot] caminho repetido; autoteste em 30 s
+2026-10-21 16:19:24.495 I game [selftest] inicio: a gravar frames
+2026-10-21 16:19:25.297 I game [selftest] imagem congelada
+2026-10-21 16:23:55.175 I game [logs] exportado: Download/SwordMan-logs-20261021-162350.zip
+2026-10-21 16:24:01.177 I game [selftest] fim (jogo a correr)
+2026-10-21 16:36:55.271 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 16:36:55.305 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 16:36:55.306 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 16:36:58.396 I game [game] primeiros frames apresentados
+2026-10-21 16:36:59.109 I game [autopilot] comando: auto
+2026-10-21 16:38:05.116 I game [autopilot] caminho repetido; autoteste em 30 s
+2026-10-21 16:38:35.117 I game [selftest] inicio: a gravar frames
+2026-10-21 16:38:35.919 I game [selftest] imagem congelada
+2026-10-21 16:39:41.510 I game [logs] exportado: Download/SwordMan-logs-20261021-163936.zip
+2026-10-21 16:39:47.512 I game [selftest] fim (jogo a correr)
+2026-10-21 16:39:55.068 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 16:39:55.086 I game [driver] sistema
+2026-10-21 16:39:55.087 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 16:39:58.912 I game [autopilot] comando: auto
+2026-10-21 16:39:59.175 I game [game] primeiros frames apresentados
+2026-10-21 16:41:04.920 I game [autopilot] caminho repetido; autoteste em 30 s
+2026-10-21 16:41:34.921 I game [selftest] inicio: a gravar frames
+2026-10-21 16:41:35.722 I game [selftest] imagem congelada
+2026-10-21 16:46:04.532 I game [logs] exportado: Download/SwordMan-logs-20261021-164559.zip
+2026-10-21 16:46:10.534 I game [selftest] fim (jogo a correr)
+2026-10-21 16:46:15.579 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 16:46:15.600 I game [driver] sistema
+2026-10-21 16:46:15.602 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 16:46:19.425 I game [autopilot] comando: auto
+2026-10-21 16:46:19.690 I game [game] primeiros frames apresentados
+2026-10-21 16:47:25.432 I game [autopilot] caminho repetido; autoteste em 30 s
+2026-10-21 16:47:55.433 I game [selftest] inicio: a gravar frames
+2026-10-21 16:47:56.234 I game [selftest] imagem congelada
+2026-10-21 16:52:27.241 I game [logs] exportado: Download/SwordMan-logs-20261021-165222.zip
+2026-10-21 16:52:33.243 I game [selftest] fim (jogo a correr)
+2026-10-21 16:52:36.174 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 16:52:36.203 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 16:52:36.205 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 16:52:39.294 I game [game] primeiros frames apresentados
+2026-10-21 16:52:40.004 I game [autopilot] comando: auto
+2026-10-21 16:53:43.377 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 16:53:43.395 I game [driver] sistema
+2026-10-21 16:53:43.396 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 16:53:47.220 I game [autopilot] comando: auto
+2026-10-21 16:53:47.486 I game [game] primeiros frames apresentados
+2026-10-21 16:54:53.229 I game [autopilot] caminho repetido; autoteste em 30 s
+2026-10-21 16:55:23.230 I game [selftest] inicio: a gravar frames
+2026-10-21 16:55:24.031 I game [selftest] imagem congelada
+2026-10-21 16:59:53.930 I game [logs] exportado: Download/SwordMan-logs-20261021-165949.zip
+2026-10-21 16:59:59.931 I game [selftest] fim (jogo a correr)
+2026-10-21 17:00:04.873 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 17:00:04.889 I game [driver] sistema
+2026-10-21 17:00:04.891 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 17:00:08.718 I game [autopilot] comando: auto
+2026-10-21 17:00:08.978 I game [game] primeiros frames apresentados
+2026-10-21 17:01:14.726 I game [autopilot] caminho repetido; autoteste em 30 s
+2026-10-21 17:01:44.727 I game [selftest] inicio: a gravar frames
+2026-10-21 17:01:45.528 I game [selftest] imagem congelada
+2026-10-21 17:06:13.874 I game [logs] exportado: Download/SwordMan-logs-20261021-170609.zip
+2026-10-21 17:06:19.876 I game [selftest] fim (jogo a correr)
+2026-10-21 17:25:17.535 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 17:25:17.570 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 17:25:17.572 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 17:25:20.665 I game [game] primeiros frames apresentados
+2026-10-21 17:25:21.381 I game [autopilot] comando: auto
+2026-10-21 17:26:13.497 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 17:26:13.513 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 17:26:13.514 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 17:26:16.605 I game [game] primeiros frames apresentados
+2026-10-21 17:26:17.340 I game [autopilot] comando: auto
+2026-10-21 17:27:11.163 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 17:27:11.194 I game [driver] alternativo: vulkan.ad07xx.so
+2026-10-21 17:27:11.195 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 17:27:15.062 I game [autopilot] comando: auto
+2026-10-21 17:27:21.287 I game [game] primeiros frames apresentados
+2026-10-21 17:28:26.824 I game [autopilot] caminho repetido; autoteste em 60 s
+2026-10-21 17:29:26.825 I game [selftest] inicio: a gravar frames
+2026-10-21 17:29:27.627 I game [selftest] imagem congelada
+2026-10-21 17:33:55.870 I game [logs] exportado: Download/SwordMan-logs-20261021-173351.zip
+2026-10-21 17:34:03.737 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 17:34:03.770 I game [driver] alternativo: vulkan.ad07xx.so
+2026-10-21 17:34:03.771 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 17:34:07.622 I game [autopilot] comando: auto
+2026-10-21 17:34:13.865 I game [game] primeiros frames apresentados
+2026-10-21 17:35:19.384 I game [autopilot] caminho repetido; autoteste em 60 s
+2026-10-21 17:36:19.384 I game [selftest] inicio: a gravar frames
+2026-10-21 17:36:20.185 I game [selftest] imagem congelada
+2026-10-21 17:40:48.651 I game [logs] exportado: Download/SwordMan-logs-20261021-174044.zip
+2026-10-21 17:40:56.283 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 17:40:56.317 I game [driver] alternativo: vulkan.purple.so
+2026-10-21 17:40:56.318 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 17:41:00.168 I game [autopilot] comando: auto
+2026-10-21 17:41:06.410 I game [game] primeiros frames apresentados
+2026-10-21 17:42:11.683 I game [autopilot] caminho repetido; autoteste em 60 s
+2026-10-21 17:43:11.684 I game [selftest] inicio: a gravar frames
+2026-10-21 17:43:12.486 I game [selftest] imagem congelada
+2026-10-21 17:47:41.118 I game [logs] exportado: Download/SwordMan-logs-20261021-174736.zip
+2026-10-21 17:47:47.066 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 17:47:47.086 I game [driver] sistema
+2026-10-21 17:47:47.088 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 17:47:50.911 I game [autopilot] comando: auto
+2026-10-21 17:47:51.180 I game [game] primeiros frames apresentados
+2026-10-21 17:48:56.918 I game [autopilot] caminho repetido; autoteste em 60 s
+2026-10-21 17:49:56.919 I game [selftest] inicio: a gravar frames
+2026-10-21 17:49:57.720 I game [selftest] imagem congelada
+2026-10-21 17:51:34.638 I game [logs] exportado: Download/SwordMan-logs-20261021-175130.zip
+2026-10-21 17:51:40.640 I game [selftest] fim (jogo a correr)
+2026-10-21 18:16:51.582 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 18:16:51.609 I game [driver] alternativo: libvulkan_freedreno.so
+2026-10-21 18:16:51.611 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 18:16:54.700 I game [game] primeiros frames apresentados
+2026-10-21 18:16:55.418 I game [autopilot] comando: auto
+2026-10-21 18:18:01.426 I game [autopilot] caminho repetido; autoteste em 60 s
+2026-10-21 18:19:01.427 I game [selftest] inicio: a gravar frames
+2026-10-21 18:19:02.228 I game [selftest] imagem congelada
+2026-10-21 18:23:32.564 I game [logs] exportado: Download/SwordMan-logs-20261021-182328.zip
+2026-10-21 18:23:38.565 I game [selftest] fim (jogo a correr)
+2026-10-21 18:23:42.323 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 18:23:42.341 I game [driver] sistema
+2026-10-21 18:23:42.343 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 18:23:46.164 I game [autopilot] comando: auto
+2026-10-21 18:23:46.433 I game [game] primeiros frames apresentados
+2026-10-21 18:24:52.172 I game [autopilot] caminho repetido; autoteste em 60 s
+2026-10-21 18:25:52.173 I game [selftest] inicio: a gravar frames
+2026-10-21 18:25:52.974 I game [selftest] imagem congelada
+2026-10-21 18:30:21.380 I game [logs] exportado: Download/SwordMan-logs-20261021-183016.zip
+2026-10-21 18:30:27.382 I game [selftest] fim (jogo a correr)
+2026-10-21 18:30:33.117 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 18:30:33.136 I game [driver] sistema
+2026-10-21 18:30:33.137 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 18:30:36.935 I game [autopilot] comando: auto
+2026-10-21 18:30:37.227 I game [game] primeiros frames apresentados
+2026-10-21 18:31:42.942 I game [autopilot] caminho repetido; autoteste em 60 s
+2026-10-21 18:32:42.943 I game [selftest] inicio: a gravar frames
+2026-10-21 18:32:43.744 I game [selftest] imagem congelada
+2026-10-21 18:34:20.662 I game [logs] exportado: Download/SwordMan-logs-20261021-183416.zip
+2026-10-21 18:34:26.664 I game [selftest] fim (jogo a correr)
+2026-10-21 18:34:34.198 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 18:34:34.228 I game [driver] alternativo: vulkan.ad07xx.so
+2026-10-21 18:34:34.230 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 18:34:38.059 I game [autopilot] comando: auto
+2026-10-21 18:34:44.322 I game [game] primeiros frames apresentados
+2026-10-21 18:35:49.820 I game [autopilot] caminho repetido; autoteste em 60 s
+2026-10-21 18:36:49.821 I game [selftest] inicio: a gravar frames
+2026-10-21 18:36:50.623 I game [selftest] imagem congelada
+2026-10-21 18:41:19.015 I game [logs] exportado: Download/SwordMan-logs-20261021-184114.zip
+2026-10-21 18:41:26.057 I game [app] arranque 0.1.0 (1) processo game
+2026-10-21 18:41:26.075 I game [driver] alternativo: vulkan.ad07xx.so
+2026-10-21 18:41:26.077 I game [game] arranque: pasta /storage/emulated/0/Android/data/com.dfdx047.swordman/files/game
+2026-10-21 18:41:29.168 I game [game] primeiros frames apresentados
+2026-10-21 18:41:29.898 I game [autopilot] comando: auto
+2026-10-21 18:42:35.906 I game [autopilot] caminho repetido; autoteste em 60 s
+2026-10-21 18:43:35.907 I game [selftest] inicio: a gravar frames
+2026-10-21 18:43:36.708 I game [selftest] imagem congelada

@@ -1,0 +1,333 @@
+swordman: watchdog o loop do jogo nunca arrancou (ticks=0, despejo 1 de 3)
+swordman: watchdog -- thread 17756 "SDLActivity" estado=S wchan=do_epoll_wait
+swordman: watchdog    #00 libc.so+0xa6c2c
+swordman: watchdog    #01 libutils.so+0x17cc0  android::Looper::pollInner(int)+0xc4
+swordman: watchdog    #02 libutils.so+0x17b9c  android::Looper::pollOnce(int, int*, int*, void**)+0x78
+swordman: watchdog    #03 libandroid_runtime.so+0x16393c
+swordman: watchdog    #04 libart.so+0x21a358
+swordman: watchdog    #05 0x17f3b07452f2c540
+swordman: watchdog -- thread 17765 "Signal Catcher" estado=S wchan=do_sigtimedwait
+swordman: watchdog    #00 libc.so+0xa664c
+swordman: watchdog    #01 libc.so+0x62404  sigwait64+0x60
+swordman: watchdog    #02 libart.so+0x63ea3c  art::SignalCatcher::WaitForSignal(art::Thread*, art::SignalSet&)+0xcc
+swordman: watchdog    #03 libart.so+0x63d7cc  art::SignalCatcher::Run(void*)+0x110
+swordman: watchdog    #04 libc.so+0xba654
+swordman: watchdog    #05 libc.so+0x54000
+swordman: watchdog -- thread 17766 "perfetto_hprof_" estado=S wchan=pipe_read
+swordman: watchdog    #00 libc.so+0xa5968  read+0x8
+swordman: watchdog    #01 libperfetto_hprof.so+0x1db40
+swordman: watchdog    #02 libc.so+0xba654
+swordman: watchdog    #03 libc.so+0x54000
+swordman: watchdog -- thread 17767 "ADB-JDWP Connec" estado=S wchan=do_sys_poll
+swordman: watchdog    #00 libc.so+0xa6d2c
+swordman: watchdog    #01 libc.so+0x5f474  poll+0x64
+swordman: watchdog    #02 libadbconnection.so+0x9a90  adbconnection::AdbConnectionState::RunPollLoop(art::Thread*)+0x2dc
+swordman: watchdog    #03 libadbconnection.so+0x8114
+swordman: watchdog    #04 libc.so+0xba654
+swordman: watchdog    #05 libc.so+0x54000
+swordman: watchdog -- thread 17768 "Jit thread pool" estado=S wchan=futex_wait_queue_me
+swordman: watchdog    #00 libc.so+0x4eb30  syscall+0x20
+swordman: watchdog    #01 libart.so+0x282bb8  art::ConditionVariable::WaitHoldingLocks(art::Thread*)+0x94
+swordman: watchdog    #02 libart.so+0x68051c  art::ThreadPool::GetTask(art::Thread*)+0x84
+swordman: watchdog    #03 libart.so+0x67f8e4  art::ThreadPoolWorker::Run()+0x98
+swordman: watchdog    #04 libart.so+0x67f368  art::ThreadPoolWorker::Callback(void*)+0xb4
+swordman: watchdog    #05 libc.so+0xba654
+swordman: watchdog    #06 libc.so+0x54000
+swordman: watchdog -- thread 17769 "HeapTaskDaemon" estado=S wchan=futex_wait_queue_me
+swordman: watchdog    #00 libc.so+0x4eb34  syscall+0x24
+swordman: watchdog    #01 libart.so+0x282f84  art::ConditionVariable::TimedWait(art::Thread*, long, int)+0xac
+swordman: watchdog    #02 libart.so+0x3b88c8  art::gc::TaskProcessor::GetTask(art::Thread*)+0x124
+swordman: watchdog    #03 libart.so+0x3b9244  art::gc::TaskProcessor::RunAllTasks(art::Thread*)+0x64
+swordman: watchdog    #04 boot-core-libart.oat+0xfbe8
+swordman: watchdog -- thread 17770 "ReferenceQueueD" estado=S wchan=futex_wait_queue_me
+swordman: watchdog    #00 libc.so+0x4eb30  syscall+0x20
+swordman: watchdog    #01 libart.so+0x282bb8  art::ConditionVariable::WaitHoldingLocks(art::Thread*)+0x94
+swordman: watchdog    #02 libart.so+0x55b194  art::Monitor::Wait(art::Thread*, long, int, bool, art::ThreadState)+0x254
+swordman: watchdog    #03 libart.so+0x55c924  art::Monitor::Wait(art::Thread*, art::ObjPtr<art::mirror::Object>, long, int, bool, art::ThreadState)+0x130
+swordman: watchdog    #04 boot.oat+0x932e0
+swordman: watchdog -- thread 17771 "FinalizerDaemon" estado=S wchan=futex_wait_queue_me
+swordman: watchdog    #00 libc.so+0x4eb30  syscall+0x20
+swordman: watchdog    #01 libart.so+0x282bb8  art::ConditionVariable::WaitHoldingLocks(art::Thread*)+0x94
+swordman: watchdog    #02 libart.so+0x55b194  art::Monitor::Wait(art::Thread*, long, int, bool, art::ThreadState)+0x254
+swordman: watchdog    #03 libart.so+0x55c924  art::Monitor::Wait(art::Thread*, art::ObjPtr<art::mirror::Object>, long, int, bool, art::ThreadState)+0x130
+swordman: watchdog    #04 boot.oat+0x932e0
+swordman: watchdog -- thread 17772 "FinalizerWatchd" estado=S wchan=futex_wait_queue_me
+swordman: watchdog    #00 libc.so+0x4eb30  syscall+0x20
+swordman: watchdog    #01 libart.so+0x282bb8  art::ConditionVariable::WaitHoldingLocks(art::Thread*)+0x94
+swordman: watchdog    #02 libart.so+0x55b194  art::Monitor::Wait(art::Thread*, long, int, bool, art::ThreadState)+0x254
+swordman: watchdog    #03 libart.so+0x55c924  art::Monitor::Wait(art::Thread*, art::ObjPtr<art::mirror::Object>, long, int, bool, art::ThreadState)+0x130
+swordman: watchdog    #04 boot.oat+0x932e0
+swordman: watchdog -- thread 17773 "binder:17756_1" estado=S wchan=binder_ioctl_write_read
+swordman: watchdog    #00 libc.so+0xa5c48
+swordman: watchdog    #01 libc.so+0x5caa4  ioctl+0xa4
+swordman: watchdog    #02 libbinder.so+0x5c2a4  android::IPCThreadState::talkWithDriver(bool)+0x120
+swordman: watchdog    #03 libbinder.so+0x5c598  android::IPCThreadState::getAndExecuteCommand()+0x20
+swordman: watchdog    #04 libbinder.so+0x5cee4  android::IPCThreadState::joinThreadPool(bool)+0x4c
+swordman: watchdog    #05 libbinder.so+0x8cde4
+swordman: watchdog    #06 libutils.so+0x13418  android::Thread::_threadLoop(void*)+0x1ac
+swordman: watchdog    #07 libandroid_runtime.so+0xccb04  android::AndroidRuntime::javaThreadShell(void*)+0x94
+swordman: watchdog    #08 libc.so+0xba654
+swordman: watchdog    #09 libc.so+0x54000
+swordman: watchdog -- thread 17774 "binder:17756_2" estado=S wchan=binder_ioctl_write_read
+swordman: watchdog    #00 libc.so+0xa5c48
+swordman: watchdog    #01 libc.so+0x5caa4  ioctl+0xa4
+swordman: watchdog    #02 libbinder.so+0x5c2a4  android::IPCThreadState::talkWithDriver(bool)+0x120
+swordman: watchdog    #03 libbinder.so+0x5c598  android::IPCThreadState::getAndExecuteCommand()+0x20
+swordman: watchdog    #04 libbinder.so+0x5cee4  android::IPCThreadState::joinThreadPool(bool)+0x4c
+swordman: watchdog    #05 libbinder.so+0x8cde4
+swordman: watchdog    #06 libutils.so+0x13418  android::Thread::_threadLoop(void*)+0x1ac
+swordman: watchdog    #07 libandroid_runtime.so+0xccb04  android::AndroidRuntime::javaThreadShell(void*)+0x94
+swordman: watchdog    #08 libc.so+0xba654
+swordman: watchdog    #09 libc.so+0x54000
+swordman: watchdog -- thread 17776 "binder:17756_3" estado=S wchan=binder_ioctl_write_read
+swordman: watchdog    #00 libc.so+0xa5c48
+swordman: watchdog    #01 libc.so+0x5caa4  ioctl+0xa4
+swordman: watchdog    #02 libbinder.so+0x5c2a4  android::IPCThreadState::talkWithDriver(bool)+0x120
+swordman: watchdog    #03 libbinder.so+0x5c598  android::IPCThreadState::getAndExecuteCommand()+0x20
+swordman: watchdog    #04 libbinder.so+0x5cee4  android::IPCThreadState::joinThreadPool(bool)+0x4c
+swordman: watchdog    #05 libbinder.so+0x8cde4
+swordman: watchdog    #06 libutils.so+0x13418  android::Thread::_threadLoop(void*)+0x1ac
+swordman: watchdog    #07 libandroid_runtime.so+0xccb04  android::AndroidRuntime::javaThreadShell(void*)+0x94
+swordman: watchdog    #08 libc.so+0xba654
+swordman: watchdog    #09 libc.so+0x54000
+swordman: watchdog -- thread 17785 "Profile Saver" estado=S wchan=futex_wait_queue_me
+swordman: watchdog    #00 libc.so+0x4eb30  syscall+0x20
+swordman: watchdog    #01 libart.so+0x282bb8  art::ConditionVariable::WaitHoldingLocks(art::Thread*)+0x94
+swordman: watchdog    #02 libart.so+0x4252dc  art::ProfileSaver::Run()+0x228
+swordman: watchdog    #03 libart.so+0x42a740  art::ProfileSaver::RunProfileSaverThread(void*)+0xb8
+swordman: watchdog    #04 libc.so+0xba654
+swordman: watchdog    #05 libc.so+0x54000
+swordman: watchdog -- thread 17786 "SwordManLog" estado=S wchan=futex_wait_queue_me
+swordman: watchdog    #00 libc.so+0x4eb30  syscall+0x20
+swordman: watchdog    #01 libart.so+0x6582bc  art::Thread::Park(bool, long)+0x164
+swordman: watchdog    #02 libart.so+0x597780
+swordman: watchdog    #03 boot.oat+0x93508
+swordman: watchdog -- thread 17787 "RenderThread" estado=S wchan=do_epoll_wait
+swordman: watchdog    #00 libc.so+0xa6c2c
+swordman: watchdog    #01 libutils.so+0x17cc0  android::Looper::pollInner(int)+0xc4
+swordman: watchdog    #02 libutils.so+0x17b9c  android::Looper::pollOnce(int, int*, int*, void**)+0x78
+swordman: watchdog    #03 libhwui.so+0x27408c
+swordman: watchdog    #04 libhwui.so+0x295050
+swordman: watchdog    #05 libutils.so+0x13418  android::Thread::_threadLoop(void*)+0x1ac
+swordman: watchdog    #06 libc.so+0xba654
+swordman: watchdog    #07 libc.so+0x54000
+swordman: watchdog -- thread 17791 "SDLActivity" estado=S wchan=__arm64_sys_nanosleep
+swordman: watchdog    #00 libc.so+0xa63ec  nanosleep+0xc
+swordman: watchdog    #01 libc++_shared.so+0xdc138  std::__ndk1::this_thread::sleep_for(std::__ndk1::chrono::duration<long long, std::__ndk1::ratio<1l, 1000000000l>> const&)+0x58
+swordman: watchdog    #02 librexruntime.so+0x4025e8  rex::thread::TimerQueue::TimerThreadMain(std::__ndk1::stop_token)+0x2ec
+swordman: watchdog    #03 librexruntime.so+0x402160
+swordman: watchdog    #04 libc.so+0xba654
+swordman: watchdog    #05 libc.so+0x54000
+swordman: watchdog -- thread 17794 "SwordManInput" estado=S wchan=do_epoll_wait
+swordman: watchdog    #00 libc.so+0xa6c2c
+swordman: watchdog    #01 libutils.so+0x17cc0  android::Looper::pollInner(int)+0xc4
+swordman: watchdog    #02 libutils.so+0x17b9c  android::Looper::pollOnce(int, int*, int*, void**)+0x78
+swordman: watchdog    #03 libandroid_runtime.so+0x16393c
+swordman: watchdog    #04 libart.so+0x21a358
+swordman: watchdog    #05 libart.so+0x208ac8
+swordman: watchdog -- thread 17796 "SwordManCpu" estado=S wchan=futex_wait_queue_me
+swordman: watchdog    #00 libc.so+0x4eb34  syscall+0x24
+swordman: watchdog    #01 libart.so+0x282f84  art::ConditionVariable::TimedWait(art::Thread*, long, int)+0xac
+swordman: watchdog    #02 libart.so+0x55b1a8  art::Monitor::Wait(art::Thread*, long, int, bool, art::ThreadState)+0x268
+swordman: watchdog    #03 libart.so+0x55c924  art::Monitor::Wait(art::Thread*, art::ObjPtr<art::mirror::Object>, long, int, bool, art::ThreadState)+0x130
+swordman: watchdog    #04 boot.oat+0x98234
+swordman: watchdog -- thread 17797 "SwordMan-GpuSta" estado=S wchan=futex_wait_queue_me
+swordman: watchdog    #00 libc.so+0x4eb34  syscall+0x24
+swordman: watchdog    #01 libart.so+0x282f84  art::ConditionVariable::TimedWait(art::Thread*, long, int)+0xac
+swordman: watchdog    #02 libart.so+0x55b1a8  art::Monitor::Wait(art::Thread*, long, int, bool, art::ThreadState)+0x268
+swordman: watchdog    #03 libart.so+0x55c924  art::Monitor::Wait(art::Thread*, art::ObjPtr<art::mirror::Object>, long, int, bool, art::ThreadState)+0x130
+swordman: watchdog    #04 boot.oat+0x98234
+swordman: watchdog -- thread 17799 "hwuiTask0" estado=S wchan=futex_wait_queue_me
+swordman: watchdog    #00 libc.so+0x4eb30  syscall+0x20
+swordman: watchdog    #01 libc.so+0x5351c
+swordman: watchdog    #02 libc.so+0xb9928  pthread_cond_wait+0x54
+swordman: watchdog    #03 libc++.so+0x58278  std::__1::condition_variable::wait(std::__1::unique_lock<std::__1::mutex>&)+0x1c
+swordman: watchdog    #04 libhwui.so+0x298a28
+swordman: watchdog    #05 libhwui.so+0x298c68
+swordman: watchdog    #06 libc.so+0xba654
+swordman: watchdog    #07 libc.so+0x54000
+swordman: watchdog -- thread 17800 "hwuiTask1" estado=S wchan=futex_wait_queue_me
+swordman: watchdog    #00 libc.so+0x4eb30  syscall+0x20
+swordman: watchdog    #01 libc.so+0x5351c
+swordman: watchdog    #02 libc.so+0xb9928  pthread_cond_wait+0x54
+swordman: watchdog    #03 libc++.so+0x58278  std::__1::condition_variable::wait(std::__1::unique_lock<std::__1::mutex>&)+0x1c
+swordman: watchdog    #04 libhwui.so+0x298a28
+swordman: watchdog    #05 libhwui.so+0x298c68
+swordman: watchdog    #06 libc.so+0xba654
+swordman: watchdog    #07 libc.so+0x54000
+swordman: watchdog -- thread 17803 "SDLThread" estado=S wchan=futex_wait_queue_me
+swordman: watchdog    #00 libc.so+0x4eb30  syscall+0x20
+swordman: watchdog    #01 libc.so+0x5351c
+swordman: watchdog    #02 libc.so+0xb9928  pthread_cond_wait+0x54
+swordman: watchdog    #03 libc++_shared.so+0xda5a4  std::__ndk1::condition_variable::wait(std::__ndk1::unique_lock<std::__ndk1::mutex>&)+0x1c
+swordman: watchdog    #04 librexgpu-xenos.so+0x294444
+swordman: watchdog    #05 libmain.so+0x479ddfc
+swordman: watchdog    #06 librexruntime.so+0x4520d4  rex::ui::WindowedAppContext::ExecutePendingFunctionsFromUIThread(bool)+0x180
+swordman: watchdog    #07 librexruntime.so+0x452ed4  rex::ui::SDLWindowedAppContext::RunMainMessageLoop()+0x40
+swordman: watchdog    #08 libmain.so+0x47861a8  SDL_main+0x298
+swordman: watchdog    #09 libSDL3.so+0x14d6fc
+swordman: watchdog    #10 libart.so+0x21a358
+swordman: watchdog    #11 0x7818cde760
+swordman: watchdog -- thread 17808 "binder:17756_3" estado=S wchan=futex_wait_queue_me
+swordman: watchdog    #00 libc.so+0x4eb30  syscall+0x20
+swordman: watchdog    #01 libc.so+0x5351c
+swordman: watchdog    #02 libc.so+0xb9928  pthread_cond_wait+0x54
+swordman: watchdog    #03 libc++.so+0x58278  std::__1::condition_variable::wait(std::__1::unique_lock<std::__1::mutex>&)+0x1c
+swordman: watchdog    #04 libgui.so+0xad604
+swordman: watchdog    #05 libgui.so+0xad9dc  void* std::__1::__thread_proxy<std::__1::tuple<std::__1::unique_ptr<std::__1::__thread_struct, std::__1::default_delete<std::__1::__thread_struct>>, void (andro...+0x44
+swordman: watchdog    #06 libc.so+0xba654
+swordman: watchdog    #07 libc.so+0x54000
+swordman: watchdog -- thread 17809 "XMA Decoder (F8" estado=S wchan=futex_wait_queue_me
+swordman: watchdog    #00 libc.so+0x4eb30  syscall+0x20
+swordman: watchdog    #01 libc.so+0x5351c
+swordman: watchdog    #02 libc.so+0xb9928  pthread_cond_wait+0x54
+swordman: watchdog    #03 libc++_shared.so+0xda5a4  std::__ndk1::condition_variable::wait(std::__ndk1::unique_lock<std::__ndk1::mutex>&)+0x1c
+swordman: watchdog    #04 librexruntime.so+0x40ff2c  rex::thread::PosixConditionBase::WaitRegistered(unsigned long, std::__ndk1::chrono::duration<long long, std::__ndk1::ratio<1l, 1000l>>)+0xc4
+swordman: watchdog    #05 librexruntime.so+0x40fe30  rex::thread::PosixConditionBase::Wait(std::__ndk1::chrono::duration<long long, std::__ndk1::ratio<1l, 1000l>>)+0xa8
+swordman: watchdog    #06 librexruntime.so+0x4c2930  rex::audio::XmaDecoder::WorkerThreadMain()+0x190
+swordman: watchdog    #07 librexruntime.so+0x4c35f4
+swordman: watchdog    #08 librexruntime.so+0x5d7e4c  rex::system::XHostThread::Execute()+0xec
+swordman: watchdog    #09 librexruntime.so+0x5d884c
+swordman: watchdog    #10 librexruntime.so+0x4112c4  rex::thread::PosixCondition<rex::thread::Thread>::ThreadStartRoutine(void*)+0x1a8
+swordman: watchdog    #11 libc.so+0xba654
+swordman: watchdog    #12 libc.so+0x54000
+swordman: watchdog -- thread 17810 "Audio Worker (F" estado=S wchan=__arm64_sys_nanosleep
+swordman: watchdog    #00 libc.so+0xa63ec  nanosleep+0xc
+swordman: watchdog    #01 librexruntime.so+0x40f0e0  rex::thread::Sleep(std::__ndk1::chrono::duration<long long, std::__ndk1::ratio<1l, 1000000l>>)+0x58
+swordman: watchdog    #02 librexruntime.so+0x4bc75c  rex::audio::AudioSystem::WorkerThreadMain()+0x288
+swordman: watchdog    #03 librexruntime.so+0x4bde30
+swordman: watchdog    #04 librexruntime.so+0x5d7e4c  rex::system::XHostThread::Execute()+0xec
+swordman: watchdog    #05 librexruntime.so+0x5d884c
+swordman: watchdog    #06 librexruntime.so+0x4112c4  rex::thread::PosixCondition<rex::thread::Thread>::ThreadStartRoutine(void*)+0x1a8
+swordman: watchdog    #07 libc.so+0xba654
+swordman: watchdog    #08 libc.so+0x54000
+swordman: watchdog -- thread 17811 "GPU Commands (F" estado=S wchan=futex_wait_queue_me
+swordman: watchdog    #00 libc.so+0x4eb30  syscall+0x20
+swordman: watchdog    #01 libc.so+0x5351c
+swordman: watchdog    #02 libc.so+0xb9928  pthread_cond_wait+0x54
+swordman: watchdog    #03 libc++_shared.so+0xda5a4  std::__ndk1::condition_variable::wait(std::__ndk1::unique_lock<std::__ndk1::mutex>&)+0x1c
+swordman: watchdog    #04 librexruntime.so+0x40ff2c  rex::thread::PosixConditionBase::WaitRegistered(unsigned long, std::__ndk1::chrono::duration<long long, std::__ndk1::ratio<1l, 1000l>>)+0xc4
+swordman: watchdog    #05 librexruntime.so+0x40fe30  rex::thread::PosixConditionBase::Wait(std::__ndk1::chrono::duration<long long, std::__ndk1::ratio<1l, 1000l>>)+0xa8
+swordman: watchdog    #06 librexgpu-xenos.so+0x38c5a8
+swordman: watchdog    #07 librexgpu-xenos.so+0x2969d8
+swordman: watchdog    #08 librexgpu-xenos.so+0x298058
+swordman: watchdog    #09 librexgpu-xenos.so+0x29e964
+swordman: watchdog    #10 librexruntime.so+0x5d7e4c  rex::system::XHostThread::Execute()+0xec
+swordman: watchdog    #11 librexruntime.so+0x5d884c
+swordman: watchdog    #12 librexruntime.so+0x4112c4  rex::thread::PosixCondition<rex::thread::Thread>::ThreadStartRoutine(void*)+0x1a8
+swordman: watchdog    #13 libc.so+0xba654
+swordman: watchdog    #14 libc.so+0x54000
+swordman: watchdog -- thread 17812 "GPU VSync (F800" estado=S wchan=__arm64_sys_nanosleep
+swordman: watchdog    #00 libc.so+0xa63ec  nanosleep+0xc
+swordman: watchdog    #01 librexruntime.so+0x40f0e0  rex::thread::Sleep(std::__ndk1::chrono::duration<long long, std::__ndk1::ratio<1l, 1000000l>>)+0x58
+swordman: watchdog    #02 librexgpu-xenos.so+0x295a00
+swordman: watchdog    #03 librexruntime.so+0x5d7e4c  rex::system::XHostThread::Execute()+0xec
+swordman: watchdog    #04 librexruntime.so+0x5d884c
+swordman: watchdog    #05 librexruntime.so+0x4112c4  rex::thread::PosixCondition<rex::thread::Thread>::ThreadStartRoutine(void*)+0x1a8
+swordman: watchdog    #06 libc.so+0xba654
+swordman: watchdog    #07 libc.so+0x54000
+swordman: watchdog -- thread 17814 "SensorThread" estado=S wchan=do_epoll_wait
+swordman: watchdog    #00 libc.so+0xa6c2c
+swordman: watchdog    #01 libutils.so+0x17cc0  android::Looper::pollInner(int)+0xc4
+swordman: watchdog    #02 libutils.so+0x17b9c  android::Looper::pollOnce(int, int*, int*, void**)+0x78
+swordman: watchdog    #03 libandroid_runtime.so+0x16393c
+swordman: watchdog    #04 libart.so+0x21a358
+swordman: watchdog    #05 libart.so+0x732300  NterpGetInstanceFieldOffset+0x6c
+swordman: watchdog -- thread 17815 "Kernel Dispatch" estado=S wchan=futex_wait_queue_me
+swordman: watchdog    #00 libc.so+0x4eb30  syscall+0x20
+swordman: watchdog    #01 libc.so+0x5351c
+swordman: watchdog    #02 libc.so+0xb9928  pthread_cond_wait+0x54
+swordman: watchdog    #03 libc++_shared.so+0xda5a4  std::__ndk1::condition_variable::wait(std::__ndk1::unique_lock<std::__ndk1::mutex>&)+0x1c
+swordman: watchdog    #04 librexruntime.so+0x5b9648
+swordman: watchdog    #05 librexruntime.so+0x5b906c
+swordman: watchdog    #06 librexruntime.so+0x5d7e4c  rex::system::XHostThread::Execute()+0xec
+swordman: watchdog    #07 librexruntime.so+0x5d884c
+swordman: watchdog    #08 librexruntime.so+0x4112c4  rex::thread::PosixCondition<rex::thread::Thread>::ThreadStartRoutine(void*)+0x1a8
+swordman: watchdog    #09 libc.so+0xba654
+swordman: watchdog    #10 libc.so+0x54000
+swordman: watchdog -- thread 17816 "" estado=S wchan=futex_wait_queue_me
+swordman: watchdog    #00 libc.so+0x4eb30  syscall+0x20
+swordman: watchdog    #01 libc.so+0x5351c
+swordman: watchdog    #02 libc.so+0xb9928  pthread_cond_wait+0x54
+swordman: watchdog    #03 libc++_shared.so+0xda5a4  std::__ndk1::condition_variable::wait(std::__ndk1::unique_lock<std::__ndk1::mutex>&)+0x1c
+swordman: watchdog    #04 librexruntime.so+0x411298  rex::thread::PosixCondition<rex::thread::Thread>::ThreadStartRoutine(void*)+0x17c
+swordman: watchdog    #05 libc.so+0xba654
+swordman: watchdog    #06 libc.so+0x54000
+swordman: watchdog -- thread 17820 "Vulkan Pipeline" estado=S wchan=futex_wait_queue_me
+swordman: watchdog    #00 libc.so+0x4eb30  syscall+0x20
+swordman: watchdog    #01 libc.so+0x5351c
+swordman: watchdog    #02 libc.so+0xb9928  pthread_cond_wait+0x54
+swordman: watchdog    #03 libc++_shared.so+0xda5a4  std::__ndk1::condition_variable::wait(std::__ndk1::unique_lock<std::__ndk1::mutex>&)+0x1c
+swordman: watchdog    #04 librexgpu-xenos.so+0x39a6b0
+swordman: watchdog    #05 librexruntime.so+0x4112c4  rex::thread::PosixCondition<rex::thread::Thread>::ThreadStartRoutine(void*)+0x1a8
+swordman: watchdog    #06 libc.so+0xba654
+swordman: watchdog    #07 libc.so+0x54000
+swordman: watchdog -- thread 17821 "Vulkan Pipeline" estado=S wchan=futex_wait_queue_me
+swordman: watchdog    #00 libc.so+0x4eb30  syscall+0x20
+swordman: watchdog    #01 libc.so+0x5351c
+swordman: watchdog    #02 libc.so+0xb9928  pthread_cond_wait+0x54
+swordman: watchdog    #03 libc++_shared.so+0xda5a4  std::__ndk1::condition_variable::wait(std::__ndk1::unique_lock<std::__ndk1::mutex>&)+0x1c
+swordman: watchdog    #04 librexgpu-xenos.so+0x39a6b0
+swordman: watchdog    #05 librexruntime.so+0x4112c4  rex::thread::PosixCondition<rex::thread::Thread>::ThreadStartRoutine(void*)+0x1a8
+swordman: watchdog    #06 libc.so+0xba654
+swordman: watchdog    #07 libc.so+0x54000
+swordman: watchdog -- thread 17822 "Vulkan Pipeline" estado=S wchan=futex_wait_queue_me
+swordman: watchdog    #00 libc.so+0x4eb30  syscall+0x20
+swordman: watchdog    #01 libc.so+0x5351c
+swordman: watchdog    #02 libc.so+0xb9928  pthread_cond_wait+0x54
+swordman: watchdog    #03 libc++_shared.so+0xda5a4  std::__ndk1::condition_variable::wait(std::__ndk1::unique_lock<std::__ndk1::mutex>&)+0x1c
+swordman: watchdog    #04 librexgpu-xenos.so+0x39a6b0
+swordman: watchdog    #05 librexruntime.so+0x4112c4  rex::thread::PosixCondition<rex::thread::Thread>::ThreadStartRoutine(void*)+0x1a8
+swordman: watchdog    #06 libc.so+0xba654
+swordman: watchdog    #07 libc.so+0x54000
+swordman: watchdog -- thread 17823 "Vulkan Pipeline" estado=S wchan=futex_wait_queue_me
+swordman: watchdog    #00 libc.so+0x4eb30  syscall+0x20
+swordman: watchdog    #01 libc.so+0x5351c
+swordman: watchdog    #02 libc.so+0xb9928  pthread_cond_wait+0x54
+swordman: watchdog    #03 libc++_shared.so+0xda5a4  std::__ndk1::condition_variable::wait(std::__ndk1::unique_lock<std::__ndk1::mutex>&)+0x1c
+swordman: watchdog    #04 librexgpu-xenos.so+0x39a6b0
+swordman: watchdog    #05 librexruntime.so+0x4112c4  rex::thread::PosixCondition<rex::thread::Thread>::ThreadStartRoutine(void*)+0x1a8
+swordman: watchdog    #06 libc.so+0xba654
+swordman: watchdog    #07 libc.so+0x54000
+swordman: watchdog -- thread 17824 "Vulkan Pipeline" estado=S wchan=futex_wait_queue_me
+swordman: watchdog    #00 libc.so+0x4eb30  syscall+0x20
+swordman: watchdog    #01 libc.so+0x5351c
+swordman: watchdog    #02 libc.so+0xb9928  pthread_cond_wait+0x54
+swordman: watchdog    #03 libc++_shared.so+0xda5a4  std::__ndk1::condition_variable::wait(std::__ndk1::unique_lock<std::__ndk1::mutex>&)+0x1c
+swordman: watchdog    #04 librexgpu-xenos.so+0x39a6b0
+swordman: watchdog    #05 librexruntime.so+0x4112c4  rex::thread::PosixCondition<rex::thread::Thread>::ThreadStartRoutine(void*)+0x1a8
+swordman: watchdog    #06 libc.so+0xba654
+swordman: watchdog    #07 libc.so+0x54000
+swordman: watchdog -- thread 17825 "Vulkan Pipeline" estado=S wchan=futex_wait_queue_me
+swordman: watchdog    #00 libc.so+0x4eb30  syscall+0x20
+swordman: watchdog    #01 libc.so+0x5351c
+swordman: watchdog    #02 libc.so+0xb9928  pthread_cond_wait+0x54
+swordman: watchdog    #03 libc++_shared.so+0xda5a4  std::__ndk1::condition_variable::wait(std::__ndk1::unique_lock<std::__ndk1::mutex>&)+0x1c
+swordman: watchdog    #04 librexgpu-xenos.so+0x39a6b0
+swordman: watchdog    #05 librexruntime.so+0x4112c4  rex::thread::PosixCondition<rex::thread::Thread>::ThreadStartRoutine(void*)+0x1a8
+swordman: watchdog    #06 libc.so+0xba654
+swordman: watchdog    #07 libc.so+0x54000
+swordman: watchdog -- thread 17841 "Vulkan Pipeline" estado=R wchan=0
+swordman: watchdog    #00 libllvm-qgl.so+0x3fee54
+swordman: watchdog    #01 libllvm-qgl.so+0xc301e4
+swordman: watchdog -- thread 17842 "Vulkan Pipeline" estado=R wchan=0
+swordman: watchdog    #00 libllvm-qgl.so+0x2a2218
+swordman: watchdog    #01 libllvm-qgl.so+0x2a210c
+swordman: watchdog -- thread 17843 "Vulkan Pipeline" estado=R wchan=0
+swordman: watchdog    #00 libc.so+0x4eb34  syscall+0x24
+swordman: watchdog    #01 libc.so+0x5351c
+swordman: watchdog    #02 libc.so+0xbbaac
+swordman: watchdog    #03 libc.so+0xbb6b4  pthread_mutex_lock+0xe4
+swordman: watchdog    #04 libllvm-qgl.so+0x270ce8
+swordman: watchdog -- thread 17844 "Vulkan Pipeline" estado=R wchan=0
+swordman: watchdog    #00 libc.so+0x4eb34  syscall+0x24
+swordman: watchdog    #01 libc.so+0xbbd7c
+swordman: watchdog    #02 libc.so+0xbbc30  pthread_mutex_unlock+0x120
+swordman: watchdog    #03 libllvm-qgl.so+0x270d08
+swordman: watchdog -- thread 17845 "Vulkan Pipeline" estado=R wchan=0
+swordman: watchdog    #00 libllvm-qgl.so+0xc07298
+swordman: watchdog    #01 libllvm-qgl.so+0xc070b0
+swordman: watchdog -- thread 17846 "Vulkan Pipeline" estado=R wchan=0
+swordman: watchdog    #00 libllvm-qgl.so+0x998958
+swordman: watchdog    #01 libllvm-qgl.so+0x9989dc
+swordman: watchdog fim

@@ -1,0 +1,1 @@
+575cd85 autotest: cleanup no longer kills the run when ~/Downloads has no zips; ERR trap says where it stopped; slim uses absolute paths and only the newest capture

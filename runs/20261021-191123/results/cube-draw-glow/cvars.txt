@@ -1,0 +1,3 @@
+vibration = false
+dbz3_direct_resolve_draw = true
+swordman_skip_ps = C45580526034B1F2,4086D1DF9FA6220E

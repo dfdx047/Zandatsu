@@ -1,0 +1,25 @@
+Wed Oct 21 06:36:05 GMT+01:00 2026  Turnip bisect passo 0 base (nada mudado) [] driver libvulkan_freedreno.so
+Wed Oct 21 06:36:42 GMT+01:00 2026  Turnip bisect passo 1 sem dynamic rendering nem stencil export [REX_VULKAN_DYNAMIC_RENDERING=false;REX_DBZ3_VK_DISABLE_EXTENSIONS=VK_EXT_shader_stencil_export] driver libvulkan_freedreno.so
+Wed Oct 21 06:37:19 GMT+01:00 2026  Turnip bisect passo 2 ir3 nopreamble [IR3_SHADER_DEBUG=nopreamble] driver libvulkan_freedreno.so
+Wed Oct 21 06:37:56 GMT+01:00 2026  Turnip bisect passo 3 ir3 nouboopt [IR3_SHADER_DEBUG=nouboopt] driver libvulkan_freedreno.so
+Wed Oct 21 06:38:33 GMT+01:00 2026  Turnip bisect passo 4 ir3 nofp16 [IR3_SHADER_DEBUG=nofp16] driver libvulkan_freedreno.so
+Wed Oct 21 06:39:10 GMT+01:00 2026  Turnip bisect passo 5 sysmem (sem GMEM) [TU_DEBUG=sysmem] driver libvulkan_freedreno.so
+Wed Oct 21 06:39:47 GMT+01:00 2026  Turnip bisect passo 6 sem UBWC nem LRZ [TU_DEBUG=noubwc,nolrz] driver libvulkan_freedreno.so
+Wed Oct 21 06:40:24 GMT+01:00 2026  Turnip bisect passo 7 BC descomprimido [REX_VULKAN_MASK_FEATURES=textureCompressionBC] driver libvulkan_freedreno.so
+Wed Oct 21 06:41:00 GMT+01:00 2026  Turnip bisect passo 8 memoria num so buffer de 512 MB [REX_DBZ3_VK_MAX_STORAGE_BUFFER_RANGE_MB=512] driver libvulkan_freedreno.so
+Wed Oct 21 06:41:37 GMT+01:00 2026  Turnip bisect passo 9 sem robustez (robustBufferAccess, VK_EXT_robustness2) [REX_VULKAN_MASK_FEATURES=robustBufferAccess;REX_DBZ3_VK_DISABLE_EXTENSIONS=VK_EXT_robustness2] driver libvulkan_freedreno.so
+Wed Oct 21 06:42:14 GMT+01:00 2026  Turnip bisect passo 10 sincronizacao total (flushall,syncdraw) [TU_DEBUG=flushall,syncdraw] driver libvulkan_freedreno.so
+Wed Oct 21 06:42:51 GMT+01:00 2026  Turnip bisect passo 11 depth float32 [REX_VULKAN_DISABLE_DEPTH_UNORM24=true] driver libvulkan_freedreno.so
+Wed Oct 21 06:43:28 GMT+01:00 2026  Turnip bisect passo 12 sem passo 4 (render na textura) [REX_DBZ3_RENDER_INTO_TEXTURE=false] driver libvulkan_freedreno.so
+Wed Oct 21 06:44:05 GMT+01:00 2026  Turnip bisect passo 13 sem atalhos resolve->textura [REX_DBZ3_DIRECT_RESOLVE_TEXTURE=0;REX_DBZ3_DIRECT_RESOLVE_SKIP_MEMORY=false] driver libvulkan_freedreno.so
+Wed Oct 21 06:44:42 GMT+01:00 2026  Turnip bisect passo 14 sem render targets diretos [REX_DBZ3_RT_DIRECT=false] driver libvulkan_freedreno.so
+Wed Oct 21 06:45:19 GMT+01:00 2026  Turnip bisect passo 15 Xenia puro (sem otimizacoes) [REX_DBZ3_RENDER_INTO_TEXTURE=false;REX_DBZ3_DIRECT_RESOLVE_TEXTURE=0;REX_DBZ3_DIRECT_RESOLVE_SKIP_MEMORY=false;REX_DBZ3_RT_DIRECT=false;REX_DBZ3_RESOLVE_DEDUPE=false;REX_DBZ3_SKIP_NULL_DRAWS=false;REX_DBZ3_DISCARD_FULL_OVERWRITE=false;REX_DBZ3_CLEAR_TO_1X=false;REX_DBZ3_HOIST_UPLOADS=false] driver libvulkan_freedreno.so
+Wed Oct 21 06:45:56 GMT+01:00 2026  Turnip bisect passo 16 tudo do driver junto (sysmem, noubwc, nolrz, flushall, 512 MB) [TU_DEBUG=sysmem,noubwc,nolrz,flushall,syncdraw;REX_DBZ3_VK_MAX_STORAGE_BUFFER_RANGE_MB=512] driver libvulkan_freedreno.so
+Wed Oct 21 06:52:40 GMT+01:00 2026  Turnip bisect passo 0 base (atalhos ligados) [] driver libvulkan_freedreno.so
+Wed Oct 21 06:53:16 GMT+01:00 2026  Turnip bisect passo 1 atalhos sem imageStore (buffer + copia) [REX_SWORDMAN_RTT_STORAGE=false] driver libvulkan_freedreno.so
+Wed Oct 21 06:53:53 GMT+01:00 2026  Turnip bisect passo 2 atalhos, mas a memoria tambem escrita [REX_DBZ3_DIRECT_RESOLVE_SKIP_MEMORY=false] driver libvulkan_freedreno.so
+Wed Oct 21 06:54:30 GMT+01:00 2026  Turnip bisect passo 3 sem o atalho float/32_FLOAT (0110) [REX_SWORDMAN_RTT_FLOAT=false] driver libvulkan_freedreno.so
+Wed Oct 21 06:55:07 GMT+01:00 2026  Turnip bisect passo 4 sem imageStore e memoria escrita [REX_SWORDMAN_RTT_STORAGE=false;REX_DBZ3_DIRECT_RESOLVE_SKIP_MEMORY=false] driver libvulkan_freedreno.so
+Wed Oct 21 06:55:44 GMT+01:00 2026  Turnip bisect passo 5 sem imageStore, sem 0110 [REX_SWORDMAN_RTT_STORAGE=false;REX_SWORDMAN_RTT_FLOAT=false] driver libvulkan_freedreno.so
+Wed Oct 21 06:56:21 GMT+01:00 2026  Turnip bisect passo 6 sem passo 4 nem resolves servidos (so os atalhos) [REX_DBZ3_RENDER_INTO_TEXTURE=false;REX_DBZ3_RIT_SERVE_RESOLVES=false] driver libvulkan_freedreno.so
+Wed Oct 21 06:56:58 GMT+01:00 2026  Turnip bisect passo 7 sem atalhos (referencia que desenha) [REX_DBZ3_DIRECT_RESOLVE_TEXTURE=0] driver libvulkan_freedreno.so

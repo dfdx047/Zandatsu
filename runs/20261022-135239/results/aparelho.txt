@@ -1,0 +1,75 @@
+Project SwordMan 0.1.0 (1)
+Aparelho: unknown TrebleDroid with GApps (tdgsi_arm64_ab)
+Android: 13 (API 33)
+SoC: Spreadtrum T770  Adreno: false
+Hardware: ums9620_2h10  Board: ums9620_2h10
+Driver Vulkan ativo: sistema
+Drivers instalados: 
+
+Arquivos do jogo:
+  default.xex: OK
+  media/data000.cpk: OK
+  media/data001.cpk: OK
+  media/sound/stream.cpk: OK
+  media/sound/streamEnglish(US).cpk: OK
+  media/sound/Init.bnk: OK
+  media/movie: OK
+  media/movie_ui: OK
+
+Opcoes: GameConfig(resolution=P540, presentEffect=fsr, fsrQuality=ultra_performance, fsrSharpness=0.2, casSharpness=0.0, fxaa=none, anisotropic=-1, frameRate=30, frameInterpolation=false, glowBlur=false, psFp16=true, showFps=true, letterbox=true, volume=100, vibration=true, deadzone=0.0, verboseLog=false, perfLogging=true, directResolve=1, directResolveFast=true, rtDirect=true, specShaders=true, clearTo1x=true, intoTexture=true, postLite=true, safeGpu=false)
+Sessao anterior: RUNNING
+
+getprop (graficos):
+  [debug.sf.enable_gpu_security]: [1]
+  [graphics.gpu.profiler.support]: [true]
+  [init.svc.gpu]: [running]
+  [init.svc.media.unisoc.codec2]: [running]
+  [init.svc.vendor.keymint-unisoc-2.0]: [running]
+  [init.svc_debug_pid.gpu]: [1077]
+  [init.svc_debug_pid.media.unisoc.codec2]: [1032]
+  [init.svc_debug_pid.vendor.keymint-unisoc-2.0]: [828]
+  [persist.sys.vilte.socket]: [ap]
+  [ro.board.platform]: [ums9620]
+  [ro.boot.boot_devices]: [soc/soc:ap-ahb/22000000.ufs]
+  [ro.bootimage.build.fingerprint]: [UNISOC/ums9620_2h10_native/ums9620_2h10:13/TP1A.220624.014/dell02282307:user/release-keys]
+  [ro.boottime.gpu]: [9691683454]
+  [ro.boottime.media.unisoc.codec2]: [9562569684]
+  [ro.boottime.vendor.keymint-unisoc-2.0]: [7097184532]
+  [ro.hardware.dpu]: [unisoc]
+  [ro.hardware.egl]: [mali]
+  [ro.hardware.enhance]: [unisoc]
+  [ro.hardware.gsp]: [unisoc]
+  [ro.hardware.hwcomposer]: [unisoc]
+  [ro.hardware.sensors]: [unisoc]
+  [ro.hwui.use_vulkan]: []
+  [ro.odm.build.fingerprint]: [UNISOC/ums9620_2h10_native/ums9620_2h10:13/TP1A.220624.014/dell05302211:user/release-keys]
+  [ro.opengles.version]: [196610]
+  [ro.product.bootimage.brand]: [UNISOC]
+  [ro.product.odm.brand]: [UNISOC]
+  [ro.product.vendor.brand]: [UNISOC]
+  [ro.product.vendor_dlkm.brand]: [UNISOC]
+  [ro.soc.manufacturer]: [Spreadtrum]
+  [ro.soc.model]: [T770]
+  [ro.vendor.arm.egl.configs.r10_g10_b10_a2_32bit_fixed.framebuffer_target]: [false]
+  [ro.vendor.arm.egl.configs.r10_g10_b10_a2_32bit_fixed.hal_format]: [0x2b]
+  [ro.vendor.arm.egl.configs.r10_g10_b10_a2_32bit_fixed.recordable]: [false]
+  [ro.vendor.arm.egl.configs.r16_g16_b16_a16_64bit_float.framebuffer_target]: [false]
+  [ro.vendor.arm.egl.configs.r16_g16_b16_a16_64bit_float.hal_format]: [0x16]
+  [ro.vendor.arm.egl.configs.r16_g16_b16_a16_64bit_float.recordable]: [false]
+  [ro.vendor.arm.egl.configs.r5_g6_b5_a0_16bit_fixed.framebuffer_target]: [true]
+  [ro.vendor.arm.egl.configs.r5_g6_b5_a0_16bit_fixed.hal_format]: [0x4]
+  [ro.vendor.arm.egl.configs.r5_g6_b5_a0_16bit_fixed.recordable]: [false]
+  [ro.vendor.arm.egl.configs.r8_g8_b8_a0_24bit_fixed.framebuffer_target]: [false]
+  [ro.vendor.arm.egl.configs.r8_g8_b8_a0_24bit_fixed.hal_format]: [0x2]
+  [ro.vendor.arm.egl.configs.r8_g8_b8_a0_24bit_fixed.recordable]: [false]
+  [ro.vendor.arm.egl.configs.r8_g8_b8_a0_24bit_yuv_special.framebuffer_target]: [false]
+  [ro.vendor.arm.egl.configs.r8_g8_b8_a0_24bit_yuv_special.hal_format]: [0x23]
+  [ro.vendor.arm.egl.configs.r8_g8_b8_a0_32bit_fixed.framebuffer_target]: [false]
+  [ro.vendor.arm.egl.configs.r8_g8_b8_a0_32bit_fixed.hal_format]: [0x2]
+  [ro.vendor.arm.egl.configs.r8_g8_b8_a0_32bit_fixed.recordable]: [false]
+  [ro.vendor.arm.egl.configs.r8_g8_b8_a8_32bit_fixed.framebuffer_target]: [true]
+  [ro.vendor.arm.egl.configs.r8_g8_b8_a8_32bit_fixed.hal_format]: [0x1]
+  [ro.vendor.arm.egl.configs.r8_g8_b8_a8_32bit_fixed.recordable]: [true]
+  [ro.vendor.build.fingerprint]: [UNISOC/ums9620_2h10_native/ums9620_2h10:13/TP1A.220624.014/dell03010010:user/release-keys]
+  [ro.vendor.gpu.boost]: [0]
+  [ro.vendor_dlkm.build.fingerprint]: [UNISOC/ums9620_2h10_native/ums9620_2h10:13/TP1A.220624.014/dell02282307:user/release-keys]

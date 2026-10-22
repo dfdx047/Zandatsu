@@ -1,0 +1,5 @@
+build ok, a testar (21/10 19:11)
+611e0fa0               device usb:7-2 product:kona model:Retroid_Pocket_5 device:kona transport_id:3
+RGCUBE13528869         device usb:1-3 product:lineage_arm64_bgN model:TrebleDroid_with_GApps device:tdgsi_arm64_ab transport_id:1
+
+testes acabados (21/10 19:37)

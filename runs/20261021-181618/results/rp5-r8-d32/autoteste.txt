@@ -1,0 +1,159 @@
+Autoteste do render - Wed Oct 21 18:50:27 GMT+01:00 2026
+Referencia: as otimizacoes como estao na config. Cada linha troca UMA delas
+('sem' = desligada, 'com' = ligada) e compara a imagem com a referencia.
+Se a diferenca for maior que o ruido, essa otimizacao muda a imagem (provavel erro).
+Resolucao interna: draw_resolution_percent=100
+Apresentacao: FIFO, tela 60 Hz, jogo 60 FPS, interpolacao de frames: desligada | frame_rate= dbz3_frame_interpolation=false
+Config: dbz3_resolve_dedupe=true dbz3_skip_null_draws=true dbz3_discard_full_overwrite=true dbz3_render_into_texture=true dbz3_direct_resolve_draw=false dbz3_rit_serve_resolves=false dbz3_resolve_dedupe_unread_neutral=false dbz3_rt_elide_restores=true dbz3_skip_depth_restore=true dbz3_clear_to_1x=true dbz3_hoist_uploads=true dbz3_resolve_early_transition=true swordman_rtt_float=true dbz3_rt_direct=true dbz3_direct_resolve_skip_memory=true
+
+AVISO: a GPU nao desenhou nenhum frame com a imagem congelada (sem frame gravado?).
+As comparacoes abaixo nao valem: a tela esta parada, nao congelada.
+referencia (config)                            ruido 0.000%, GPU n/d
+
+Efeitos (salta UM pixel shader de cada vez; GPU = ms por frame, delta vs referencia)
+Censo: 69 pixel shaders, 67266 draws durante a medicao
+sem PS C45580526034B1F2,4086D1DF9FA6220E,38C32FC0BC7F322D (draws 999, pitch 320, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 02
+sem PS C45580526034B1F2,4086D1DF9FA6220E (draws 666, pitch 320, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 03
+sem PS E104A745F271970A (draws 5439, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 04
+sem PS E060C0FFE9EE118C (draws 4884, pitch 1280, prim 4)  imagem 0.00%  GPU n/d (n/d)  foto 05
+sem PS 2CE21E05F9680D34 (draws 444, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 06
+sem PS A755AD0AC2470588 (draws 444, pitch 320, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 07
+sem PS 38C32FC0BC7F322D (draws 333, pitch 320, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 08
+sem PS 28AEC10B4A0E14FF (draws 333, pitch 1040, prim 4)  imagem 0.00%  GPU n/d (n/d)  foto 09
+sem PS 4086D1DF9FA6220E (draws 333, pitch 320, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 10
+sem PS C45580526034B1F2 (draws 333, pitch 320, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 11
+sem PS 7ABDFEFBCADB4BF9 (draws 333, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 12
+sem PS F854BF3B7BF7AA9D (draws 111, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 13
+sem PS B402E1761727D55B (draws 111, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 14
+sem PS 7BE61437FF049E59 (draws 111, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 15
+sem PS 11C7657530951A90 (draws 111, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 16
+sem PS 9AD669DECC901755 (draws 7659, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 17
+sem PS 59B2332CE973997A (draws 6771, pitch 1280, prim 4)  imagem 0.00%  GPU n/d (n/d)  foto 18
+sem PS 06AF22B469A121E4 (draws 5106, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 19
+sem PS A48490965E7C834D (draws 3996, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 20
+sem PS AF038115631EBD16 (draws 2886, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 21
+sem PS E664840CC5314C1D (draws 2664, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 22
+sem PS C1D2AF15BA1F1EAC (draws 2442, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 23
+sem PS D47E656630A5D1FD (draws 2109, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 24
+sem PS 98F7AAEB1C255FEE (draws 1998, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 25
+sem PS 75F9DF2732797388 (draws 1776, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 26
+sem PS F81FA1A59C2D8E60 (draws 1665, pitch 1280, prim 4)  imagem 0.00%  GPU n/d (n/d)  foto 27
+sem PS C9769A4005A60F77 (draws 1332, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 28
+sem PS 483647F90A97963D (draws 1110, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 29
+sem PS C11BC9E406E20255 (draws 999, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 30
+sem PS F605139DFD74A118 (draws 888, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 31
+sem PS 758982A45D868AA8 (draws 888, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 32
+sem PS A830889864FCBBF1 (draws 777, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 33
+sem PS C342E93094FD6494 (draws 777, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 34
+sem PS 5254691DA3CD61CD (draws 666, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 35
+sem PS 3BEF81079BADF848 (draws 666, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 36
+sem PS 6BFA19A29B2E4EB4 (draws 444, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 37
+sem PS 1FEF1762629AE38D (draws 444, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 38
+sem PS D6A2646F4C74F1D6 (draws 333, pitch 1280, prim 4)  imagem 0.00%  GPU n/d (n/d)  foto 39
+sem PS 5C6E4C6742C142A6 (draws 333, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 40
+sem PS 43A64782F4F0ADE7 (draws 333, pitch 1280, prim 4)  imagem 0.00%  GPU n/d (n/d)  foto 41
+sem PS 970A71175F2374F4 (draws 333, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 42
+sem PS 6C7A92A6B5AF86D5 (draws 333, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 43
+sem PS A4A965C189287B99 (draws 222, pitch 320, prim 8)  imagem 0.00%  GPU n/d (n/d)  foto 44
+sem PS EA718A85DFF5D393 (draws 222, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 45
+sem PS 81EDB2CCDD44BC68 (draws 222, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 46
+sem PS D682AA67BEF65ED8 (draws 222, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 47
+sem PS DC5F410960BCB163 (draws 222, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 48
+sem PS 9D014D721D28488D (draws 222, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 49
+sem PS AE0C6AF80190CD31 (draws 222, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 50
+sem PS 7F2B2D267FC9FD72 (draws 222, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 51
+sem PS 8FC814CC2E26E730 (draws 222, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 52
+sem PS 227CA1AB9025BCBE (draws 111, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 53
+sem PS 126BB5A0533FBD0A (draws 111, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 54
+sem PS 287B6E3F63A875C0 (draws 111, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 55
+sem PS EAE4D0C83C97D138 (draws 111, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 56
+sem PS 3AF673BEC06A764C (draws 111, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 57
+sem PS 9AC00F9931E06619 (draws 111, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 58
+sem PS 532B1E7F535F4195 (draws 111, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 59
+sem PS B3F9090D67F65760 (draws 111, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 60
+sem PS ABCC37322A7606BF (draws 111, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 61
+sem PS 540C2987D185583B (draws 111, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 62
+sem PS 11A838D1C5C59E9B (draws 111, pitch 1280, prim 6)  imagem 0.00%  GPU n/d (n/d)  foto 63
+referencia no fim: GPU n/d
+
+Ordenado pelo ganho (o que mais pesa primeiro):
+  PS C45580526034B1F2,4086D1DF9FA6220E,38C32FC0BC7F322D  n/d         imagem 0.00%  foto 02  draws 999 pitch 320
+  PS C45580526034B1F2,4086D1DF9FA6220E  n/d         imagem 0.00%  foto 03  draws 666 pitch 320
+  PS E104A745F271970A  n/d         imagem 0.00%  foto 04  draws 5439 pitch 1280
+  PS E060C0FFE9EE118C  n/d         imagem 0.00%  foto 05  draws 4884 pitch 1280
+  PS 2CE21E05F9680D34  n/d         imagem 0.00%  foto 06  draws 444 pitch 1280
+  PS A755AD0AC2470588  n/d         imagem 0.00%  foto 07  draws 444 pitch 320
+  PS 38C32FC0BC7F322D  n/d         imagem 0.00%  foto 08  draws 333 pitch 320
+  PS 28AEC10B4A0E14FF  n/d         imagem 0.00%  foto 09  draws 333 pitch 1040
+  PS 4086D1DF9FA6220E  n/d         imagem 0.00%  foto 10  draws 333 pitch 320
+  PS C45580526034B1F2  n/d         imagem 0.00%  foto 11  draws 333 pitch 320
+  PS 7ABDFEFBCADB4BF9  n/d         imagem 0.00%  foto 12  draws 333 pitch 1280
+  PS F854BF3B7BF7AA9D  n/d         imagem 0.00%  foto 13  draws 111 pitch 1280
+  PS B402E1761727D55B  n/d         imagem 0.00%  foto 14  draws 111 pitch 1280
+  PS 7BE61437FF049E59  n/d         imagem 0.00%  foto 15  draws 111 pitch 1280
+  PS 11C7657530951A90  n/d         imagem 0.00%  foto 16  draws 111 pitch 1280
+  PS 9AD669DECC901755  n/d         imagem 0.00%  foto 17  draws 7659 pitch 1280
+  PS 59B2332CE973997A  n/d         imagem 0.00%  foto 18  draws 6771 pitch 1280
+  PS 06AF22B469A121E4  n/d         imagem 0.00%  foto 19  draws 5106 pitch 1280
+  PS A48490965E7C834D  n/d         imagem 0.00%  foto 20  draws 3996 pitch 1280
+  PS AF038115631EBD16  n/d         imagem 0.00%  foto 21  draws 2886 pitch 1280
+  PS E664840CC5314C1D  n/d         imagem 0.00%  foto 22  draws 2664 pitch 1280
+  PS C1D2AF15BA1F1EAC  n/d         imagem 0.00%  foto 23  draws 2442 pitch 1280
+  PS D47E656630A5D1FD  n/d         imagem 0.00%  foto 24  draws 2109 pitch 1280
+  PS 98F7AAEB1C255FEE  n/d         imagem 0.00%  foto 25  draws 1998 pitch 1280
+  PS 75F9DF2732797388  n/d         imagem 0.00%  foto 26  draws 1776 pitch 1280
+  PS F81FA1A59C2D8E60  n/d         imagem 0.00%  foto 27  draws 1665 pitch 1280
+  PS C9769A4005A60F77  n/d         imagem 0.00%  foto 28  draws 1332 pitch 1280
+  PS 483647F90A97963D  n/d         imagem 0.00%  foto 29  draws 1110 pitch 1280
+  PS C11BC9E406E20255  n/d         imagem 0.00%  foto 30  draws 999 pitch 1280
+  PS F605139DFD74A118  n/d         imagem 0.00%  foto 31  draws 888 pitch 1280
+  PS 758982A45D868AA8  n/d         imagem 0.00%  foto 32  draws 888 pitch 1280
+  PS A830889864FCBBF1  n/d         imagem 0.00%  foto 33  draws 777 pitch 1280
+  PS C342E93094FD6494  n/d         imagem 0.00%  foto 34  draws 777 pitch 1280
+  PS 5254691DA3CD61CD  n/d         imagem 0.00%  foto 35  draws 666 pitch 1280
+  PS 3BEF81079BADF848  n/d         imagem 0.00%  foto 36  draws 666 pitch 1280
+  PS 6BFA19A29B2E4EB4  n/d         imagem 0.00%  foto 37  draws 444 pitch 1280
+  PS 1FEF1762629AE38D  n/d         imagem 0.00%  foto 38  draws 444 pitch 1280
+  PS D6A2646F4C74F1D6  n/d         imagem 0.00%  foto 39  draws 333 pitch 1280
+  PS 5C6E4C6742C142A6  n/d         imagem 0.00%  foto 40  draws 333 pitch 1280
+  PS 43A64782F4F0ADE7  n/d         imagem 0.00%  foto 41  draws 333 pitch 1280
+  PS 970A71175F2374F4  n/d         imagem 0.00%  foto 42  draws 333 pitch 1280
+  PS 6C7A92A6B5AF86D5  n/d         imagem 0.00%  foto 43  draws 333 pitch 1280
+  PS A4A965C189287B99  n/d         imagem 0.00%  foto 44  draws 222 pitch 320
+  PS EA718A85DFF5D393  n/d         imagem 0.00%  foto 45  draws 222 pitch 1280
+  PS 81EDB2CCDD44BC68  n/d         imagem 0.00%  foto 46  draws 222 pitch 1280
+  PS D682AA67BEF65ED8  n/d         imagem 0.00%  foto 47  draws 222 pitch 1280
+  PS DC5F410960BCB163  n/d         imagem 0.00%  foto 48  draws 222 pitch 1280
+  PS 9D014D721D28488D  n/d         imagem 0.00%  foto 49  draws 222 pitch 1280
+  PS AE0C6AF80190CD31  n/d         imagem 0.00%  foto 50  draws 222 pitch 1280
+  PS 7F2B2D267FC9FD72  n/d         imagem 0.00%  foto 51  draws 222 pitch 1280
+  PS 8FC814CC2E26E730  n/d         imagem 0.00%  foto 52  draws 222 pitch 1280
+  PS 227CA1AB9025BCBE  n/d         imagem 0.00%  foto 53  draws 111 pitch 1280
+  PS 126BB5A0533FBD0A  n/d         imagem 0.00%  foto 54  draws 111 pitch 1280
+  PS 287B6E3F63A875C0  n/d         imagem 0.00%  foto 55  draws 111 pitch 1280
+  PS EAE4D0C83C97D138  n/d         imagem 0.00%  foto 56  draws 111 pitch 1280
+  PS 3AF673BEC06A764C  n/d         imagem 0.00%  foto 57  draws 111 pitch 1280
+  PS 9AC00F9931E06619  n/d         imagem 0.00%  foto 58  draws 111 pitch 1280
+  PS 532B1E7F535F4195  n/d         imagem 0.00%  foto 59  draws 111 pitch 1280
+  PS B3F9090D67F65760  n/d         imagem 0.00%  foto 60  draws 111 pitch 1280
+  PS ABCC37322A7606BF  n/d         imagem 0.00%  foto 61  draws 111 pitch 1280
+  PS 540C2987D185583B  n/d         imagem 0.00%  foto 62  draws 111 pitch 1280
+  PS 11A838D1C5C59E9B  n/d         imagem 0.00%  foto 63  draws 111 pitch 1280
+
+Otimizacoes (cada uma trocada sozinha):
+sem resolves repetidos/sem leitor (passo 3)    0.000% pixels, PSNR 99.0 dB -> igual | GPU n/d (n/d)
+sem draws nulos (passo 3)                      0.000% pixels, PSNR 99.0 dB -> igual | GPU n/d (n/d)
+sem passe sem carregar a cor (passo 3)         0.000% pixels, PSNR 99.0 dB -> igual | GPU n/d (n/d)
+sem passes direto na textura (passo 4)         0.000% pixels, PSNR 99.0 dB -> igual | GPU n/d (n/d)
+com copia por desenho no atalho resolve -> textura 0.000% pixels, PSNR 99.0 dB -> igual | GPU n/d (n/d)
+com resolves servidos pela textura do passo 4  0.000% pixels, PSNR 99.0 dB -> igual | GPU n/d (n/d)
+com escritas sem leitor neutras (passo 3)      0.000% pixels, PSNR 99.0 dB -> igual | GPU n/d (n/d)
+sem RT diretos: restauros ignorados            0.000% pixels, PSNR 99.0 dB -> igual | GPU n/d (n/d)
+sem RT diretos: restauro da profundidade       0.000% pixels, PSNR 99.0 dB -> igual | GPU n/d (n/d)
+sem RT diretos: Clear 4x direto em 1x          0.000% pixels, PSNR 99.0 dB -> igual | GPU n/d (n/d)
+sem uploads antes do passe                     0.000% pixels, PSNR 99.0 dB -> igual | GPU n/d (n/d)
+sem resolve: leitura logo no fim               0.000% pixels, PSNR 99.0 dB -> igual | GPU n/d (n/d)
+sem atalho profundidade float / 32_FLOAT (0110) 0.000% pixels, PSNR 99.0 dB -> igual | GPU n/d (n/d)
+sem render targets diretos (DF)                0.000% pixels, PSNR 99.0 dB -> igual | GPU n/d (n/d)
+sem resolve sem memoria (DF)                   0.000% pixels, PSNR 99.0 dB -> igual | GPU n/d (n/d)
+TUDO desligado                                 0.000% pixels, PSNR 99.0 dB -> igual | GPU n/d (n/d)

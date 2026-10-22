@@ -1,0 +1,52 @@
+Project SwordMan 0.1.0 (1)
+Aparelho: Moorechip Retroid Pocket 5 (kona)
+Android: 13 (API 33)
+SoC: QTI SM8250  Adreno: true
+Hardware: qcom  Board: kona
+Driver Vulkan ativo: sistema
+Drivers instalados: Turnip v27.0.0-R1
+
+Arquivos do jogo:
+  default.xex: OK
+  media/data000.cpk: OK
+  media/data001.cpk: OK
+  media/sound/stream.cpk: OK
+  media/sound/streamEnglish(US).cpk: OK
+  media/sound/Init.bnk: OK
+  media/movie: OK
+  media/movie_ui: OK
+
+Opcoes: GameConfig(resolution=P720, presentEffect=bilinear, fsrQuality=auto, fsrSharpness=0.2, casSharpness=0.0, fxaa=none, anisotropic=-1, frameRate=60, frameInterpolation=false, glowBlur=true, psFp16=true, showFps=false, letterbox=true, volume=100, vibration=true, deadzone=0.0, verboseLog=false, perfLogging=true, directResolve=1, directResolveFast=true, rtDirect=true, specShaders=true, clearTo1x=true, intoTexture=true, postLite=true, safeGpu=false)
+Sessao anterior: RUNNING
+
+getprop (graficos):
+  [debug.egl.hw]: [0]
+  [debug.hwui.skia_atrace_enabled]: [false]
+  [init.svc.gpu]: [running]
+  [init.svc_debug_pid.gpu]: [943]
+  [persist.vendor.qcom.bluetooth.soc]: [hastings]
+  [ro.board.platform]: [kona]
+  [ro.boot.boot_devices]: [soc/1d84000.ufshc]
+  [ro.boottime.gpu]: [4407775101]
+  [ro.gfx.driver.1]: [com.qualcomm.qti.gpudrivers.kona.api30]
+  [ro.hardware.egl]: [adreno]
+  [ro.hardware.vulkan]: [adreno]
+  [ro.hwui.drop_shadow_cache_size]: [6]
+  [ro.hwui.gradient_cache_size]: [1]
+  [ro.hwui.layer_cache_size]: [48]
+  [ro.hwui.path_cache_size]: [32]
+  [ro.hwui.r_buffer_cache_size]: [8]
+  [ro.hwui.text_large_cache_height]: [1024]
+  [ro.hwui.text_large_cache_width]: [2048]
+  [ro.hwui.text_small_cache_height]: [1024]
+  [ro.hwui.text_small_cache_width]: [1024]
+  [ro.hwui.texture_cache_flushrate]: [0.4]
+  [ro.hwui.texture_cache_size]: [72]
+  [ro.hwui.use_vulkan]: []
+  [ro.opengles.version]: [196610]
+  [ro.soc.manufacturer]: [QTI]
+  [ro.soc.model]: [SM8250]
+  [ro.vendor.gpu.available_frequencies]: [670000000 587000000 525000000 490000000 441600000 400000000 305000000 ]
+  [ro.vendor.qti.soc_id]: [356]
+  [vendor.gpu.available_frequencies]: [670000000 587000000 525000000 490000000 441600000 400000000 305000000 ]
+  [vendor.qcom.bluetooth.soc]: [hastings]

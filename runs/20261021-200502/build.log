@@ -1,0 +1,26 @@
+
+== patches do SDK
+aplicado:    0120-xendroid-plus-turnip-fixes.patch
+Patches aplicados. Proximo passo: bash tools/codegen.sh (so na primeira vez ou com o default.xex novo).
+
+== codegen: nada mudou, saltado
+
+== APK
+APK: 131M, 21/10 20:05
+
+== instalar (all)
+APK: app-debug.apk (131M, 21/10 20:05)
+== Retroid Pocket 5 (611e0fa0)
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1792609527.048634  644735 adb_install.cpp:153] pm command: 'package install -r -S 136892210'
+Performing Streamed Install
+Success
+   instalado
+== TrebleDroid with GApps (RGCUBE13528869)
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1792609530.886292  644749 adb_install.cpp:153] pm command: 'package install -r -S 136892210'
+Performing Streamed Install
+Success
+   instalado
+
+Pronto em 31 s.

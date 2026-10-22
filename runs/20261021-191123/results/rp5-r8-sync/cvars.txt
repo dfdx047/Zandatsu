@@ -1,0 +1,2 @@
+vibration = false
+env:TU_DEBUG = flushall,syncdraw

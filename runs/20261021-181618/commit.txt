@@ -1,0 +1,1 @@
+dc43d01 autotest: round 8 plan (Qualcomm scenes, Turnip 26 R8 bisect)

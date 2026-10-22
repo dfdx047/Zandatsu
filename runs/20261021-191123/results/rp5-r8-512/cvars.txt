@@ -1,0 +1,2 @@
+vibration = false
+env:REX_DBZ3_VK_MAX_STORAGE_BUFFER_RANGE_MB = 512

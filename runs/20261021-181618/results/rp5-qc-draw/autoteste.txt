@@ -1,0 +1,51 @@
+Autoteste do render - Wed Oct 21 18:32:45 GMT+01:00 2026
+Referencia: as otimizacoes como estao na config. Cada linha troca UMA delas
+('sem' = desligada, 'com' = ligada) e compara a imagem com a referencia.
+Se a diferenca for maior que o ruido, essa otimizacao muda a imagem (provavel erro).
+Resolucao interna: draw_resolution_percent=100
+Apresentacao: FIFO, tela 60 Hz, jogo 60 FPS, interpolacao de frames: desligada | frame_rate= dbz3_frame_interpolation=false
+Config: dbz3_resolve_dedupe=true dbz3_skip_null_draws=true dbz3_discard_full_overwrite=true dbz3_render_into_texture=true dbz3_direct_resolve_draw=true dbz3_rit_serve_resolves=false dbz3_resolve_dedupe_unread_neutral=false dbz3_rt_elide_restores=true dbz3_skip_depth_restore=true dbz3_clear_to_1x=true dbz3_hoist_uploads=true dbz3_resolve_early_transition=true swordman_rtt_float=true dbz3_rt_direct=true dbz3_direct_resolve_skip_memory=true
+
+referencia (config)                            ruido 0.000%, GPU 7.70 ms
+
+Efeitos (salta UM pixel shader de cada vez; GPU = ms por frame, delta vs referencia)
+Censo: 9 pixel shaders, 13962 draws durante a medicao
+sem PS E060C0FFE9EE118C (draws 2148, pitch 1280, prim 4)  imagem 0.00%  GPU 6.63 ms (-1.07 ms)  foto 02
+sem PS 17EE3DCA7468F67B (draws 358, pitch 1280, prim 4)  imagem 0.00%  GPU 4.29 ms (-3.41 ms)  foto 03
+sem PS 59B2332CE973997A (draws 5728, pitch 1280, prim 4)  imagem 0.00%  GPU 7.05 ms (-0.65 ms)  foto 04
+sem PS 75F9DF2732797388 (draws 3401, pitch 1280, prim 6)  imagem 0.00%  GPU 7.29 ms (-0.41 ms)  foto 05
+sem PS AF038115631EBD16 (draws 1074, pitch 1280, prim 6)  imagem 0.00%  GPU 7.58 ms (-0.11 ms)  foto 06
+sem PS CC0010E15A113731 (draws 537, pitch 1280, prim 6)  imagem 0.00%  GPU 7.67 ms (-0.02 ms)  foto 07
+sem PS F4F164727712FDF5 (draws 358, pitch 1280, prim 6)  imagem 100.00%  GPU 7.06 ms (-0.64 ms)  foto 08
+sem PS 01A62A46B2F996DA (draws 179, pitch 1280, prim 4)  imagem 0.00%  GPU 6.89 ms (-0.80 ms)  foto 09
+sem PS 4B6823FAC15C4CD5 (draws 179, pitch 1280, prim 6)  imagem 0.00%  GPU 7.67 ms (-0.02 ms)  foto 10
+referencia no fim: GPU 7.72 ms
+
+Ordenado pelo ganho (o que mais pesa primeiro):
+  PS 17EE3DCA7468F67B  -3.41 ms    imagem 0.00%  foto 03  draws 358 pitch 1280
+  PS E060C0FFE9EE118C  -1.07 ms    imagem 0.00%  foto 02  draws 2148 pitch 1280
+  PS 01A62A46B2F996DA  -0.80 ms    imagem 0.00%  foto 09  draws 179 pitch 1280
+  PS 59B2332CE973997A  -0.65 ms    imagem 0.00%  foto 04  draws 5728 pitch 1280
+  PS F4F164727712FDF5  -0.64 ms    imagem 100.00%  foto 08  draws 358 pitch 1280
+  PS 75F9DF2732797388  -0.41 ms    imagem 0.00%  foto 05  draws 3401 pitch 1280
+  PS AF038115631EBD16  -0.11 ms    imagem 0.00%  foto 06  draws 1074 pitch 1280
+  PS 4B6823FAC15C4CD5  -0.02 ms    imagem 0.00%  foto 10  draws 179 pitch 1280
+  PS CC0010E15A113731  -0.02 ms    imagem 0.00%  foto 07  draws 537 pitch 1280
+
+Otimizacoes (cada uma trocada sozinha):
+sem resolves repetidos/sem leitor (passo 3)    0.000% pixels, PSNR 99.0 dB -> igual | GPU 7.72 ms (+0.03 ms)
+sem draws nulos (passo 3)                      0.000% pixels, PSNR 99.0 dB -> igual | GPU 7.21 ms (-0.49 ms)
+sem passe sem carregar a cor (passo 3)         0.000% pixels, PSNR 99.0 dB -> igual | GPU 7.73 ms (+0.03 ms)
+sem passes direto na textura (passo 4)         0.000% pixels, PSNR 99.0 dB -> igual | GPU 7.70 ms (+0.00 ms)
+sem copia por desenho no atalho resolve -> textura 0.000% pixels, PSNR 99.0 dB -> igual | GPU 9.94 ms (+2.24 ms)
+com resolves servidos pela textura do passo 4  0.000% pixels, PSNR 99.0 dB -> igual | GPU 7.69 ms (-0.01 ms)
+com escritas sem leitor neutras (passo 3)      0.000% pixels, PSNR 99.0 dB -> igual | GPU 7.72 ms (+0.02 ms)
+sem RT diretos: restauros ignorados            0.000% pixels, PSNR 99.0 dB -> igual | GPU 7.70 ms (+0.01 ms)
+sem RT diretos: restauro da profundidade       0.000% pixels, PSNR 99.0 dB -> igual | GPU 7.72 ms (+0.02 ms)
+sem RT diretos: Clear 4x direto em 1x          0.000% pixels, PSNR 99.0 dB -> igual | GPU 7.70 ms (+0.01 ms)
+sem uploads antes do passe                     0.000% pixels, PSNR 99.0 dB -> igual | GPU 7.68 ms (-0.01 ms)
+sem resolve: leitura logo no fim               0.000% pixels, PSNR 99.0 dB -> igual | GPU 7.71 ms (+0.02 ms)
+sem atalho profundidade float / 32_FLOAT (0110) 0.000% pixels, PSNR 99.0 dB -> igual | GPU 7.69 ms (-0.00 ms)
+sem render targets diretos (DF)                0.000% pixels, PSNR 99.0 dB -> igual | GPU 9.93 ms (+2.23 ms)
+sem resolve sem memoria (DF)                   0.000% pixels, PSNR 99.0 dB -> igual | GPU 11.39 ms (+3.70 ms)
+TUDO desligado                                 0.000% pixels, PSNR 99.0 dB -> igual | GPU 14.41 ms (+6.72 ms)
