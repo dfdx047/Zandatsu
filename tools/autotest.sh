@@ -19,7 +19,9 @@
 # "rp5/nome:..." a variante so corre nesse aparelho. Em cada aparelho e variante: fecha o jogo, abre-o, repete o caminho gravado,
 # espera, corre o autoteste do render (que exporta o zip) e puxa o zip. No fim junta tudo em
 # ~/Downloads/SwordMan-autotest-<data>.zip - e so mandar esse ficheiro.
-set -euo pipefail
+set -Eeuo pipefail
+# Se algo falhar, dizer onde (22/10: o script morria sem uma linha no log).
+trap 'echo "ERRO: autotest.sh parou na linha $LINENO (codigo $?)" >&2' ERR
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=versions.env
@@ -130,9 +132,11 @@ cleanup_old() {
       if [ -n "$(find "$d" -maxdepth 0 -mmin +90)" ]; then rm -rf "$d"; fi
     fi
   done
-  ls -1t "$HOME"/Downloads/SwordMan-autotest-*.zip "$HOME"/Downloads/SwordMan-autotest-*.tar.gz 2>/dev/null |
+  # (|| true: sem zips o ls devolve erro e, com set -e + pipefail, matava o script sem dizer
+  # nada - 22/10 13:32, o primeiro ciclo do dia nao correu)
+  { ls -1t "$HOME"/Downloads/SwordMan-autotest-*.zip "$HOME"/Downloads/SwordMan-autotest-*.tar.gz 2>/dev/null || true; } |
     tail -n +7 | while read -r f; do rm -f "$f"; done
-  echo "Espaco livre: /tmp $(df -h "$tmp" | awk 'NR == 2 { print $4 }'), ~/Downloads $(df -h "$HOME/Downloads" 2>/dev/null | awk 'NR == 2 { print $4 }')"
+  echo "Espaco livre: /tmp $(df -h "$tmp" 2>/dev/null | awk 'NR == 2 { print $4 }' || true), ~/Downloads $(df -h "$HOME/Downloads" 2>/dev/null | awk 'NR == 2 { print $4 }' || true)"
 }
 cleanup_old
 

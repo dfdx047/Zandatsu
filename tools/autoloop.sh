@@ -91,6 +91,7 @@ slim() {
   local zip="$1" out="$2" tmp
   tmp="$(mktemp -d)"
   mkdir -p "$out"
+  out="$(cd "$out" && pwd)"
   case "$zip" in
     *.zip) unzip -q -o "$zip" -d "$tmp" ;;
     *) tar -C "$tmp" -xzf "$zip" ;;
@@ -114,7 +115,10 @@ slim() {
   find "$tmp" -maxdepth 2 \( -name '*.txt' -o -name '*.png' \) -exec cp {} "$out/" \;
   # Capturas de frames (.dfc, ~200 MB): nao cabem no GitHub. O mapa do frame, a analise e os
   # shaders (ucode) saem daqui pelo OptXbox e so o texto e publicado (render nativo, 22/10).
-  find "$tmp" -name '*.dfc' -size +1M | while read -r dfc; do
+  # So a captura mais recente de cada zip (o export leva tambem as antigas).
+  find "$tmp" -maxdepth 1 -type d -name 'x-*' | while read -r xd; do
+    find "$xd" -name '*.dfc' -size +1M | sort | tail -n 1
+  done | while read -r dfc; do
     local name
     name="$(basename "$(dirname "$(dirname "$(dirname "$dfc")")")")-$(basename "$dfc" .dfc)"
     mkdir -p "$out/captures/$name"
