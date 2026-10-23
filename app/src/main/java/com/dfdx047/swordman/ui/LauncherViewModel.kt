@@ -420,7 +420,7 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             withContext(Dispatchers.IO) {
                 GameConfig.save(config)
-                GameConfig.saveSkipMovies(prefs.skipLogos)
+                GameConfig.saveSkipLogos(prefs.skipLogos)
             }
             AppLog.i("launcher", "jogar: ${config.resolution.label} ${config.frameMode} ${config.presentEffect}")
             context.startActivity(Intent(context, GameActivity::class.java).setAction(PLAY_ACTION))

@@ -383,5 +383,7 @@
     <string name="tab_cheats">Cheats</string>
     <string name="cheats_boot_title">Startup</string>
     <string name="cheats_skip_logos">Skip the logos</string>
-    <string name="cheats_skip_logos_sub">Skips the company logo videos at startup and goes straight to the title screen.</string>
+    <string name="cheats_skip_logos_sub">Runs the game 8x faster during the company logos at startup, until the title screen.</string>
+    <string name="settings_shadows">Shadows</string>
+    <string name="settings_shadows_sub">Shadows cast on the screen. Off saves ~3 ms per frame on the RP5; the image stays normal, only without these shadows.</string>
 </resources>

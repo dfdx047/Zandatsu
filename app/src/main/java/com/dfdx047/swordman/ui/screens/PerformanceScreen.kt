@@ -188,6 +188,11 @@ fun PerformanceScreen(vm: LauncherViewModel) {
                 checked = c.glowBlur,
             ) { on -> vm.updateConfig { it.copy(glowBlur = on) } }
             SettingSwitch(
+                stringResource(R.string.settings_shadows),
+                subtitle = stringResource(R.string.settings_shadows_sub),
+                checked = c.shadows,
+            ) { on -> vm.updateConfig { it.copy(shadows = on) } }
+            SettingSwitch(
                 stringResource(R.string.settings_ps_fp16),
                 subtitle = stringResource(R.string.settings_ps_fp16_sub),
                 checked = c.psFp16,

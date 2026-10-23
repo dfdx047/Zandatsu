@@ -28,6 +28,9 @@ data class GameConfig(
     // Desfoque do brilho do MGR (cadeia de 320x176, PS C4558052 + 4086D1DF): no RG Cube custa
     // ~2,6 ms e desliga-lo nao mudou a imagem em duas cenas (autoteste 20/10 23:03 e 21/10 06:40).
     val glowBlur: Boolean = false,  // desfoque do brilho: ~2 ms no Mali-G57, cortado por padrao (21/10)
+    // Sombras projetadas no ecra (passe de tela cheia, PS BE9C3F69): ~3 ms no RP5. Desligadas a
+    // imagem fica normal, so sem essas sombras (teste manual 23/10 05:16).
+    val shadows: Boolean = true,
     // 0114 (experimental): aritmetica dos pixel shaders em fp16 (RelaxedPrecision).
     val psFp16: Boolean = false,
     val showFps: Boolean = false,             // debug_overlay
@@ -126,10 +129,14 @@ data class GameConfig(
             "swordman_freeze_replay" to false,
             "swordman_freeze_record" to false,
             "swordman_ps_census" to false,
-            "swordman_skip_ps" to (if (glowBlur) "" else MGR_GLOW_BLUR_PS),
+            "swordman_skip_ps" to listOfNotNull(
+                if (glowBlur) null else MGR_GLOW_BLUR_PS,
+                if (shadows) null else MGR_SCREEN_SHADOW_PS,
+            ).joinToString(","),
             // Escolha explicita do brilho (22/10): as configs antigas gravaram "" (brilho ligado)
             // como padrao; so esta chave conta para manter o brilho.
             "swordman_glow_blur" to glowBlur,
+            "swordman_shadows" to shadows,
             "swordman_ps_fp16" to psFp16,
             // Os contornos 0102/0103 eram para o crash acima (diagnostico errado): desligados.
             "dbz3_empty_fs_for_depth_only" to 0,
@@ -146,6 +153,8 @@ data class GameConfig(
         val FXAA = listOf("none", "fxaa", "fxaa_extreme")
         /** Pixel shaders do desfoque do brilho do MGR (swordman_skip_ps). */
         const val MGR_GLOW_BLUR_PS = "C45580526034B1F2,4086D1DF9FA6220E"
+        /** Pixel shader das sombras projetadas no ecra (passe de tela cheia). */
+        const val MGR_SCREEN_SHADOW_PS = "BE9C3F694476A5B5"
         const val MAX_RESOLUTION_SCALE = 3
 
         /** dbz3_frame_interpolation_quality para este aparelho (2 nas GPUs de Alto/Ultra). */
@@ -200,6 +209,7 @@ data class GameConfig(
                 // 22/10: autoteste ao vivo no RP5 numa luta: -3.5 ms sem o desfoque do brilho (Cube:
                 // -2.1 ms). Cortado por padrao tambem nas configs antigas; volta com o interruptor.
                 glowBlur = bool("swordman_glow_blur", false),
+                shadows = bool("swordman_shadows", true),
                 psFp16 = bool("swordman_ps_fp16", false),
                 showFps = bool("debug_overlay", d.showFps),
                 letterbox = bool("present_letterbox", d.letterbox),
@@ -220,15 +230,21 @@ data class GameConfig(
         }
 
         /**
-         * Videos das logos do arranque (Konami, Kojima Productions, PlatinumGames, avisos): textos
-         * do nome do ficheiro em media/movie. O runtime (patch 0166) faz de conta que nao existem
-         * e o jogo segue direto para o titulo. Cada video aberto fica no log ("[movie] open").
+         * Cheat "pular logos" (CheatsScreen), gravado no mgr.toml antes de cada arranque. As logos
+         * do MGR sao imagens desenhadas pelo jogo (~26 s), nao videos (log de 23/10): o runtime
+         * (patch 0168) corre o jogo BOOT_FAST_FORWARD vezes mais depressa ate ele abrir o video do
+         * titulo (ou 20 s no maximo).
          */
-        const val LOGO_MOVIES = "logo,konami,kojima,kjp,platinum,legal,caution,warning,notice,copyright,dolby,havok,criware"
+        const val BOOT_FAST_FORWARD = 8.0
 
-        /** Cheat "pular logos" (CheatsScreen), gravado no mgr.toml antes de cada arranque. */
-        fun saveSkipMovies(on: Boolean, file: File = AppPaths.userToml) {
-            TomlLite.merge(file, mapOf("swordman_skip_movies" to (if (on) LOGO_MOVIES else "")))
+        fun saveSkipLogos(on: Boolean, file: File = AppPaths.userToml) {
+            TomlLite.merge(
+                file,
+                mapOf(
+                    "swordman_boot_fast_forward" to (if (on) BOOT_FAST_FORWARD else 1.0),
+                    "swordman_skip_movies" to "",
+                ),
+            )
         }
 
         fun save(config: GameConfig, file: File = AppPaths.userToml) {

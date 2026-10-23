@@ -1,0 +1,122 @@
+diff --git a/src/kernel/xboxkrnl/xboxkrnl_io.cpp b/src/kernel/xboxkrnl/xboxkrnl_io.cpp
+index 704307f..fa87245 100644
+--- a/src/kernel/xboxkrnl/xboxkrnl_io.cpp
++++ b/src/kernel/xboxkrnl/xboxkrnl_io.cpp
+@@ -34,6 +34,9 @@
+ #include <rex/system/xtypes.h>
+ #include <rex/thread/mutex.h>
+ 
++// 0168 (src/system/runtime.cpp)
++REXCVAR_DECLARE(std::string, swordman_boot_fast_forward_until);
++
+ namespace rex::kernel::xboxkrnl {
+ using namespace rex::system;
+ 
+@@ -66,9 +69,23 @@ static std::string SwordmanLower(std::string_view s) {
+   return out;
+ }
+ 
++}  // namespace rex::kernel::xboxkrnl
++namespace rex {
++bool SwordmanBootFastForwardActive();
++void SwordmanBootFastForwardEnd(const char* why);
++}  // namespace rex
++namespace rex::kernel::xboxkrnl {
++
+ // true = este video fica escondido do jogo.
+ static bool SwordmanMovieSkipped(std::string_view path, const char* call) {
+   std::string lower = SwordmanLower(path);
++  // 0168: o arranque acelerado acaba quando o jogo abre o video do titulo.
++  if (rex::SwordmanBootFastForwardActive()) {
++    const std::string until = SwordmanLower(REXCVAR_GET(swordman_boot_fast_forward_until));
++    if (!until.empty() && lower.find(until) != std::string::npos) {
++      rex::SwordmanBootFastForwardEnd("titulo");
++    }
++  }
+   if (lower.find("movie") == std::string::npos) {
+     return false;
+   }
+diff --git a/src/system/runtime.cpp b/src/system/runtime.cpp
+index c10694c..1d4a58e 100644
+--- a/src/system/runtime.cpp
++++ b/src/system/runtime.cpp
+@@ -28,12 +28,63 @@
+ #include <rex/system/xthread.h>
+ #include <rex/thread.h>
+ 
++#include <atomic>
++#include <chrono>
++#include <thread>
++
+ REXCVAR_DEFINE_STRING(game_data_root, "", "Runtime", "Override game data path");
+ REXCVAR_DEFINE_STRING(user_data_root, "", "Runtime", "Override user data path");
+ REXCVAR_DEFINE_STRING(update_data_root, "", "Runtime", "Override update data path");
+ REXCVAR_DEFINE_STRING(cache_root, "", "Runtime", "Override shader cache path");
+ REXCVAR_DEFINE_STRING(metadata_root, "", "Runtime", "Override metadata path");
+ 
++// Project SwordMan (0168): as logos do arranque do MGR sao imagens desenhadas pelo jogo
++// (~26 s), nao videos. Com swordman_boot_fast_forward > 1 o relogio do guest corre essa vez
++// mais depressa desde o arranque ate o jogo abrir o video do titulo
++// (swordman_boot_fast_forward_until, texto do caminho) ou ate ao limite de segundos reais.
++REXCVAR_DEFINE_DOUBLE(swordman_boot_fast_forward, 1.0, "Kernel",
++                      "Project SwordMan: velocidade do jogo no arranque (logos); 1 = normal");
++REXCVAR_DEFINE_STRING(swordman_boot_fast_forward_until, "movie_ui\\title", "Kernel",
++                      "Project SwordMan: o arranque acelerado acaba quando o jogo abre um "
++                      "ficheiro com este texto no caminho (sem distinguir maiusculas)");
++REXCVAR_DEFINE_INT32(swordman_boot_fast_forward_max_seconds, 20, "Kernel",
++                     "Project SwordMan: o arranque acelerado acaba sempre ao fim destes segundos");
++
++namespace rex {
++namespace {
++std::atomic<bool> g_swordman_boot_ff{false};
++}
++
++bool SwordmanBootFastForwardActive() {
++  return g_swordman_boot_ff.load(std::memory_order_relaxed);
++}
++
++void SwordmanBootFastForwardEnd(const char* why) {
++  if (!g_swordman_boot_ff.exchange(false)) {
++    return;
++  }
++  chrono::Clock::set_guest_time_scalar(1.0);
++  REXSYS_INFO("swordman: arranque acelerado acabou ({}), velocidade normal", why);
++}
++
++void SwordmanBootFastForwardStart() {
++  const double speed = REXCVAR_GET(swordman_boot_fast_forward);
++  if (!(speed > 1.0)) {
++    return;
++  }
++  const double clamped = speed > 16.0 ? 16.0 : speed;
++  chrono::Clock::set_guest_time_scalar(clamped);
++  g_swordman_boot_ff.store(true);
++  const int32_t max_seconds = REXCVAR_GET(swordman_boot_fast_forward_max_seconds);
++  REXSYS_INFO("swordman: arranque acelerado x{} (ate '{}' ou {} s)", clamped,
++              REXCVAR_GET(swordman_boot_fast_forward_until), max_seconds);
++  std::thread([max_seconds]() {
++    std::this_thread::sleep_for(std::chrono::seconds(max_seconds > 0 ? max_seconds : 20));
++    SwordmanBootFastForwardEnd("limite de tempo");
++  }).detach();
++}
++}  // namespace rex
++
+ namespace rex {
+ 
+ // Static instance for global access
+@@ -88,6 +139,7 @@ std::optional<EmbeddedMetadataAsset> Runtime::FindEmbeddedMetadata(
+   return FindEmbeddedMetadataAsset(relative_path);
+ }
+ 
++
+ X_STATUS Runtime::Setup(RuntimeConfig config) {
+   if (instance_ != nullptr) {
+     REXSYS_ERROR("Runtime::Setup() called but global instance already exists");
+@@ -108,6 +160,7 @@ X_STATUS Runtime::Setup(RuntimeConfig config) {
+   chrono::Clock::set_guest_tick_frequency(50000000);
+   chrono::Clock::set_guest_system_time_base(chrono::Clock::QueryHostSystemTime());
+   chrono::Clock::set_guest_time_scalar(1.0);
++  SwordmanBootFastForwardStart();
+ 
+   // Enable threading affinity configuration
+   thread::EnableAffinityConfiguration();

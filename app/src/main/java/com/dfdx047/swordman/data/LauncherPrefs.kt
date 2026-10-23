@@ -69,7 +69,7 @@ class LauncherPrefs(context: Context) {
         get() = prefs.getInt(KEY_TURNIP_COMPAT_FLAGS, 0)
         set(v) = prefs.edit().putInt(KEY_TURNIP_COMPAT_FLAGS, v).apply()
 
-    /** Cheats: os videos das logos ficam escondidos do jogo (swordman_skip_movies, patch 0166). */
+    /** Cheats: o jogo corre acelerado durante as logos (swordman_boot_fast_forward, patch 0168). */
     var skipLogos: Boolean
         get() = prefs.getBoolean("cheat_skip_logos", false)
         set(v) = prefs.edit().putBoolean("cheat_skip_logos", v).apply()

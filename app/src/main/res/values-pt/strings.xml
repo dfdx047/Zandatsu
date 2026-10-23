@@ -382,5 +382,7 @@
     <string name="tab_cheats">Cheats</string>
     <string name="cheats_boot_title">Arranque</string>
     <string name="cheats_skip_logos">Pular as logos</string>
-    <string name="cheats_skip_logos_sub">Pula os vídeos das logos das empresas no arranque e vai direto para a tela de título.</string>
+    <string name="cheats_skip_logos_sub">Acelera o jogo 8 vezes durante as logos das empresas no arranque, até a tela de título.</string>
+    <string name="settings_shadows">Sombras</string>
+    <string name="settings_shadows_sub">Sombras projetadas na cena. Desligadas poupam ~3 ms por frame no RP5; a imagem fica normal, só sem essas sombras.</string>
 </resources>
