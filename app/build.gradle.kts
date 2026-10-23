@@ -35,6 +35,8 @@ val uiOnly = (project.findProperty("df.uiOnly") as String?) == "true"
 // (app/src/main/cpp/d3d_trace_hooks.cpp, gerado por tools/d3d_trace_gen.py).
 // So para mapear a biblioteca D3D; nao usar em testes de desempenho.
 val d3dTrace = (project.findProperty("df.d3dTrace") as String?) == "true"
+// "-Pdf.thinlto=true": ThinLTO no codigo gerado e no libmain.so (SM_THINLTO; build a parte, mais lento).
+val thinLto = (project.findProperty("df.thinlto") as String?) == "true"
 
 android {
     namespace = "com.dfdx047.swordman"
@@ -67,6 +69,7 @@ android {
                         "-DREXGLUE_ENABLE_TRACY=OFF",
                         "-DREXGLUE_BUILD_TESTS=OFF",
                         "-DDB_D3D_TRACE=" + (if (d3dTrace) "ON" else "OFF"),
+                        "-DSM_THINLTO=" + (if (thinLto) "ON" else "OFF"),
                     )
                     // Frame pointers em todo o codigo nativo: o vigia (watchdog.cpp) e o
                     // simpleperf seguem a cadeia de frames para mostrar as pilhas.

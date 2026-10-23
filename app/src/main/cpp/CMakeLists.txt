@@ -181,6 +181,15 @@ if(SM_BSYMBOLIC)
     target_link_options(main PRIVATE -Wl,-Bsymbolic-functions)
 endif()
 
+# ThinLTO no codigo gerado e no libmain.so (o LTO nao atravessa .so: o librexruntime fica de fora). Cache do ThinLTO
+# no build, para os relinks. Ligado por SM_THINLTO (cache do CMake: -DSM_THINLTO=ON no gradle ou no build.sh).
+if(SM_THINLTO)
+    target_compile_options(mgr_recomp PRIVATE -flto=thin)
+    target_compile_options(main PRIVATE -flto=thin)
+    target_link_options(main PRIVATE -flto=thin -Wl,--thinlto-jobs=4
+                        "-Wl,--thinlto-cache-dir=${CMAKE_BINARY_DIR}/thinlto-cache")
+endif()
+
 #-----------------------------------------------------------------------------
 # Renut: renderizador nativo de Direct3D do mgr-nx-deko, escolhido no arranque com
 # swordman_renderer = renut (padrao xenos). Shaders: tools/renut-shaders.sh.

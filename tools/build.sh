@@ -7,6 +7,7 @@
 #   bash tools/build.sh cube        # instala so no RG Cube (rp5, odin, ou parte do serial)
 #   bash tools/build.sh none        # compila mas nao instala
 #   PULL=0 bash tools/build.sh      # sem git pull
+#   GRADLE_ARGS="-Pdf.thinlto=true" bash tools/build.sh   # ThinLTO no codigo gerado
 #
 # O codegen (o passo mais lento) so corre quando muda algo que o afeta: o
 # mgr_manifest.toml, o mgr_overrides.toml, os patches do SDK (o rexglue e
@@ -64,7 +65,9 @@ if [ -f third_party/mgr-nx-deko/app/src/renut_engine/gpu/gpu.cmake ] && [ -f ass
 fi
 
 step "APK"
-./gradlew :app:assembleDebug --console=plain -q
+# GRADLE_ARGS: propriedades extra (ex.: GRADLE_ARGS="-Pdf.thinlto=true").
+# shellcheck disable=SC2086
+./gradlew :app:assembleDebug --console=plain -q ${GRADLE_ARGS:-}
 APK="app/build/outputs/apk/debug/app-debug.apk"
 echo "APK: $(du -h "$APK" | cut -f1), $(date -r "$APK" '+%d/%m %H:%M')"
 

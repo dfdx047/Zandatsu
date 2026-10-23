@@ -76,6 +76,9 @@ class GameOverlay(private val activity: Activity) : InputManager.InputDeviceList
         },
         selfTest = { startSelfTest() },
         captureFrames = { captureFrames() },
+        sequence = { steps ->
+            engine.press("autopilot", com.dfdx047.swordman.controls.ControlAction.Sequence(steps, holdLast = false))
+        },
     ).also { it.register() }
 
     /** Modo automatico: os controles estao a mostra (ultimo input foi toque). */

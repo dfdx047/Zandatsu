@@ -25,6 +25,8 @@ import java.io.File
  *  - "auto": repete o autoplay.seq, espera [SETTLE_MS] no gameplay e corre o autoteste do render
  *    (que no fim exporta o zip para Download, onde o script o vai buscar).
  *  - "press A" / "selftest" / "capture": um botao, so o autoteste, ou captura de frames (.dfc).
+ *  - "seq LT:30 LT+X:6 LT:6": uma sequencia de passos "botoes:ticks" (60 Hz; botoes juntos com +), para
+ *    segurar um botao e carregar outros por cima (Blade Mode: LT segurado, X/Y a cortar).
  *  - "auto" com --ez capture true: captura 2 frames a meio da espera (mapa do frame).
  *  - "auto" com --ez attack true: golpes X/Y durante a espera e o autoteste (cena de luta).
  *
@@ -36,6 +38,8 @@ class AutoPilot(
     private val selfTest: () -> Boolean,
     /** Captura de frames (.dfc) para o mapa do frame (render nativo, 22/10). */
     private val captureFrames: () -> Unit = {},
+    /** Sequencia de passos (comando "seq"). */
+    private val sequence: (List<MacroStep>) -> Unit = {},
 ) {
     private val main = Handler(Looper.getMainLooper())
     private val seqFile get() = File(AppPaths.appDir, "autoplay.seq")
@@ -53,6 +57,7 @@ class AutoPilot(
                 cmd == "capture" -> captureFrames()
                 cmd == "selftest" -> selfTest()
                 cmd.startsWith("press ") -> parse(cmd.substringAfter(' '))?.let(press)
+                cmd.startsWith("seq ") -> parseSequence(cmd.substringAfter(' '))?.let(sequence)
             }
         }
     }
@@ -186,6 +191,22 @@ class AutoPilot(
         }
 
         fun parse(name: String): PadInput? = PadInput.entries.firstOrNull { it.name.equals(name.trim(), true) }
+
+        /** "LT:30 LT+X:6" -> passos; null se algum passo nao se entende. */
+        fun parseSequence(text: String): List<MacroStep>? {
+            val steps = mutableListOf<MacroStep>()
+            for (step in text.trim().split(Regex("\\s+"))) {
+                val parts = step.split(':')
+                val ticks = parts.getOrNull(1)?.toIntOrNull() ?: 6
+                val buttons = parts.getOrNull(0).orEmpty()
+                val inputs = mutableSetOf<PadInput>()
+                if (buttons != "-") {
+                    for (name in buttons.split('+')) inputs += parse(name) ?: return null
+                }
+                steps += MacroStep(inputs, ticks.coerceIn(1, 600))
+            }
+            return steps.ifEmpty { null }
+        }
 
         fun fromKeyCode(code: Int): PadInput? = when (code) {
             KeyEvent.KEYCODE_BUTTON_A, KeyEvent.KEYCODE_ENTER -> PadInput.A
