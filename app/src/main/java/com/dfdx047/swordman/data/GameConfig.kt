@@ -115,7 +115,10 @@ data class GameConfig(
             "swordman_rit_sig_sampled" to (opt && intoTexture),
             // 0171 (23/10): no Turnip sem lista de formatos as cores ficaram certas (teste manual
             // no RP5): o passo 4 passa a valer tambem la.
-            "dbz3_rit_textures_turnip" to (opt && intoTexture),
+            // 23/10 13:52: com o 0172 o passo 4 liga de verdade no Turnip; com o Turnip do ARMSX2 as
+            // cores ficaram certas, com o Turnip v27.0.0-R1 sairam trocadas (R/B). So com o ARMSX2.
+            "dbz3_rit_textures_turnip" to (opt && intoTexture &&
+                com.dfdx047.swordman.drivers.DriverRepository.activeDir()?.contains("armsx2", true) == true),
             "dbz3_resolve_dedupe" to (opt && postLite),
             "dbz3_skip_null_draws" to (opt && postLite),
             "dbz3_discard_full_overwrite" to (opt && postLite),
