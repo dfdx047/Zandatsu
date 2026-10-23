@@ -106,6 +106,8 @@ data class GameConfig(
             "dbz3_render_into_texture" to (opt && intoTexture),
             // 0169: quads de ecra inteiro do MGR desenhados como strips (brilho, imagem final).
             "swordman_strip_quad_ps" to (if (opt && intoTexture) MGR_STRIP_QUAD_PS else ""),
+            // 0170: cada passo da cadeia do brilho com a sua assinatura (as texturas que le).
+            "swordman_rit_sig_sampled" to (opt && intoTexture),
             "dbz3_resolve_dedupe" to (opt && postLite),
             "dbz3_skip_null_draws" to (opt && postLite),
             "dbz3_discard_full_overwrite" to (opt && postLite),

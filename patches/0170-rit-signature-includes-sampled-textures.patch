@@ -1,0 +1,32 @@
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 209a538..4e0a6de 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -868,6 +868,10 @@ REXCVAR_DEFINE_STRING(swordman_strip_quad_ps, "", "GPU/Vulkan",
+                       "Project SwordMan: pixel shaders (hash em hex, separados por virgula) cujos "
+                       "triangle strips de 4 vertices sao quads a cobrir o scissor (pos-processamento)")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
++REXCVAR_DEFINE_BOOL(swordman_rit_sig_sampled, false, "GPU/Vulkan",
++                    "Project SwordMan (0170): a assinatura do passo 4 inclui as texturas que o quad "
++                    "le (cadeias com o mesmo quad para destinos diferentes, como o brilho do MGR)")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ namespace swordman_strip_quad {
+ std::string g_text;
+ std::vector<uint64_t> g_hashes;
+@@ -6511,6 +6515,16 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+       if (dbz3_discard::g_sampled_count < 32) dbz3_discard::g_sampled[dbz3_discard::g_sampled_count++] = a;
+       render_target_cache_->Dbz3RitOnSample(*texture_cache_, a);
+     });
++    // 0170: a cadeia do brilho do MGR usa o mesmo quad (shaders, alvo, scissor) para destinos
++    // diferentes no mesmo frame; o passo 4 nunca aprendia ("resolve diferente"). As texturas que
++    // o quad le distinguem cada passo da cadeia.
++    if (dbz3_discard::g_sig && REXCVAR_GET(swordman_rit_sig_sampled)) {
++      uint64_t h = dbz3_discard::g_sig;
++      for (uint32_t i = 0; i < dbz3_discard::g_sampled_count; ++i) {
++        h ^= uint64_t(dbz3_discard::g_sampled[i]) * UINT64_C(0x9E3779B97F4A7C15) + (h << 6) + (h >> 2);
++      }
++      dbz3_discard::g_sig = h ? h : 1;
++    }
+   }
+   // After all commands that may dispatch, copy or insert barriers, submit
+   // the barriers (may end the render pass), and (re)enter the render pass
