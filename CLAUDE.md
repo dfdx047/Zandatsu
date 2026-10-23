@@ -29,7 +29,7 @@ Port de Metal Gear Rising: Revengeance (Xbox 360) para Android por recompilaçã
 
 ## Regras do driver
 - Otimizar para o Turnip; o driver Qualcomm continua opção. Nada de troca silenciosa de driver.
-- No Turnip em Adreno 6xx o app põe sozinho `TU_DEBUG=push_consts_per_stage,sysmem` e
+- No Turnip em Adreno 6xx o app põe sozinho `TU_DEBUG=push_consts_per_stage` (GMEM; sysmem saiu em 23/10) e
   `REX_DBZ3_VK_MAX_STORAGE_BUFFER_RANGE_MB=512` (`TurnipSupport.applyAutoEnv`).
 
 ## Medir
