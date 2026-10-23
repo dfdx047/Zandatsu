@@ -15,9 +15,7 @@ import androidx.compose.ui.unit.dp
 import com.dfdx047.swordman.R
 import com.dfdx047.swordman.ui.LauncherViewModel
 import com.dfdx047.swordman.ui.components.SectionCard
-import com.dfdx047.swordman.ui.components.SettingSlider
 import com.dfdx047.swordman.ui.components.SettingSwitch
-import kotlin.math.roundToInt
 
 /** Aba Cheats: atalhos que mudam o jogo (por agora: saltar as logos do arranque). */
 @Composable
@@ -35,14 +33,6 @@ fun CheatsScreen(vm: LauncherViewModel) {
                 subtitle = stringResource(R.string.cheats_skip_logos_sub),
                 checked = vm.skipLogos,
             ) { vm.changeSkipLogos(it) }
-            SettingSlider(
-                title = stringResource(R.string.cheats_skip_logos_seconds),
-                value = vm.skipLogosSeconds.toFloat(),
-                range = 10f..60f,
-                steps = 9,
-                subtitle = stringResource(R.string.cheats_skip_logos_seconds_sub),
-                label = { "${it.roundToInt()} s" },
-            ) { vm.changeSkipLogosSeconds(it.roundToInt()) }
         }
     }
 }

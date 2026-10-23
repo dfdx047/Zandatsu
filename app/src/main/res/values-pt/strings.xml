@@ -382,7 +382,5 @@
     <string name="tab_cheats">Cheats</string>
     <string name="cheats_boot_title">Arranque</string>
     <string name="cheats_skip_logos">Pular as logos</string>
-    <string name="cheats_skip_logos_sub">Aperta Start sozinho no começo do jogo até passar as logos das empresas.</string>
-    <string name="cheats_skip_logos_seconds">Apertar Start durante</string>
-    <string name="cheats_skip_logos_seconds_sub">Quanto tempo depois de abrir o jogo. Se passar da tela de título, diminua.</string>
+    <string name="cheats_skip_logos_sub">Pula os vídeos das logos das empresas no arranque e vai direto para a tela de título.</string>
 </resources>

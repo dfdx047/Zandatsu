@@ -69,14 +69,10 @@ class LauncherPrefs(context: Context) {
         get() = prefs.getInt(KEY_TURNIP_COMPAT_FLAGS, 0)
         set(v) = prefs.edit().putInt(KEY_TURNIP_COMPAT_FLAGS, v).apply()
 
-    /** Cheats: o jogo aperta Start sozinho no arranque para saltar as logos (GameOverlay). */
+    /** Cheats: os videos das logos ficam escondidos do jogo (swordman_skip_movies, patch 0166). */
     var skipLogos: Boolean
         get() = prefs.getBoolean("cheat_skip_logos", false)
         set(v) = prefs.edit().putBoolean("cheat_skip_logos", v).apply()
-    /** Segundos, desde o arranque, em que o Start e apertado. */
-    var skipLogosSeconds: Int
-        get() = prefs.getInt("cheat_skip_logos_seconds", 30)
-        set(v) = prefs.edit().putInt("cheat_skip_logos_seconds", v).apply()
 
     /** Bisect do Turnip (TurnipSupport.BISECT): um passo por arranque do jogo. */
     var turnipBisect: Boolean

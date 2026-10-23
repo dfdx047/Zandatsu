@@ -72,10 +72,7 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
     // ------------------------------------------------------------- cheats
     var skipLogos by mutableStateOf(prefs.skipLogos)
         private set
-    var skipLogosSeconds by mutableStateOf(prefs.skipLogosSeconds)
-        private set
     fun changeSkipLogos(v: Boolean) { skipLogos = v; prefs.skipLogos = v }
-    fun changeSkipLogosSeconds(v: Int) { skipLogosSeconds = v; prefs.skipLogosSeconds = v }
     fun setDark(v: DarkMode) { darkMode = v; prefs.darkMode = v }
 
     fun setLanguage(v: AppLanguage) {
@@ -421,7 +418,10 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
         viewModelScope.launch {
-            withContext(Dispatchers.IO) { GameConfig.save(config) }
+            withContext(Dispatchers.IO) {
+                GameConfig.save(config)
+                GameConfig.saveSkipMovies(prefs.skipLogos)
+            }
             AppLog.i("launcher", "jogar: ${config.resolution.label} ${config.frameMode} ${config.presentEffect}")
             context.startActivity(Intent(context, GameActivity::class.java).setAction(PLAY_ACTION))
         }

@@ -219,6 +219,18 @@ data class GameConfig(
             )
         }
 
+        /**
+         * Videos das logos do arranque (Konami, Kojima Productions, PlatinumGames, avisos): textos
+         * do nome do ficheiro em media/movie. O runtime (patch 0166) faz de conta que nao existem
+         * e o jogo segue direto para o titulo. Cada video aberto fica no log ("[movie] open").
+         */
+        const val LOGO_MOVIES = "logo,konami,kojima,kjp,platinum,legal,caution,warning,notice,copyright,dolby,havok,criware"
+
+        /** Cheat "pular logos" (CheatsScreen), gravado no mgr.toml antes de cada arranque. */
+        fun saveSkipMovies(on: Boolean, file: File = AppPaths.userToml) {
+            TomlLite.merge(file, mapOf("swordman_skip_movies" to (if (on) LOGO_MOVIES else "")))
+        }
+
         fun save(config: GameConfig, file: File = AppPaths.userToml) {
             // As opcoes so do app (volume, modo seguro) ficam no mesmo ficheiro com prefixo
             // swordman_ (o runtime ignora cvars que nao conhece).

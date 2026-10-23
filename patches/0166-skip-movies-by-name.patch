@@ -1,0 +1,92 @@
+diff --git a/src/kernel/xboxkrnl/xboxkrnl_io.cpp b/src/kernel/xboxkrnl/xboxkrnl_io.cpp
+index cce4f65..5b38de4 100644
+--- a/src/kernel/xboxkrnl/xboxkrnl_io.cpp
++++ b/src/kernel/xboxkrnl/xboxkrnl_io.cpp
+@@ -12,6 +12,11 @@
+ // Disable warnings about unused parameters for kernel functions
+ #pragma GCC diagnostic ignored "-Wunused-parameter"
+ 
++#include <algorithm>
++#include <cctype>
++#include <string>
++
++#include <rex/cvar.h>
+ #include <rex/filesystem/device.h>
+ #include <rex/kernel/xboxkrnl/private.h>
+ #include <rex/logging.h>
+@@ -44,6 +49,48 @@ struct CreateOptions {
+   static const uint32_t FILE_RANDOM_ACCESS = 0x00000800;
+ };
+ 
++
++// Project SwordMan (0166): pular os videos das logos. Cada abertura de um ficheiro de video
++// (caminho com "movie") fica no log ("[movie] open ..."), e os que tiverem um dos textos de
++// swordman_skip_movies no nome passam a "nao existe" (open e atributos): o jogo segue para o
++// proximo video ou para o menu sem esperar.
++REXCVAR_DEFINE_STRING(swordman_skip_movies, "", "Kernel",
++                      "Project SwordMan: videos que o jogo nao encontra (textos do nome do "
++                      "ficheiro, separados por virgula, sem distinguir maiusculas)")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++
++static std::string SwordmanLower(std::string_view s) {
++  std::string out(s);
++  std::transform(out.begin(), out.end(), out.begin(),
++                 [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
++  return out;
++}
++
++// true = este video fica escondido do jogo.
++static bool SwordmanMovieSkipped(std::string_view path, const char* call) {
++  std::string lower = SwordmanLower(path);
++  if (lower.find("movie") == std::string::npos) {
++    return false;
++  }
++  std::string list = SwordmanLower(REXCVAR_GET(swordman_skip_movies));
++  bool skipped = false;
++  size_t start = 0;
++  while (start <= list.size()) {
++    size_t comma = list.find(',', start);
++    if (comma == std::string::npos) comma = list.size();
++    std::string item = list.substr(start, comma - start);
++    item.erase(0, item.find_first_not_of(" \t"));
++    item.erase(item.find_last_not_of(" \t") + 1);
++    if (!item.empty() && lower.find(item) != std::string::npos) {
++      skipped = true;
++      break;
++    }
++    start = comma + 1;
++  }
++  REXKRNL_INFO("[movie] {} {}{}", call, path, skipped ? " -> saltado" : "");
++  return skipped;
++}
++
+ static bool IsValidPath(const std::string_view s, bool is_pattern) {
+   // TODO(gibbed): validate path components individually
+   bool got_asterisk = false;
+@@ -133,6 +180,15 @@ u32 NtCreateFile_entry(mapped_u32 handle_out, u32 desired_access,
+     return X_STATUS_OBJECT_NAME_INVALID;
+   }
+ 
++  if (SwordmanMovieSkipped(target_path, "open")) {
++    if (io_status_block) {
++      io_status_block->status = X_STATUS_OBJECT_NAME_NOT_FOUND;
++      io_status_block->information = 0;
++    }
++    *handle_out = X_INVALID_HANDLE_VALUE;
++    return X_STATUS_OBJECT_NAME_NOT_FOUND;
++  }
++
+   if (object_attrs->root_directory != 0xFFFFFFFD &&  // ObDosDevices
+       object_attrs->root_directory != 0) {
+     auto root_file = REX_KERNEL_OBJECTS()->LookupObject<XFile>(object_attrs->root_directory);
+@@ -536,7 +592,9 @@ u32 NtQueryFullAttributesFile_entry(ppc_ptr_t<X_OBJECT_ATTRIBUTES> obj_attribs,
+   }
+ 
+   // Resolve the file using the virtual file system.
+-  auto entry = REX_KERNEL_FS()->ResolvePath(target_path);
++  auto entry = SwordmanMovieSkipped(target_path, "attributes")
++                   ? nullptr
++                   : REX_KERNEL_FS()->ResolvePath(target_path);
+   if (entry) {
+     // Found.
+     file_info->creation_time = entry->create_timestamp();

@@ -382,7 +382,5 @@
     <string name="tab_cheats">Trucos</string>
     <string name="cheats_boot_title">Inicio</string>
     <string name="cheats_skip_logos">Saltar los logos</string>
-    <string name="cheats_skip_logos_sub">Pulsa Start solo al iniciar el juego hasta saltar los logos de las empresas.</string>
-    <string name="cheats_skip_logos_seconds">Pulsar Start durante</string>
-    <string name="cheats_skip_logos_seconds_sub">Cuánto tiempo tras abrir el juego. Si pasa de la pantalla de título, bájalo.</string>
+    <string name="cheats_skip_logos_sub">Salta los vídeos de los logos de las empresas al iniciar y va directo a la pantalla de título.</string>
 </resources>
