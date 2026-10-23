@@ -27,3 +27,6 @@ tools/icon_preview.png
 fptr_scan.txt
 codegen.log
 generated/.codegen-stamp
+
+# Shaders traduzidos do Renut (dados do jogo, nunca no git)
+out/renut/
