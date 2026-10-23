@@ -1,0 +1,42 @@
+diff --git a/src/kernel/xboxkrnl/xboxkrnl_io.cpp b/src/kernel/xboxkrnl/xboxkrnl_io.cpp
+index 5b38de4..704307f 100644
+--- a/src/kernel/xboxkrnl/xboxkrnl_io.cpp
++++ b/src/kernel/xboxkrnl/xboxkrnl_io.cpp
+@@ -180,15 +180,6 @@ u32 NtCreateFile_entry(mapped_u32 handle_out, u32 desired_access,
+     return X_STATUS_OBJECT_NAME_INVALID;
+   }
+ 
+-  if (SwordmanMovieSkipped(target_path, "open")) {
+-    if (io_status_block) {
+-      io_status_block->status = X_STATUS_OBJECT_NAME_NOT_FOUND;
+-      io_status_block->information = 0;
+-    }
+-    *handle_out = X_INVALID_HANDLE_VALUE;
+-    return X_STATUS_OBJECT_NAME_NOT_FOUND;
+-  }
+-
+   if (object_attrs->root_directory != 0xFFFFFFFD &&  // ObDosDevices
+       object_attrs->root_directory != 0) {
+     auto root_file = REX_KERNEL_OBJECTS()->LookupObject<XFile>(object_attrs->root_directory);
+@@ -198,6 +189,21 @@ u32 NtCreateFile_entry(mapped_u32 handle_out, u32 desired_access,
+     root_entry = root_file->entry();
+   }
+ 
++  // 0167: o MGR abre as pastas media\movie e media\movie_ui e depois cada video relativo a elas
++  // (so o nome do ficheiro): o teste usa a pasta + o nome.
++  std::string skip_path(target_path);
++  if (root_entry) {
++    skip_path = root_entry->path() + "\\" + skip_path;
++  }
++  if (SwordmanMovieSkipped(skip_path, "open")) {
++    if (io_status_block) {
++      io_status_block->status = X_STATUS_OBJECT_NAME_NOT_FOUND;
++      io_status_block->information = 0;
++    }
++    *handle_out = X_INVALID_HANDLE_VALUE;
++    return X_STATUS_OBJECT_NAME_NOT_FOUND;
++  }
++
+   // Attempt open (or create).
+   rex::filesystem::File* vfs_file;
+   rex::filesystem::FileAction file_action;
