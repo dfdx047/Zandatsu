@@ -7,8 +7,8 @@ escolhida no launcher. O Xenia fica como alternativa. Análise completa, com fic
 
 - Upstream: `third_party/mgr-nx-deko` (submódulo, commit `ba1a837`), GPL-3.0. Mesma `default.xex` (USA/Europe)
   e mesma base ReXGlue v0.10.0.
-- **Licença:** o núcleo reNut não tem licença no projeto original (ver `THIRD_PARTY_NOTICES.md` deles). Testar
-  pode; **distribuir só com a permissão do autor (masterspike52) e avisando o tuancapoo.**
+- **Licença:** autorização dos autores em 23/10/2026 para usar à vontade, mantendo os créditos
+  ([CREDITS.md](../CREDITS.md)) e o código aberto (GPL-3.0).
 - **Os shaders traduzidos são dados do jogo:** nunca no git (`out/renut/` está no `.gitignore`).
 
 ## Marcos

@@ -113,10 +113,9 @@ cmake --build out/build/linux-amd64-release
 Projeto de fã, sem ligação com a Konami, a PlatinumGames ou a Microsoft. Nenhum dado do jogo
 protegido por direitos autorais é distribuído.
 
-## Licença
+## Licença e créditos
 
-Desde 23/10/2026 o Project SwordMan é GPL-3.0 (`LICENSE`), para poder usar o renderizador nativo e as ferramentas
-do [mgr-nx-deko](https://github.com/tuancapoo/mgr-nx-deko) (GPL-3.0). O overlay do SDK continua MIT
-(`sdk/overlay-LICENSE`) e o ReXGlue SDK BSD-3-Clause. Atenção: o núcleo do renderizador reNut não tem ficheiro de
-licença no projeto original; o sa2-nx documenta uma permissão do autor só para aquele projeto. Antes de distribuir
-uma build com o reNut, é preciso a permissão do autor.
+Desde 23/10/2026 o Project SwordMan é GPL-3.0 (`LICENSE`), com o código-fonte aberto. O renderizador nativo e as
+ferramentas vêm do [mgr-nx-deko](https://github.com/tuancapoo/mgr-nx-deko) (GPL-3.0), com a autorização dos autores
+(23/10/2026) para usar à vontade mantendo os créditos e o código aberto. O overlay do SDK continua MIT
+(`sdk/overlay-LICENSE`) e o ReXGlue SDK BSD-3-Clause. Créditos completos: [CREDITS.md](CREDITS.md).
