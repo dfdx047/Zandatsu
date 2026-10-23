@@ -15,6 +15,7 @@
 #include <optional>
 
 #include <rex/logging.h>
+#include <rex/system/xthread.h>
 
 #include "renut_engine/gpu/banjo_renut_select.h"
 #include "renut_engine/gpu/overlay/app_integration.h"
@@ -74,6 +75,17 @@ class MgrApp : public rex::ReXApp {
       banjo::renut_gpu::detail::g_active = -1;
     }
     return ReXApp::OnFinalizePaths(defaults, std::move(resume));
+  }
+
+  // Renut: o MGR indexa o seu escalonador de tarefas (5 vias) pela CPU logica do PCR do guest. A escolha
+  // round-robin do SDK conta tambem as threads de servico do host; sem a GPU emulada essa escolha muda e pode cair
+  // num slot nao registado (-1: falha de memoria do guest em sub_827E2C00 ~27 s apos o arranque). Como no
+  // mgr_main.cpp do mgr-nx-deko: a thread principal arranca na CPU logica 0.
+  void OnPostLaunchModule(rex::system::XThread* thread) override {
+    if (thread && banjo::renut_gpu::Active()) {
+      thread->SetAffinity(1u);
+      REXLOG_INFO("Renut: thread principal do guest na CPU logica 0");
+    }
   }
 
   // Renut: o ImGui do SDK (menus) desenhado pelo plume.

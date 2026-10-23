@@ -1,0 +1,18 @@
+diff --git a/app/src/renut_engine/gpu/backend/video.cpp b/app/src/renut_engine/gpu/backend/video.cpp
+index 75b37c8..1895158 100644
+--- a/app/src/renut_engine/gpu/backend/video.cpp
++++ b/app/src/renut_engine/gpu/backend/video.cpp
+@@ -97,7 +97,13 @@ VideoState &StateSlow() {
+ 
+ namespace {
+ 
++#if defined(__ANDROID__)
++// SwordMan (Android): RGBA, the gralloc's own layout. Turnip lists BGRA too, but the Adreno gralloc rejects its buffers
++// ("Memory Layout input parameter validation failed") and nothing reaches the screen.
++constexpr plume::RenderFormat kSwapChainFormat = plume::RenderFormat::R8G8B8A8_UNORM;
++#else
+ constexpr plume::RenderFormat kSwapChainFormat = plume::RenderFormat::B8G8R8A8_UNORM;
++#endif
+ 
+ bool BuildUtilityLayout(VideoState &s) {
+   plume::RenderDescriptorSetBuilder textures;

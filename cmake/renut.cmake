@@ -132,7 +132,8 @@ target_link_libraries(mgr_renut_gpu PRIVATE rex::runtime plume renut_zstd renut_
 
 # Liga o Renut ao libmain.so (<alvo>) e diz ao codigo do app que ele existe (SM_RENUT).
 function(sm_renut_setup TARGET)
-    target_link_libraries(${TARGET} PRIVATE mgr_renut_gpu)
+    # adrenotools: o driver Vulkan do plume (src/renut_glue.cpp, plume_android_vulkan_library).
+    target_link_libraries(${TARGET} PRIVATE mgr_renut_gpu adrenotools)
     target_compile_definitions(${TARGET} PRIVATE SM_RENUT=1 MGR_RENUT_RENDERER=1 SA2_RENUT_RENDERER=1)
     target_include_directories(${TARGET} PRIVATE "${RENUT_APP_DIR}" "${RENUT_APP_DIR}/src")
 endfunction()

@@ -1,0 +1,43 @@
+diff --git a/app/thirdparty/plume/plume_vulkan.cpp b/app/thirdparty/plume/plume_vulkan.cpp
+index aa53c2e..3eac750 100644
+--- a/app/thirdparty/plume/plume_vulkan.cpp
++++ b/app/thirdparty/plume/plume_vulkan.cpp
+@@ -19,6 +19,12 @@
+ #include <new>
+ #include <unordered_map>
+ 
++#if defined(__ANDROID__)
++#include <dlfcn.h>
++// SwordMan (Android): defined by the app (weak here): a dlopen handle of the Vulkan driver to use, or null.
++extern "C" __attribute__((weak)) void *plume_android_vulkan_library();
++#endif
++
+ #if defined(__SWITCH__)
+ #include "plume_lsfg_bridge.h"
+ 
+@@ -5416,7 +5422,25 @@ namespace plume {
+         }
+         VkResult res = VK_SUCCESS;
+ #else
++#   if defined(__ANDROID__)
++        // SwordMan (Android): the app's Vulkan driver (Turnip through libadrenotools, the same the SDK loads) when the
++        // app provides one; the system's libvulkan otherwise.
++        VkResult res = VK_ERROR_INITIALIZATION_FAILED;
++        if (plume_android_vulkan_library != nullptr) {
++            if (void *library = plume_android_vulkan_library()) {
++                auto getInstanceProcAddr = reinterpret_cast<PFN_vkGetInstanceProcAddr>(dlsym(library, "vkGetInstanceProcAddr"));
++                if (getInstanceProcAddr != nullptr) {
++                    volkInitializeCustom(getInstanceProcAddr);
++                    res = VK_SUCCESS;
++                }
++            }
++        }
++        if (res != VK_SUCCESS) {
++            res = volkInitialize();
++        }
++#   else
+         VkResult res = volkInitialize();
++#   endif
+         if (res != VK_SUCCESS) {
+             fprintf(stderr, "volkInitialize failed with error code 0x%X.\n", res);
+             return;
