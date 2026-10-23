@@ -29,14 +29,11 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${SM_RENUT_OUT}/
 # As alteracoes Android ao submodulo (patches/renut) tem de estar aplicadas.
 file(GLOB SM_RENUT_PATCHES "${SM_ROOT}/patches/renut/[0-9][0-9][0-9][0-9]-*.patch")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${SM_RENUT_PATCHES})
-foreach(PATCH ${SM_RENUT_PATCHES})
-    execute_process(COMMAND patch -p1 --dry-run --reverse --force --silent -i "${PATCH}"
-                    WORKING_DIRECTORY "${SM_MGRNX}" RESULT_VARIABLE SM_RENUT_PATCH_MISSING OUTPUT_QUIET ERROR_QUIET)
-    if(SM_RENUT_PATCH_MISSING)
-        get_filename_component(PATCH_NAME "${PATCH}" NAME)
-        message(FATAL_ERROR "O patch renut/${PATCH_NAME} nao esta aplicado. Corre: bash tools/apply-renut-patches.sh")
-    endif()
-endforeach()
+execute_process(COMMAND bash "${SM_ROOT}/tools/apply-renut-patches.sh" --check
+                RESULT_VARIABLE SM_RENUT_PATCH_MISSING ERROR_VARIABLE SM_RENUT_PATCH_ERROR)
+if(SM_RENUT_PATCH_MISSING)
+    message(FATAL_ERROR "Patches do Renut por aplicar: ${SM_RENUT_PATCH_ERROR}")
+endif()
 
 # plume (Vulkan; o ramo Android ja existe nele: VK_KHR_android_surface).
 if(NOT TARGET plume)

@@ -1,0 +1,104 @@
+--- a/app/src/renut_engine/gpu/backend/native_window.cpp
++++ b/app/src/renut_engine/gpu/backend/native_window.cpp
+@@ -120,7 +120,11 @@
+   out = static_cast<ANativeWindow *>(SDL_GetPointerProperty(
+       SDL_GetWindowProperties(sdl_window), SDL_PROP_WINDOW_ANDROID_WINDOW_POINTER, nullptr));
+   if (!out) {
+-    RGPU_ERROR("SDL window has no ANativeWindow yet");
++    // In the background (no surface) every present asks: said once.
++    static bool said = false;
++    if (!said)
++      RGPU_WARN("SDL window has no ANativeWindow (app in the background?)");
++    said = true;
+     return false;
+   }
+   return true;
+--- a/app/src/renut_engine/gpu/backend/present.cpp
++++ b/app/src/renut_engine/gpu/backend/present.cpp
+@@ -422,6 +422,14 @@
+   PresentImage diag_image;
+   if (image && DiagTextureImageLocked(diag_image))
+     image = &diag_image;
++#if defined(__ANDROID__)
++  // SwordMan (Android): a new window after the background (video_internal.h).
++  if (!detail::FollowAndroidWindow(s, REXCVAR_GET(renut_vsync))) {
++    if (s.list_open)
++      detail::SubmitAndAdvance(s, nullptr, nullptr);
++    return;
++  }
++#endif
+   ApplyVsync(s);
+   if (s.swap_chain->needsResize() || s.resize_requested.exchange(false, std::memory_order_acq_rel))
+     RebuildSwapChain(s);
+--- a/app/src/renut_engine/gpu/backend/video.cpp
++++ b/app/src/renut_engine/gpu/backend/video.cpp
+@@ -446,6 +446,41 @@
+   return count != 0;
+ }
+ 
++#if defined(__ANDROID__)
++namespace {
++plume::RenderWindow g_swap_chain_window = nullptr;  // the ANativeWindow the swapchain presents to
++uint32_t g_swap_chain_images = 0;
++} // namespace
++
++bool FollowAndroidWindow(VideoState &s, bool vsync) {
++  plume::RenderWindow window = nullptr;
++  if (!GetNativeRenderWindow(window) || !window) {
++    s.swap_framebuffers.clear();  // background: no surface to present to
++    return false;
++  }
++  if (window == g_swap_chain_window && s.swap_chain)
++    return true;
++  if (s.list_open)
++    SubmitAndAdvance(s, nullptr, nullptr);
++  WaitAllSubmitted(s);
++  s.swap_framebuffers.clear();
++  s.present_semaphores.clear();
++  s.swap_chain.reset();
++  g_swap_chain_window = window;
++  plume::RenderSwapChainDesc swap_desc(window, kSwapChainFormat, g_swap_chain_images, false, kFramesInFlight);
++  s.swap_chain = s.queue->createSwapChain(swap_desc);
++  s.swap_chain->setVsyncEnabled(vsync);
++  if (!s.swap_chain->resize() || s.swap_chain->isEmpty() || !BuildSwapChainTargets(s)) {
++    RGPU_ERROR("Swapchain: no swapchain for the new window yet");
++    s.swap_framebuffers.clear();
++    g_swap_chain_window = nullptr;  // tried again at the next present
++    return false;
++  }
++  RGPU_INFO("Swapchain: recreated for the new window ({}x{})", s.swap_chain->getWidth(), s.swap_chain->getHeight());
++  return true;
++}
++#endif
++
+ void DrainSlot(VideoState &s, uint32_t slot) {
+   s.retired_framebuffers[slot].clear();
+   s.retired_views[slot].clear();
+@@ -945,6 +980,10 @@
+   plume::RenderSwapChainDesc swap_desc(render_window, kSwapChainFormat, images, false, kFramesInFlight);
+   RGPU_INFO("Swapchain: {} images{}", images, double_buffer ? " (sa2_renut_double_buffer)" : "");
+   s.swap_chain = s.queue->createSwapChain(swap_desc);
++#if defined(__ANDROID__)
++  detail::g_swap_chain_window = render_window;
++  detail::g_swap_chain_images = images;
++#endif
+   // plume's Vulkan swapchain is created lazily by resize().
+   if (s.swap_chain && IsVulkan())
+     s.swap_chain->resize();
+--- a/app/src/renut_engine/gpu/backend/video_internal.h
++++ b/app/src/renut_engine/gpu/backend/video_internal.h
+@@ -14,6 +14,14 @@
+ // (Re)builds swapchain framebuffers and per-image present semaphores.
+ bool BuildSwapChainTargets(VideoState &s);
+ 
++#if defined(__ANDROID__)
++// SwordMan (Android): the system destroys the app's ANativeWindow when it goes to the background and gives it a new
++// one when it comes back; a swapchain cannot move to another window. Called before each present: with a window that is
++// not the swapchain's, the old swapchain (and its surface) is destroyed and a new one made for the window. Without a
++// window (background) nothing is presented. Returns false when there is nothing to present to.
++bool FollowAndroidWindow(VideoState &s, bool vsync);
++#endif
++
+ // Frees everything retired into 'slot' and rewinds its upload ring. Only once
+ // the slot's fence has been waited.
+ void DrainSlot(VideoState &s, uint32_t slot);
