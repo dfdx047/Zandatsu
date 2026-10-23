@@ -131,6 +131,10 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
     fun continueTurnipSweep(activity: android.app.Activity): Boolean {
         val sweep = com.dfdx047.swordman.game.TurnipSweep
         if (!sweep.isActive(activity)) return false
+        // 23/10: a varredura saiu do launcher; uma que ficou ligada de antes e so parada.
+        sweep.stop(activity)
+        turnipBisect = false
+        return false
         val r = try {
             CrashReports.lastGameExit(activity, prefs)
         } catch (_: Exception) {

@@ -18,7 +18,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Delete
@@ -122,52 +121,6 @@ fun DriversScreen(vm: LauncherViewModel) {
                     }
                 }
                 Text(stringResource(R.string.drivers_restart_note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
-        item {
-            // Testes A/B dos glitches do Turnip nos Adreno 6xx (RP5): cada opcao liga um
-            // conjunto de correcoes no arranque do jogo (GameActivity.applyTurnipCompat).
-            SectionCard(stringResource(R.string.turnip_compat_title), Icons.Filled.Build, subtitle = stringResource(R.string.turnip_compat_sub)) {
-                listOf(
-                    1 to R.string.turnip_compat_single_buffer,
-                    8 to R.string.turnip_compat_bc,
-                    2 to R.string.turnip_compat_sysmem,
-                    4 to R.string.turnip_compat_nolrz,
-                    16 to R.string.turnip_compat_paths,
-                    32 to R.string.turnip_compat_depth,
-                    64 to R.string.turnip_compat_sync,
-                    128 to R.string.turnip_compat_ir3_nopreamble,
-                    256 to R.string.turnip_compat_ir3_nouboopt,
-                    512 to R.string.turnip_compat_ir3_nofp16,
-                ).forEach { (bit, label) ->
-                    SettingSwitch(
-                        stringResource(label),
-                        checked = (vm.turnipCompatFlags and bit) != 0,
-                    ) { on -> vm.setTurnipCompatFlag(bit, on) }
-                }
-                val sweepCtx = androidx.compose.ui.platform.LocalContext.current
-                androidx.compose.material3.FilledTonalButton(
-                    onClick = { vm.startTurnipSweep(sweepCtx) },
-                    enabled = vm.busy == null && vm.activeDriver != null,
-                ) { Text(stringResource(R.string.turnip_sweep_start, com.dfdx047.swordman.drivers.TurnipSupport.BISECT.size)) }
-                androidx.compose.material3.FilledTonalButton(
-                    onClick = { vm.startTurnipSweep(sweepCtx, "rtt") },
-                    enabled = vm.busy == null && vm.activeDriver != null,
-                ) { Text(stringResource(R.string.turnip_sweep_rtt, com.dfdx047.swordman.drivers.TurnipSupport.BISECT_RTT.size)) }
-                Text(
-                    stringResource(R.string.turnip_sweep_help),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                SettingSwitch(
-                    stringResource(R.string.turnip_bisect),
-                    checked = vm.turnipBisect,
-                ) { on -> vm.changeTurnipBisect(on) }
-                if (vm.turnipBisect) {
-                    val steps = com.dfdx047.swordman.drivers.TurnipSupport.BISECT
-                    val next = Math.floorMod(vm.turnipBisectStep, steps.size)
-                    StatusLine(stringResource(R.string.turnip_bisect_next, steps[next][0], steps.size), Level.INFO)
-                }
             }
         }
         if (vm.installedDrivers.isNotEmpty()) {

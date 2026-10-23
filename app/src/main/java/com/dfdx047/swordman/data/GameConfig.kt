@@ -31,6 +31,11 @@ data class GameConfig(
     // Sombras projetadas no ecra (passe de tela cheia, PS BE9C3F69): ~3 ms no RP5. Desligadas a
     // imagem fica normal, so sem essas sombras (teste manual 23/10 05:16).
     val shadows: Boolean = true,
+    // Iluminacao "Baixa" (23/10, experimental): a cadeia do brilho inteira saltada.
+    val glowOff: Boolean = false,
+    // Efeitos "Baixos" (23/10, experimental): os 7 shaders mais pesados do passe dos efeitos
+    // transparentes (faiscas, rastros) saltados. So aparecem nesse passe (captura de 22/10).
+    val fxLow: Boolean = false,
     // 0114 (experimental): aritmetica dos pixel shaders em fp16 (RelaxedPrecision).
     val psFp16: Boolean = false,
     val showFps: Boolean = false,             // debug_overlay
@@ -137,13 +142,17 @@ data class GameConfig(
             "swordman_freeze_record" to false,
             "swordman_ps_census" to false,
             "swordman_skip_ps" to listOfNotNull(
-                if (glowBlur) null else MGR_GLOW_BLUR_PS,
+                if (glowBlur && !glowOff) null else MGR_GLOW_BLUR_PS,
+                if (glowOff) MGR_GLOW_CHAIN_PS else null,
                 if (shadows) null else MGR_SCREEN_SHADOW_PS,
+                if (fxLow) MGR_HEAVY_FX_PS else null,
             ).joinToString(","),
             // Escolha explicita do brilho (22/10): as configs antigas gravaram "" (brilho ligado)
             // como padrao; so esta chave conta para manter o brilho.
             "swordman_glow_blur" to glowBlur,
             "swordman_shadows" to shadows,
+            "swordman_glow_off" to glowOff,
+            "swordman_fx_low" to fxLow,
             "swordman_ps_fp16" to psFp16,
             // Os contornos 0102/0103 eram para o crash acima (diagnostico errado): desligados.
             "dbz3_empty_fs_for_depth_only" to 0,
@@ -167,6 +176,11 @@ data class GameConfig(
          */
         const val MGR_STRIP_QUAD_PS =
             "7BE61437FF049E59,A755AD0AC2470588,C45580526034B1F2,4086D1DF9FA6220E,38C32FC0BC7F322D,F854BF3B7BF7AA9D"
+        /** O resto da cadeia do brilho (reducao e soma), para a iluminacao "Baixa". */
+        const val MGR_GLOW_CHAIN_PS = "A755AD0AC2470588,38C32FC0BC7F322D"
+        /** Os shaders mais pesados dos efeitos transparentes (so no passe P18 da captura de 22/10). */
+        const val MGR_HEAVY_FX_PS =
+            "E664840CC5314C1D,D47E656630A5D1FD,98F7AAEB1C255FEE,CFD7160391146423,C9769A4005A60F77,C1D2AF15BA1F1EAC,2CE21E05F9680D34"
         /** Pixel shader das sombras projetadas no ecra (passe de tela cheia). */
         const val MGR_SCREEN_SHADOW_PS = "BE9C3F694476A5B5"
         const val MAX_RESOLUTION_SCALE = 3
@@ -224,6 +238,8 @@ data class GameConfig(
                 // -2.1 ms). Cortado por padrao tambem nas configs antigas; volta com o interruptor.
                 glowBlur = bool("swordman_glow_blur", false),
                 shadows = bool("swordman_shadows", true),
+                glowOff = bool("swordman_glow_off", false),
+                fxLow = bool("swordman_fx_low", false),
                 psFp16 = bool("swordman_ps_fp16", false),
                 showFps = bool("debug_overlay", d.showFps),
                 letterbox = bool("present_letterbox", d.letterbox),
@@ -382,6 +398,8 @@ fun GameConfig.withPreset(p: GraphicsPreset): GameConfig {
         anisotropic = t.anisotropic,
         shadows = t.shadows,
         glowBlur = t.glowBlur,
+        glowOff = false,
+        fxLow = false,
     )
 }
 
@@ -390,7 +408,7 @@ fun GameConfig.matchingPreset(): GraphicsPreset? = GraphicsPreset.entries.firstO
     val t = p.spec()
     t.resolution == resolution && fxaa == "none" && t.anisotropic == anisotropic &&
         t.presentEffect == presentEffect && (frameRate == 30) == t.fps30 &&
-        t.shadows == shadows && t.glowBlur == glowBlur
+        t.shadows == shadows && t.glowBlur == glowBlur && !glowOff && !fxLow
 }
 
 /**

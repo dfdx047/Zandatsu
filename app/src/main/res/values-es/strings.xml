@@ -215,8 +215,8 @@
     <string name="tab_controls">Controles</string>
     <string name="perf_resolution_sub">La resolución a la que se dibuja el juego, luego escalada a la pantalla. 720p es la de la consola; 360p/540p dibujan menos píxeles (más rápido), 2K = 1440p (2x), 4K = 2160p (3x).</string>
     <string name="perf_resolution_mem">2K y 4K necesitan mucha más memoria de GPU. En GPU Mali quédate en 720p o menos.</string>
-    <string name="perf_effects_title">Efectos del juego</string>
-    <string name="perf_effects_sub">Activar o desactivar los efectos pesados de posprocesado, y el volumen.</string>
+    <string name="perf_effects_title">Calidad gráfica (manual)</string>
+    <string name="perf_effects_sub">Cada categoría por separado, como en los juegos de PC. Los perfiles de arriba cambian estas mismas opciones.</string>
     <string name="perf_gpu_title">Optimizaciones de GPU</string>
     <string name="perf_gpu_sub">Déjalas activadas salvo que algo se vea mal.</string>
     <string name="gpu_notice_title">Antes de jugar</string>
@@ -385,4 +385,14 @@
     <string name="cheats_skip_logos_sub">Acelera el juego 8 veces durante los logos de las empresas al iniciar, hasta la pantalla de título.</string>
     <string name="settings_shadows">Sombras</string>
     <string name="settings_shadows_sub">Sombras proyectadas en la escena. Desactivadas ahorran ~3 ms por frame en el RP5; la imagen queda normal, solo sin esas sombras.</string>
+    <string name="q_shadows">Sombras</string>
+    <string name="q_shadows_sub">Alta: las sombras proyectadas en la escena (~3 ms en el RP5). Desactivadas: imagen normal, solo sin esas sombras. El nivel Medio llega con el render nativo de la sombra.</string>
+    <string name="q_lighting">Iluminación (brillo)</string>
+    <string name="q_lighting_sub">Alta: brillo con desenfoque (~3 ms). Media: brillo sin desenfoque. Baja (experimental): sin brillo.</string>
+    <string name="q_effects">Efectos</string>
+    <string name="q_effects_sub">Bajos (experimental): sin los efectos transparentes más pesados (chispas, estelas de los golpes). Avisa si desaparece algo que no debería.</string>
+    <string name="q_high">Alta</string>
+    <string name="q_medium">Media</string>
+    <string name="q_low">Baja</string>
+    <string name="q_off">Desactivadas</string>
 </resources>

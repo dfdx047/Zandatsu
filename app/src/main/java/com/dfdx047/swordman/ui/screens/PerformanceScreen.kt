@@ -183,16 +183,6 @@ fun PerformanceScreen(vm: LauncherViewModel) {
             if (c.resolution.scale >= 3) StatusLine(stringResource(R.string.settings_resolution_warn), Level.WARN)
             SettingSwitch(stringResource(R.string.settings_show_fps), checked = c.showFps) { on -> vm.updateConfig { it.copy(showFps = on) } }
             SettingSwitch(
-                stringResource(R.string.settings_glow_blur),
-                subtitle = stringResource(R.string.settings_glow_blur_sub),
-                checked = c.glowBlur,
-            ) { on -> vm.updateConfig { it.copy(glowBlur = on) } }
-            SettingSwitch(
-                stringResource(R.string.settings_shadows),
-                subtitle = stringResource(R.string.settings_shadows_sub),
-                checked = c.shadows,
-            ) { on -> vm.updateConfig { it.copy(shadows = on) } }
-            SettingSwitch(
                 stringResource(R.string.settings_ps_fp16),
                 subtitle = stringResource(R.string.settings_ps_fp16_sub),
                 checked = c.psFp16,
@@ -207,7 +197,38 @@ fun PerformanceScreen(vm: LauncherViewModel) {
             Icons.Filled.BlurOn,
             subtitle = stringResource(R.string.perf_effects_sub),
         ) {
-            StatusLine(stringResource(R.string.perf_effects_pending), Level.INFO)
+            // 23/10: qualidade manual por categoria, como nos jogos de PC (os perfis acima mudam
+            // estas mesmas opcoes; mexer numa deixa o perfil "Personalizado").
+            SettingSegmented(
+                title = stringResource(R.string.q_shadows),
+                subtitle = stringResource(R.string.q_shadows_sub),
+                options = listOf(true to stringResource(R.string.q_high), false to stringResource(R.string.q_off)),
+                selected = c.shadows,
+                onSelect = { v -> vm.updateConfig { it.copy(shadows = v) } },
+            )
+            val lighting = when {
+                c.glowOff -> 0
+                c.glowBlur -> 2
+                else -> 1
+            }
+            SettingSegmented(
+                title = stringResource(R.string.q_lighting),
+                subtitle = stringResource(R.string.q_lighting_sub),
+                options = listOf(
+                    2 to stringResource(R.string.q_high),
+                    1 to stringResource(R.string.q_medium),
+                    0 to stringResource(R.string.q_low),
+                ),
+                selected = lighting,
+                onSelect = { v -> vm.updateConfig { it.copy(glowBlur = v == 2, glowOff = v == 0) } },
+            )
+            SettingSegmented(
+                title = stringResource(R.string.q_effects),
+                subtitle = stringResource(R.string.q_effects_sub),
+                options = listOf(false to stringResource(R.string.q_high), true to stringResource(R.string.q_low)),
+                selected = c.fxLow,
+                onSelect = { v -> vm.updateConfig { it.copy(fxLow = v) } },
+            )
             HorizontalDivider()
             SettingSlider(
                 title = stringResource(R.string.settings_volume),

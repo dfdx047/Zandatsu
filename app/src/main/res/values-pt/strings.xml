@@ -215,8 +215,8 @@
     <string name="tab_controls">Controles</string>
     <string name="perf_resolution_sub">A resolução em que o jogo é desenhado, depois ampliada para a tela. 720p é a do console; 360p/540p desenham menos pixels (mais rápido), 2K = 1440p (2x), 4K = 2160p (3x).</string>
     <string name="perf_resolution_mem">2K e 4K precisam de muito mais memória da GPU. Em GPUs Mali, fique em 720p ou menos.</string>
-    <string name="perf_effects_title">Efeitos do jogo</string>
-    <string name="perf_effects_sub">Ligar ou desligar os efeitos pesados de pós-processamento, e o volume.</string>
+    <string name="perf_effects_title">Qualidade gráfica (manual)</string>
+    <string name="perf_effects_sub">Cada categoria separada, como nos jogos de PC. Os perfis acima mexem nestas mesmas opções.</string>
     <string name="perf_gpu_title">Otimizações da GPU</string>
     <string name="perf_gpu_sub">Deixe ligadas, a não ser que algo apareça errado.</string>
     <string name="gpu_notice_title">Antes de jogar</string>
@@ -385,4 +385,14 @@
     <string name="cheats_skip_logos_sub">Acelera o jogo 8 vezes durante as logos das empresas no arranque, até a tela de título.</string>
     <string name="settings_shadows">Sombras</string>
     <string name="settings_shadows_sub">Sombras projetadas na cena. Desligadas poupam ~3 ms por frame no RP5; a imagem fica normal, só sem essas sombras.</string>
+    <string name="q_shadows">Sombras</string>
+    <string name="q_shadows_sub">Alta: as sombras projetadas na cena (~3 ms no RP5). Desligadas: imagem normal, só sem essas sombras. O nível Médio chega com o render nativo da sombra.</string>
+    <string name="q_lighting">Iluminação (brilho)</string>
+    <string name="q_lighting_sub">Alta: brilho com desfoque (~3 ms). Média: brilho sem desfoque. Baixa (experimental): sem brilho.</string>
+    <string name="q_effects">Efeitos</string>
+    <string name="q_effects_sub">Baixos (experimental): sem os efeitos transparentes mais pesados (faíscas, rastros dos golpes). Diga se sumir algo que não devia.</string>
+    <string name="q_high">Alta</string>
+    <string name="q_medium">Média</string>
+    <string name="q_low">Baixa</string>
+    <string name="q_off">Desligadas</string>
 </resources>

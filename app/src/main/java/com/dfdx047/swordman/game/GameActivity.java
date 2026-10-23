@@ -481,7 +481,12 @@ public class GameActivity extends SDLActivity {
     private void applyTurnipCompat(File appDir) {
         @SuppressWarnings("deprecation")
         SharedPreferences prefs = getSharedPreferences("swordman", MODE_MULTI_PROCESS);
-        int flags = prefs.getInt("turnip_compat_flags", 0);
+        // 23/10: os interruptores manuais e a varredura sairam do launcher (os drivers ja funcionam
+        // com o que o TurnipSupport aplica sozinho). Valores antigos gravados sao apagados.
+        if (prefs.contains("turnip_compat_flags") || prefs.getBoolean("turnip_bisect", false)) {
+            prefs.edit().remove("turnip_compat_flags").putBoolean("turnip_bisect", false).commit();
+        }
+        int flags = 0;
         // Com driver alternativo: o que a tabela do TurnipSupport manda para este Snapdragon
         // (ex. TU_DEBUG=sysmem no A830 e nos A710/720/722). O buffer unico de 512 MB e o BC
         // descomprimido ficam so como escolha manual: o Turnip diz 128 MB em todas as geracoes e

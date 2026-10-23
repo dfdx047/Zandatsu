@@ -216,8 +216,8 @@
     <string name="tab_controls">Controls</string>
     <string name="perf_resolution_sub">What the game is drawn at, then scaled to the screen. 720p is the console resolution; 360p/540p draw fewer pixels (faster), 2K = 1440p (2x), 4K = 2160p (3x).</string>
     <string name="perf_resolution_mem">2K and 4K need much more GPU memory. On Mali GPUs keep 720p or lower.</string>
-    <string name="perf_effects_title">Game effects</string>
-    <string name="perf_effects_sub">Turn the heavy post effects on or off, and the volume.</string>
+    <string name="perf_effects_title">Graphics quality (manual)</string>
+    <string name="perf_effects_sub">Each category on its own, like PC games. The profiles above change these same options.</string>
     <string name="perf_gpu_title">GPU optimizations</string>
     <string name="perf_gpu_sub">Leave them on unless something looks wrong.</string>
     <string name="gpu_notice_title">Before you play</string>
@@ -386,4 +386,14 @@
     <string name="cheats_skip_logos_sub">Runs the game 8x faster during the company logos at startup, until the title screen.</string>
     <string name="settings_shadows">Shadows</string>
     <string name="settings_shadows_sub">Shadows cast on the screen. Off saves ~3 ms per frame on the RP5; the image stays normal, only without these shadows.</string>
+    <string name="q_shadows">Shadows</string>
+    <string name="q_shadows_sub">High: shadows cast on the scene (~3 ms on the RP5). Off: normal image, just without those shadows. Medium comes with the native shadow renderer.</string>
+    <string name="q_lighting">Lighting (glow)</string>
+    <string name="q_lighting_sub">High: glow with blur (~3 ms). Medium: glow without blur. Low (experimental): no glow.</string>
+    <string name="q_effects">Effects</string>
+    <string name="q_effects_sub">Low (experimental): without the heaviest transparent effects (sparks, strike trails). Report anything that disappears and should not.</string>
+    <string name="q_high">High</string>
+    <string name="q_medium">Medium</string>
+    <string name="q_low">Low</string>
+    <string name="q_off">Off</string>
 </resources>
