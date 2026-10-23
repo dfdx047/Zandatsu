@@ -108,6 +108,9 @@ data class GameConfig(
             "swordman_strip_quad_ps" to (if (opt && intoTexture) MGR_STRIP_QUAD_PS else ""),
             // 0170: cada passo da cadeia do brilho com a sua assinatura (as texturas que le).
             "swordman_rit_sig_sampled" to (opt && intoTexture),
+            // 0171 (23/10): no Turnip sem lista de formatos as cores ficaram certas (teste manual
+            // no RP5): o passo 4 passa a valer tambem la.
+            "dbz3_rit_textures_turnip" to (opt && intoTexture),
             "dbz3_resolve_dedupe" to (opt && postLite),
             "dbz3_skip_null_draws" to (opt && postLite),
             "dbz3_discard_full_overwrite" to (opt && postLite),
@@ -348,14 +351,19 @@ private data class PresetSpec(
     val fps30: Boolean,
     val presentEffect: String,
     val anisotropic: Int,
+    val shadows: Boolean,
+    val glowBlur: Boolean,
 )
 
+// 23/10: perfis estilo PC (Minimo/Baixo/Medio/Alto/Ultra). As sombras projetadas no ecra (~3 ms
+// no RP5, imagem normal sem elas) e o desfoque do brilho (~2,6 ms no Cube, ~3,7 ms no RP5) so
+// nos perfis altos. Medio e o do RP5: 540p + FSR a 60 FPS.
 private fun GraphicsPreset.spec(): PresetSpec = when (this) {
-    GraphicsPreset.MINIMUM -> PresetSpec(InternalResolution.P360, true, "fsr", -1)
-    GraphicsPreset.LIGHT -> PresetSpec(InternalResolution.P540, true, "fsr", -1)
-    GraphicsPreset.BALANCED -> PresetSpec(InternalResolution.P720, false, "bilinear", -1)
-    GraphicsPreset.HIGH -> PresetSpec(InternalResolution.P720, false, "fsr", 4)
-    GraphicsPreset.ULTRA -> PresetSpec(InternalResolution.P1440, false, "bilinear", 5)
+    GraphicsPreset.MINIMUM -> PresetSpec(InternalResolution.P360, true, "fsr", -1, shadows = false, glowBlur = false)
+    GraphicsPreset.LIGHT -> PresetSpec(InternalResolution.P540, true, "fsr", -1, shadows = false, glowBlur = false)
+    GraphicsPreset.BALANCED -> PresetSpec(InternalResolution.P540, false, "fsr", -1, shadows = false, glowBlur = false)
+    GraphicsPreset.HIGH -> PresetSpec(InternalResolution.P720, false, "fsr", 4, shadows = true, glowBlur = false)
+    GraphicsPreset.ULTRA -> PresetSpec(InternalResolution.P1440, false, "bilinear", 5, shadows = true, glowBlur = true)
 }
 
 /** A resolucao de cada predefinicao (para os cartoes). */
@@ -372,6 +380,8 @@ fun GameConfig.withPreset(p: GraphicsPreset): GameConfig {
         fsrQuality = "auto",
         fxaa = "none",
         anisotropic = t.anisotropic,
+        shadows = t.shadows,
+        glowBlur = t.glowBlur,
     )
 }
 
@@ -379,7 +389,8 @@ fun GameConfig.withPreset(p: GraphicsPreset): GameConfig {
 fun GameConfig.matchingPreset(): GraphicsPreset? = GraphicsPreset.entries.firstOrNull { p ->
     val t = p.spec()
     t.resolution == resolution && fxaa == "none" && t.anisotropic == anisotropic &&
-        t.presentEffect == presentEffect && (frameRate == 30) == t.fps30
+        t.presentEffect == presentEffect && (frameRate == 30) == t.fps30 &&
+        t.shadows == shadows && t.glowBlur == glowBlur
 }
 
 /**
