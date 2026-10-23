@@ -391,7 +391,7 @@
     <string name="q_lighting">Lighting (glow)</string>
     <string name="q_lighting_sub">High: glow with blur (~3 ms). Medium: glow without blur.</string>
     <string name="q_effects">Effects</string>
-    <string name="q_effects_sub">Low (experimental): without the heaviest transparent effects (sparks, strike trails). Report anything that disappears and should not.</string>
+    <string name="q_effects_sub">Low (experimental): without the strike particles (sparks, dust). Hair and clothes stay. Report anything that disappears and should not.</string>
     <string name="q_high">High</string>
     <string name="q_medium">Medium</string>
     <string name="q_low">Low</string>

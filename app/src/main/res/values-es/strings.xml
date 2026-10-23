@@ -390,7 +390,7 @@
     <string name="q_lighting">Iluminación (brillo)</string>
     <string name="q_lighting_sub">Alta: brillo con desenfoque (~3 ms). Media: brillo sin desenfoque.</string>
     <string name="q_effects">Efectos</string>
-    <string name="q_effects_sub">Bajos (experimental): sin los efectos transparentes más pesados (chispas, estelas de los golpes). Avisa si desaparece algo que no debería.</string>
+    <string name="q_effects_sub">Bajos (experimental): sin las partículas de los golpes (chispas, polvo). El pelo y la ropa se quedan. Avisa si desaparece algo que no debería.</string>
     <string name="q_high">Alta</string>
     <string name="q_medium">Media</string>
     <string name="q_low">Baja</string>

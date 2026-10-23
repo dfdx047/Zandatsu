@@ -211,6 +211,13 @@ fun PerformanceScreen(vm: LauncherViewModel) {
                 selected = c.glowBlur,
                 onSelect = { v -> vm.updateConfig { it.copy(glowBlur = v, glowOff = false) } },
             )
+            SettingSegmented(
+                title = stringResource(R.string.q_effects),
+                subtitle = stringResource(R.string.q_effects_sub),
+                options = listOf(false to stringResource(R.string.q_high), true to stringResource(R.string.q_low)),
+                selected = c.fxLow,
+                onSelect = { v -> vm.updateConfig { it.copy(fxLow = v) } },
+            )
             HorizontalDivider()
             SettingSlider(
                 title = stringResource(R.string.settings_volume),

@@ -178,9 +178,13 @@ data class GameConfig(
             "7BE61437FF049E59,A755AD0AC2470588,C45580526034B1F2,4086D1DF9FA6220E,38C32FC0BC7F322D,F854BF3B7BF7AA9D"
         /** O resto da cadeia do brilho (reducao e soma), para a iluminacao "Baixa". */
         const val MGR_GLOW_CHAIN_PS = "A755AD0AC2470588,38C32FC0BC7F322D"
-        /** Os shaders mais pesados dos efeitos transparentes (so no passe P18 da captura de 22/10). */
-        const val MGR_HEAVY_FX_PS =
-            "E664840CC5314C1D,D47E656630A5D1FD,98F7AAEB1C255FEE,CFD7160391146423,C9769A4005A60F77,C1D2AF15BA1F1EAC,2CE21E05F9680D34"
+        /**
+         * Particulas dos efeitos (faiscas, poeira, rastros): quads de 4 vertices com mistura que leem
+         * a profundidade linear (particulas suaves), so no passe dos efeitos (captura de 22/10).
+         * 23/10: tirados da lista os 3 que sao malhas (D47E com rampa de cor 256x16 = o cabelo do
+         * Raiden, que ficou preto; 98F7 e CFD7 leem a cena e podem ser cabelo/roupa).
+         */
+        const val MGR_HEAVY_FX_PS = "E664840CC5314C1D,C9769A4005A60F77,C1D2AF15BA1F1EAC,2CE21E05F9680D34"
         /** Pixel shader das sombras projetadas no ecra (passe de tela cheia). */
         const val MGR_SCREEN_SHADOW_PS = "BE9C3F694476A5B5"
         const val MAX_RESOLUTION_SCALE = 3
@@ -238,9 +242,9 @@ data class GameConfig(
                 // -2.1 ms). Cortado por padrao tambem nas configs antigas; volta com o interruptor.
                 glowBlur = bool("swordman_glow_blur", false),
                 shadows = bool("swordman_shadows", true),
-                // 23/10 07:37: os dois modos quebraram a imagem no RP5; desligados ate refazer.
+                // 23/10 07:37: a iluminacao "Baixa" quebrou a imagem no RP5; desligada ate refazer.
                 glowOff = false,
-                fxLow = false,
+                fxLow = bool("swordman_fx_low", false),
                 // 23/10 07:47: fp16 nos pixel shaders fazia os retangulos pretos a piscar (teste manual
                 // no RP5); a opcao saiu do launcher e fica sempre desligada.
                 psFp16 = false,

@@ -390,7 +390,7 @@
     <string name="q_lighting">Iluminação (brilho)</string>
     <string name="q_lighting_sub">Alta: brilho com desfoque (~3 ms). Média: brilho sem desfoque.</string>
     <string name="q_effects">Efeitos</string>
-    <string name="q_effects_sub">Baixos (experimental): sem os efeitos transparentes mais pesados (faíscas, rastros dos golpes). Diga se sumir algo que não devia.</string>
+    <string name="q_effects_sub">Baixos (experimental): sem as partículas dos golpes (faíscas, poeira). O cabelo e as roupas ficam. Diga se sumir algo que não devia.</string>
     <string name="q_high">Alta</string>
     <string name="q_medium">Média</string>
     <string name="q_low">Baixa</string>
