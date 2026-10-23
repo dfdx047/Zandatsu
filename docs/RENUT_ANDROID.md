@@ -88,6 +88,36 @@ escolhida no launcher. O Xenia fica como alternativa. Análise completa, com fic
 - Funções que só existem no Xenia e deixam de funcionar no modo Renut: FSR do presenter, interpolação de
   frames, imagem congelada, `swordman_skip_ps`, captura do AutoPilot. A refazer no Renut ou deixar de fora.
 
+**Estado (23/10, RP5, Turnip v27):**
+- Gameplay: jogo novo no slot 3 (Normal, sem tutorial); o "Continue" do slot 3 abre na primeira luta do prólogo.
+  `tools/fight-bench.sh` repete essa luta (golpes X 45 s) e resume fps de jogo, GPU ms e draws.
+- Números na luta (depois da correção da thread de UI; antes: Renut 720p 47,8 fps, 540p 46,2):
+
+  | | fps de jogo | GPU ms/frame |
+  |---|---|---|
+  | Renut 720p | 51,6 | 10,9 |
+  | Xenia 720p | 45,9 | 17,5 |
+  | Renut 540p | 52,8 | 7,8 |
+  | Xenia 540p | 50,9 | 12,2 |
+
+  O Renut gasta 35–45% menos GPU, mas o jogo fica preso na CPU (~19–20 ms de Swap a Swap) nos dois modos.
+- 540p no Renut: patch 0009 (código de escala 4 = 3/4 no Android, no `render_scale.h` e no `renutTextureScale`).
+- Thread de UI a 99% de um núcleo no modo Renut: o `SDL_WaitEvent` do Android põe um sentinela a cada volta e o
+  `SDL_PeepEvents` tira-o logo (acorda-se a si mesmo); no Xenia escondia-se atrás da pintura bloqueante.
+  `SDL_POLL_SENTINEL=0` no `GameActivity` (o SDK não usa `SDL_PollEvent`). Sem alterações ao SDL (o `CLAUDE.md` dele
+  proíbe código de IA).
+- Imagem: nenhum shader em falta (título, menus, prólogo, 3 min de luta; `shader_capture/` nunca criado). As cores
+  do HUD/logo diferem entre os modos (amarelo↔ciano, ALERT vermelho↔azul): o Renut está certo; o Xenia troca R/B
+  nessas texturas com o Turnip v27 (com o driver Qualcomm o Xenia mostra as cores do Renut).
+- Título (11,1 ms de GPU a 30 fps), por eliminação com `swordman_renut_skip_ps` (patch 0010; o perfil por shader
+  engana no Adreno, que acumula o pass inteiro no rótulo ativo quando o tile é despejado): partículas/chuva
+  `86BDA36CCDF9E60F` + `1E9E7E4145103CBD` (258 draws com blending) ~3,5 ms; `BDB9D2846A954DDF` (12 draws) ~1,4 ms;
+  o fundo `2173EC4790622AC5` (vídeo) ~0,3 ms; custo fixo do Renut (logos, 6 draws) ~3 ms, dos quais depth
+  resolves 0,7, resolves 0,5 e present 0,4.
+- Overlay de depuração: números do Renut (SDK 0175, `SetUpscalerOverride`). Read hook do SDK (0176): a sonda de
+  latência mede (título: entrada → present 34 ms).
+- Driver Qualcomm do sistema no RP5: Vulkan 1.1 sem `shaderInt64` → a verificação mantém o Xenia. O v891.7 pede API 36.
+
 ## Como trabalhar
 O ciclo compilar/corrigir/testar é no PC (NDK + arquivos do jogo + RP5 no adb), com o Claude Code do terminal no
 branch `renut-android`. Cada marco fecha com um zip de logs do RP5.
