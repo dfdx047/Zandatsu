@@ -58,6 +58,29 @@ escolhida no launcher. O Xenia fica como alternativa. Análise completa, com fic
    D32S8): se faltar, volta ao Xenia com uma linha no log.
 5. Superfície perdida ao ir para segundo plano e rotação (`preTransform`).
 
+**Estado (23/10, feito no RP5 com Turnip v27.0.0-R1):** título, START e menu de saves no ecrã pelo Renut; o modo
+`xenos` (padrão) continua igual. Logs e capturas: `~/Downloads/SwordMan-renut-M2-rp5-20261023-2009.zip`.
+- Driver: patch 0006 (o plume abre o driver do app pelo adrenotools; `plume_android_vulkan_library` em
+  `src/renut_glue.cpp`, aberto uma só vez e partilhado com a verificação).
+- Duas causas de falha encontradas no aparelho:
+  - falha de memória do guest ~27 s após o arranque (lê `0x23` em `sub_827E2C00`): o MGR indexa o escalonador de
+    tarefas pela CPU lógica do PCR e, sem a GPU emulada, a thread principal caía num slot não registado (-1).
+    Corrigido como no mgr-nx-deko: `SetAffinity(1)` no `OnPostLaunchModule`;
+  - ecrã preto com a imagem certa (a captura `swordman_renut_shot_s` mostrava o título): o gralloc da Adreno
+    recusa a swapchain `B8G8R8A8` (`AdrenoUtils: Memory Layout input parameter validation failed`). Patch 0007:
+    `R8G8B8A8_UNORM` no Android.
+- Swap: chama o `rex_vdswap_hook`; a pausa do menu do app e a retoma funcionam.
+- Verificação de funções no `OnPreSetup` (onde o SDK decide se carrega o plugin): BDA, int64, descriptor indexing
+  com 8192 texturas, BC, vertex stores, D32S8. Se faltar, fica o Xenia e o log diz o quê. O Turnip passa (Vulkan 1.3,
+  com geometry shader). Uma falha no `StartRenderer` já não pode voltar ao Xenia e para com erro claro.
+- Segundo plano: patch 0008 recria a swapchain para a nova `ANativeWindow`; sem janela não apresenta.
+- Rotação: o painel do RP5 é nativo em paisagem (camada `ROT_0`, composição `DEVICE`), `IDENTITY` serve.
+- Números (título, 1280x720 nativo): jogo a 30 fps (o título do MGR é 30), GPU do Renut ~11,3 ms por frame,
+  ~500 draws por frame; logos a 60 fps com GPU ~3 ms.
+- A fazer no M3: o overlay de depuração do SDK mostra estatísticas do Xenia (FPS "--", "AMD FSR 1"); a sonda de
+  latência e o late input precisam do read hook do SDK; testar o driver Qualcomm e o RG Cube (Mali sem BC deve
+  cair para o Xenia pela verificação).
+
 ### M3: gameplay (semanas)
 - Shaders que faltem (captura em tempo real), caminhos sem geometry shader (retângulos e point sprites como o
   nosso 0154), Mali (sem BC: descompressor) como segundo port, desempenho no Adreno (tiling), arquivo de shaders
