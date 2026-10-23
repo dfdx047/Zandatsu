@@ -1,0 +1,49 @@
+--- a/src/input/input_system.cpp
++++ b/src/input/input_system.cpp
+@@ -10,6 +10,7 @@
+  */
+ 
+ #include <algorithm>
++#include <atomic>
+ #include <chrono>
+ #include <cmath>
+ #include <cstring>
+@@ -19,6 +20,7 @@
+ #include <rex/input/flags.h>
+ #include <rex/input/input_driver.h>
+ #include <rex/input/input_system.h>
++#include <rex/input/read_hook.h>
+ #include <rex/input/mnk/mnk_input_driver.h>
+ #include <rex/input/nop/nop_input_driver.h>
+ #include <rex/input/sdl/sdl_input_driver.h>
+@@ -277,7 +279,14 @@
+                                           {caps.gamepad.thumb_rx, caps.gamepad.thumb_ry}};
+ }
+ 
++// 0176 (SwordMan): the controller read hook (read_hook.h).
++namespace {
++std::atomic<ReadHook> g_read_hook{nullptr};
++}  // namespace
++void SetReadHook(ReadHook hook) { g_read_hook.store(hook, std::memory_order_release); }
++
+ X_RESULT InputSystem::GetState(uint32_t user_index, X_INPUT_STATE* out_state) {
++  if (const ReadHook hook = g_read_hook.load(std::memory_order_acquire)) hook();
+   SCOPE_profile_cpu_f("hid");
+ 
+   // A dialog owns the controller.
+--- /dev/null
++++ b/include/rex/input/read_hook.h
+@@ -0,0 +1,13 @@
++/**
++ * SwordMan (0176, from mgr-nx-deko's SDK fork): a function the input system calls at every controller state read
++ * (InputSystem::GetState), before the read. Renut's late input delays the frame's first read there and its latency
++ * probe notes the read (rex::latency::BeforeInputRead / NoteInputRead). None by default.
++ */
++#pragma once
++
++namespace rex::input {
++
++using ReadHook = void (*)();
++void SetReadHook(ReadHook hook);
++
++}  // namespace rex::input
