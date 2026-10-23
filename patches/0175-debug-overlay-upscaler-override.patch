@@ -1,0 +1,48 @@
+--- a/include/rex/perf/frame_rate.h
++++ b/include/rex/perf/frame_rate.h
+@@ -33,6 +33,10 @@
+ // Rendering below 1x: the percent of the 1x resolution the game is drawn at
+ // (100 = off).
+ void SetDrawResolutionPercent(uint32_t percent);
++// SwordMan (0175): what the debug overlay shows as "Upscaler" when the app draws the frame itself (no presenter, e.g.
++// the Renut renderer): empty = the presenter's settings (default).
++void SetUpscalerOverride(std::string text);
++std::string GetUpscalerOverride();
+ 
+ struct RenderInfo {
+   uint32_t frontbuffer_width = 0;
+--- a/src/core/perf/frame_rate.cpp
++++ b/src/core/perf/frame_rate.cpp
+@@ -176,4 +176,19 @@
+   return stats;
+ }
+ 
++namespace {
++std::mutex g_upscaler_override_mutex;
++std::string g_upscaler_override;
++}  // namespace
++
++void SetUpscalerOverride(std::string text) {
++  std::lock_guard lock(g_upscaler_override_mutex);
++  g_upscaler_override = std::move(text);
++}
++
++std::string GetUpscalerOverride() {
++  std::lock_guard lock(g_upscaler_override_mutex);
++  return g_upscaler_override;
++}
++
+ }  // namespace rex::perf
+--- a/src/ui/overlay/debug_overlay.cpp
++++ b/src/ui/overlay/debug_overlay.cpp
+@@ -45,6 +45,10 @@
+ // if it lowered the render resolution, DLAA otherwise (with the presenter's
+ // upscaler if there's one) - then AMD FSR the same way, or the presenter's.
+ std::string UpscalerText() {
++  // 0175 (SwordMan): an app that presents itself says what it does.
++  if (std::string override_text = rex::perf::GetUpscalerOverride(); !override_text.empty()) {
++    return override_text;
++  }
+   const rex::graphics::DlssAvailability dlss_availability = rex::graphics::GetDlssAvailability();
+   if (dlss_availability != rex::graphics::DlssAvailability::kUnavailable &&
+       rex::cvar::GetFlagInfo("dlss_mode")) {

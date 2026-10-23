@@ -36,13 +36,15 @@ std::atomic<uint64_t> g_sa2_game_frames{0};
 // SDK (patch 0100): pausa dos menus do app e contador do vigia (android_hooks.cpp). No modo Xenia o VdSwap chama-o;
 // no Renut o VdSwap nunca corre, por isso e chamado aqui, no inicio do Swap, na mesma thread do jogo.
 extern "C" void (*rex_vdswap_hook)(void);
-void SwordManRenutShotOnSwap();  // abaixo
+void SwordManRenutShotOnSwap();          // abaixo
+void SwordManRenutOverlayStatsOnSwap();  // abaixo
 
 REX_EXTERN(__imp__sub_826B3510);
 REX_HOOK_RAW(sub_826B3510) {  // D3DDevice_Swap
   if (banjo::renut_gpu::Active()) {
     if (rex_vdswap_hook) rex_vdswap_hook();
     SwordManRenutShotOnSwap();
+    SwordManRenutOverlayStatsOnSwap();
     renut_native_sub_826B3510(ctx, base);
     g_sa2_game_frames.fetch_add(1, std::memory_order_relaxed);
     return;
@@ -258,4 +260,24 @@ bool SwordManRenutDeviceSupported() {
     return false;
   }
   return true;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Overlay de depuracao do SDK no modo Renut: no Xenia o command processor conta os swaps e diz a resolucao; aqui e o
+// Swap do Renut. O "Upscaler" vem do SDK 0175: o present do Renut escala o frame para o ecra (bilinear), sem o FSR
+// do presenter do Xenia.
+// ---------------------------------------------------------------------------------------------------------------
+#include <rex/perf/frame_rate.h>
+
+void SwordManRenutOverlayStatsOnSwap() {
+  static const bool once = [] {
+    const int32_t height = REXCVAR_GET(sa2_render_height_handheld);
+    rex::perf::RecordGuestFrontbuffer(1280, 720);
+    rex::perf::SetDrawResolutionScale(1, 1, 1, 1);
+    rex::perf::SetDrawResolutionPercent(uint32_t(height > 0 ? height * 100 / 720 : 100));
+    rex::perf::SetUpscalerOverride("Renut \xC2\xB7 bilinear");
+    return true;
+  }();
+  (void)once;
+  rex::perf::RecordGuestSwap();
 }
