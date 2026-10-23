@@ -30,18 +30,31 @@ adb -s "$D" shell am start -n "$APP/.game.GameActivity" -a "$APP.PLAY" > /dev/nu
 sleep 50
 press START 4; press DOWN 1; press DOWN 1; press A 4; press A 5; press A 25
 T0=$(date +%T)
+# CPU da thread principal do jogo (a do Swap; o Renut escreve "[t<tid>] [renut] game thread"), entre as voltas 5 e 25.
+ticks() {
+  adb -s "$D" shell "sed 's/.*) //' /proc/$PID/task/$GTID/stat 2>/dev/null | awk '{print \$12+\$13}'" | tr -d '\r'
+}
+PID=$(adb -s "$D" shell pidof "$APP:game" | tr -d '\r')
+GTID=$(adb -s "$D" shell "grep -m1 'game thread' $A/logs/swordman_last.log" | sed -nE 's/.*\[t([0-9]+)\] \[renut\] game thread.*/\1/p' || true)
+MAIN_CPU=""
 for i in $(seq 1 30); do
   if [ "${ATTACK:-1}" = 1 ]; then press X 1.5; else sleep 1.5; fi
   [ "$i" = 12 ] && adb -s "$D" exec-out screencap -p > "$OUT/${N}_luta.png"
+  if [ -n "$GTID" ] && [ "$i" = 5 ]; then C0=$(ticks); S0=$(date +%s.%N); fi
+  if [ -n "$GTID" ] && [ "$i" = 25 ] && [ -n "${C0:-}" ]; then
+    C1=$(ticks); S1=$(date +%s.%N)
+    MAIN_CPU=$(awk -v a="$C0" -v b="$C1" -v s0="$S0" -v s1="$S1" 'BEGIN{printf "%.0f", (b-a)/(s1-s0)}')
+  fi
 done
 T1=$(date +%T)
 adb -s "$D" pull "$A/logs/swordman_last.log" "$OUT/$N.log" > /dev/null
-python3 - "$OUT/$N.log" "$T0" "$T1" "$N" <<'PY'
+python3 - "$OUT/$N.log" "$T0" "$T1" "$N" "$MAIN_CPU" <<'PY'
 import re, sys
-log, t0, t1, name = sys.argv[1:]
+log, t0, t1, name, main_cpu = sys.argv[1:]
 sec = lambda t: sum(float(x) * k for x, k in zip(t.split(':'), (3600, 60, 1)))
 t0, t1 = sec(t0) + 5, sec(t1) + 1
-rows, swaps = [], []
+rows, swaps, cpu = [], [], []
+game_tid = None
 for l in open(log, errors='ignore'):
     m = re.match(r'\[\S+ (\d+:\d+:[\d.]+)\]', l)
     if not m or not t0 <= sec(m[1]) <= t1:
@@ -49,9 +62,10 @@ for l in open(log, errors='ignore'):
     r = re.search(r'\[renut\] [\d.]+ s: (\d+) game frames \(([\d.]+) fps\).*GPU ([\d.]+) ms a frame.*?; (\d+) draws', l)
     if r:
         rows.append((float(r[2]), float(r[3]), int(r[4]) / int(r[1])))
-    w = re.search(r'game thread, [\d.]+ s: \d+ frames, ([\d.]+) ms a frame from Swap to Swap', l)
+    w = re.search(r'\[t(\d+)\] \[renut\] game thread, [\d.]+ s: \d+ frames, ([\d.]+) ms a frame from Swap to Swap', l)
     if w:
-        swaps.append(float(w[1]))
+        swaps.append(float(w[2]))
+        game_tid = w[1]
     x = re.search(r'game_fps=([\d.]+).*gpu_ms avg=([\d.]+).*draws=(\d+)', l)
     if x:
         rows.append((float(x[1]), float(x[2]), float(x[3])))
@@ -61,6 +75,8 @@ import statistics
 n = len(rows)
 med = [statistics.median(r[i] for r in rows if i != 1 or r[1] < 1000) for i in range(3)]
 swap = f', Swap a Swap {statistics.median(swaps):.1f} ms' if swaps else ''
+if main_cpu:
+    swap += f', thread principal {main_cpu}% de um núcleo'
 print(f'{name}: {n} janelas, {med[0]:.1f} fps de jogo, GPU {med[1]:.1f} ms/frame{swap}, {med[2]:.0f} draws/frame '
       '(medianas)')
 PY

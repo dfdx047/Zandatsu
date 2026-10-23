@@ -172,6 +172,15 @@ rexglue_configure_target(main GPU_PLUGINS xenos)
 # -march=armv8-a, para prevalecer.
 target_compile_options(main PRIVATE -march=armv8.2-a)
 
+# Chamadas entre funcoes do proprio libmain.so sem PLT: as ~85 mil sub_* do codigo gerado tem visibilidade padrao
+# (exportadas, logo "substituiveis" em tempo de execucao) e cada chamada entre elas passava por um stub do PLT e pelo
+# GOT (25 mil entradas). Com -Bsymbolic-functions o linker liga-as diretamente; os hooks fortes continuam a ganhar as
+# definicoes fracas no link. (-fvisibility=hidden partiria: os imports do kernel, __imp__Rtl..., vem do librexruntime.)
+option(SM_BSYMBOLIC "libmain.so com -Bsymbolic-functions" ON)
+if(SM_BSYMBOLIC)
+    target_link_options(main PRIVATE -Wl,-Bsymbolic-functions)
+endif()
+
 #-----------------------------------------------------------------------------
 # Renut: renderizador nativo de Direct3D do mgr-nx-deko, escolhido no arranque com
 # swordman_renderer = renut (padrao xenos). Shaders: tools/renut-shaders.sh.
