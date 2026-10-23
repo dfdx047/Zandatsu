@@ -58,7 +58,8 @@ fi
 
 # Shaders do Renut (renderizador nativo, swordman_renderer = renut): so quando ha o submodulo e o jogo.
 if [ -f third_party/mgr-nx-deko/app/src/renut_engine/gpu/gpu.cmake ] && [ -f assets/media/data000.cpk ]; then
-  step "shaders do Renut"
+  step "Renut: patches e shaders"
+  bash tools/apply-renut-patches.sh
   bash tools/renut-shaders.sh
 fi
 

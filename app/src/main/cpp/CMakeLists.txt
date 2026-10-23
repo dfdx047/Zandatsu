@@ -169,3 +169,14 @@ rexglue_configure_target(main GPU_PLUGINS xenos)
 # Alvo minimo: ARMv8.2-A. Fica depois do rexglue_configure_target, que poe
 # -march=armv8-a, para prevalecer.
 target_compile_options(main PRIVATE -march=armv8.2-a)
+
+#-----------------------------------------------------------------------------
+# Renut: renderizador nativo de Direct3D do mgr-nx-deko, escolhido no arranque com
+# swordman_renderer = renut (padrao xenos). Shaders: tools/renut-shaders.sh.
+#-----------------------------------------------------------------------------
+option(SM_RENUT "Compila o Renut (swordman_renderer = renut)" ON)
+if(SM_RENUT)
+    include("${SM_ROOT}/cmake/renut.cmake")
+    target_sources(main PRIVATE "${SM_ROOT}/src/renut_glue.cpp")
+    sm_renut_setup(main)
+endif()
