@@ -28,6 +28,27 @@ escolhida no launcher. O Xenia fica como alternativa. Análise completa, com fic
 5. Verificar os 29 endereços dos hooks no nosso `generated/default` (laço de grep na análise, secção 3); o que
    faltar vai para o `mgr_overrides.toml`.
 
+**Estado (23/10, feito):** `PULL=0 bash tools/build.sh none` passa com o Renut no `libmain.so` (APK 133 MB).
+- Shaders: `tools/renut-shaders.sh` (carimbo em `out/renut/.stamp`, ~32 s do zero) compila o XenosRecomp e o
+  `cpk_shader_scan` com o compilador do PC (`tools/renut-host/CMakeLists.txt`, em `out/host/build`) e usa o DXC
+  oficial Linux v1.9.2609 (baixado para `out/host/dxc`, sha256 fixo). Resultado: 1202 contentores → 1202 shaders
+  (SPIR-V 846 KB comprimido) em `out/renut/shader_cache.cpp` + 12 shaders do host em `out/renut/host_shaders/`.
+  Sem a passagem de early alpha.
+- Alterações ao submódulo: `patches/renut/NNNN-*.patch`, aplicados por `tools/apply-renut-patches.sh` (o
+  `build.sh` chama-o; o CMake recusa configurar sem eles). 0001 `swordman_renderer`, 0002 `ANativeWindow` no
+  `native_window.cpp`, 0003 sem `std::atomic_ref` (o libc++ do NDK 28 não tem), 0004 late input só com o read hook
+  do SDK (G1: o nosso não tem, fica desligado), 0005 sem o overlay ImGui próprio do Renut.
+- Os ficheiros de diagnóstico do SA2 (G3–G6: `sa2_enhancements.cpp`, `sa2_codegen_checks.cpp`,
+  `sa2_forms_selfcheck.cpp`, `sa2_render_mode.cpp`, `sa2_capture.cpp`) não são compilados: o pouco que o Renut chama
+  está em `src/renut_glue.cpp` (mestres de melhorias ligados, `Docked() = false`, altura por
+  `sa2_render_height_handheld` = 720, sem captura em lockstep), junto com a cvar `swordman_renderer` e os hooks
+  partilhados (Swap, DrawVertices, DrawIndexedVertices).
+- Endereços: os 24 hooks ficam fortes (`T`) no `libmain.so` e os 3 chamados (`826C0C48`, `826C0278`, `82715A90`)
+  existem no código gerado. Nada a acrescentar ao `mgr_overrides.toml`.
+- `MgrApp` (`src/mgr_app.h`): com `swordman_renderer = renut`, `ConfigureRuntime` no `OnPreSetup`, `StartRenderer`
+  no `OnFinalizePaths` (se falhar: linha no log e segue com o Xenia), drawer do ImGui pelo plume, resize, shutdown.
+- Ainda não testado no aparelho (é o M2).
+
 ### M2: abre até ao título (≈1 semana)
 1. `native_window.cpp`: ramo `__ANDROID__` com `SDL_PROP_WINDOW_ANDROID_WINDOW_POINTER` (como o nosso
    `window_sdl.cpp:466-474`); sem o `setenv(SDL_VIDEO_DRIVER=x11)`.
