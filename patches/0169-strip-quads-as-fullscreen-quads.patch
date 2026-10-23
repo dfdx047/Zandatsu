@@ -1,0 +1,58 @@
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 128bbe9..209a538 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -860,6 +860,42 @@ VkRect2D g_pass_area = {};
+ uint64_t g_passes = 0;
+ }  // namespace dbz3_discard
+ 
++// Project SwordMan (0169): o MGR desenha os quads de ecra inteiro (brilho, imagem final) como
++// strips de 4 vertices, nao como quad/rect list: o passe sem carregar a cor e o passo 4 (desenhar
++// direto na textura do resolve) nunca os viam. So os pixel shaders desta lista (quads que cobrem
++// o scissor todo, confirmado na captura de 22/10) contam como quad.
++REXCVAR_DEFINE_STRING(swordman_strip_quad_ps, "", "GPU/Vulkan",
++                      "Project SwordMan: pixel shaders (hash em hex, separados por virgula) cujos "
++                      "triangle strips de 4 vertices sao quads a cobrir o scissor (pos-processamento)")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++namespace swordman_strip_quad {
++std::string g_text;
++std::vector<uint64_t> g_hashes;
++bool IsListed(uint64_t hash) {
++  const std::string& text = REXCVAR_GET(swordman_strip_quad_ps);
++  if (text.empty()) return false;
++  if (text != g_text) {
++    g_text = text;
++    g_hashes.clear();
++    size_t start = 0;
++    while (start < text.size()) {
++      size_t comma = text.find(',', start);
++      if (comma == std::string::npos) comma = text.size();
++      const std::string item = text.substr(start, comma - start);
++      char* end = nullptr;
++      const unsigned long long v = std::strtoull(item.c_str(), &end, 16);
++      if (end != item.c_str()) g_hashes.push_back(uint64_t(v));
++      start = comma + 1;
++    }
++    REXGPU_INFO("swordman: {} pixel shaders de quads em strip (0169)", g_hashes.size());
++  }
++  for (uint64_t h : g_hashes) {
++    if (h == hash) return true;
++  }
++  return false;
++}
++}  // namespace swordman_strip_quad
++
+ namespace dbz3_frameskip {
+ bool g_skip_frame = false;
+ uint32_t g_counter = 0;
+@@ -6451,7 +6487,9 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+         REXCVAR_GET(dbz3_discard_full_overwrite) && pixel_shader && !pixel_shader->kills_pixels() &&
+         !pixel_shader->writes_depth() && !memexport_used_vertex && !memexport_used_pixel &&
+         ((prim_type == xenos::PrimitiveType::kQuadList && index_count == 4) ||
+-         (prim_type == xenos::PrimitiveType::kRectangleList && index_count == 3)) &&
++         (prim_type == xenos::PrimitiveType::kRectangleList && index_count == 3) ||
++         (prim_type == xenos::PrimitiveType::kTriangleStrip && index_count == 4 &&
++          swordman_strip_quad::IsListed(pixel_shader->ucode_data_hash()))) &&
+         regs[XE_GPU_REG_RB_COLOR_MASK] == 0xF &&
+         (regs[XE_GPU_REG_RB_BLENDCONTROL0] & 0x1FFF1FFF) == 0x00010001 && !cc.alpha_test_enable &&
+         !cc.alpha_to_mask_enable && regs[XE_GPU_REG_PA_SC_WINDOW_OFFSET] == 0 && x1 > x0 && y1 > y0;

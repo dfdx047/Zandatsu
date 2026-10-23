@@ -67,6 +67,8 @@ class RenderSelfTest(
         Opt("resolve sem memoria (DF)", mapOf("dbz3_direct_resolve_skip_memory" to ("true" to "false"))),
         Opt("resolve sem memoria no Turnip", mapOf("swordman_skip_memory_turnip" to ("true" to "false"))),
         // Lote 2 do XenDroid Plus (22/10): desligados por padrao; o autoteste liga cada um ("com ...").
+        Opt("quads em strip no passo 4 / passe sem carregar (0169)",
+            mapOf("swordman_strip_quad_ps" to (com.dfdx047.swordman.data.GameConfig.MGR_STRIP_QUAD_PS to ""))),
         Opt("MSAA 4x como 2x (XP)", mapOf("msaa_4x_as_2x" to ("true" to "false"))),
         Opt("4x de profundidade/simples em 1x (XP)", mapOf(
             "vulkan_depth_4x_as_1x" to ("true" to "false"),
@@ -270,9 +272,13 @@ class RenderSelfTest(
             capture { img ->
                 val ref = reference
                 val pct = if (!live && img != null && ref != null) diff(ref, img).first else -1.0
-                fxResults += FxResult(fx, ms, pct, myShot)
-                val line = String.format(java.util.Locale.ROOT, "sem PS %s (draws %d, pitch %d, prim %d)  imagem %.2f%%  GPU %s (%s)  foto %02d\n",
-                    fx.hash, fx.draws, fx.pitch, fx.prim, pct, fmtMs(ms), fmtDelta(ms), myShot)
+                // 23/10: ao vivo o Raiden morreu a meio e duas linhas mediram a tela de "Mission
+                // Failed"/"Loading". Foto quase uniforme = nao e a luta: fica fora da ordenacao.
+                val invalid = live && img != null && stddev(img) < 6.0
+                if (!invalid) fxResults += FxResult(fx, ms, pct, myShot)
+                val line = String.format(java.util.Locale.ROOT, "sem PS %s (draws %d, pitch %d, prim %d)  imagem %.2f%%  GPU %s (%s)  foto %02d%s\n",
+                    fx.hash, fx.draws, fx.pitch, fx.prim, pct, fmtMs(ms), fmtDelta(ms), myShot,
+                    if (invalid) "  INVALIDO (tela de carregamento/preta, nao a luta)" else "")
                 report.append(line)
                 log("autoteste: " + line.trim())
                 fxStep(i + 1)
@@ -341,6 +347,7 @@ class RenderSelfTest(
         val LIVE_SAFE = setOf(
             "dbz3_direct_resolve_draw", "swordman_skip_memory_turnip", "msaa_4x_as_2x",
             "vulkan_depth_4x_as_1x", "vulkan_samples_as_pixels_simple_ps", "skip_overwritten_transfers",
+            "swordman_strip_quad_ps",
         )
         const val LIVE_ROUNDS = 2
         const val LIVE_SETTLE_MS = 600L

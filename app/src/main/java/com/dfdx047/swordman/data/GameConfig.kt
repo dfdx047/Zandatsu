@@ -104,6 +104,8 @@ data class GameConfig(
             "dbz3_rt_keep_dc" to true,
             "dbz3_clear_to_1x" to (opt && clearTo1x),
             "dbz3_render_into_texture" to (opt && intoTexture),
+            // 0169: quads de ecra inteiro do MGR desenhados como strips (brilho, imagem final).
+            "swordman_strip_quad_ps" to (if (opt && intoTexture) MGR_STRIP_QUAD_PS else ""),
             "dbz3_resolve_dedupe" to (opt && postLite),
             "dbz3_skip_null_draws" to (opt && postLite),
             "dbz3_discard_full_overwrite" to (opt && postLite),
@@ -153,6 +155,13 @@ data class GameConfig(
         val FXAA = listOf("none", "fxaa", "fxaa_extreme")
         /** Pixel shaders do desfoque do brilho do MGR (swordman_skip_ps). */
         const val MGR_GLOW_BLUR_PS = "C45580526034B1F2,4086D1DF9FA6220E"
+        /**
+         * Quads de ecra inteiro em triangle strip (captura de 22/10, um draw a cobrir o scissor no
+         * inicio do passe): profundidade linear 7BE6, cadeia do brilho A755/C455/4086/38C3,
+         * imagem final F854. Com eles o passo 4 desenha direto na textura do resolve (patch 0169).
+         */
+        const val MGR_STRIP_QUAD_PS =
+            "7BE61437FF049E59,A755AD0AC2470588,C45580526034B1F2,4086D1DF9FA6220E,38C32FC0BC7F322D,F854BF3B7BF7AA9D"
         /** Pixel shader das sombras projetadas no ecra (passe de tela cheia). */
         const val MGR_SCREEN_SHADOW_PS = "BE9C3F694476A5B5"
         const val MAX_RESOLUTION_SCALE = 3
