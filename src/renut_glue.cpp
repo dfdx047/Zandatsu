@@ -113,7 +113,15 @@ void RenutLockstepFrame(uint64_t, const rex::ui::RawImage*) {}
 // Dbz3OpenCustomVulkanDriver): o GameActivity define REX_VULKAN_DRIVER_DIR/NAME (aba Drivers, Turnip) e
 // REX_NATIVE_LIB_DIR; sem elas, ou se falhar, o plume usa o libvulkan do sistema.
 // ---------------------------------------------------------------------------------------------------------------
+static void* OpenVulkanDriver();
+
+// Uma so abertura por processo (a verificacao de funcoes e o plume usam o mesmo driver).
 extern "C" void* plume_android_vulkan_library() {
+  static void* const handle = OpenVulkanDriver();
+  return handle;
+}
+
+static void* OpenVulkanDriver() {
   const char* driver_dir = std::getenv("REX_VULKAN_DRIVER_DIR");
   const char* driver_name = std::getenv("REX_VULKAN_DRIVER_NAME");
   const char* hook_dir = std::getenv("REX_NATIVE_LIB_DIR");
@@ -176,4 +184,78 @@ void SwordManRenutShotOnSwap() {
     REXLOG_INFO("Renut: captura {}x{} em {} (media {:.1f})", image.width, image.height, path.string(),
                 double(sum) / (3.0 * image.width * image.height));
   }).detach();
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// O que os shaders traduzidos e o plume assumem sem verificar (docs/renut-port-analysis.md 5.2). Corre no
+// OnPreSetup, antes de qualquer superficie: sem estas funcoes o MgrApp fica no Xenia, com a lista do que falta no log.
+// ---------------------------------------------------------------------------------------------------------------
+#define VK_NO_PROTOTYPES
+#include <vulkan/vulkan.h>
+
+bool SwordManRenutDeviceSupported() {
+  void* library = plume_android_vulkan_library();
+  if (!library) library = dlopen("libvulkan.so", RTLD_NOW | RTLD_LOCAL);
+  auto get_instance_proc = library ? reinterpret_cast<PFN_vkGetInstanceProcAddr>(
+                                         dlsym(library, "vkGetInstanceProcAddr"))
+                                   : nullptr;
+  if (!get_instance_proc) {
+    REXLOG_ERROR("Renut: sem driver Vulkan");
+    return false;
+  }
+  auto create_instance =
+      reinterpret_cast<PFN_vkCreateInstance>(get_instance_proc(nullptr, "vkCreateInstance"));
+  VkApplicationInfo app{VK_STRUCTURE_TYPE_APPLICATION_INFO};
+  app.apiVersion = VK_API_VERSION_1_2;
+  VkInstanceCreateInfo info{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
+  info.pApplicationInfo = &app;
+  VkInstance instance = VK_NULL_HANDLE;
+  if (!create_instance || create_instance(&info, nullptr, &instance) != VK_SUCCESS) {
+    REXLOG_ERROR("Renut: vkCreateInstance (Vulkan 1.2) falhou");
+    return false;
+  }
+#define SM_VK(name) auto name = reinterpret_cast<PFN_##name>(get_instance_proc(instance, #name))
+  SM_VK(vkDestroyInstance);
+  SM_VK(vkEnumeratePhysicalDevices);
+  SM_VK(vkGetPhysicalDeviceFeatures2);
+  SM_VK(vkGetPhysicalDeviceProperties2);
+  SM_VK(vkGetPhysicalDeviceFormatProperties);
+#undef SM_VK
+  uint32_t count = 1;
+  VkPhysicalDevice device = VK_NULL_HANDLE;
+  vkEnumeratePhysicalDevices(instance, &count, &device);
+  std::string missing;
+  if (!device) {
+    missing = " dispositivo";
+  } else {
+    VkPhysicalDeviceVulkan12Features f12{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
+    VkPhysicalDeviceFeatures2 f{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &f12};
+    vkGetPhysicalDeviceFeatures2(device, &f);
+    VkPhysicalDeviceVulkan12Properties p12{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_PROPERTIES};
+    VkPhysicalDeviceProperties2 p{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &p12};
+    vkGetPhysicalDeviceProperties2(device, &p);
+    VkFormatProperties d32s8{};
+    vkGetPhysicalDeviceFormatProperties(device, VK_FORMAT_D32_SFLOAT_S8_UINT, &d32s8);
+    const auto need = [&](bool ok, const char* what) {
+      if (!ok) missing += std::string(" ") + what;
+    };
+    need(f12.bufferDeviceAddress, "bufferDeviceAddress");
+    need(f.features.shaderInt64, "shaderInt64");
+    need(f12.descriptorIndexing && f12.runtimeDescriptorArray && f12.descriptorBindingPartiallyBound &&
+             f12.descriptorBindingVariableDescriptorCount && f12.descriptorBindingSampledImageUpdateAfterBind,
+         "descriptorIndexing");
+    need(p12.maxDescriptorSetUpdateAfterBindSampledImages >= 8192, "8192-texturas");
+    need(f.features.textureCompressionBC, "textureCompressionBC");
+    need(f.features.vertexPipelineStoresAndAtomics, "vertexPipelineStoresAndAtomics");
+    need(d32s8.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT, "D32S8");
+    REXLOG_INFO("Renut: {} (Vulkan {}.{}), geometryShader {}", p.properties.deviceName,
+                VK_API_VERSION_MAJOR(p.properties.apiVersion), VK_API_VERSION_MINOR(p.properties.apiVersion),
+                f.features.geometryShader ? "sim" : "nao (retangulos e point sprites ficam errados)");
+  }
+  vkDestroyInstance(instance, nullptr);
+  if (!missing.empty()) {
+    REXLOG_ERROR("Renut: o driver nao tem{}; a usar o Xenia", missing);
+    return false;
+  }
+  return true;
 }

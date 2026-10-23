@@ -19,6 +19,11 @@
 
 #include "renut_engine/gpu/banjo_renut_select.h"
 #include "renut_engine/gpu/overlay/app_integration.h"
+
+#include <stdexcept>
+
+// src/renut_glue.cpp: as funcoes Vulkan que o Renut assume (false = fica o Xenia).
+bool SwordManRenutDeviceSupported();
 #endif
 
 class MgrApp : public rex::ReXApp {
@@ -52,6 +57,9 @@ class MgrApp : public rex::ReXApp {
   // Direct3D do mgr-nx-deko) desenha na janela com o seu proprio dispositivo Vulkan.
   void OnPreSetup(rex::RuntimeConfig& config) override {
 #if defined(SM_RENUT)
+    if (banjo::renut_gpu::Active() && !SwordManRenutDeviceSupported()) {
+      banjo::renut_gpu::detail::g_active = -1;  // Xenia ate ao fim da sessao
+    }
     if (banjo::renut_gpu::Active()) {
       renut::gpu::ConfigureRuntime(config);
       REXLOG_INFO("graphics: Renut (Direct3D nativo do mgr-nx-deko, plume/Vulkan), sem PM4 nem EDRAM");
@@ -64,15 +72,14 @@ class MgrApp : public rex::ReXApp {
   }
 
 #if defined(SM_RENUT)
-  // Renut: a janela ja existe; cria o dispositivo Vulkan dele antes do runtime. Se falhar, segue com o Xenia (uma
-  // linha no log, sem troca silenciosa).
+  // Renut: a janela ja existe; cria o dispositivo Vulkan dele antes do runtime. Aqui ja nao ha volta ao Xenia (o
+  // OnPreSetup ja correu sem plugin): a verificacao de funcoes la evita os casos conhecidos.
   std::optional<rex::PathConfig> OnFinalizePaths(const rex::PathConfig& defaults,
       std::function<void(rex::PathConfig)> resume) override {
     if (banjo::renut_gpu::Active() &&
         !renut::gpu::StartRenderer(app_context(), [this] { return imgui_drawer(); })) {
-      REXLOG_ERROR("Renut: o renderizador nao arrancou; a usar o Xenia (swordman_renderer = xenos)");
-      renut::gpu::ShutdownRenderer();
-      banjo::renut_gpu::detail::g_active = -1;
+      REXLOG_ERROR("Renut: o renderizador nao arrancou (swordman_renderer = xenos para usar o Xenia)");
+      throw std::runtime_error("Renut: o renderizador nao arrancou");
     }
     return ReXApp::OnFinalizePaths(defaults, std::move(resume));
   }
