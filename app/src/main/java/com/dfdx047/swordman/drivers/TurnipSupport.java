@@ -153,14 +153,16 @@ public final class TurnipSupport {
         // GPU a 98-99%) em todas as sessoes no Turnip desde 16/10. O XenDroid e o XenDroid Plus
         // usam TU_DEBUG=sysmem por padrao porque evita uma classe de travamentos do GPU no modo
         // por blocos (GMEM). Custa ~10% de GPU no RP5. Um TU_DEBUG no cvars.txt substitui isto.
+        // - sysmem (23/10 08:02): com GMEM a GPU do RP5 desceu para 13-18 ms em combate a 540p
+        // (43-60 FPS) e o DEVICE_LOST continua a aparecer tambem com sysmem (a cada 2-3 min nas
+        // duas): o ganho ganha. "env:TU_DEBUG = push_consts_per_stage,sysmem" no cvars.txt volta.
         if ("a6xx".equals(gpu.gen) || kgslGeneration() == 6) {
             String cur = env.get("TU_DEBUG");
-            String add = "push_consts_per_stage,sysmem";
+            String add = "push_consts_per_stage";
             if (cur == null || cur.isEmpty()) {
                 env.put("TU_DEBUG", add);
             } else {
                 if (!cur.contains("push_consts_per_stage")) cur += ",push_consts_per_stage";
-                if (!cur.contains("sysmem")) cur += ",sysmem";
                 env.put("TU_DEBUG", cur);
             }
         }
