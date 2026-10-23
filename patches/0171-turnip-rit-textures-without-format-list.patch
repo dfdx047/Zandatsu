@@ -1,0 +1,57 @@
+diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
+index 044e70a..20ef25a 100644
+--- a/src/graphics/vulkan/texture_cache.cpp
++++ b/src/graphics/vulkan/texture_cache.cpp
+@@ -54,6 +54,13 @@ REXCVAR_DEFINE_BOOL(swordman_rtt_storage, true, "GPU",
+ REXCVAR_DEFINE_BOOL(dbz3_rit_textures_turnip, false, "GPU",
+                     "Dragon Burst: o mesmo no Turnip (desligado: la as cores saiam trocadas)")
+     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
++// Project SwordMan (0171): hipotese para as cores trocadas do 0077 no Turnip - a lista de
++// formatos {R8G8B8A8, B8G8R8A8} deixa o Turnip comprimir a imagem (UBWC) e a vista trocada le
++// a compressao com R/B errados. Sem a lista, MUTABLE_FORMAT obriga o driver a nao comprimir.
++REXCVAR_DEFINE_BOOL(swordman_rit_turnip_no_format_list, true, "GPU",
++                    "Project SwordMan: no Turnip (com dbz3_rit_textures_turnip) as texturas do "
++                    "passo 4 sao criadas sem lista de formatos (sem compressao UBWC)")
++    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+ // XenDroid Plus d5d830945 / 222ef6270 / 3d52e1a3e.
+ REXCVAR_DEFINE_BOOL(vulkan_texture_load_coalesced, true, "GPU/Vulkan",
+                     "Load unscaled 32- and 64-bit-per-block textures (including depth, and "
+@@ -1479,6 +1486,9 @@ std::unique_ptr<TextureCache::Texture> VulkanTextureCache::CreateTexture(Texture
+       REXCVAR_GET(dbz3_rit_textures) &&
+       (vulkan_device->properties().driverID != VK_DRIVER_ID_MESA_TURNIP ||
+        REXCVAR_GET(dbz3_rit_textures_turnip));
++  const bool swordman_no_format_list =
++      vulkan_device->properties().driverID == VK_DRIVER_ID_MESA_TURNIP &&
++      REXCVAR_GET(swordman_rit_turnip_no_format_list);
+   // Passo 4 (render nativo): vistas R8G8B8A8 (amostrar, compute) e B8G8R8A8 (desenhar com
+   // a troca R/B do resolve). Fica aqui para viver ate ao vmaCreateImage.
+   static const VkFormat kDbz3RitFormats[2] = {VK_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_B8G8R8A8_UNORM};
+@@ -1518,7 +1528,8 @@ std::unique_ptr<TextureCache::Texture> VulkanTextureCache::CreateTexture(Texture
+           if (bgra_properties.optimalTilingFeatures & VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT) {
+             dbz3_bgra_ok = true;
+             image_create_info.flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
+-            if (vulkan_device->extensions().ext_1_2_KHR_image_format_list) {
++            if (vulkan_device->extensions().ext_1_2_KHR_image_format_list &&
++                !swordman_no_format_list) {
+               dbz3_format_list.sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO;
+               dbz3_format_list.pNext = nullptr;
+               dbz3_format_list.viewFormatCount = 2;
+@@ -1537,7 +1548,9 @@ std::unique_ptr<TextureCache::Texture> VulkanTextureCache::CreateTexture(Texture
+   // ja e MUTABLE_FORMAT, falta COLOR_ATTACHMENT e a vista B8G8R8A8 na lista de formatos. So se
+   // a vista com sinal tambem suportar ser alvo de cor (as vistas herdam o uso da imagem).
+   VkFormat dbz3_view_formats[3] = {formats[0], formats[1], VK_FORMAT_B8G8R8A8_UNORM};
++  // 0171: no Turnip sem lista de formatos so as que ainda nao tem lista (sem a vista com sinal).
+   if (dbz3_rit_textures && !dbz3_renderable && !is_3d && key.dimension == xenos::DataDimension::k2DOrStacked &&
++      (!swordman_no_format_list || formats[1] == VK_FORMAT_UNDEFINED) &&
+       dbz3_plain_or_downscaled && key.mip_max_level == 0 && depth_or_array_size == 1 &&
+       key.format == xenos::TextureFormat::k_8_8_8_8 && formats[0] == VK_FORMAT_R8G8B8A8_UNORM &&
+       (formats[1] == VK_FORMAT_UNDEFINED || formats[1] == VK_FORMAT_R8G8B8A8_SNORM)) {
+@@ -1554,7 +1567,7 @@ std::unique_ptr<TextureCache::Texture> VulkanTextureCache::CreateTexture(Texture
+       image_create_info.flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
+       dbz3_renderable = true;
+       dbz3_bgra_ok = true;
+-      if (vulkan_device->extensions().ext_1_2_KHR_image_format_list) {
++      if (vulkan_device->extensions().ext_1_2_KHR_image_format_list && !swordman_no_format_list) {
+         if (formats[1] != VK_FORMAT_UNDEFINED) {
+           // A lista {com sinal, sem sinal} ja esta na cadeia: passa a ter tambem a BGRA.
+           image_format_list_create_info.viewFormatCount = 3;
