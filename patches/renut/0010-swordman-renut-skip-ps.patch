@@ -1,0 +1,54 @@
+--- a/app/src/renut_engine/gpu/render/draw.cpp
++++ b/app/src/renut_engine/gpu/render/draw.cpp
+@@ -67,6 +67,13 @@
+ REXCVAR_DEFINE_INT32(mgr_renut_diag_raster_override, 0, "MGR/Diagnostics",
+                     "Diagnostic only: 1 no depth, 2 no culling, 4 no stencil, 8 skip prepasses, 16 clear depth before colour, 32 colour depth func always, 64 depth-only func always")
+     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
++// SwordMan (Android): Renut's counterpart of SwordMan's swordman_skip_ps (the Xenia path): to measure what a pixel
++// shader costs, the draws with these pixel shaders are not drawn. Hex hashes as the GPU profile names them
++// (renut_gpu_profile with banjo_renut_diag_gpu_shaders), comma separated. Read at start.
++REXCVAR_DEFINE_STRING(swordman_renut_skip_ps, "", "SwordMan",
++                      "Renut (diagnostic): pixel shader hashes (hex, comma separated) whose draws are skipped")
++    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
++
+ REXCVAR_DEFINE_STRING(banjo_renut_diag_blend_skip_exclude, "", "Banjo/Renut",
+                       "Diagnostic: pixel shader hashes (hex, comma separated) banjo_gpu_blend_skip leaves alone");
+ 
+@@ -1184,6 +1191,28 @@
+ }
+ 
+ // banjo-nx (banjo_renut_diag_gpu_shaders, package 28b): the draw's pass split by its pixel shader and blending.
++// swordman_renut_skip_ps, parsed once.
++bool SkipPixelShader(uint64_t hash) {
++  static const std::unordered_set<uint64_t> skip = [] {
++    std::unordered_set<uint64_t> out;
++    const std::string list = REXCVAR_GET(swordman_renut_skip_ps);
++    size_t start = 0;
++    while (start < list.size()) {
++      size_t end = list.find(',', start);
++      if (end == std::string::npos)
++        end = list.size();
++      const std::string item = list.substr(start, end - start);
++      if (!item.empty())
++        out.insert(std::strtoull(item.c_str(), nullptr, 16));
++      start = end + 1;
++    }
++    if (!out.empty())
++      RGPU_INFO("swordman_renut_skip_ps: {} pixel shaders not drawn", out.size());
++    return out;
++  }();
++  return !skip.empty() && skip.count(hash);
++}
++
+ uint32_t ShaderProfileLabel(const Targets &t, const ShaderRecord *ps, const PipelineKey &key) {
+   const uint32_t target = TargetsProfileLabel(t);
+   // RB_BLENDCONTROL ONE / ZERO / ADD for colour and alpha (BlendDesc's no-blend case).
+@@ -4171,6 +4200,8 @@
+   auto *vs = FindShaderLocked(vs_va, RecordKind::VertexShader);
+   const u32 declaration_va = device.U32(d3d::kDeviceOffsetVertexDeclaration);
+   auto *ps = FindShaderLocked(device.U32(d3d::kDeviceOffsetPixelShader), RecordKind::PixelShader);
++  if (ps && SkipPixelShader(ps->hash))
++    return true;  // SwordMan: swordman_renut_skip_ps
+   // Without a declaration set, the shader fetches as D3DVertexShader_Bind
+   // bound it, or else as its own vfetches describe (bundle meshes).
+   const VertexDeclarationRecord *declaration = nullptr;
