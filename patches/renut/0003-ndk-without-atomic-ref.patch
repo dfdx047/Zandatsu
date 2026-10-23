@@ -1,0 +1,21 @@
+diff --git a/app/src/renut_engine/gpu/d3d/hooks/resource.cpp b/app/src/renut_engine/gpu/d3d/hooks/resource.cpp
+index 3819b75..ecb45bd 100644
+--- a/app/src/renut_engine/gpu/d3d/hooks/resource.cpp
++++ b/app/src/renut_engine/gpu/d3d/hooks/resource.cpp
+@@ -148,12 +148,12 @@ u32 AtomicAddGuest(u32 va, u32 delta) {
+   auto *p = GuestPtr<u32>(va);
+   if (!p)
+     return 0;
+-  std::atomic_ref<u32> word(*p);
+-  u32 raw = word.load(std::memory_order_relaxed);
++  // SwordMan (Android): the compiler's atomics, not std::atomic_ref (the NDK's libc++ has none).
++  u32 raw = __atomic_load_n(p, __ATOMIC_RELAXED);
+   for (;;) {
+     const u32 old = __builtin_bswap32(raw);
+-    if (word.compare_exchange_weak(raw, __builtin_bswap32(old + delta),
+-                                   std::memory_order_acq_rel))
++    if (__atomic_compare_exchange_n(p, &raw, __builtin_bswap32(old + delta), true, __ATOMIC_ACQ_REL,
++                                    __ATOMIC_RELAXED))
+       return old;
+   }
+ }

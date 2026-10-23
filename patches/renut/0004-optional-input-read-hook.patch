@@ -1,0 +1,30 @@
+diff --git a/app/src/renut_engine/gpu/backend/render_thread.cpp b/app/src/renut_engine/gpu/backend/render_thread.cpp
+index 54f916b..6982a51 100644
+--- a/app/src/renut_engine/gpu/backend/render_thread.cpp
++++ b/app/src/renut_engine/gpu/backend/render_thread.cpp
+@@ -12,7 +12,12 @@
+ #include <fmt/format.h>
+ #include <string>
+ #include <rex/frame_latency.h>
++// SwordMan (Android): only with an SDK that has the controller read hook (banjo-nx's fork); without it late input is
++// off (no delay, no latency probe at the reads).
++#if __has_include(<rex/input/read_hook.h>)
+ #include <rex/input/read_hook.h>  // sa2-nx (2026-10-20): late input on SA2's reads
++#define SM_RENUT_READ_HOOK 1
++#endif
+ #include <vector>
+ 
+ #include "renut_engine/perf/frame_stats.h"
+@@ -387,10 +392,12 @@ void InstallLateInput() {
+   rex::latency::SetFrameReadDelayFunction(&LateInputDelay);
+   // sa2-nx (2026-10-20): SA2's SDK did not call the delay or the probe at the controller reads (banjo-nx's input system
+   // does), so late input never ran on SA2: the read hook does both now.
++#if SM_RENUT_READ_HOOK
+   rex::input::SetReadHook([] {
+     rex::latency::BeforeInputRead();
+     rex::latency::NoteInputRead();
+   });
++#endif
+ }
+ 
+ std::string LateInputReport() {
