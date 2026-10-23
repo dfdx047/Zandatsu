@@ -121,3 +121,21 @@ escolhida no launcher. O Xenia fica como alternativa. Análise completa, com fic
 ## Como trabalhar
 O ciclo compilar/corrigir/testar é no PC (NDK + arquivos do jogo + RP5 no adb), com o Claude Code do terminal no
 branch `renut-android`. Cada marco fecha com um zip de logs do RP5.
+
+## Limite de CPU no Renut (~20 ms de Swap a Swap, 23/10)
+
+### 1. Medição (simpleperf -g 20 s na luta do fight-bench, Renut 720p, 52 fps durante a gravação)
+- Nenhuma thread está no limite: a 2000 Hz, 100% de um núcleo seriam 40 000 amostras. A mais ocupada tem ~16 400.
+  - Thread principal do jogo (`Main XThread`, a que chama o Swap): ~18% de um núcleo. Perfil off-CPU: 98% do tempo
+    bloqueada em `sub_828BE6C0` → `NtWaitForSingleObjectEx`, chamada do laço principal (`sub_82BCB128`): espera
+    que os workers do escalonador de tarefas do MGR acabem o frame.
+  - Thread de render do Renut: ~23%.
+  - Os 5 workers do escalonador (`XThread568E1…`, `574EC…`, `548DB…`, `528D5…`, `508CF…`): 24–41% cada. São o
+    caminho crítico. 14% do tempo deles é `rex::thread::atomic_cas` (o spin do `RtlEnterCriticalSection` do SDK,
+    `absolute × 256` voltas sem pausa) e 4,5% é `sub_828BED28` (espera ativa do jogo num lock tipo leitor/escritor:
+    `while (*obj > 0)` com `lwsync`); 9% é kernel (futex).
+- 15 funções mais quentes do processo (ciclos): kernel (escalonador/futex) 8,3%; `rex::thread::atomic_cas` 7,3%;
+  `@plt` de libmain 3,2%; `sub_828BED28` 2,3%; `__memcpy` 1,7%; kernel 1,7%; `XXH3_hashLong_64b_withSeed` 1,6%
+  (hash de streams do Renut); `renut::gpu::Capture…` 1,2%; `__aarch64_cas2_acq` 1,1%; `@plt` de librexruntime 1,0%;
+  `__aarch64_swp2_rel` 0,9%; `__imp__sub_8279FD90` 0,9%; `sub_822F67E0` 0,9%; `sub_825DD228` 0,8%;
+  `renut::gpu::Bind…` 0,8%.
