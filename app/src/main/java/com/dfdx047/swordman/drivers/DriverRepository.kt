@@ -16,7 +16,7 @@ import java.util.zip.ZipInputStream
  * <appDir>/driver/ (via libadrenotools); sem nada la usa o driver do sistema.
  * Nenhum e ativado por omissao: o usuario escolhe.
  */
-data class DriverSource(val owner: String, val repo: String, val label: String) {
+data class DriverSource(val owner: String, val repo: String, val label: String, val short: String = owner) {
     val apiUrl get() = "https://api.github.com/repos/$owner/$repo/releases?per_page=20"
     val pageUrl get() = "https://github.com/$owner/$repo/releases"
 }
@@ -42,7 +42,16 @@ object DriverRepository {
         DriverSource("MrPurple666", "purple-turnip", "Mr. Purple — Purple Turnip"),
         DriverSource("StevenMXZ", "freedreno_turnip-CI", "StevenMXZ — Turnip CI"),
         DriverSource("K11MCH1", "AdrenoToolsDrivers", "K11MCH1 — AdrenoTools Drivers"),
+        // 23/10: drivers do ARMSX2 (pacotes AdrenoTools). Turnip com os patches deles (Adreno
+        // 6xx/7xx) e o MaliSX2, Vulkan do Mesa para Mali Valhall/Bifrost (G52, G57, G68, G77,
+        // G78, G615, G715) sobre o driver kbase do kernel.
+        DriverSource("bmdhacks", "armsx2-turnip", "ARMSX2 — Turnip (Adreno 6xx/7xx)", "ARMSX2"),
+        DriverSource("bmdhacks", "malisx2", "ARMSX2 — MaliSX2 (Mali)", "MaliSX2"),
     )
+
+    /** As fontes que servem para a GPU deste aparelho: Turnip no Adreno, MaliSX2 no resto. */
+    fun sourcesForDevice(): List<DriverSource> =
+        if (isAdreno()) SOURCES.filter { it.repo != "malisx2" } else SOURCES.filter { it.repo == "malisx2" }
 
     /** Adreno (Qualcomm)? Os drivers Turnip so servem para Adreno. */
     fun isAdreno(): Boolean {

@@ -138,7 +138,7 @@ fun DriversScreen(vm: LauncherViewModel) {
             SectionCard(stringResource(R.string.drivers_download_title), Icons.Filled.CloudDownload, subtitle = stringResource(R.string.drivers_download_sub)) {
                 SettingSegmented(
                     title = stringResource(R.string.drivers_source),
-                    options = DriverRepository.SOURCES.map { it to it.owner },
+                    options = DriverRepository.sourcesForDevice().map { it to it.short },
                     selected = vm.driverSource,
                     onSelect = { vm.loadDriverReleases(it) },
                 )

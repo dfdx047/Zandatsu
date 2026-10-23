@@ -88,8 +88,16 @@ class GameOverlay(private val activity: Activity) : InputManager.InputDeviceList
     private val attachRunnable = Runnable { attachPad() }
     private var gpuStats: GpuStatsSampler? = null
 
+    /** ADPF (lição do ARMSX2): o sistema sabe o ritmo de quadros que as threads do jogo precisam. */
+    private var adpf: AdpfHint? = null
+
     fun onCreate() {
         AppPaths.init(activity)
+        try {
+            val fps = GameConfig.load().frameRate
+            adpf = AdpfHint(activity, if (fps == 30) 33_333_333L else 16_666_667L).also { it.start() }
+        } catch (_: Throwable) {
+        }
         if (GameConfig.load().perfLogging) {
             val f = java.io.File(AppPaths.logsDir, "gpu_stats.log")
             f.delete()
@@ -479,6 +487,7 @@ class GameOverlay(private val activity: Activity) : InputManager.InputDeviceList
     }
 
     fun onDestroy() {
+        adpf?.stop()
         autoPilot.unregister()
         gpuStats?.stop()
         NativeGameState.forceResume()

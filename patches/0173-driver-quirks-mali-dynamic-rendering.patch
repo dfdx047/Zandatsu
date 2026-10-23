@@ -1,0 +1,35 @@
+diff --git a/src/ui/vulkan/vulkan_device.cpp b/src/ui/vulkan/vulkan_device.cpp
+index eafc625..99ea44e 100644
+--- a/src/ui/vulkan/vulkan_device.cpp
++++ b/src/ui/vulkan/vulkan_device.cpp
+@@ -22,6 +22,12 @@
+ #include <rex/string.h>
+ #include <rex/ui/vulkan/device.h>
+ 
++// Project SwordMan (0173): regras por driver do banco de dados do ARMSX2
++// (GSGPUDriverProfile.cpp). Mali (driver da Arm) antes do r52: dynamic rendering quebrado.
++REXCVAR_DEFINE_BOOL(vulkan_driver_quirks, true, "UI/Vulkan",
++                    "Project SwordMan: desliga sozinho as funcoes que o banco de bugs do ARMSX2 "
++                    "da como quebradas neste driver (ex. dynamic rendering no Mali antes do r52)");
++
+ REXCVAR_DEFINE_BOOL(vulkan_require_fragment_stores_and_atomics, true, "UI/Vulkan",
+                     "Deprecated and ignored for parity; fragmentStoresAndAtomics is always "
+                     "required for Vulkan GPU emulation")
+@@ -957,6 +963,17 @@ std::unique_ptr<VulkanDevice> VulkanDevice::CreateIfSupported(
+     }
+   }
+ 
++  // 0173: banco de bugs de driver do ARMSX2.
++  if (REXCVAR_GET(vulkan_driver_quirks) && device->properties_.dynamicRendering &&
++      device->properties_.driverID == VK_DRIVER_ID_ARM_PROPRIETARY &&
++      properties.driverVersion < VK_MAKE_VERSION(52, 0, 0)) {
++    device->properties_.dynamicRendering = false;
++    REXLOG_WARN("Driver Mali r{}p{}: dynamic rendering desligado (quebrado antes do r52, banco "
++                "de bugs do ARMSX2); vulkan_driver_quirks = false volta a liga-lo",
++                VK_VERSION_MAJOR(properties.driverVersion),
++                VK_VERSION_MINOR(properties.driverVersion));
++  }
++
+   return device;
+ }
+ 

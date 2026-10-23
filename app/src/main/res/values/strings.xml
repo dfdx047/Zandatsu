@@ -57,7 +57,7 @@
     <string name="err_import_missing">Required files missing in media/: %1$s</string>
     <string name="err_import_io">Copy failed: %1$s. Check the free space.</string>
     <string name="drivers_device">This device</string>
-    <string name="drivers_not_adreno">Not an Adreno GPU: custom drivers do not apply, the system driver is used.</string>
+    <string name="drivers_not_adreno">Not an Adreno GPU: Turnip drivers do not apply. On Mali you can try MaliSX2 (download below); without it the system driver is used.</string>
     <string name="drivers_active_title">Driver in use</string>
     <string name="drivers_use_system">Use system driver</string>
     <string name="drivers_import">Import .zip / .so</string>

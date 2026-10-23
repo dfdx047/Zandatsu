@@ -464,7 +464,7 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var activeDriver by mutableStateOf<String?>(null)
         private set
-    var driverSource by mutableStateOf(DriverRepository.SOURCES.first())
+    var driverSource by mutableStateOf(DriverRepository.sourcesForDevice().first())
         private set
     var driverReleases by mutableStateOf<List<DriverRelease>>(emptyList())
         private set
