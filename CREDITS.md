@@ -7,7 +7,7 @@ graças a estes projetos:
 |---|---|---|
 | [mgr-nx-deko](https://github.com/tuancapoo/mgr-nx-deko) por tuancapoo | Renderizador nativo de Direct3D do MGR (Renut), hooks do Direct3D do jogo, extração e tradução dos shaders, conhecimento do frame (sombras, SSAO, brilho). Uso autorizado pelos autores em 23/10/2026 com créditos e código aberto | GPL-3.0 |
 | reNut por masterspike52, com as adaptações do banjo-nx e do sa2-nx | Núcleo do renderizador de Direct3D | autorização do autor (via mgr-nx-deko) |
-| [sa2-nx](https://github.com/ChanseyIsTheBest) por ChanseyIsTheBest, masseffect-nx (NebadasSwifty), nfsmw-nx (StevensND), NFSMW Recompiled (madelrandel-blip) | Base de onde o mgr-nx-deko partiu: renderizador, ferramentas e scripts | GPL-3.0 |
+| sa2-nx por ChanseyIsTheBest, masseffect-nx (NebadasSwifty), nfsmw-nx (StevensND), NFSMW Recompiled (madelrandel-blip) | Base de onde o mgr-nx-deko partiu: renderizador, ferramentas e scripts | GPL-3.0 |
 | [plume](https://github.com/renderbag/plume) | Camada gráfica (Vulkan) do renderizador nativo | MIT |
 | [XenosRecomp](https://github.com/hedge-dev/XenosRecomp) (hedge-dev), fork reblue | Tradução dos shaders do Xenos para HLSL/SPIR-V | MIT |
 | [ReXGlue SDK](https://github.com/rexglue/rexglue-sdk) v0.10.0 por Tom Clay, com partes do [Xenia](https://xenia.jp) | Recompilador, kernel e runtime do Xbox 360, GPU emulada | BSD-3-Clause |
