@@ -10,6 +10,9 @@
 #   bash tools/fight-bench.sh <serial> <nome> [cvar = valor ...]
 #   bash tools/fight-bench.sh 611e0fa0 renut720 'swordman_renderer = "renut"' 'sa2_render_height_handheld = 720'
 #   bash tools/fight-bench.sh 611e0fa0 xenos540 'draw_resolution_percent = 75'
+# ATTACK=0 deixa o Raiden parado (a luta vem ter com ele; a cena varia muito menos que com golpes: para comparar
+# mudanças pequenas). O resumo usa a mediana das janelas e descarta GPU ms impossíveis (> 1000; o Renut às vezes
+# reporta uma janela errada).
 # Resultado em out/bench/<nome>.log, <nome>_luta.png e uma linha de resumo. O cvars.txt do aparelho fica com as
 # cvars do teste: repor no fim.
 set -euo pipefail
@@ -28,7 +31,7 @@ sleep 50
 press START 4; press DOWN 1; press DOWN 1; press A 4; press A 5; press A 25
 T0=$(date +%T)
 for i in $(seq 1 30); do
-  press X 1.5
+  if [ "${ATTACK:-1}" = 1 ]; then press X 1.5; else sleep 1.5; fi
   [ "$i" = 12 ] && adb -s "$D" exec-out screencap -p > "$OUT/${N}_luta.png"
 done
 T1=$(date +%T)
@@ -38,7 +41,7 @@ import re, sys
 log, t0, t1, name = sys.argv[1:]
 sec = lambda t: sum(float(x) * k for x, k in zip(t.split(':'), (3600, 60, 1)))
 t0, t1 = sec(t0) + 5, sec(t1) + 1
-rows = []
+rows, swaps = [], []
 for l in open(log, errors='ignore'):
     m = re.match(r'\[\S+ (\d+:\d+:[\d.]+)\]', l)
     if not m or not t0 <= sec(m[1]) <= t1:
@@ -46,12 +49,18 @@ for l in open(log, errors='ignore'):
     r = re.search(r'\[renut\] [\d.]+ s: (\d+) game frames \(([\d.]+) fps\).*GPU ([\d.]+) ms a frame.*?; (\d+) draws', l)
     if r:
         rows.append((float(r[2]), float(r[3]), int(r[4]) / int(r[1])))
+    w = re.search(r'game thread, [\d.]+ s: \d+ frames, ([\d.]+) ms a frame from Swap to Swap', l)
+    if w:
+        swaps.append(float(w[1]))
     x = re.search(r'game_fps=([\d.]+).*gpu_ms avg=([\d.]+).*draws=(\d+)', l)
     if x:
         rows.append((float(x[1]), float(x[2]), float(x[3])))
 if not rows:
     sys.exit(f'{name}: sem linhas de perf na janela')
+import statistics
 n = len(rows)
-avg = [sum(r[i] for r in rows) / n for i in range(3)]
-print(f'{name}: {n} janelas, {avg[0]:.1f} fps de jogo, GPU {avg[1]:.1f} ms/frame, {avg[2]:.0f} draws/frame')
+med = [statistics.median(r[i] for r in rows if i != 1 or r[1] < 1000) for i in range(3)]
+swap = f', Swap a Swap {statistics.median(swaps):.1f} ms' if swaps else ''
+print(f'{name}: {n} janelas, {med[0]:.1f} fps de jogo, GPU {med[1]:.1f} ms/frame{swap}, {med[2]:.0f} draws/frame '
+      '(medianas)')
 PY

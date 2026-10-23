@@ -10,6 +10,7 @@
 #include <string>
 
 #include <dlfcn.h>
+#include <sched.h>
 
 #include <adrenotools/driver.h>
 
@@ -38,6 +39,7 @@ std::atomic<uint64_t> g_sa2_game_frames{0};
 extern "C" void (*rex_vdswap_hook)(void);
 void SwordManRenutShotOnSwap();          // abaixo
 void SwordManRenutOverlayStatsOnSwap();  // abaixo
+void SwordManRenutPlaceMainThreadOnSwap();  // abaixo
 
 REX_EXTERN(__imp__sub_826B3510);
 REX_HOOK_RAW(sub_826B3510) {  // D3DDevice_Swap
@@ -45,6 +47,7 @@ REX_HOOK_RAW(sub_826B3510) {  // D3DDevice_Swap
     if (rex_vdswap_hook) rex_vdswap_hook();
     SwordManRenutShotOnSwap();
     SwordManRenutOverlayStatsOnSwap();
+    SwordManRenutPlaceMainThreadOnSwap();
     renut_native_sub_826B3510(ctx, base);
     g_sa2_game_frames.fetch_add(1, std::memory_order_relaxed);
     return;
@@ -280,4 +283,83 @@ void SwordManRenutOverlayStatsOnSwap() {
   }();
   (void)once;
   rex::perf::RecordGuestSwap();
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Núcleos da thread principal do jogo (a do Swap) e da thread de render do Renut (patch renut/0011).
+// swordman_renut_cores: 0 = o escalonador decide (como antes); 1 = as duas nos núcleos grandes, livres entre eles;
+// 2 = a principal no núcleo mais rápido e a de render nos outros grandes (nunca no mesmo). Núcleos lidos do
+// cpufreq: "grandes" = máximo acima do mais lento (no SD865: 4-6 A77 a 2,42 GHz e 7 A77 a 2,84 GHz).
+// ---------------------------------------------------------------------------------------------------------------
+#include <fstream>
+#include <vector>
+
+REXCVAR_DEFINE_INT32(swordman_renut_cores, 0, "SwordMan",
+                     "Renut: núcleos da thread principal e da de render. 0 = livres; 1 = as duas nos núcleos grandes; "
+                     "2 = principal no mais rápido, render nos outros grandes")
+    .range(0, 2)
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+
+namespace {
+
+struct CoreSets {
+  cpu_set_t big{};      // todos os grandes
+  cpu_set_t fastest{};  // o de frequência mais alta
+  cpu_set_t others{};   // grandes sem o mais rápido
+  bool ok = false;
+};
+
+const CoreSets& Cores() {
+  static const CoreSets sets = [] {
+    CoreSets out;
+    std::vector<long> freq;
+    for (int cpu = 0; cpu < CPU_SETSIZE; ++cpu) {
+      std::ifstream f("/sys/devices/system/cpu/cpu" + std::to_string(cpu) + "/cpufreq/cpuinfo_max_freq");
+      long khz = 0;
+      if (!(f >> khz)) break;
+      freq.push_back(khz);
+    }
+    if (freq.size() < 2) return out;
+    long lo = freq[0], hi = freq[0];
+    int fastest = 0;
+    for (size_t i = 0; i < freq.size(); ++i) {
+      lo = std::min(lo, freq[i]);
+      if (freq[i] > hi) { hi = freq[i]; fastest = int(i); }
+    }
+    if (hi == lo) return out;
+    CPU_ZERO(&out.big); CPU_ZERO(&out.fastest); CPU_ZERO(&out.others);
+    CPU_SET(fastest, &out.fastest);
+    for (size_t i = 0; i < freq.size(); ++i) {
+      if (freq[i] > lo) {
+        CPU_SET(int(i), &out.big);
+        if (int(i) != fastest) CPU_SET(int(i), &out.others);
+      }
+    }
+    // Um só núcleo grande: as duas partilham-no (melhor que um pequeno).
+    if (CPU_COUNT(&out.others) == 0) out.others = out.fastest;
+    out.ok = true;
+    return out;
+  }();
+  return sets;
+}
+
+void PlaceCurrentThread(const char* what, bool main_thread) {
+  const int32_t mode = REXCVAR_GET(swordman_renut_cores);
+  const CoreSets& c = Cores();
+  if (mode == 0 || !c.ok) return;
+  const cpu_set_t& set = mode == 1 ? c.big : (main_thread ? c.fastest : c.others);
+  const bool ok = sched_setaffinity(0, sizeof(set), &set) == 0;
+  std::string list;
+  for (int cpu = 0; cpu < CPU_SETSIZE; ++cpu)
+    if (CPU_ISSET(cpu, &set)) list += (list.empty() ? "" : ",") + std::to_string(cpu);
+  REXLOG_INFO("Renut: {} nos núcleos {}{}", what, list, ok ? "" : " (recusado)");
+}
+
+}  // namespace
+
+extern "C" void swordman_renut_render_thread_start() { PlaceCurrentThread("thread de render", false); }
+
+void SwordManRenutPlaceMainThreadOnSwap() {
+  static const bool once = (PlaceCurrentThread("thread principal do jogo", true), true);
+  (void)once;
 }

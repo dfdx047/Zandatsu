@@ -139,3 +139,46 @@ branch `renut-android`. Cada marco fecha com um zip de logs do RP5.
   (hash de streams do Renut); `renut::gpu::Capture…` 1,2%; `__aarch64_cas2_acq` 1,1%; `@plt` de librexruntime 1,0%;
   `__aarch64_swp2_rel` 0,9%; `__imp__sub_8279FD90` 0,9%; `sub_822F67E0` 0,9%; `sub_825DD228` 0,8%;
   `renut::gpu::Bind…` 0,8%.
+
+### 2. `sub_826B2FC0` e as esperas ativas
+- `sub_826B2FC0` / `sub_8278E640` não aparecem no perfil (0,00%): com o Renut as esperas de fence do D3D estão
+  substituídas e esta espera não gira (no PC do mgr-nx-deko girava com a GPU emulada). Nada a trocar.
+- As esperas ativas reais (workers) foram trocadas atrás de cvars, medidas e deixadas desligadas:
+  `swordman_cs_spin` (SDK 0177, limita o spin do `RtlEnterCriticalSection` com `yield`): **pior** (46,4–47,5 fps
+  contra 52–53); `swordman_rwlock_wait` (`app/src/main/cpp/mgr_cpu_hooks.cpp`, `sub_828BED28` com `yield`/
+  `sched_yield`): neutro. Os locks são curtos e o spin é útil; dormir atrasa os workers.
+
+### 3. Ritmo
+Off-CPU da thread principal: 97,7% em `sub_828BE6C0` (espera pelos workers); o Swap do Renut com o pacing
+(`PaceSwap` → `sleep_for`) 0,6%; a fila da thread de render 0,07%; o hook do `SynchronizeToPresentationInterval`
+não espera. O log do Renut confirma: `0,12 ms a frame paced`, quase todos os frames "late" (libertados logo). Não é
+ritmo: é CPU dos workers do jogo.
+
+### 4. Afinidade (`swordman_renut_cores`, patch renut/0011 + `src/renut_glue.cpp`)
+Núcleos grandes lidos do cpufreq. Fight-bench 720p, Turnip v27, medianas (com golpes; "parado" = `ATTACK=0`):
+
+| | fps de jogo | GPU ms | Swap a Swap |
+|---|---|---|---|
+| base de antes | 51,6 | 10,9 | ~19 |
+| `cores = 0` (padrão; 0177 desligado) | 52,2 / 53,3 | 10,0 / 9,9 | 19,0 / 18,5 |
+| `cores = 1` (as duas nos 4–7) | 49,9 / 52,8 | 11,5 / 10,3 | 19,9 / 18,8 |
+| `cores = 2` (principal no 7, render nos 4–6) | 57,7 / 56,7 | 11,7 / 10,4 | 16,3 / 17,1 |
+| 0177 ligado (`swordman_cs_spin = 64`) | 46,4 / 47,5 | 10,8 / 10,4 | 21,5 / 21,1 |
+| parado, `cores = 0` | 51,0 / 52,9 / 50,7 / 51,6 | ~10,4 | 19,3 |
+| parado, `cores = 2` | 54,2 / 56,5 | 10,4 / 9,9 | 18,3 / 17,4 |
+
+`cores = 2` ganha ~3 fps (~1 ms por frame), mas nenhum modo passa de 58 fps: o padrão continua 0. No limite
+continuam os workers do escalonador de tarefas do MGR; com `cores = 2` faltam ~0,1 ms para 58 fps (17,2 ms) e
+~0,6 ms para 60 (16,7 ms); com `cores = 0`, ~2 ms.
+
+### 5. Perfil dos workers (caminho crítico; `cores = 2`, 20 s com `-g`)
+Os workers mais ocupados ficam a 35–43% de um núcleo cada (e a thread de render ~51%). 15 funções mais quentes:
+kernel/futex 7,1%; `atomic_cas` (spin das secções críticas) 6,2%; `@plt` de libmain 4,8% (chamadas entre
+bibliotecas); `renut::gpu::CaptureDelta` 2,9% (o Renut grava os draws na thread do jogo que os emite);
+`sub_8278BFC8` 1,9%; kernel 1,8%; `sub_822F67E0` 1,7%; `sub_8279FD90` 1,6%; `__memcpy` 1,1%;
+`__aarch64_cas2_acq` 1,0%; `sub_8278B798` 1,0%; `@plt` de librexruntime 1,0%; `__aarch64_swp2_rel` 0,9%;
+`sub_828BED28` 0,8%; `sub_822F4110` 0,8%. Sem função dominante: o próximo passo é o codegen (opções do SDK deles,
+PGO), medido com o fight-bench.
+
+`tools/fight-bench.sh`: medianas, GPU ms impossíveis descartados (o Renut às vezes reporta uma janela errada),
+Swap a Swap no resumo, `ATTACK=0` para comparar mudanças pequenas (±1 fps em vez de ±3).

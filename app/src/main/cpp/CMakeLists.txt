@@ -128,6 +128,8 @@ target_sources(main PRIVATE
     "${CMAKE_CURRENT_LIST_DIR}/game_state_jni.cpp"
     # Vigia: pilhas de todas as threads em logs/watchdog.txt se o jogo encravar.
     "${CMAKE_CURRENT_LIST_DIR}/watchdog.cpp"
+    # Esperas ativas do MGR na CPU (swordman_rwlock_wait).
+    "${CMAKE_CURRENT_LIST_DIR}/mgr_cpu_hooks.cpp"
 )
 
 # Rastreio das funcoes D3D candidatas (optxbox d3dmap + d3d_trace_gen.py do Dragon Burst).
