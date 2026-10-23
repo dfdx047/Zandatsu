@@ -238,8 +238,9 @@ data class GameConfig(
                 // -2.1 ms). Cortado por padrao tambem nas configs antigas; volta com o interruptor.
                 glowBlur = bool("swordman_glow_blur", false),
                 shadows = bool("swordman_shadows", true),
-                glowOff = bool("swordman_glow_off", false),
-                fxLow = bool("swordman_fx_low", false),
+                // 23/10 07:37: os dois modos quebraram a imagem no RP5; desligados ate refazer.
+                glowOff = false,
+                fxLow = false,
                 psFp16 = bool("swordman_ps_fp16", false),
                 showFps = bool("debug_overlay", d.showFps),
                 letterbox = bool("present_letterbox", d.letterbox),

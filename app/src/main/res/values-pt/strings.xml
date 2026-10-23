@@ -388,7 +388,7 @@
     <string name="q_shadows">Sombras</string>
     <string name="q_shadows_sub">Alta: as sombras projetadas na cena (~3 ms no RP5). Desligadas: imagem normal, só sem essas sombras. O nível Médio chega com o render nativo da sombra.</string>
     <string name="q_lighting">Iluminação (brilho)</string>
-    <string name="q_lighting_sub">Alta: brilho com desfoque (~3 ms). Média: brilho sem desfoque. Baixa (experimental): sem brilho.</string>
+    <string name="q_lighting_sub">Alta: brilho com desfoque (~3 ms). Média: brilho sem desfoque.</string>
     <string name="q_effects">Efeitos</string>
     <string name="q_effects_sub">Baixos (experimental): sem os efeitos transparentes mais pesados (faíscas, rastros dos golpes). Diga se sumir algo que não devia.</string>
     <string name="q_high">Alta</string>

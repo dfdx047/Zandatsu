@@ -206,28 +206,15 @@ fun PerformanceScreen(vm: LauncherViewModel) {
                 selected = c.shadows,
                 onSelect = { v -> vm.updateConfig { it.copy(shadows = v) } },
             )
-            val lighting = when {
-                c.glowOff -> 0
-                c.glowBlur -> 2
-                else -> 1
-            }
+            // 23/10 07:37 (RP5): Iluminacao "Baixa" deixou blocos verdes (a textura do brilho fica
+            // sem ser escrita e a composicao le lixo) e Efeitos "Baixos" deixou o cabelo do Raiden
+            // preto (o cabelo e um desses shaders). Ficam fora ate serem refeitos.
             SettingSegmented(
                 title = stringResource(R.string.q_lighting),
                 subtitle = stringResource(R.string.q_lighting_sub),
-                options = listOf(
-                    2 to stringResource(R.string.q_high),
-                    1 to stringResource(R.string.q_medium),
-                    0 to stringResource(R.string.q_low),
-                ),
-                selected = lighting,
-                onSelect = { v -> vm.updateConfig { it.copy(glowBlur = v == 2, glowOff = v == 0) } },
-            )
-            SettingSegmented(
-                title = stringResource(R.string.q_effects),
-                subtitle = stringResource(R.string.q_effects_sub),
-                options = listOf(false to stringResource(R.string.q_high), true to stringResource(R.string.q_low)),
-                selected = c.fxLow,
-                onSelect = { v -> vm.updateConfig { it.copy(fxLow = v) } },
+                options = listOf(true to stringResource(R.string.q_high), false to stringResource(R.string.q_medium)),
+                selected = c.glowBlur,
+                onSelect = { v -> vm.updateConfig { it.copy(glowBlur = v, glowOff = false) } },
             )
             HorizontalDivider()
             SettingSlider(
