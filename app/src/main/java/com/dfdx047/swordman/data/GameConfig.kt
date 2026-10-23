@@ -241,7 +241,9 @@ data class GameConfig(
                 // 23/10 07:37: os dois modos quebraram a imagem no RP5; desligados ate refazer.
                 glowOff = false,
                 fxLow = false,
-                psFp16 = bool("swordman_ps_fp16", false),
+                // 23/10 07:47: fp16 nos pixel shaders fazia os retangulos pretos a piscar (teste manual
+                // no RP5); a opcao saiu do launcher e fica sempre desligada.
+                psFp16 = false,
                 showFps = bool("debug_overlay", d.showFps),
                 letterbox = bool("present_letterbox", d.letterbox),
                 volume = int("swordman_volume", d.volume).coerceIn(0, 100),

@@ -182,11 +182,6 @@ fun PerformanceScreen(vm: LauncherViewModel) {
             }
             if (c.resolution.scale >= 3) StatusLine(stringResource(R.string.settings_resolution_warn), Level.WARN)
             SettingSwitch(stringResource(R.string.settings_show_fps), checked = c.showFps) { on -> vm.updateConfig { it.copy(showFps = on) } }
-            SettingSwitch(
-                stringResource(R.string.settings_ps_fp16),
-                subtitle = stringResource(R.string.settings_ps_fp16_sub),
-                checked = c.psFp16,
-            ) { on -> vm.updateConfig { it.copy(psFp16 = on) } }
         }
 
         // ---------------------------------------------------- efeitos e som
