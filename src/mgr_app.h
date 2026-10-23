@@ -10,6 +10,16 @@
 #include <rex/main_android.h>
 #endif
 
+#if defined(SM_RENUT)
+#include <functional>
+#include <optional>
+
+#include <rex/logging.h>
+
+#include "renut_engine/gpu/banjo_renut_select.h"
+#include "renut_engine/gpu/overlay/app_integration.h"
+#endif
+
 class MgrApp : public rex::ReXApp {
  public:
   using rex::ReXApp::ReXApp;
@@ -36,11 +46,51 @@ class MgrApp : public rex::ReXApp {
   // GPU emulada (plugin xenos, Vulkan). Sem isto o cvar gpu_plugin fica vazio, o
   // runtime corre sem GPU e o ecra fica preto ("no GPU emulation loaded" no log).
   // O cvar gpu_plugin (cvars.txt ou --gpu_plugin) continua a mandar, se definido.
+  //
+  // swordman_renderer = renut (src/renut_glue.cpp): sem GPU emulada nem plugin; o Renut (renderizador nativo de
+  // Direct3D do mgr-nx-deko) desenha na janela com o seu proprio dispositivo Vulkan.
   void OnPreSetup(rex::RuntimeConfig& config) override {
+#if defined(SM_RENUT)
+    if (banjo::renut_gpu::Active()) {
+      renut::gpu::ConfigureRuntime(config);
+      REXLOG_INFO("graphics: Renut (Direct3D nativo do mgr-nx-deko, plume/Vulkan), sem PM4 nem EDRAM");
+      return;
+    }
+#endif
     if (config.gpu_plugin.empty()) {
       config.gpu_plugin = "xenos";
     }
   }
+
+#if defined(SM_RENUT)
+  // Renut: a janela ja existe; cria o dispositivo Vulkan dele antes do runtime. Se falhar, segue com o Xenia (uma
+  // linha no log, sem troca silenciosa).
+  std::optional<rex::PathConfig> OnFinalizePaths(const rex::PathConfig& defaults,
+      std::function<void(rex::PathConfig)> resume) override {
+    if (banjo::renut_gpu::Active() &&
+        !renut::gpu::StartRenderer(app_context(), [this] { return imgui_drawer(); })) {
+      REXLOG_ERROR("Renut: o renderizador nao arrancou; a usar o Xenia (swordman_renderer = xenos)");
+      renut::gpu::ShutdownRenderer();
+      banjo::renut_gpu::detail::g_active = -1;
+    }
+    return ReXApp::OnFinalizePaths(defaults, std::move(resume));
+  }
+
+  // Renut: o ImGui do SDK (menus) desenhado pelo plume.
+  std::unique_ptr<rex::ui::ImmediateDrawer> OnCreateImmediateDrawer() override {
+    if (banjo::renut_gpu::Active()) return renut::gpu::CreateOverlayDrawer();
+    return ReXApp::OnCreateImmediateDrawer();
+  }
+
+  void OnWindowPixelSizeChanged(uint32_t width, uint32_t height) override {
+    ReXApp::OnWindowPixelSizeChanged(width, height);
+    if (banjo::renut_gpu::Active()) renut::gpu::OnWindowResized();
+  }
+
+  void OnShutdown() override {
+    if (banjo::renut_gpu::Active()) renut::gpu::ShutdownRenderer();
+  }
+#endif
 
   // Override virtual hooks for customization:
   // void OnPostInitLogging() override {}
@@ -51,5 +101,4 @@ class MgrApp : public rex::ReXApp {
   // std::unique_ptr<rex::ui::ImGuiDialog> CreateAchievementsOverlay() override;
   // std::unique_ptr<rex::ui::AchievementNotificationDialog>
   // CreateAchievementNotificationDialog() override;
-  // void OnShutdown() override {}
 };
