@@ -1,5 +1,5 @@
 # Jogo e codigo gerado (nunca no git)
-assets/
+/assets/
 generated/default/
 *.iso
 *.xex

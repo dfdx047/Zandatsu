@@ -1,6 +1,16 @@
-# Zandatsu
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/zandatsu-logo-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/zandatsu-logo-light.svg">
+    <img alt="Zandatsu" src="docs/assets/zandatsu-logo-light.svg" width="600">
+  </picture>
+</p>
 
-**Metal Gear Rising: Revengeance** (Xbox 360) no Android · on Android · en Android
+<h1 align="center">Zandatsu v1.0</h1>
+
+<p align="center">
+  <b>Metal Gear Rising: Revengeance</b> (Xbox 360) no Android · on Android · en Android
+</p>
 
 [Português (Brasil)](#português-brasil) · [English](#english) · [Español](#español)
 
