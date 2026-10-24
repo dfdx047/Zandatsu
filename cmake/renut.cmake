@@ -105,6 +105,8 @@ add_library(mgr_renut_gpu OBJECT
     "${RENUT_APP_DIR}/src/renut_engine/perf/frame_stats.cpp"
     "${RENUT_APP_DIR}/src/renut_engine/sa2_compat/frame_latency.cpp"
     "${RENUT_APP_DIR}/src/renut_engine/sa2_compat/sa2_compat.cpp"
+    # Marcadores de GPU por draw (swordman_renut_gpu_markers; patch renut/0014 chama-os).
+    "${SM_ROOT}/src/renut_gpu_markers.cpp"
     # Os shaders do jogo traduzidos no PC (dados do jogo: so builds pessoais).
     "${SM_RENUT_OUT}/shader_cache.cpp")
 set_source_files_properties("${SM_RENUT_OUT}/shader_cache.cpp" PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
@@ -121,6 +123,8 @@ target_include_directories(mgr_renut_gpu PRIVATE
     # host_shaders/<nome>.spirv.h
     "${SM_RENUT_OUT}"
     "${REXSDK_ROOT}/src/core"
+    # renut_gpu_markers.h (src/), incluido pelo patch renut/0014.
+    "${SM_ROOT}/src"
     "${REXSDK_ROOT}/thirdparty/imgui"
     "${CMAKE_BINARY_DIR}/rexglue-sdk/include")
 target_compile_definitions(mgr_renut_gpu PRIVATE MGR_RENUT_RENDERER=1 SA2_RENUT_RENDERER=1 RENUT_RECOMP)

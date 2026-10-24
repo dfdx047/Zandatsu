@@ -1,0 +1,267 @@
+--- a/app/src/renut_engine/gpu/backend/backend.cpp
++++ b/app/src/renut_engine/gpu/backend/backend.cpp
+@@ -24,6 +24,7 @@
+ 
+ #include "renut_engine/gpu/log.h"
+ #include "renut_engine/gpu/banjo_renut_record.h"  // banjo-nx (package 28b)
++#include "renut_gpu_markers.h"  // SwordMan (Android): swordman_renut_gpu_markers (patch 0014)
+ 
+ REXCVAR_DEFINE_STRING(renut_gpu_backend, "d3d12", "Nuts&Bolts/Graphics",
+                       "Renderer backend: d3d12 or vulkan. Takes effect after a restart. "
+@@ -370,6 +371,7 @@
+       return lost.load();
+     RGPU_ERROR("Vulkan device lost: the GPU faulted or hung executing an earlier frame; nothing "
+                "is drawn from here on (plume's messages are in the stderr log)");
++    swordman::gpu_markers::OnDeviceLost();  // SwordMan (Android): logs/renut_gpu_hang.txt
+     return true;
+   }
+ #if defined(_WIN32)
+--- a/app/src/renut_engine/gpu/backend/present.cpp
++++ b/app/src/renut_engine/gpu/backend/present.cpp
+@@ -32,6 +32,7 @@
+ #if defined(PLUME_DEKO3D)
+ #include <plume_deko3d.h>  // banjo-nx: banjo_renut_capture_raw's format check
+ #endif
++#include "renut_gpu_markers.h"  // SwordMan (Android): swordman_renut_gpu_markers (patch 0014)
+ 
+ // banjo-nx (2026-10-17, deko3d renderer tests): the captures copy the game's frame texture as it is (4-byte formats only,
+ // its channels as BGRA), without the scan-out pass: which of the two a wrong capture comes from.
+@@ -247,7 +248,14 @@
+                                  : 0u;
+   push.param1 = std::bit_cast<float>(ramp_slot);
+   cmd->setGraphicsPushConstants(0, &push, 0, sizeof(push));
+-  cmd->drawInstanced(3, 1, 0, 0);
++  {
++    // SwordMan (Android): GPU marker (swordman_renut_gpu_markers).
++    swordman::gpu_markers::Info marker_info;
++    marker_info.kind = swordman::gpu_markers::kScanOut;
++    const uint32_t marker = swordman::gpu_markers::Before(cmd, marker_info);
++    cmd->drawInstanced(3, 1, 0, 0);
++    swordman::gpu_markers::After(cmd, marker);
++  }
+ }
+ 
+ // banjo-nx: the test captures (banjo_renut_capture.h). CaptureFrame asks; the next Present, minimized or not, scans
+--- a/app/src/renut_engine/gpu/render/draw.cpp
++++ b/app/src/renut_engine/gpu/render/draw.cpp
+@@ -51,6 +51,7 @@
+ #endif
+ #include "renut_engine/gpu/banjo_renut_record.h"  // banjo-nx (package 28b)
+ #include <rex/cvar.h>
++#include "renut_gpu_markers.h"  // SwordMan (Android): swordman_renut_gpu_markers (patch 0014)
+ 
+ // banjo-nx (2026-10-17, a diagnostic for the deko3d renderer's missing river water): draws that read memexport results
+ // as vertices take them through the CPU path (wait for the export, read it back) instead of stream_convert_cs.
+@@ -5022,6 +5023,27 @@
+       targets.depth->stencil_used = true;  // banjo-nx (2026-10-19, banjo_deko3d_depth_handover)
+   }
+   Video::NoteDrawLocked();  // banjo-nx (2026-10-19, banjo_deko3d_kick_submit): the open list's draws
++  // SwordMan (Android): GPU markers around the draw (swordman_renut_gpu_markers, src/renut_gpu_markers.h).
++  uint32_t marker = 0;
++  if (swordman::gpu_markers::On()) {
++    swordman::gpu_markers::Info info;
++    info.ps = ps ? ps->hash : 0;
++    info.vs = vs ? vs->hash : 0;
++    if (targets.color_count && targets.colors[0]) {
++      info.color_va = targets.colors[0]->guest_va;
++      info.color_width = targets.colors[0]->width;
++      info.color_height = targets.colors[0]->height;
++      info.color_format = u32(targets.colors[0]->format);
++    }
++    if (targets.depth) {
++      info.depth_va = targets.depth->guest_va;
++      info.depth_format = u32(targets.depth->format);
++    }
++    info.primitive = call.primitive;
++    info.count = geometry.indexed ? geometry.index_count : geometry.vertex_count;
++    info.instances = geometry.instance_count;
++    marker = swordman::gpu_markers::Before(cmd, info);
++  }
+   if (geometry.indexed) {
+     SetIndexBuffer(cmd, geometry.index_view);
+     // banjo-nx: instanced for a tessellation grid (banjo_gpu_tess_grid); 1 for every other indexed draw.
+@@ -5029,6 +5051,7 @@
+   } else {
+     cmd->drawInstanced(geometry.vertex_count, geometry.instance_count, 0, 0);
+   }
++  swordman::gpu_markers::After(cmd, marker);
+   if (export_count) {
+     FinishMemExportLocked(s, exports, export_count, export_offsets);
+     g_bound.framebuffer = nullptr;  // the copies end any render pass
+@@ -5215,6 +5238,21 @@
+   plume::RenderCommandList *cmd = State().command_list;
+   const plume::RenderRect host_rect = ScaleRect(rect, t.scale);
+   const plume::RenderColor clear_color(color[0], color[1], color[2], color[3]);
++  // SwordMan (Android): one GPU marker around the whole clear (swordman_renut_gpu_markers).
++  swordman::gpu_markers::Info clear_info;
++  clear_info.kind = swordman::gpu_markers::kClear;
++  if (t.color_count && t.colors[0]) {
++    clear_info.color_va = t.colors[0]->guest_va;
++    clear_info.color_width = t.colors[0]->width;
++    clear_info.color_height = t.colors[0]->height;
++    clear_info.color_format = u32(t.colors[0]->format);
++  }
++  if (t.depth) {
++    clear_info.depth_va = t.depth->guest_va;
++    clear_info.depth_format = u32(t.depth->format);
++  }
++  clear_info.count = flags;
++  const uint32_t clear_marker = swordman::gpu_markers::Before(cmd, clear_info);
+   // banjo-nx (2026-10-19, render-thread proposal 20): scratch vectors kept between clears (render thread only).
+   static std::vector<HostSurface *> aliases;
+   static std::vector<HostSurface *> found;
+@@ -5251,6 +5289,7 @@
+     ++alias->writes;  // banjo-nx (banjo_renut_resolve_skip)
+     cmd->clearColor(0, clear_color, &alias_host, 1);
+   }
++  swordman::gpu_markers::After(cmd, clear_marker);
+ }
+ 
+ // Depth resolve (shaders/host/depth_resolve.hlsli): 'src' of the depth target
+@@ -5306,7 +5345,15 @@
+                     ? 1.0f
+                     : 0.0f;
+   cmd->setGraphicsPushConstants(0, &push, 0, sizeof(push));
+-  cmd->drawInstanced(3, 1, 0, 0);
++  {
++    // SwordMan (Android): GPU marker (swordman_renut_gpu_markers).
++    swordman::gpu_markers::Info resolve_info;
++    resolve_info.kind = swordman::gpu_markers::kResolve;
++    resolve_info.count = 3;
++    const uint32_t resolve_marker = swordman::gpu_markers::Before(cmd, resolve_info);
++    cmd->drawInstanced(3, 1, 0, 0);
++    swordman::gpu_markers::After(cmd, resolve_marker);
++  }
+   TransitionTextureLocked(dest, plume::RenderTextureLayout::SHADER_READ);
+ 
+   // The draw path binds its own layout, pipeline, targets and viewport again.
+@@ -5535,7 +5582,15 @@
+   push.texture_index = source_slot;
+   push.sampler_index = kPointClampSamplerSlot;
+   cmd->setGraphicsPushConstants(0, &push, 0, sizeof(push));
+-  cmd->drawInstanced(3, 1, 0, 0);
++  {
++    // SwordMan (Android): GPU marker (swordman_renut_gpu_markers).
++    swordman::gpu_markers::Info resolve_info;
++    resolve_info.kind = swordman::gpu_markers::kResolve;
++    resolve_info.count = 3;
++    const uint32_t resolve_marker = swordman::gpu_markers::Before(cmd, resolve_info);
++    cmd->drawInstanced(3, 1, 0, 0);
++    swordman::gpu_markers::After(cmd, resolve_marker);
++  }
+   banjo::renut_gpu::CountDrawnResolve();
+   // The draw path binds its own layout, pipeline, targets and viewport again.
+   g_bound.framebuffer = nullptr;
+--- a/app/src/renut_engine/gpu/render/textures.cpp
++++ b/app/src/renut_engine/gpu/render/textures.cpp
+@@ -23,6 +23,7 @@
+ #include "renut_engine/gpu/render/draw.h"
+ #include "renut_engine/gpu/render/graphics_options.h"
+ #include "renut_engine/gpu/backend/video.h"
++#include "renut_gpu_markers.h"  // SwordMan (Android): swordman_renut_gpu_markers (patch 0014)
+ 
+ namespace renut::gpu {
+ 
+@@ -1576,7 +1577,14 @@
+     push.sampler_index = kPointClampSamplerSlot;
+     push.param0 = 2.0f;
+     cmd->setGraphicsPushConstants(0, &push, 0, sizeof(push));
+-    cmd->drawInstanced(3, 1, 0, 0);
++    {
++      // SwordMan (Android): GPU marker (swordman_renut_gpu_markers).
++      swordman::gpu_markers::Info marker_info;
++      marker_info.kind = swordman::gpu_markers::kMip;
++      const uint32_t marker = swordman::gpu_markers::Before(cmd, marker_info);
++      cmd->drawInstanced(3, 1, 0, 0);
++      swordman::gpu_markers::After(cmd, marker);
++    }
+     source = ScratchSlot(*l.scratch);
+   }
+ 
+--- a/app/thirdparty/plume/plume_vulkan.cpp
++++ b/app/thirdparty/plume/plume_vulkan.cpp
+@@ -369,6 +369,10 @@
+ #   endif
+         // Vulkan spec requires this to be enabled if supported by the driver.
+         VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME,
++#   if defined(__ANDROID__)
++        // SwordMan (Android): GPU markers per draw (swordman_renut_gpu_markers), to find where a GPU hang stops.
++        VK_AMD_BUFFER_MARKER_EXTENSION_NAME,
++#   endif
+     };
+ 
+     // Common functions.
+--- a/app/src/renut_engine/gpu/banjo_renut_record.h
++++ b/app/src/renut_engine/gpu/banjo_renut_record.h
+@@ -9,6 +9,8 @@
+ // banjo-nx's own renderer does the same (its deferred recording, -10-12 % a draw on the console in package 24b).
+ #pragma once
+ 
++#include <cstdint>  // SwordMan (Android): Marker
++
+ namespace plume {
+ struct RenderCommandList;
+ }
+@@ -26,6 +28,10 @@
+ // True when 'cmd' is the proxy: banjo_renut_tuning's NVK prefetch hint is then given by the worker before it binds.
+ bool IsProxy(const plume::RenderCommandList *cmd);
+ void Shutdown();
++// SwordMan (Android, patch 0014): a GPU marker (swordman_renut_gpu_markers). On the proxy it is a command too, played
++// by the worker as fn(real list, offset, value) in its place in the stream; on a real list fn is called now.
++using MarkerFn = void (*)(plume::RenderCommandList *real, uint32_t offset, uint32_t value);
++void Marker(plume::RenderCommandList *cmd, MarkerFn fn, uint32_t offset, uint32_t value);
+ void Report(int seconds);  // the "[renut] record worker" line
+ 
+ }  // namespace banjo::renut_gpu::record
+--- a/app/src/renut_engine/gpu/banjo_renut_record.cpp
++++ b/app/src/renut_engine/gpu/banjo_renut_record.cpp
+@@ -52,7 +52,7 @@
+   kSetIndexBuffer, kSetVertexBuffers, kSetViewports, kSetScissors, kSetFramebuffer, kSetDepthBias,
+   kSetStencilReference, kClearColor, kClearDepthStencil, kCopyBufferRegion, kCopyTextureRegion, kCopyBuffer,
+   kCopyTexture, kResolveTexture, kResolveTextureRegion, kDiscardTexture, kResetQueryPool, kWriteTimestamp,
+-  kBlendConstants, kOpCount
++  kBlendConstants, kMarker /* SwordMan (Android, patch 0014) */, kOpCount
+ };
+ 
+ struct Header {
+@@ -172,6 +172,7 @@
+                            uint32_t has_rect; plume::RenderResolveMode mode; };
+ struct QueryHead { const plume::RenderQueryPool *pool; uint32_t first, count; };
+ struct Floats4 { float v[4]; };
++struct MarkerHead { MarkerFn fn; uint32_t offset, value; };  // SwordMan (Android, patch 0014)
+ 
+ void Play(plume::RenderCommandList *cmd, const uint8_t *p, const uint8_t *end) {
+   while (p < end) {
+@@ -314,6 +315,7 @@
+         vkCmdSetBlendConstants(vk, f.v);
+       break;
+     }
++    case kMarker: { const MarkerHead &m = At<MarkerHead>(p); m.fn(cmd, m.offset, m.value); break; }  // SwordMan
+     default:
+       REXLOG_ERROR("[renut] record worker: unknown command {}", h.op);
+       return;
+@@ -567,6 +569,10 @@
+     Put(Emit(kBlendConstants, Size<Floats4>()), f);
+     Done();
+   }
++  void Marker(MarkerFn fn, uint32_t offset, uint32_t value) {  // SwordMan (Android, patch 0014)
++    Put(Emit(kMarker, Size<MarkerHead>()), MarkerHead{fn, offset, value});
++    Done();
++  }
+ 
+ private:
+   Chunk *cur_ = nullptr;
+@@ -634,6 +640,13 @@
+   return true;
+ }
+ 
++void Marker(plume::RenderCommandList *cmd, MarkerFn fn, uint32_t offset, uint32_t value) {  // SwordMan (patch 0014)
++  if (cmd == &g_recorder)
++    g_recorder.Marker(fn, offset, value);
++  else
++    fn(cmd, offset, value);
++}
++
+ bool IsProxy(const plume::RenderCommandList *cmd) {
+   return cmd == &g_recorder;
+ }
