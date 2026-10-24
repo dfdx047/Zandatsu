@@ -1,0 +1,30 @@
+diff --git a/app/src/renut_engine/gpu/banjo_renut_select.cpp b/app/src/renut_engine/gpu/banjo_renut_select.cpp
+index 01b4ef2..f537cb0 100644
+--- a/app/src/renut_engine/gpu/banjo_renut_select.cpp
++++ b/app/src/renut_engine/gpu/banjo_renut_select.cpp
+@@ -14,13 +14,9 @@
+ // sa2-nx (2026-10-20): SA2's key. "xenos" keeps the renderer SA2 had (ReXGlue's emulated Xenos GPU, or the PM4-ring
+ // native renderer with sa2_renderer_native); "renut" is Renut's Direct3D-level renderer (no PM4 ring, no EDRAM), on
+ // plume's deko3d back end on the Switch.
+-REXCVAR_DEFINE_STRING(sa2_renderer, "renut", "MGR",
+-                      "Renderer, chosen at boot. xenos = the emulated Xenos GPU (PM4 ring and EDRAM; or the native "
+-                      "PM4 renderer with sa2_renderer_native). renut = Renut's Direct3D-level renderer "
+-                      "(github.com/masterspike52/reNut, through banjo-nx): MGR's Direct3D draws natively through plume "
+-                      "(deko3d on the Switch), with no PM4 ring and no EDRAM; its own renut_* keys apply")
+-    .allowed({"xenos", "renut"})
+-    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
++// SwordMan (Android): the choice is SwordMan's swordman_renderer (src/renut_glue.cpp), "xenos" by default (the
++// emulated Xenos GPU, the Xenia plugin); "renut" runs this renderer.
++REXCVAR_DECLARE(std::string, swordman_renderer);
+ 
+ namespace banjo::renut_gpu {
+ 
+@@ -43,7 +39,7 @@ bool LatchActive() {
+     return true;
+   }();
+ #else
+-  static const bool active = REXCVAR_GET(sa2_renderer) == "renut";
++  static const bool active = REXCVAR_GET(swordman_renderer) == "renut";
+ #endif
+   g_active = active ? 1 : -1;
+   return active;

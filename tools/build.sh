@@ -7,9 +7,10 @@
 #   bash tools/build.sh cube        # instala so no RG Cube (rp5, odin, ou parte do serial)
 #   bash tools/build.sh none        # compila mas nao instala
 #   PULL=0 bash tools/build.sh      # sem git pull
+#   GRADLE_ARGS="-Pdf.thinlto=true" bash tools/build.sh   # ThinLTO no codigo gerado
 #
 # O codegen (o passo mais lento) so corre quando muda algo que o afeta: o
-# mgr_manifest.toml, o mgr_overrides.toml, os patches do SDK (o rexglue e
+# mgr_manifest.toml, o mgr_overrides.toml, o mgr_codegen.toml, os patches do SDK (o rexglue e
 # compilado a partir dele) ou o default.xex. Fica um carimbo em generated/.
 set -euo pipefail
 
@@ -47,7 +48,7 @@ STAMP_FILE="generated/.codegen-stamp"
 # os da GPU/runtime nao mudam o codigo gerado (0111: 88 s de codegen com "0 written").
 CODEGEN_PATCHES="$(grep -lE '^\+\+\+ b/(src/(codegen|rexglue)|include/rex/codegen)/' patches/*.patch 2>/dev/null || true)"
 # shellcheck disable=SC2086
-STAMP="$(cat mgr_manifest.toml mgr_overrides.toml $CODEGEN_PATCHES assets/default.xex 2>/dev/null | sha1sum | cut -d' ' -f1)"
+STAMP="$(cat mgr_manifest.toml mgr_overrides.toml mgr_codegen.toml $CODEGEN_PATCHES assets/default.xex 2>/dev/null | sha1sum | cut -d' ' -f1)"
 if [ ! -f generated/default/sources.cmake ] || [ "$(cat "$STAMP_FILE" 2>/dev/null)" != "$STAMP" ]; then
   step "codegen (mudou o manifesto, os overrides, os patches ou o default.xex)"
   bash tools/codegen.sh --force
@@ -56,8 +57,17 @@ else
   step "codegen: nada mudou, saltado"
 fi
 
+# Shaders do Renut (renderizador nativo, swordman_renderer = renut): so quando ha o submodulo e o jogo.
+if [ -f third_party/mgr-nx-deko/app/src/renut_engine/gpu/gpu.cmake ] && [ -f assets/media/data000.cpk ]; then
+  step "Renut: patches e shaders"
+  bash tools/apply-renut-patches.sh
+  bash tools/renut-shaders.sh
+fi
+
 step "APK"
-./gradlew :app:assembleDebug --console=plain -q
+# GRADLE_ARGS: propriedades extra (ex.: GRADLE_ARGS="-Pdf.thinlto=true").
+# shellcheck disable=SC2086
+./gradlew :app:assembleDebug --console=plain -q ${GRADLE_ARGS:-}
 APK="app/build/outputs/apk/debug/app-debug.apk"
 echo "APK: $(du -h "$APK" | cut -f1), $(date -r "$APK" '+%d/%m %H:%M')"
 

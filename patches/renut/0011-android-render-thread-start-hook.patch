@@ -1,0 +1,19 @@
+--- a/app/src/renut_engine/gpu/banjo_renut_tuning.cpp
++++ b/app/src/renut_engine/gpu/banjo_renut_tuning.cpp
+@@ -1308,7 +1308,16 @@
+ #endif
+ }
+ 
++#if defined(__ANDROID__)
++// SwordMan (Android): the app places the render thread (its cores), when it defines this (weak here).
++extern "C" __attribute__((weak)) void swordman_renut_render_thread_start();
++#endif
++
+ void OnRenderThreadStart() {
++#if defined(__ANDROID__)
++  if (swordman_renut_render_thread_start != nullptr)
++    swordman_renut_render_thread_start();
++#endif
+ #if REX_PLATFORM_SWITCH
+   const bool priority_ok = RexSwitchSetCurrentThreadPriorityOk(kRenderThreadPriority);
+   const int32_t core = REXCVAR_GET(banjo_ring_core);

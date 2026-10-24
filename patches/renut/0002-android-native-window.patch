@@ -1,0 +1,64 @@
+diff --git a/app/src/renut_engine/gpu/backend/native_window.cpp b/app/src/renut_engine/gpu/backend/native_window.cpp
+index 1e805be..a1b4101 100644
+--- a/app/src/renut_engine/gpu/backend/native_window.cpp
++++ b/app/src/renut_engine/gpu/backend/native_window.cpp
+@@ -9,6 +9,11 @@
+ #include <windows.h>
+ #elif defined(__SWITCH__)
+ #include <switch.h>
++#elif defined(__ANDROID__)
++#include <android/native_window.h>
++
++#include <SDL3/SDL_properties.h>
++#include <SDL3/SDL_video.h>
+ #else
+ #include <cstdlib>
+ 
+@@ -90,6 +95,47 @@ bool GetRenderWindowPixelSize(uint32_t &width, uint32_t &height) {
+   return true;
+ }
+ 
++#elif defined(__ANDROID__)
++
++namespace {
++
++// SwordMan (Android): the SDK's one SDL window, whose ANativeWindow plume's VK_KHR_android_surface takes (as the
++// SDK's own window_sdl.cpp does). No SDL_VIDEO_DRIVER override here.
++SDL_Window *FindGameSdlWindow() {
++  int count = 0;
++  SDL_Window **windows = SDL_GetWindows(&count);
++  SDL_Window *sdl_window = (windows && count > 0) ? windows[0] : nullptr;
++  SDL_free(windows);
++  return sdl_window;
++}
++
++} // namespace
++
++bool GetNativeRenderWindow(plume::RenderWindow &out) {
++  SDL_Window *sdl_window = FindGameSdlWindow();
++  if (!sdl_window) {
++    RGPU_ERROR("No SDL window for the Vulkan surface");
++    return false;
++  }
++  out = static_cast<ANativeWindow *>(SDL_GetPointerProperty(
++      SDL_GetWindowProperties(sdl_window), SDL_PROP_WINDOW_ANDROID_WINDOW_POINTER, nullptr));
++  if (!out) {
++    RGPU_ERROR("SDL window has no ANativeWindow yet");
++    return false;
++  }
++  return true;
++}
++
++bool GetRenderWindowPixelSize(uint32_t &width, uint32_t &height) {
++  SDL_Window *sdl_window = FindGameSdlWindow();
++  int w = 0, h = 0;
++  if (!sdl_window || !SDL_GetWindowSizeInPixels(sdl_window, &w, &h) || !w || !h)
++    return false;
++  width = uint32_t(w);
++  height = uint32_t(h);
++  return true;
++}
++
+ #else
+ 
+ namespace {

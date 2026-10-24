@@ -1,0 +1,25 @@
+--- a/app/src/renut_engine/gpu/backend/video.cpp
++++ b/app/src/renut_engine/gpu/backend/video.cpp
+@@ -77,6 +77,13 @@
+ #include "host_shaders/resolve_copy_ps.dxil.h"
+ #endif
+ 
++// SwordMan (Android): swordman_renut_no_gs = true skips the geometry shaders (BuildRectangleListShader) on a device that has them (a test of Turnip's geometry
++// shaders: the intermittent GPU hang in combat, 24/10).
++REXCVAR_DEFINE_BOOL(swordman_renut_no_gs, false, "SwordMan",
++                    "Renut (diagnostic): no geometry shaders (rectangle lists as triangle lists, point sprites as "
++                    "points)")
++    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
++
+ REXCVAR_DEFINE_BOOL(sa2_renut_double_buffer, false, "SA2/Renderer",
+                     "Renut's renderer: a swapchain of 2 images instead of 3 (input latency: a finished frame is shown at "
+                     "the next refresh instead of queueing behind one already waiting). Off by default: a frame that "
+@@ -330,7 +337,7 @@
+ // Optional: without geometry shaders rectangle lists stay triangle lists and
+ // point sprites single pixels.
+ void BuildRectangleListShader(VideoState &s) {
+-  if (!s.device->getCapabilities().geometryShader) {
++  if (!s.device->getCapabilities().geometryShader || REXCVAR_GET(swordman_renut_no_gs)) {
+     RGPU_WARN("No geometry shader support; rectangle lists are drawn as triangle lists and "
+               "point sprites as points");
+     return;

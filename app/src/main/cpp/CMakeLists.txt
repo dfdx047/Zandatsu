@@ -128,6 +128,8 @@ target_sources(main PRIVATE
     "${CMAKE_CURRENT_LIST_DIR}/game_state_jni.cpp"
     # Vigia: pilhas de todas as threads em logs/watchdog.txt se o jogo encravar.
     "${CMAKE_CURRENT_LIST_DIR}/watchdog.cpp"
+    # Esperas ativas do MGR na CPU (swordman_rwlock_wait).
+    "${CMAKE_CURRENT_LIST_DIR}/mgr_cpu_hooks.cpp"
 )
 
 # Rastreio das funcoes D3D candidatas (optxbox d3dmap + d3d_trace_gen.py do Dragon Burst).
@@ -169,3 +171,32 @@ rexglue_configure_target(main GPU_PLUGINS xenos)
 # Alvo minimo: ARMv8.2-A. Fica depois do rexglue_configure_target, que poe
 # -march=armv8-a, para prevalecer.
 target_compile_options(main PRIVATE -march=armv8.2-a)
+
+# Chamadas entre funcoes do proprio libmain.so sem PLT: as ~85 mil sub_* do codigo gerado tem visibilidade padrao
+# (exportadas, logo "substituiveis" em tempo de execucao) e cada chamada entre elas passava por um stub do PLT e pelo
+# GOT (25 mil entradas). Com -Bsymbolic-functions o linker liga-as diretamente; os hooks fortes continuam a ganhar as
+# definicoes fracas no link. (-fvisibility=hidden partiria: os imports do kernel, __imp__Rtl..., vem do librexruntime.)
+option(SM_BSYMBOLIC "libmain.so com -Bsymbolic-functions" ON)
+if(SM_BSYMBOLIC)
+    target_link_options(main PRIVATE -Wl,-Bsymbolic-functions)
+endif()
+
+# ThinLTO no codigo gerado e no libmain.so (o LTO nao atravessa .so: o librexruntime fica de fora). Cache do ThinLTO
+# no build, para os relinks. Ligado por SM_THINLTO (cache do CMake: -DSM_THINLTO=ON no gradle ou no build.sh).
+if(SM_THINLTO)
+    target_compile_options(mgr_recomp PRIVATE -flto=thin)
+    target_compile_options(main PRIVATE -flto=thin)
+    target_link_options(main PRIVATE -flto=thin -Wl,--thinlto-jobs=4
+                        "-Wl,--thinlto-cache-dir=${CMAKE_BINARY_DIR}/thinlto-cache")
+endif()
+
+#-----------------------------------------------------------------------------
+# Renut: renderizador nativo de Direct3D do mgr-nx-deko, escolhido no arranque com
+# swordman_renderer = renut (padrao xenos). Shaders: tools/renut-shaders.sh.
+#-----------------------------------------------------------------------------
+option(SM_RENUT "Compila o Renut (swordman_renderer = renut)" ON)
+if(SM_RENUT)
+    include("${SM_ROOT}/cmake/renut.cmake")
+    target_sources(main PRIVATE "${SM_ROOT}/src/renut_glue.cpp")
+    sm_renut_setup(main)
+endif()

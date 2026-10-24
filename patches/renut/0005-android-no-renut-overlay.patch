@@ -1,0 +1,15 @@
+diff --git a/app/src/renut_engine/gpu/overlay/app_integration.cpp b/app/src/renut_engine/gpu/overlay/app_integration.cpp
+index 9d1eb22..d4e4c95 100644
+--- a/app/src/renut_engine/gpu/overlay/app_integration.cpp
++++ b/app/src/renut_engine/gpu/overlay/app_integration.cpp
+@@ -99,7 +99,9 @@ bool StartRenderer(rex::ui::WindowedAppContext &app_context,
+     return false;
+   }
+   // reNut's own overlay (overlay_ui.h), built on the UI thread with the SDK's.
+-#if !defined(__SWITCH__)
++  // SwordMan (Android): not on Android either. libmain.so links the SDK's one Dear ImGui (no second copy for reNut's
++  // overlay: duplicate symbols), as the Switch build does.
++#if !defined(__SWITCH__) && !defined(__ANDROID__)
+   if (!overlay::Start([&app_context](std::function<void()> build) {
+         app_context.CallInUIThreadDeferred(std::move(build));
+       }))

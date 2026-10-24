@@ -1,0 +1,2 @@
+# Opcoes do gerador de codigo (SDK 0178, do mgr-nx-deko), ligadas uma de cada vez e medidas com tools/fight-bench.sh
+# e validadas com tools/validate-run.sh (docs/RENUT_ANDROID.md, "Fase codegen"). Vazio = o codigo classico.

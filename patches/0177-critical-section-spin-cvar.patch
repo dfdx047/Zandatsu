@@ -1,0 +1,47 @@
+--- a/src/kernel/xboxkrnl/xboxkrnl_rtl.cpp
++++ b/src/kernel/xboxkrnl/xboxkrnl_rtl.cpp
+@@ -16,6 +16,7 @@
+ #include <string>
+ 
+ #include <rex/chrono/chrono_steady_cast.h>
++#include <rex/cvar.h>
+ #include <rex/kernel/xboxkrnl/private.h>
+ #include <rex/kernel/xboxkrnl/rtl.h>
+ #include <rex/kernel/xboxkrnl/threading.h>
+@@ -31,6 +32,13 @@
+ #include <rex/thread.h>
+ #include <rex/thread/atomic.h>
+ 
++// 0177 (SwordMan): RtlEnterCriticalSection's spin before it sleeps. The game's count is x256 tight CAS rounds, which
++// on the RP5 is 14% of MGR's job workers (simpleperf, 23/10) while the lock is held by another worker.
++REXCVAR_DEFINE_INT32(swordman_cs_spin, -1, "SwordMan",
++                     "RtlEnterCriticalSection: spin rounds before waiting (-1 = the game's count x256, as before; "
++                     "0 or more = at most this many, each with a yield hint)")
++    .range(-1, 1000000);
++
+ namespace rex::kernel::xboxkrnl {
+ using namespace rex::system;
+ 
+@@ -388,6 +396,10 @@
+   }
+ 
+   // Spin loop
++  const int32_t spin_cap = REXCVAR_GET(swordman_cs_spin);
++  if (spin_cap >= 0) {
++    spin_count = std::min<uint32_t>(spin_count, uint32_t(spin_cap));
++  }
+   while (spin_count--) {
+     if (rex::thread::atomic_cas(-1, 0, &cs->lock_count)) {
+       // Acquired.
+@@ -395,6 +407,11 @@
+       cs->recursion_count = 1;
+       return;
+     }
++#if defined(__aarch64__)
++    if (spin_cap >= 0) {
++      __asm__ volatile("yield");
++    }
++#endif
+   }
+ 
+   if (rex::thread::atomic_inc(&cs->lock_count) != 0) {

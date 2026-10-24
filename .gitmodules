@@ -1,0 +1,4 @@
+[submodule "third_party/mgr-nx-deko"]
+	path = third_party/mgr-nx-deko
+	url = https://github.com/tuancapoo/mgr-nx-deko
+	ignore = dirty

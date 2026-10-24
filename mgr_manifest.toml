@@ -8,4 +8,4 @@ game_root = "assets"
 [entrypoint]
 file_path = "assets/default.xex"
 out_directory_path = "generated/default"
-includes = ["mgr_overrides.toml"]
+includes = ["mgr_overrides.toml", "mgr_codegen.toml"]

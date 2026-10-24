@@ -62,6 +62,10 @@ public class GameActivity extends SDLActivity {
         // de cada vez que um pipeline faltava (travadinhas), e a sincrona custa
         // menos de 1 ms por frame com a cache do driver. O cvars.txt pode mudar.
         setEnv("REX_ASYNC_SHADER_COMPILATION", "false");
+        // Sem o evento sentinela do SDL: no Android o SDL_WaitEvent poe um sentinela a cada volta (o que o acorda)
+        // e o SDL_PeepEvents tira-o logo, e a thread de UI gira a 100% de um nucleo sempre que nao esta bloqueada
+        // a pintar (modo Renut: 99% medidos, 23/10). O SDK nao usa SDL_PollEvent, que e quem precisa do sentinela.
+        setEnv("SDL_POLL_SENTINEL", "0");
         applyTurnipCompat(appDir);
         applyCvarOverrides(new File(appDir, "cvars.txt"));
         if (!driverCrashedBefore(appDir)) {
