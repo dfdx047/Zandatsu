@@ -10,6 +10,9 @@
 #   bash tools/fight-bench.sh <serial> <nome> [cvar = valor ...]
 #   bash tools/fight-bench.sh 611e0fa0 renut720 'swordman_renderer = "renut"' 'sa2_render_height_handheld = 720'
 #   bash tools/fight-bench.sh 611e0fa0 xenos540 'draw_resolution_percent = 75'
+# FIGHT_S = segundos de luta (padrão 45). Um "device lost" (GPU pendurada) é contado: minutos desde o início da luta,
+# e só as janelas anteriores entram nas médias (depois dele o jogo continua a contar frames sem desenhar). Um device
+# lost antes da luta (título, menus, carregamento) também conta: segundos desde o arranque, e a corrida não tem médias.
 # ATTACK=0 deixa o Raiden parado (a luta vem ter com ele; a cena varia muito menos que com golpes: para comparar
 # mudanças pequenas). O resumo usa a mediana das janelas e descarta GPU ms impossíveis (> 1000; o Renut às vezes
 # reporta uma janela errada).
@@ -37,11 +40,12 @@ ticks() {
 PID=$(adb -s "$D" shell pidof "$APP:game" | tr -d '\r')
 GTID=$(adb -s "$D" shell "grep -m1 'game thread' $A/logs/swordman_last.log" | sed -nE 's/.*\[t([0-9]+)\] \[renut\] game thread.*/\1/p' || true)
 MAIN_CPU=""
-for i in $(seq 1 30); do
+ROUNDS=$(( ${FIGHT_S:-45} * 2 / 3 ))
+for i in $(seq 1 "$ROUNDS"); do
   if [ "${ATTACK:-1}" = 1 ]; then press X 1.5; else sleep 1.5; fi
   [ "$i" = 12 ] && adb -s "$D" exec-out screencap -p > "$OUT/${N}_luta.png"
   if [ -n "$GTID" ] && [ "$i" = 5 ]; then C0=$(ticks); S0=$(date +%s.%N); fi
-  if [ -n "$GTID" ] && [ "$i" = 25 ] && [ -n "${C0:-}" ]; then
+  if [ -n "$GTID" ] && [ "$i" = $(( ROUNDS - 5 )) ] && [ -n "${C0:-}" ]; then
     C1=$(ticks); S1=$(date +%s.%N)
     MAIN_CPU=$(awk -v a="$C0" -v b="$C1" -v s0="$S0" -v s1="$S1" 'BEGIN{printf "%.0f", (b-a)/(s1-s0)}')
   fi
@@ -55,9 +59,20 @@ sec = lambda t: sum(float(x) * k for x, k in zip(t.split(':'), (3600, 60, 1)))
 t0, t1 = sec(t0) + 5, sec(t1) + 1
 rows, swaps, cpu = [], [], []
 game_tid = None
-for l in open(log, errors='ignore'):
+lines = open(log, errors='ignore').read().splitlines()
+lost = start = None
+for l in lines:
     m = re.match(r'\[\S+ (\d+:\d+:[\d.]+)\]', l)
-    if not m or not t0 <= sec(m[1]) <= t1:
+    start = start if start is not None or not m else sec(m[1])
+    if m and 'device lost' in l:
+        lost = sec(m[1])
+        break
+if lost is not None and lost < t0 - 5:
+    sys.exit(f'{name}: HANG antes da luta, {lost - start:.0f} s depois do arranque')
+end = min(t1, lost) if lost else t1
+for l in lines:
+    m = re.match(r'\[\S+ (\d+:\d+:[\d.]+)\]', l)
+    if not m or not t0 <= sec(m[1]) <= end:
         continue
     r = re.search(r'\[renut\] [\d.]+ s: (\d+) game frames \(([\d.]+) fps\).*GPU ([\d.]+) ms a frame.*?; (\d+) draws', l)
     if r:
@@ -69,14 +84,15 @@ for l in open(log, errors='ignore'):
     x = re.search(r'game_fps=([\d.]+).*gpu_ms avg=([\d.]+).*draws=(\d+)', l)
     if x:
         rows.append((float(x[1]), float(x[2]), float(x[3])))
+hang = f', HANG aos {(lost - (t0 - 5)) / 60:.1f} min de luta' if lost else ', sem hang'
 if not rows:
-    sys.exit(f'{name}: sem linhas de perf na janela')
+    sys.exit(f'{name}: sem linhas de perf na janela{hang}')
 import statistics
 n = len(rows)
-med = [statistics.median(r[i] for r in rows if i != 1 or r[1] < 1000) for i in range(3)]
+med = [statistics.median([r[i] for r in rows if i != 1 or r[1] < 1000] or [0]) for i in range(3)]
 swap = f', Swap a Swap {statistics.median(swaps):.1f} ms' if swaps else ''
 if main_cpu:
     swap += f', thread principal {main_cpu}% de um núcleo'
 print(f'{name}: {n} janelas, {med[0]:.1f} fps de jogo, GPU {med[1]:.1f} ms/frame{swap}, {med[2]:.0f} draws/frame '
-      '(medianas)')
+      f'(medianas){hang}')
 PY

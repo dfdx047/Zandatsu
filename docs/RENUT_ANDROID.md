@@ -214,3 +214,24 @@ O jogo continua a fazer Swaps, por isso o fight-bench não o via (as janelas de 
 Frequência por corrida de 2,5 min de luta: base 9/~42; `TU_DEBUG=...,sysmem` 1/12; V0 3/10; V0 sem geometry
 shaders (`swordman_renut_no_gs`, patch renut/0012) 1/4 (teste interrompido). Os laços dos shaders traduzidos são
 todos limitados (constantes literais). Causa ainda por encontrar; até lá nenhuma variante passa "nada pode travar".
+
+## Hang da GPU no Renut (24/10; RP5, V0, 720p, `cores = 2`)
+
+### 1. Testes de causa sem código novo (3 corridas do fight-bench de 5 min de luta, `FIGHT_S=300`, com golpes)
+Cada corrida dura ~6,5 min desde o arranque (título, menus, carregamento, 5 min de luta). fps e GPU ms: medianas
+das janelas antes do hang (as corridas com hang antes da luta não têm números). Cada hang no log tem o seu
+`kgsl: MISC: GPU hang detected` no `dmesg` à mesma hora, sempre com `status 00E59005` (uma vez `00E51005`).
+
+| Driver / modo | Hangs em 3 | Quando | fps de jogo | GPU ms |
+|---|---|---|---|---|
+| a) Turnip v27 (base) | 1 | 4,2 min de luta | 59,4 / 59,4 / 58,8 | 10,7 / 9,6 / 10,3 |
+| b) Turnip do ARMSX2 (`turnip-axfl2-003`) | 2 | 4,8 min de luta; 34 s depois do arranque (título) | 59,0 / 58,5 | 11,4 / 11,0 |
+| c) v27 + `TU_DEBUG=push_consts_per_stage,sysmem` | 2 | 74 s e 81 s depois do arranque (menus/carregamento) | 56,0 (c2, 1,5 min) | 9,6 |
+| d) v27 + profundidade D24S8 (`swordman_renut_d24s8`, patch renut/0013) | 1 | 60 s depois do arranque | 59,2 / 59,6 | 9,7 / 8,7 |
+
+- Nenhum zera os hangs: 6 em 12 corridas (~78 min), um a cada ~13 min, em qualquer modo. O sysmem já tinha dado
+  1/8 num teste anterior; o D24S8 não muda nada (o hang do ARMSX2 com D32S8 + discard não é este).
+- Os hangs não são só da luta: título, menus e carregamento também. O fight-bench antes só contava os que vinham
+  depois do início da luta (4 destes 6 passavam como "sem hang", com números de uma GPU que já não desenhava);
+  agora conta-os ("HANG antes da luta, N s depois do arranque").
+- c2: depois de 1,5 min a luta passou a 78 draws/frame (fora do combate) e o resto não conta.

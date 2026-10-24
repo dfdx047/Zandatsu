@@ -1,0 +1,27 @@
+--- a/app/src/renut_engine/gpu/render/format.cpp
++++ b/app/src/renut_engine/gpu/render/format.cpp
+@@ -8,6 +8,14 @@
+ 
+ #include <cstring>
+ 
++#include <rex/cvar.h>
++
++// SwordMan (Android): the same 24-bit depth on Vulkan with swordman_renut_d24s8 (a test of the Turnip hang: ARMSX2
++// documents one with D32S8 and discard). The scene's depth is D24S8 on the Xenos; D24FS8 stays 32-bit float.
++REXCVAR_DEFINE_BOOL(swordman_renut_d24s8, false, "SwordMan",
++                    "Renut (Vulkan): the game's D24S8 depth targets as D24_UNORM_S8_UINT instead of D32_SFLOAT_S8_UINT")
++    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
++
+ namespace renut::gpu {
+ 
+ plume::RenderFormat ColorTargetFormat(GpuColorFormat format) {
+@@ -45,7 +53,8 @@
+   // banjo-nx (2026-10-19, banjo_deko3d_depth24): the Xenos stores D24S8 depth as 24-bit unorm; a host Z24S8 target
+   // holds the same values (a resolve or a fetch gives the unorm as a float, as the Xenos's does) in half the bytes of
+   // D32_FLOAT_S8_UINT. The 20e4 float format (D24FS8) has no host equivalent and stays 32-bit float.
+-  if ((d3d_format & 0x3F) == u32(GpuTextureFormat::Fmt24_8) && IsDeko3D() && banjo::renut_gpu::Depth24On())
++  if ((d3d_format & 0x3F) == u32(GpuTextureFormat::Fmt24_8) && (IsDeko3D() || REXCVAR_GET(swordman_renut_d24s8)) &&
++      banjo::renut_gpu::Depth24On())
+     return plume::RenderFormat::D24_UNORM_S8_UINT;
+   return DepthTargetFormat();
+ }
