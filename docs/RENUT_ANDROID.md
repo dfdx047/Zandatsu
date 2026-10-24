@@ -336,8 +336,13 @@ Uma corrida por opção: arranca com a opção desligada, fotos no título, na l
   -1,7 ms de GPU desligadas. O brilho é uma cadeia a 320x176: entre corridas inteiras, ~0,3 ms.
 - No RP5 a 720p o jogo já está a ~59–60 fps com tudo ligado (GPU ~9 ms de 16,7): as opções não dão fps, dão folga de GPU
   (bateria/temperatura) e servem para aparelhos mais fracos.
-- O início do prólogo (os primeiros ~2 min de um jogo novo) é vídeo (GPU a 5–6 %); a parte em tempo real vem depois e
-  ficou fora dos 5 min por opção. Enquanto não houver essa foto, as duas opções ficam escondidas (`RenutValidated`).
+- Cutscene: o prólogo de um jogo novo é vídeo do início até à primeira luta (fotos aos 30–240 s, GPU a 5–7 %, com as
+  opções desligadas e ligadas). Não há cutscene em tempo real antes da primeira luta; as duas opções ficam validadas
+  no título, na pausa e na luta e entram no menu (`RenutValidated`, 24/10).
+- Motion blur: dumps de frame na luta normal, na Ninja Run, a girar a câmara e na Ninja Run a girar a câmara: nenhum
+  passe de ecrã inteiro novo. Os dois passes que leem a cena são partículas (`DC5D90EC`, 4–10 quads com alfa, fumo
+  com profundidade suave) e distorção (`AE6238C8`, 2 sprites 512x512). Sem passe de blur: fora do menu, como SSAO e
+  profundidade de campo. O Blade Mode pelo LT (`axis 4 1 MS`) não entrou nesse teste.
 - O slot 3 dos saves de teste aparece vazio no jogo mesmo com o ficheiro igual ao do jogador (os slots 1 e 2 de teste
   carregam): os scripts usam o slot 1 de teste.
 - Hang da GPU (device lost) a 12:02 com tudo ligado, 8 s depois de carregar a luta, bateria a 90 % no USB: o hang do

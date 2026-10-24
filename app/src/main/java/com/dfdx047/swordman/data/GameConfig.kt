@@ -521,8 +521,8 @@ object RenutSupport {
 
 /**
  * Perfis do Renut (menu Desempenho). O MGR do Xbox 360 tem duas opcoes graficas que se desligam
- * (dumps de frames de 24/10): sombras do sol e brilho. Nao tem SSAO, profundidade de campo nem
- * motion blur nos frames do jogo (a abertura e video).
+ * (dumps de frames de 24/10): sombras do sol e brilho. SSAO e profundidade de campo nao existem no 360;
+ * motion blur tambem nao (dumps na Ninja Run e a girar a camara, 24/10).
  *  - Baixo: 540p, sem sombras nem brilho.
  *  - Medio: 720p, sem sombras nem brilho.
  *  - Alto: 720p, tudo ligado.
@@ -535,8 +535,8 @@ enum class RenutPreset { LOW, MEDIUM, HIGH, ULTRA }
  * As que nao estao ficam escondidas nos menus e sempre ligadas; os perfis so aparecem com pelo menos uma validada.
  */
 object RenutValidated {
-    const val SHADOWS = false
-    const val BLOOM = false
+    const val SHADOWS = true  // 24/10: titulo, pausa, luta; o prologo ate a 1.a luta e video
+    const val BLOOM = true
     const val PRESETS = SHADOWS || BLOOM
 }
 
