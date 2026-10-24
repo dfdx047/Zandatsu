@@ -67,6 +67,11 @@ public class GameActivity extends SDLActivity {
         // a pintar (modo Renut: 99% medidos, 23/10). O SDK nao usa SDL_PollEvent, que e quem precisa do sentinela.
         setEnv("SDL_POLL_SENTINEL", "0");
         applyTurnipCompat(appDir);
+        // Jogo importado de uma ISO: lido dela, sem pasta extraida (IsoSource; o nativo monta-a, src/mgr_app.h).
+        int isoFd = com.dfdx047.zandatsu.data.IsoSource.openFd(this);
+        if (isoFd >= 0) {
+            setEnv("ZANDATSU_ISO_FD", Integer.toString(isoFd));
+        }
         applyCvarOverrides(new File(appDir, "cvars.txt"));
         if (!driverCrashedBefore(appDir)) {
             installCustomVulkanDriver(appDir);

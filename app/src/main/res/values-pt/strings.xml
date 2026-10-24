@@ -24,7 +24,7 @@
     <string name="status_not_installed">Jogo ainda não importado</string>
     <string name="game_files_title">Arquivos do jogo</string>
     <string name="game_files_subtitle">Sua própria cópia, nada é baixado</string>
-    <string name="game_files_help">Escolha a .iso do seu disco de Xbox 360, ou uma pasta com o default.xex e a media/ (disco extraído). Os dados do jogo são copiados para o app. O executável é conferido por SHA-1 na hora; \"Verificar arquivos\" confere o resto.</string>
+    <string name="game_files_help">Escolha a .iso do seu disco de Xbox 360, ou uma pasta com o default.xex e a media/ (disco extraído). A .iso é lida onde está (só o default.xex é copiado, em segundos): não a apague nem mova. Uma pasta é copiada para o app. O executável é conferido por SHA-1 na hora; \"Verificar arquivos\" confere o resto.</string>
     <string name="file_ok">OK</string>
     <string name="file_missing_required">em falta (obrigatório)</string>
     <string name="file_missing_optional">faltando (opcional)</string>

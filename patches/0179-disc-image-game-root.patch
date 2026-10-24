@@ -1,0 +1,84 @@
+--- a/src/core/mapped_memory_posix.cpp
++++ b/src/core/mapped_memory_posix.cpp
+@@ -9,7 +9,10 @@
+  * @modified    Tom Clay & Rien Gupta, 2026 - Adapted for ReXGlue runtime (POSIX + macOS)
+  */
+ 
++#include <cstdlib>
+ #include <memory>
++#include <string>
++#include <string_view>
+ 
+ #include <fcntl.h>
+ #include <sys/mman.h>
+@@ -114,7 +117,17 @@
+       open_flags |= O_RDWR;
+       break;
+   }
+-  int file_descriptor = open(path.c_str(), open_flags);
++  // Zandatsu (0179): /proc/self/fd/N (a disc image the app opened through the content resolver) is the descriptor
++  // itself, duplicated: opening the link again checks the file's owner, and a shared-storage file is not the app's.
++  int file_descriptor = -1;
++  const std::string text = path.string();
++  constexpr std::string_view kSelfFd = "/proc/self/fd/";
++  if (text.rfind(kSelfFd, 0) == 0) {
++    const int fd = std::atoi(text.c_str() + kSelfFd.size());
++    file_descriptor = fd > 2 && mode == Mode::kRead ? fcntl(fd, F_DUPFD_CLOEXEC, 0) : -1;
++  } else {
++    file_descriptor = open(path.c_str(), open_flags);
++  }
+   if (file_descriptor < 0) {
+     return nullptr;
+   }
+--- a/src/system/runtime.cpp
++++ b/src/system/runtime.cpp
+@@ -11,6 +11,7 @@
+ 
+ #include <rex/chrono/clock.h>
+ #include <rex/cvar.h>
++#include <rex/filesystem/devices/disc_image_device.h>
+ #include <rex/filesystem/devices/host_path_device.h>
+ #include <rex/filesystem/devices/null_device.h>
+ #include <rex/filesystem/vfs.h>
+@@ -358,8 +359,16 @@
+ 
+   // Mount game_data_root as \Device\Harddisk0\Partition1
+   auto mount_path = "\\Device\\Harddisk0\\Partition1";
+-  auto device = std::make_unique<rex::filesystem::HostPathDevice>(
+-      mount_path, abs_game_root, !REXCVAR_GET(allow_game_relative_writes));
++  // Zandatsu (0179): a disc image (an .iso, or /proc/self/fd/N of one the app opened) is read in place, as Xenia
++  // does, through the GDFX file system: no folder extracted from it.
++  std::unique_ptr<rex::filesystem::Device> device;
++  if (std::filesystem::is_regular_file(abs_game_root)) {
++    device = std::make_unique<rex::filesystem::DiscImageDevice>(mount_path, abs_game_root);
++    REXSYS_INFO("Runtime::SetupVfs: disc image {}", abs_game_root.string());
++  } else {
++    device = std::make_unique<rex::filesystem::HostPathDevice>(mount_path, abs_game_root,
++                                                               !REXCVAR_GET(allow_game_relative_writes));
++  }
+   if (!device->Initialize()) {
+     REXSYS_ERROR("Runtime::SetupVfs: Failed to initialize host path device");
+     return false;
+--- a/src/ui/rex_app.cpp
++++ b/src/ui/rex_app.cpp
+@@ -706,7 +706,9 @@
+     rex::ShowSimpleMessageBox(rex::SimpleMessageBoxType::Error, msg);
+     return false;
+   }
+-  if (!std::filesystem::is_directory(paths.game_data_root)) {
++  // Zandatsu (0179): or a disc image (Runtime::SetupVfs mounts it).
++  if (!std::filesystem::is_directory(paths.game_data_root) &&
++      !std::filesystem::is_regular_file(paths.game_data_root)) {
+     auto msg = fmt::format("--game_data_root does not exist: {}", paths.game_data_root.string());
+     REXLOG_ERROR("{}", msg);
+     rex::ShowSimpleMessageBox(rex::SimpleMessageBoxType::Error, msg);
+@@ -787,7 +789,8 @@
+     std::string host_tail{tail};
+     std::replace(host_tail.begin(), host_tail.end(), '\\', '/');
+     auto xex_host = paths.game_data_root / host_tail;
+-    if (!std::filesystem::is_regular_file(xex_host)) {
++    // Zandatsu (0179): in a disc image the XEX is the image's (LoadXexImage reads it through the VFS).
++    if (!std::filesystem::is_regular_file(paths.game_data_root) && !std::filesystem::is_regular_file(xex_host)) {
+       auto msg = fmt::format("Entrypoint XEX not found: {}", xex_host.string());
+       REXLOG_ERROR("{}", msg);
+       rex::ShowSimpleMessageBox(rex::SimpleMessageBoxType::Error, msg);

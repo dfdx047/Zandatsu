@@ -251,9 +251,15 @@ object GameFiles {
             },
         )
         val cut = manifestProblems()
+        // Jogo lido da ISO (IsoSource): o que nao esta na pasta conta se estiver na ISO (e ela ainda abrir).
+        val iso = if (IsoSource.current() != null) IsoSource.files() else null
         for (e in BaseRom.FILES) {
             val f = File(AppPaths.gameDir, e.path)
-            val present = if (e.directory) f.isDirectory && (f.list()?.isNotEmpty() == true) else f.isFile
+            val onDisk = if (e.directory) f.isDirectory && (f.list()?.isNotEmpty() == true) else f.isFile
+            val inIso = iso != null && e.path.lowercase().let { p ->
+                if (e.directory) iso.any { it.startsWith("$p/") } else p in iso
+            }
+            val present = onDisk || inIso
             val damaged = cut.any { p ->
                 if (e.directory) p.lowercase().startsWith(e.path.lowercase() + "/") else p.equals(e.path, true)
             } || (present && !e.directory && e.path.endsWith(".CPK", true) && !cpkLooksOk(f))
@@ -375,6 +381,7 @@ object GameFiles {
         copy(xexDoc, "default.xex")
         writeManifest(files.map { (d, rel) -> rel to d.length() } + ("default.xex" to xexDoc.length()))
         onProgress(ImportProgress.Copying("", total, total))
+        IsoSource.clear()  // o jogo volta a ser a pasta game/
         GameLib.install(context, onProgress)
     }
 
@@ -424,9 +431,20 @@ object GameFiles {
                     f.path.startsWith("media/", ignoreCase = true) && f !== xex
                 }.sortedBy { f -> f.offset } + xex
                 requireFiles(files.map { f -> f.path })
+                // A ISO lida no lugar (IsoSource, como o Xenia): so o default.xex vem para a pasta do app, o resto
+                // fica na ISO. Sem permissao persistente do fornecedor (ou sem tamanho), extrai-se como antes.
+                AppPaths.xexFile.delete()
+                if (it.statSize > 0 && IsoSource.save(uri, discSize)) {
+                    ensureSpace(xex.size)
+                    copyEntry(ch, xex, Meter(xex.size, onProgress))
+                    writeManifest(listOf(xex.path to xex.size))
+                    AppLog.i("import", "ISO lida no lugar: so o default.xex copiado")
+                    onProgress(ImportProgress.Copying("", xex.size, xex.size))
+                    return@use
+                }
+                IsoSource.clear()
                 val total = files.sumOf { f -> f.size }
                 ensureSpace(xex.size + files.filter { f -> f !== xex && !sameSize(f.path, f.size) }.sumOf { f -> f.size })
-                AppPaths.xexFile.delete()
                 val meter = Meter(total, onProgress)
                 for (f in files) {
                     val target = File(AppPaths.gameDir, f.path)
@@ -434,21 +452,7 @@ object GameFiles {
                         meter.add(f.path, f.size)
                         continue
                     }
-                    target.parentFile?.mkdirs()
-                    val tmp = File(target.parentFile, target.name + ".part")
-                    try {
-                        java.io.FileOutputStream(tmp).use { out ->
-                            copyRange(ch, f.offset, f.size, out.channel) { n -> meter.add(f.path, n) }
-                        }
-                        if (target.exists()) target.delete()
-                        if (!tmp.renameTo(target)) throw ImportException(ImportException.Reason.IO, f.path)
-                    } catch (e: ImportException) {
-                        tmp.delete()
-                        throw e
-                    } catch (e: Exception) {
-                        tmp.delete()
-                        throw ImportException(ImportException.Reason.IO, "${f.path}: ${e.message}")
-                    }
+                    copyEntry(ch, f, meter)
                 }
                 // Os .cpk copiados tem de comecar pela assinatura (disco danificado = "CPK " em falta).
                 files.filter { f -> f.path.endsWith(".cpk", ignoreCase = true) }.forEach { f ->
@@ -461,6 +465,26 @@ object GameFiles {
             }
         }
         GameLib.install(context, onProgress)
+    }
+
+    /** Um ficheiro da ISO para a pasta do app (por um .part, renomeado no fim). */
+    private fun copyEntry(ch: FileChannel, f: Xdvdfs.FileEntry, meter: Meter) {
+        val target = File(AppPaths.gameDir, f.path)
+        target.parentFile?.mkdirs()
+        val tmp = File(target.parentFile, target.name + ".part")
+        try {
+            java.io.FileOutputStream(tmp).use { out ->
+                copyRange(ch, f.offset, f.size, out.channel) { n -> meter.add(f.path, n) }
+            }
+            if (target.exists()) target.delete()
+            if (!tmp.renameTo(target)) throw ImportException(ImportException.Reason.IO, f.path)
+        } catch (e: ImportException) {
+            tmp.delete()
+            throw e
+        } catch (e: Exception) {
+            tmp.delete()
+            throw ImportException(ImportException.Reason.IO, "${f.path}: ${e.message}")
+        }
     }
 
     private fun requireFiles(paths: List<String>) {

@@ -28,6 +28,7 @@ object AppPaths {
         appDir = (context.getExternalFilesDir(null) ?: context.filesDir).also { it.mkdirs() }
         internalDir = context.filesDir
         cacheDir = context.cacheDir
+        IsoSource.init(context)
     }
 
     val gameDir: File get() = File(appDir, "game")

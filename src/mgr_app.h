@@ -12,6 +12,8 @@
 
 #if defined(SM_RENUT)
 #include <cstdio>
+#include <cstdlib>
+#include <string>
 #include <functional>
 #include <optional>
 
@@ -44,6 +46,11 @@ class MgrApp : public rex::ReXApp {
 #if defined(__ANDROID__)
     if (paths.game_data_root.empty()) {
       paths.game_data_root = rex::GetAndroidAppDirectory() / "game";
+    }
+    // Jogo importado de uma ISO (GameActivity.java): o descritor da ISO que o launcher abriu pelo content resolver.
+    // O SDK (patch 0179) monta-a como disco (DiscImageDevice), sem pasta extraida.
+    if (const char* fd = std::getenv("ZANDATSU_ISO_FD"); fd && *fd) {
+      paths.game_data_root = std::string("/proc/self/fd/") + fd;
     }
 #else
     (void)paths;
