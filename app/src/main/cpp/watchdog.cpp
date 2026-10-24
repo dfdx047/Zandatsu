@@ -8,7 +8,7 @@
 // Como: um sinal de tempo real a cada thread; o handler le pc/lr/fp do contexto
 // interrompido e segue a cadeia de frame pointers (async-signal-safe, sem malloc). Os
 // enderecos sao nomeados com dladdr: as funcoes recompiladas (sub_XXXXXXXX, o endereco
-// no default.xex) e as do runtime sao exportadas pela libmain.so.
+// no default.xex) e as do runtime sao exportadas pela libgame.so.
 
 #include <android/log.h>
 #include <cxxabi.h>

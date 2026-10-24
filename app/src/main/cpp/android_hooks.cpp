@@ -39,7 +39,7 @@ void SwordManPausePoint() {
 }
 
 namespace {
-// Liga o gancho quando a libmain.so e carregada (antes de o jogo arrancar).
+// Liga o gancho quando a libgame.so e carregada (antes de o jogo arrancar).
 struct InstallHooks {
   InstallHooks() { rex_vdswap_hook = &SwordManPausePoint; }
 } g_install_hooks;

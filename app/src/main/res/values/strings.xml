@@ -283,6 +283,8 @@
     <string name="err_import_modified">This is Metal Gear Rising, but its default.xex was changed (%1$s). Use a clean dump of the disc.</string>
     <string name="err_import_truncated">The image is incomplete: it ends before the game files (%1$s). Download or copy the .iso again.</string>
     <string name="err_import_bad_data">A game file is damaged (%1$s). The disc dump is bad; make a new one.</string>
+    <string name="err_import_unsupported">Unsupported game version: %1$s. Zandatsu needs the Metal Gear Rising: Revengeance disc (USA/Europe) with the original default.xex.</string>
+    <string name="busy_unpacking">Preparing the game code</string>
     <string name="menu_tab_pause">Pause</string>
     <string name="menu_tab_system">System</string>
     <string name="menu_session">Session</string>

@@ -5,7 +5,7 @@
 #  - sem XenosRecomp, dump de shaders nem DXC aqui: tudo isso corre no PC (tools/renut-shaders.sh) e este ficheiro so
 #    compila out/renut/shader_cache.cpp e inclui out/renut/host_shaders/*.spirv.h;
 #  - sem deko3d, NVK, uam, SPIRV-Cross, LTO (Switch); sem X11; sem a copia propria do ImGui (usa a do SDK, ligada ao
-#    libmain.so: uma segunda copia daria simbolos duplicados).
+#    libgame.so: uma segunda copia daria simbolos duplicados).
 #
 # E uma biblioteca OBJECT, de proposito: os hooks substituem as definicoes fracas sub_X do codigo gerado, e os membros
 # de um arquivo estatico so sao puxados por simbolos em falta (os hooks nunca entrariam).
@@ -135,7 +135,7 @@ target_compile_definitions(mgr_renut_gpu PRIVATE MGR_RENUT_RENDERER=1 SA2_RENUT_
 target_compile_options(mgr_renut_gpu PRIVATE -march=armv8.2-a -ffp-contract=off -fno-strict-aliasing)
 target_link_libraries(mgr_renut_gpu PRIVATE rex::runtime plume renut_zstd renut_smolv renut_xxhash rex::o1heap)
 
-# Liga o Renut ao libmain.so (<alvo>) e diz ao codigo do app que ele existe (SM_RENUT).
+# Liga o Renut ao libgame.so (<alvo>) e diz ao codigo do app que ele existe (SM_RENUT).
 function(sm_renut_setup TARGET)
     # adrenotools: o driver Vulkan do plume (src/renut_glue.cpp, plume_android_vulkan_library).
     target_link_libraries(${TARGET} PRIVATE mgr_renut_gpu adrenotools)

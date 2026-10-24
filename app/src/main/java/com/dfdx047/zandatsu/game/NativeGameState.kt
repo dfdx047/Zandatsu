@@ -1,7 +1,7 @@
 package com.dfdx047.zandatsu.game
 
 /**
- * Ponte com o jogo (game_state_jni.cpp, em libmain.so): pausa, cvars ao vivo, volume,
+ * Ponte com o jogo (game_state_jni.cpp, em libgame.so): pausa, cvars ao vivo, volume,
  * log e o estado jogo/menus (ainda desconhecido no MGR: fightFlag devolve -1).
  */
 object NativeGameState {
@@ -56,7 +56,7 @@ object NativeGameState {
         return try {
             nativeMapFlag()
         } catch (e: UnsatisfiedLinkError) {
-            // libmain.so antiga sem esta funcao: so desliga a deteccao do mapa.
+            // libgame.so antiga sem esta funcao: so desliga a deteccao do mapa.
             -1
         }
     }

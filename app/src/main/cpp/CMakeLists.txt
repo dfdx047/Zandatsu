@@ -2,11 +2,13 @@
 #
 # Compila o SDK (external/rexglue-sdk: o mesmo do Dragon Burst, fork do ReXGlue do
 # Burst Limit com os patches Android de patches/) e o MGR recompilado (src/ e
-# generated/default na raiz do repositorio) numa biblioteca libmain.so que o
-# SDLActivity carrega.
+# generated/default na raiz do repositorio) numa biblioteca libgame.so que o
+# SDLActivity carrega (encriptada no APK; ver o fim deste ficheiro).
 #
 # Resultado (todas em arm64-v8a, empacotadas no APK):
-#   libmain.so          jogo recompilado + src/ do projeto + glue Android
+#   libmain.so          carregador: le o default.xex do jogador (chave do libgame.so)
+#   libgame.so          jogo recompilado + hooks + Renut + shaders traduzidos + glue Android;
+#                       NAO vai no APK: so encriptado (assets/libgame.zdat, tools/pack-libgame.py)
 #   librexruntime.so    runtime ReXGlue (kernel, memoria, audio, input, UI)
 #   librexgpu-xenos.so  plugin da GPU Xenos (Vulkan)
 #   libSDL3.so          SDL3 (janela, eventos, audio, comandos)
@@ -117,11 +119,11 @@ target_precompile_headers(mgr_recomp PRIVATE "${SM_GENERATED}/mgr_pch.h")
 target_compile_options(mgr_recomp PRIVATE -march=armv8.2-a -ffp-contract=off)
 
 #-----------------------------------------------------------------------------
-# libmain.so: src/ do projeto (o mesmo main.cpp do build de PC) + glue Android.
+# libgame.so: src/ do projeto (o mesmo main.cpp do build de PC) + glue Android.
 #-----------------------------------------------------------------------------
-add_library(main SHARED "${SM_ROOT}/src/main.cpp" $<TARGET_OBJECTS:mgr_recomp>)
+add_library(game SHARED "${SM_ROOT}/src/main.cpp" $<TARGET_OBJECTS:mgr_recomp>)
 
-target_sources(main PRIVATE
+target_sources(game PRIVATE
     # Pausa no VdSwap (patch 0100) e contador de frames.
     "${CMAKE_CURRENT_LIST_DIR}/android_hooks.cpp"
     # Ponte com o app: pausa, cvars ao vivo, volume, log (NativeGameState.kt).
@@ -136,13 +138,13 @@ target_sources(main PRIVATE
 option(DB_D3D_TRACE "Hooks de rastreio da biblioteca D3D (logs/d3d_trace.log)" OFF)
 if(DB_D3D_TRACE)
     if(EXISTS "${CMAKE_CURRENT_LIST_DIR}/d3d_trace_hooks.cpp")
-        target_sources(main PRIVATE "${CMAKE_CURRENT_LIST_DIR}/d3d_trace_hooks.cpp")
+        target_sources(game PRIVATE "${CMAKE_CURRENT_LIST_DIR}/d3d_trace_hooks.cpp")
     else()
         message(FATAL_ERROR "DB_D3D_TRACE ligado mas falta app/src/main/cpp/d3d_trace_hooks.cpp")
     endif()
 endif()
 
-target_include_directories(main PRIVATE
+target_include_directories(game PRIVATE
     "${SM_ROOT}"
     "${SM_ROOT}/src"
     "${SM_GENERATED}"
@@ -151,12 +153,12 @@ target_include_directories(main PRIVATE
     "${CMAKE_BINARY_DIR}/rexglue-sdk/include"
 )
 
-target_compile_options(main PRIVATE
+target_compile_options(game PRIVATE
     -fno-strict-aliasing
     -ffp-contract=off
 )
 
-target_link_libraries(main PRIVATE
+target_link_libraries(game PRIVATE
     rex::runtime
     rex::gpu-xenos
     imgui::imgui
@@ -166,27 +168,27 @@ target_link_libraries(main PRIVATE
 
 # Acrescenta windowed_app_main_sdl.cpp (com o SDL_main do Android) e rex_app.cpp, e as
 # opcoes de plataforma do SDK.
-rexglue_configure_target(main GPU_PLUGINS xenos)
+rexglue_configure_target(game GPU_PLUGINS xenos)
 
 # Alvo minimo: ARMv8.2-A. Fica depois do rexglue_configure_target, que poe
 # -march=armv8-a, para prevalecer.
-target_compile_options(main PRIVATE -march=armv8.2-a)
+target_compile_options(game PRIVATE -march=armv8.2-a)
 
-# Chamadas entre funcoes do proprio libmain.so sem PLT: as ~85 mil sub_* do codigo gerado tem visibilidade padrao
+# Chamadas entre funcoes do proprio libgame.so sem PLT: as ~85 mil sub_* do codigo gerado tem visibilidade padrao
 # (exportadas, logo "substituiveis" em tempo de execucao) e cada chamada entre elas passava por um stub do PLT e pelo
 # GOT (25 mil entradas). Com -Bsymbolic-functions o linker liga-as diretamente; os hooks fortes continuam a ganhar as
 # definicoes fracas no link. (-fvisibility=hidden partiria: os imports do kernel, __imp__Rtl..., vem do librexruntime.)
-option(SM_BSYMBOLIC "libmain.so com -Bsymbolic-functions" ON)
+option(SM_BSYMBOLIC "libgame.so com -Bsymbolic-functions" ON)
 if(SM_BSYMBOLIC)
-    target_link_options(main PRIVATE -Wl,-Bsymbolic-functions)
+    target_link_options(game PRIVATE -Wl,-Bsymbolic-functions)
 endif()
 
-# ThinLTO no codigo gerado e no libmain.so (o LTO nao atravessa .so: o librexruntime fica de fora). Cache do ThinLTO
+# ThinLTO no codigo gerado e no libgame.so (o LTO nao atravessa .so: o librexruntime fica de fora). Cache do ThinLTO
 # no build, para os relinks. Ligado por SM_THINLTO (cache do CMake: -DSM_THINLTO=ON no gradle ou no build.sh).
 if(SM_THINLTO)
     target_compile_options(mgr_recomp PRIVATE -flto=thin)
-    target_compile_options(main PRIVATE -flto=thin)
-    target_link_options(main PRIVATE -flto=thin -Wl,--thinlto-jobs=4
+    target_compile_options(game PRIVATE -flto=thin)
+    target_link_options(game PRIVATE -flto=thin -Wl,--thinlto-jobs=4
                         "-Wl,--thinlto-cache-dir=${CMAKE_BINARY_DIR}/thinlto-cache")
 endif()
 
@@ -197,6 +199,31 @@ endif()
 option(SM_RENUT "Compila o Renut (swordman_renderer = renut)" ON)
 if(SM_RENUT)
     include("${SM_ROOT}/cmake/renut.cmake")
-    target_sources(main PRIVATE "${SM_ROOT}/src/renut_glue.cpp")
-    sm_renut_setup(main)
+    target_sources(game PRIVATE "${SM_ROOT}/src/renut_glue.cpp")
+    sm_renut_setup(game)
 endif()
+
+#-----------------------------------------------------------------------------
+# libgame.so fora do APK. O codigo do jogo (gerado, hooks, Renut e os shaders traduzidos) so pode estar no aparelho
+# de quem tem o disco: o APK leva o libgame.so encriptado (AES-256-GCM, chave = SHA-256 da imagem PE do default.xex)
+# e o libmain.so, que no import le o default.xex do jogador (src/xex_image.cpp) para o GameLib.kt derivar a chave,
+# desencriptar para getFilesDir() e o GameActivity carregar de la. Os hooks ficam no libgame.so porque substituem as
+# definicoes fracas sub_X no link (-Bsymbolic-functions); o runtime, o plugin da GPU e o SDL ja sao .so a parte.
+#-----------------------------------------------------------------------------
+set(SM_XEX "${SM_ROOT}/assets/default.xex" CACHE FILEPATH "default.xex do codegen (chave do libgame.so)")
+set(SM_PACK_DIR "${SM_ROOT}/app/build/zandatsu-assets")
+add_custom_command(
+    OUTPUT "${SM_PACK_DIR}/libgame.zdat" "${SM_PACK_DIR}/libgame.json"
+    COMMAND python3 "${SM_ROOT}/tools/pack-libgame.py" "$<TARGET_FILE:game>" "${CMAKE_STRIP}" "${SM_XEX}"
+            "${SM_PACK_DIR}"
+    DEPENDS game "${SM_ROOT}/tools/pack-libgame.py" "${SM_ROOT}/src/xex_image.cpp" "${SM_XEX}"
+    COMMENT "libgame.so -> assets/libgame.zdat (encriptado)"
+    VERBATIM)
+add_custom_target(game_pack DEPENDS "${SM_PACK_DIR}/libgame.zdat" "${SM_PACK_DIR}/libgame.json")
+
+add_library(main SHARED "${CMAKE_CURRENT_LIST_DIR}/game_lib_jni.cpp" "${SM_ROOT}/src/xex_image.cpp")
+target_include_directories(main PRIVATE "${SM_ROOT}/src" "${REXSDK_ROOT}/thirdparty")
+target_link_libraries(main PRIVATE mspack log)
+target_compile_options(main PRIVATE -march=armv8.2-a)
+# O Gradle so compila os alvos da lista (build.gradle.kts): o libgame.so e o pacote vem por aqui.
+add_dependencies(main game_pack)

@@ -99,6 +99,8 @@ android {
             // Classes Java do SDL (SDLActivity e companhia), direto do submodulo
             // do SDK, para ficarem sempre na mesma versao que o libSDL3.so.
             java.srcDir("../external/rexglue-sdk/thirdparty/sdl3/android-project/app/src/main/java")
+            // libgame.zdat + libgame.json: o codigo do jogo encriptado (tools/pack-libgame.py, chamado pelo CMake).
+            assets.srcDir("build/zandatsu-assets")
         }
     }
 
@@ -107,6 +109,8 @@ android {
             // As .so ficam extraidas em nativeLibraryDir: o SDL abre libmain.so
             // por caminho e o runtime carrega o plugin da GPU de la.
             useLegacyPackaging = true
+            // O codigo do jogo so vai encriptado (assets/libgame.zdat), nunca como .so.
+            excludes += "**/libgame.so"
         }
     }
 
@@ -171,6 +175,12 @@ dependencies {
 // do codegen): o Gradle nao ve essas mudancas e marcava a compilacao nativa como "up-to-date",
 // gerando um APK com as .so antigas. Assim o ninja corre sempre (ele proprio e incremental:
 // sem mudancas leva poucos segundos).
+// Os assets juntam-se depois do CMake (que escreve o libgame.zdat).
+tasks.configureEach {
+    val m = Regex("merge(\\w+)Assets").matchEntire(name)
+    if (m != null && !uiOnly) dependsOn("externalNativeBuild" + m.groupValues[1])
+}
+
 tasks.configureEach {
     if (name.startsWith("buildCMake") || name.startsWith("externalNativeBuild") ||
         name.startsWith("configureCMake")

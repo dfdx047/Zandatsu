@@ -6,7 +6,7 @@
 #   shaders do proprio Renut (gpu/shaders/host/*.hlsl) -> DXC
 #     -> out/renut/host_shaders/<nome>.spirv.h
 #
-# O cmake/renut.cmake compila estes ficheiros no libmain.so. As ferramentas (XenosRecomp, leitor do cpk) sao
+# O cmake/renut.cmake compila estes ficheiros no libgame.so (encriptado no APK). As ferramentas (XenosRecomp, leitor do cpk) sao
 # compiladas com o compilador do PC em out/host/build (tools/renut-host/CMakeLists.txt), nunca com o NDK. O DXC
 # vem do release Linux oficial (fixo abaixo) para out/host/dxc.
 #

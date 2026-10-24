@@ -59,6 +59,8 @@ sealed class ImportProgress {
     data class Copying(val file: String, val done: Long, val total: Long, val bytesPerSecond: Long = 0) : ImportProgress()
     data class Hashing(val file: String, val done: Long, val total: Long) : ImportProgress()
     data class Reading(val file: String) : ImportProgress()
+    /** O libgame.so a ser desencriptado (GameLib). */
+    data class Unpacking(val done: Long, val total: Long) : ImportProgress()
 }
 
 class ImportException(val reason: Reason, val detail: String = "") : Exception(detail) {
@@ -72,6 +74,8 @@ class ImportException(val reason: Reason, val detail: String = "") : Exception(d
         TRUNCATED,
         /** Um ficheiro de dados copiado nao tem o formato esperado (CPK danificado). */
         BAD_DATA,
+        /** O default.xex nao abre o libgame.so deste APK (outra versao do jogo): detalhe com o esperado. */
+        UNSUPPORTED_VERSION,
     }
 }
 
@@ -111,9 +115,12 @@ object GameFiles {
             ids == null -> throw ImportException(ImportException.Reason.BAD_XEX, hash.take(12))
             ids.first != BaseRom.TITLE_ID ->
                 throw ImportException(ImportException.Reason.OTHER_GAME, "%08X".format(ids.first))
-            ids.second != BaseRom.MEDIA_ID_US ->
-                throw ImportException(ImportException.Reason.WRONG_REGION, "media %08X".format(ids.second))
-            else -> throw ImportException(ImportException.Reason.MODIFIED_XEX, hash.take(12))
+            else -> throw ImportException(
+                ImportException.Reason.UNSUPPORTED_VERSION,
+                "title ID %08X, media %08X, SHA-1 %s; esperado title ID %08X, media %08X, SHA-1 %s".format(
+                    ids.first, ids.second, hash.take(12), BaseRom.TITLE_ID, BaseRom.MEDIA_ID_US, BaseRom.XEX_SHA1_US.take(12),
+                ),
+            )
         }
     }
 
@@ -207,6 +214,8 @@ object GameFiles {
             }
         }
     }
+
+    fun sha1File(f: File): String = sha1(f.inputStream(), f.length()) { _, _ -> }
 
     private fun sha1(input: InputStream, total: Long, onProgress: (Long, Long) -> Unit): String {
         val md = MessageDigest.getInstance("SHA-1")
@@ -366,6 +375,7 @@ object GameFiles {
         copy(xexDoc, "default.xex")
         writeManifest(files.map { (d, rel) -> rel to d.length() } + ("default.xex" to xexDoc.length()))
         onProgress(ImportProgress.Copying("", total, total))
+        GameLib.install(context, onProgress)
     }
 
     /**
@@ -450,6 +460,7 @@ object GameFiles {
                 onProgress(ImportProgress.Copying("", total, total))
             }
         }
+        GameLib.install(context, onProgress)
     }
 
     private fun requireFiles(paths: List<String>) {

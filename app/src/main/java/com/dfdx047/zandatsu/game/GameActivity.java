@@ -27,7 +27,7 @@ import java.nio.file.StandardCopyOption;
 import java.util.Locale;
 
 /**
- * Atividade do jogo. O SDLActivity carrega libSDL3.so e libmain.so e chama
+ * Atividade do jogo. O SDLActivity carrega libSDL3.so, libmain.so e o libgame.so (GameLib) e chama
  * SDL_main (windowed_app_main_sdl.cpp) numa thread propria.
  *
  * Aberta pelo launcher (LauncherActivity) ou pelo atalho da tela inicial. As
@@ -430,9 +430,31 @@ public class GameActivity extends SDLActivity {
 
     @Override
     protected String[] getLibraries() {
-        // libmain.so depende de librexruntime.so, librexgpu-xenos.so e
-        // libc++_shared.so, que o linker do Android carrega sozinho.
+        // libmain.so: so o leitor do default.xex (GameLib). O jogo (libgame.so) nao vem no APK: loadLibraries.
         return new String[] {"SDL3", "main"};
+    }
+
+    /**
+     * Depois do SDL3 e do libmain.so, o libgame.so desencriptado em getFilesDir() (GameLib.kt; refeito aqui se o APK
+     * mudou, ex. atalho do jogo sem passar pelo launcher). Por System.load: os nativos (NativeGameState) ficam
+     * visiveis ao Java. Ele depende de librexruntime.so, librexgpu-xenos.so e libc++_shared.so do APK.
+     */
+    @Override
+    public void loadLibraries() {
+        super.loadLibraries();
+        try {
+            com.dfdx047.zandatsu.data.GameLib.install(this);
+        } catch (Exception e) {
+            UnsatisfiedLinkError err = new UnsatisfiedLinkError("libgame.so: " + e.getMessage());
+            err.initCause(e);
+            throw err;
+        }
+        System.load(com.dfdx047.zandatsu.data.GameLib.INSTANCE.file(this).getAbsolutePath());
+    }
+
+    @Override
+    protected String getMainSharedObject() {
+        return com.dfdx047.zandatsu.data.GameLib.INSTANCE.file(this).getAbsolutePath();
     }
 
     /**

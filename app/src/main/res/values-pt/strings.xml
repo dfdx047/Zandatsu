@@ -282,6 +282,8 @@
     <string name="err_import_modified">É o Metal Gear Rising, mas o default.xex foi alterado (%1$s). Use um dump limpo do disco.</string>
     <string name="err_import_truncated">A imagem está incompleta: acaba antes dos arquivos do jogo (%1$s). Baixe ou copie o .iso de novo.</string>
     <string name="err_import_bad_data">Um arquivo do jogo está danificado (%1$s). O dump do disco está ruim; faça outro.</string>
+    <string name="err_import_unsupported">Versão do jogo não suportada: %1$s. O Zandatsu precisa do disco do Metal Gear Rising: Revengeance (EUA/Europa) com o default.xex original.</string>
+    <string name="busy_unpacking">Preparando o código do jogo</string>
     <string name="menu_tab_pause">Pausa</string>
     <string name="menu_tab_system">Sistema</string>
     <string name="menu_session">Sessão</string>
