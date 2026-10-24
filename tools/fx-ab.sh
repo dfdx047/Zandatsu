@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Custo de uma opção gráfica medido A/B na mesma luta (Renut): arranca como o fight-bench (slot 3, Raiden parado), e
+# Custo de uma opção gráfica medido A/B na mesma luta (Renut): arranca como o fight-bench (slot 1 dos saves de teste (tools/test-saves.sh; SLOT), Raiden parado), e
 # troca a cvar ao vivo ("cvar nome=valor" do AutoPilot) a cada PERIOD s, CYCLES vezes ligada/desligada. Cada janela de
 # 10 s do Renut ("[renut] 10.0 s: ...") que cai inteira dentro de um estado conta para esse estado. Resultado: fps de
 # jogo e GPU ms médios de cada estado e a diferença, mais uma foto de cada estado (out/bench/<nome>_on/off.png).
@@ -18,13 +18,15 @@ OUT="$ROOT/out/bench"; mkdir -p "$OUT"
 PERIOD="${PERIOD:-30}"; CYCLES="${CYCLES:-4}"
 cmd() { adb -s "$D" shell am broadcast -a "$APP.CMD" -p "$APP" --es cmd "'$1'" > /dev/null; }
 press() { cmd "press $1"; sleep "$2"; }
+slot() { for _ in $(seq 2 "${SLOT:-1}"); do press DOWN 1; done; }  # SLOT (padrão 1) dos saves de teste
+bash "$ROOT/tools/test-saves.sh" "$D" status | grep -q teste || { echo "antes: bash tools/test-saves.sh $D on"; exit 1; }
 CV="env:TU_DEBUG = push_consts_per_stage\nvibration = false\n"
 for l in "$@"; do CV="$CV$l\n"; done
 adb -s "$D" shell am force-stop "$APP"
 adb -s "$D" shell "printf '$CV' > $A/cvars.txt"
 adb -s "$D" shell am start -n "$APP/.game.GameActivity" -a "$APP.PLAY" > /dev/null
 sleep 50
-press START 4; press DOWN 1; press DOWN 1; press A 4; press A 5; press A 25
+press START 4; slot; press A 4; press A 5; press A 25
 sleep 10
 for c in $(seq 1 "$CYCLES"); do
   for state in on off; do

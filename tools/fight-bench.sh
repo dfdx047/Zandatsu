@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Medicao na primeira luta do MGR, reprodutivel (Renut e Xenia lado a lado).
 #
-# Requisito: o slot 3 com um jogo novo (Story > New Game > Normal, sem tutorial; o autosave fica no inicio da
-# primeira luta do prologo). O script: arranca o jogo com as cvars dadas, espera o titulo, START, slot 3, OK,
+# Requisito: o slot 1 dos saves de teste (tools/test-saves.sh; SLOT) com um jogo novo (Story > New Game > Normal, sem tutorial; o autosave fica no inicio da
+# primeira luta do prologo). O script: arranca o jogo com as cvars dadas, espera o titulo, START, slot 1 dos saves de teste (tools/test-saves.sh; SLOT), OK,
 # Continue, espera a luta, carrega X a cada 1,5 s durante 45 s e puxa o log. O resumo (fps de jogo, GPU ms, draws)
 # sai das linhas "[renut] 10.0 s: ..." (Renut) ou "dbz3: perf ... gpu_ms" (Xenia) dentro da janela da luta.
 #
@@ -25,13 +25,15 @@ APP=com.dfdx047.swordman
 A="/sdcard/Android/data/$APP/files"
 OUT="$ROOT/out/bench"; mkdir -p "$OUT"
 press() { adb -s "$D" shell am broadcast -a "$APP.CMD" -p "$APP" --es cmd "'press $1'" > /dev/null; sleep "$2"; }
+slot() { for _ in $(seq 2 "${SLOT:-1}"); do press DOWN 1; done; }  # SLOT (padrão 1) dos saves de teste
+bash "$ROOT/tools/test-saves.sh" "$D" status | grep -q teste || { echo "antes: bash tools/test-saves.sh $D on"; exit 1; }
 CV="env:TU_DEBUG = push_consts_per_stage\nvibration = false\n"
 for l in "$@"; do CV="$CV$l\n"; done
 adb -s "$D" shell am force-stop "$APP"
 adb -s "$D" shell "printf '$CV' > $A/cvars.txt"
 adb -s "$D" shell am start -n "$APP/.game.GameActivity" -a "$APP.PLAY" > /dev/null
 sleep 50
-press START 4; press DOWN 1; press DOWN 1; press A 4; press A 5; press A 25
+press START 4; slot; press A 4; press A 5; press A 25
 T0=$(date +%T)
 # CPU da thread principal do jogo (a do Swap; o Renut escreve "[t<tid>] [renut] game thread"), entre as voltas 5 e 25.
 ticks() {

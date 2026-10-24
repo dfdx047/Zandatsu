@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Validacao de uma variante de codegen/CPU no MGR (Renut), para comparar com a base. Duas fases:
-#   A: titulo e menus -> slot 3 -> Continue (save carregado na primeira luta) -> 3 min de luta com X/Y e Blade Mode
+#   A: titulo e menus -> slot 1 dos saves de teste (tools/test-saves.sh; SLOT) -> Continue (save carregado na primeira luta) -> 3 min de luta com X/Y e Blade Mode
 #      (LT segurado, X/Y a cortar) -> parado ate ao game over -> Continue.
-#   B: abre de novo -> slot 3 -> Story -> New Game -> Normal -> sem tutorial: a cutscene do prologo do inicio ao fim
-#      (uma captura a cada ~2 s ate o gameplay voltar ou 6 min). No fim o slot 3 volta a ter o autosave da luta.
+#   B: abre de novo -> slot 1 dos saves de teste (tools/test-saves.sh; SLOT) -> Story -> New Game -> Normal -> sem tutorial: a cutscene do prologo do inicio ao fim
+#      (uma captura a cada ~2 s ate o gameplay voltar ou 6 min). No fim o slot 1 dos saves de teste (tools/test-saves.sh; SLOT) volta a ter o autosave da luta.
 # Saida em out/validate/<nome>/: capturas (A_*.png, B_*.png com o segundo desde o inicio da cutscene), o log, e
 # "alive.txt" com o pid em cada passo (um pid diferente ou vazio = o jogo caiu).
 #
@@ -17,6 +17,8 @@ A="/sdcard/Android/data/$APP/files"
 OUT="$ROOT/out/validate/$N"; rm -rf "$OUT"; mkdir -p "$OUT"
 cmd() { adb -s "$D" shell am broadcast -a "$APP.CMD" -p "$APP" --es cmd "'$*'" > /dev/null; }
 press() { cmd press "$1"; sleep "$2"; }
+slot() { for _ in $(seq 2 "${SLOT:-1}"); do press DOWN 1; done; }  # SLOT (padrão 1) dos saves de teste
+bash "$ROOT/tools/test-saves.sh" "$D" status | grep -q teste || { echo "antes: bash tools/test-saves.sh $D on"; exit 1; }
 shot() { adb -s "$D" exec-out screencap -p > "$OUT/$1.png"; echo "$1 $(adb -s "$D" shell pidof "$APP:game" | tr -d '\r')" >> "$OUT/alive.txt"; }
 launch() {
   CV="env:TU_DEBUG = push_consts_per_stage\nvibration = false\n"
@@ -31,7 +33,7 @@ launch() {
 launch "$@"
 shot A01_titulo
 press START 4; shot A02_slots
-press DOWN 1; press DOWN 1; press A 4; shot A03_aviso
+slot; press A 4; shot A03_aviso
 press A 5; shot A04_menu
 press A 12; shot A05_save_12s
 sleep 8; shot A06_save_20s
@@ -50,7 +52,7 @@ adb -s "$D" pull "$A/logs/swordman_last.log" "$OUT/A.log" > /dev/null
 
 # --- B ---
 launch "$@"
-press START 4; press DOWN 1; press DOWN 1; press A 4; press A 5
+press START 4; slot; press A 4; press A 5
 press DOWN 1; press A 4; shot B00_story
 press A 4; shot B01_newgame
 press A 4; shot B02_dificuldade   # (um eventual "substituir?" fica nesta captura)
