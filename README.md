@@ -1,144 +1,188 @@
 # Zandatsu
 
-Port para Android de **Metal Gear Rising: Revengeance** (Xbox 360), recompilado estaticamente com o
-[ReXGlue SDK](https://github.com/rexglue/rexglue-sdk) v0.10.0 e com a GPU emulada (Vulkan, derivada
-do Xenia). Usa a mesma base do Dragon Fury (DBZ3-Android): o overlay do SDK e os patches Android
-0001–0048, e o método de otimização do [OptXbox](https://github.com/dfdx047/Optxbox).
+**Metal Gear Rising: Revengeance** (Xbox 360) no Android · on Android · en Android
 
-O repositório não tem o jogo nem o código gerado. É preciso ter o disco.
+[Português (Brasil)](#português-brasil) · [English](#english) · [Español](#español)
 
-## Estrutura
+> Nenhum arquivo do jogo está incluído. Projeto de fã, sem ligação com a Konami, a PlatinumGames ou a Microsoft.
+> No game files are included. Fan project, not affiliated with Konami, PlatinumGames or Microsoft.
+> No se incluye ningún archivo del juego. Proyecto de fans, sin relación con Konami, PlatinumGames ni Microsoft.
 
-| Caminho | Conteúdo |
-|---|---|
-| `mgr_manifest.toml` | Manifest do ReXGlue (XEX de entrada, pasta do código gerado) |
-| `mgr_overrides.toml` | Correções do codegen: `[functions]`, `[[switch_tables]]`, `[[midasm_hook]]` |
-| `src/` | `main.cpp` e `mgr_app.h` (o mesmo código no PC e no Android) |
-| `generated/default/` | Código recompilado (fora do git, `tools/codegen.sh`) |
-| `assets/` | Jogo extraído da ISO: `default.xex` + `media/` (fora do git) |
-| `sdk/overlay/` | Overlay do SDK do projeto DBZ3 HD Collection (MIT, `sdk/overlay-LICENSE`) |
-| `patches/` | Patches Android do SDK (0001–0048 do Dragon Fury; os do MGR começam no 0100) |
-| `external/rexglue-sdk-0.10/` | SDK preparado para o Android (fora do git, `tools/setup-sdk.sh`) |
-| `app/` | App Android: launcher, `GameActivity` (SDL), `libmain.so` (leitor do XEX) e `libgame.so` (o jogo, só encriptado no APK) |
-| `tools/` | `versions.env`, `setup-sdk.sh`, `apply-sdk-patches.sh`, `codegen.sh`, `push-game.sh` |
-| `docs/` | `cvars-sem-otimizacoes.txt` (primeiro teste) |
+---
 
-## Versões fixadas
+## Português (Brasil)
 
-- ReXGlue SDK `v0.10.0` (`f5337cd`).
-- `default.xex` do disco *Metal Gear Rising - Revengeance (USA, Europe)* (Redump): SHA-1
-  `2dffd4d46e727d4a64c331d54251c4d9a0a26edf`, Title ID `4B4E080A`, versão 0.0.0.4.
-- Overlay do SDK: DBZ-Budokai-3-HD-Collection `a0ceaeb`.
+### O que é
+O Zandatsu é um port de Metal Gear Rising: Revengeance para Android, por recompilação estática do executável do Xbox
+360 ([ReXGlue SDK](https://github.com/rexglue/rexglue-sdk)). Não é um emulador do console inteiro: o código do jogo
+corre nativo em ARM64. Tem dois renderizadores:
 
-## Compilar
+- **Nativo (Renut):** o Direct3D do jogo traduzido para Vulkan (do [mgr-nx-deko](https://github.com/tuancapoo/mgr-nx-deko)). Mais
+  rápido e mais nítido. Precisa de uma Adreno com o driver Turnip.
+- **Emulado (Xenia):** a GPU do Xbox 360 emulada. Corre em mais aparelhos (Mali incluída), mais lento.
 
-Ferramentas no PC (CachyOS): clang 20+, cmake 3.25+, ninja, Android Studio com o **NDK
-28.2.13676358**, e o `rexglue` v0.10.0 no PATH (o SDK compilado em `../rexglue-sdk`).
+O APK não traz o jogo: o código do jogo vai encriptado e só abre com o `default.xex` do seu próprio disco.
 
-1. Extrair o jogo para `assets/`:
+### Requisitos
+- A sua ISO de **Metal Gear Rising: Revengeance (USA, Europe)** do Xbox 360 (Title ID `4B4E080A`).
+- Android 11 ou mais novo, ARM64, Vulkan 1.3.
+- Recomendado: Adreno 6xx com o driver **Turnip** (o app baixa e ativa na aba Drivers).
+- ~8 GB livres para a ISO.
 
-   ```fish
-   extract-xiso -x "/caminho/Metal Gear Rising - Revengeance (USA, Europe) (En,Ja,Fr,De,Es,It,Pt).iso" -d assets
-   ```
+### Instalar e importar a ISO
+1. Baixe `Zandatsu-v1.0.apk` da página de releases e instale.
+2. Abra o app e escolha um perfil gráfico (Mínimo a Ultra; cada um mostra o fps medido).
+3. Em **Início ▸ Arquivos do jogo**, toque em **Importar .iso** e escolha a ISO. O app confere o `default.xex` e lê
+   a ISO no lugar, sem extrair (menos de 1 s). Não apague nem mova a ISO depois.
+4. Adreno 6xx: na aba **Drivers**, baixe um Turnip e ative-o. Com o driver do sistema o jogo corre no modo emulado.
+5. Toque em **JOGAR**.
 
-2. Gerar o código recompilado:
+Se já extraiu o jogo numa versão antiga, o botão **Apagar arquivos extraídos antigos** libera o espaço.
 
-   ```fish
-   bash tools/codegen.sh
-   ```
+### Opções gráficas
+- **Perfis:** Mínimo, Baixo, Médio, Alto, Ultra, ou Personalizado.
+- **Renut:** resolução 360p, 540p, 720p (console), 1080p\*, 2K\* e 4K\* (\* = experimental); filtro final
+  bilinear, AMD FSR 1 ou AMD CAS; sombras; brilho (bloom); anisotrópico até 16x.
+- **Xenia:** resolução 360p a 4K, AMD FSR, FXAA, 30/60 FPS ou 120 FPS com interpolação, sombras, brilho.
+- Tudo também no menu do jogo (botão Voltar), com o jogo a correr.
 
-3. Preparar o SDK para o Android (copia `../rexglue-sdk` se existir, senão clona) e aplicar os patches:
+### Aparelhos testados
+fps de jogo em 60 s de luta (24/10/2026).
 
-   ```fish
-   bash tools/setup-sdk.sh
-   bash tools/apply-sdk-patches.sh
-   ```
+| Aparelho | GPU | Modo | Resultado |
+|---|---|---|---|
+| Retroid Pocket 5 | Adreno 650 (Turnip) | Renut 720p | 56–58 fps em todos os perfis (GPU 9,6–13,6 ms) |
+| RG Cube | Mali-G57 | Xenia | Mínimo 36, Baixo 42, Médio 15, Alto 10, Ultra 7 fps |
+| AYN Thor | — | — | ainda não medido |
+| AYN Odin 3 | — | — | ainda não medido |
 
-4. Em `local.properties` (o Android Studio cria o ficheiro), usar o CMake do sistema:
+Problemas conhecidos: [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md).
 
-   ```
-   cmake.dir=/usr
-   ```
+---
 
-5. Abrir a pasta `Zandatsu` no Android Studio e compilar a variante **release**
-   (Build ▸ Select Build Variant ▸ `release`), ou na linha de comandos:
+## English
 
-   ```fish
-   ./gradlew assembleRelease
-   adb install -r app/build/outputs/apk/release/app-release.apk
-   ```
+### What it is
+Zandatsu is a port of Metal Gear Rising: Revengeance to Android, made by statically recompiling the Xbox 360
+executable ([ReXGlue SDK](https://github.com/rexglue/rexglue-sdk)). It is not a whole-console emulator: the game code
+runs natively on ARM64. There are two renderers:
 
-   `-Psm.uiOnly=true` compila só o launcher (rápido, sem o jogo).
+- **Native (Renut):** the game's Direct3D translated to Vulkan (from [mgr-nx-deko](https://github.com/tuancapoo/mgr-nx-deko)).
+  Faster and sharper. Needs an Adreno GPU with the Turnip driver.
+- **Emulated (Xenia):** the Xbox 360 GPU, emulated. Runs on more devices (including Mali), but slower.
 
-## Primeiro teste no aparelho
+The APK does not contain the game: the game code ships encrypted and only opens with the `default.xex` from your own
+disc.
 
-1. Abrir o app uma vez (cria a pasta `Android/data/com.dfdx047.zandatsu`).
-2. Copiar o jogo (~8 GB):
+### Requirements
+- Your own Xbox 360 ISO of **Metal Gear Rising: Revengeance (USA, Europe)** (Title ID `4B4E080A`).
+- Android 11 or newer, ARM64, Vulkan 1.3.
+- Recommended: Adreno 6xx with the **Turnip** driver (the app downloads and enables it in the Drivers tab).
+- ~8 GB free for the ISO.
 
-   ```fish
-   bash tools/push-game.sh
-   ```
+### Install and import the ISO
+1. Download `Zandatsu-v1.0.apk` from the releases page and install it.
+2. Open the app and pick a graphics profile (Minimum to Ultra; each one shows the measured fps).
+3. In **Home ▸ Game files**, tap **Import .iso** and pick the ISO. The app checks the `default.xex` and reads the ISO
+   in place, without extracting (under 1 s). Don't delete or move the ISO afterwards.
+4. Adreno 6xx: in the **Drivers** tab, download a Turnip build and enable it. With the system driver the game runs in
+   emulated mode.
+5. Tap **PLAY**.
 
-3. Desligar as otimizações de GPU para a primeira rodada (primeiro a imagem certa):
+If you extracted the game with an older version, the **Delete old extracted files** button frees that space.
 
-   ```fish
-   adb push docs/cvars-sem-otimizacoes.txt /sdcard/Android/data/com.dfdx047.zandatsu/files/cvars.txt
-   ```
+### Graphics options
+- **Profiles:** Minimum, Low, Medium, High, Ultra, or Custom.
+- **Renut:** resolution 360p, 540p, 720p (console), 1080p\*, 2K\* and 4K\* (\* = experimental); final filter
+  bilinear, AMD FSR 1 or AMD CAS; shadows; bloom; anisotropic up to 16x.
+- **Xenia:** resolution 360p to 4K, AMD FSR, FXAA, 30/60 FPS or 120 FPS with interpolation, shadows, bloom.
+- All of it is also in the in-game menu (Back button), while the game runs.
 
-4. Jogar, voltar ao launcher e tocar em **Exportar logs** (`Download/Zandatsu-logs-*.zip`).
-5. No PC:
+### Tested devices
+Game fps over 60 s of combat (2026-10-24).
 
-   ```fish
-   cd ~/Optxbox && python3 -m optxbox report --adb --adb-pattern "Zandatsu-logs-*.zip"
-   ```
+| Device | GPU | Mode | Result |
+|---|---|---|---|
+| Retroid Pocket 5 | Adreno 650 (Turnip) | Renut 720p | 56–58 fps with every profile (GPU 9.6–13.6 ms) |
+| RG Cube | Mali-G57 | Xenia | Minimum 36, Low 42, Medium 15, High 10, Ultra 7 fps |
+| AYN Thor | — | — | not measured yet |
+| AYN Odin 3 | — | — | not measured yet |
 
-Captura de 2 frames durante o jogo:
+Known issues: [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md).
 
-```fish
-adb shell 'echo 2 > /sdcard/Android/data/com.dfdx047.zandatsu/files/capture.req'
-```
+---
 
-A captura fica em `logs/capture/*.dfc` e entra no próximo **Exportar logs**.
+## Español
 
-## Build no PC (para depurar mais rápido)
+### Qué es
+Zandatsu es un port de Metal Gear Rising: Revengeance para Android, hecho por recompilación estática del ejecutable
+de Xbox 360 ([ReXGlue SDK](https://github.com/rexglue/rexglue-sdk)). No es un emulador de toda la consola: el código
+del juego corre nativo en ARM64. Tiene dos renderizadores:
 
-```fish
-cmake --preset linux-amd64-release
-cmake --build out/build/linux-amd64-release
-./out/build/linux-amd64-release/mgr --game_data_root=assets
-```
+- **Nativo (Renut):** el Direct3D del juego traducido a Vulkan (de [mgr-nx-deko](https://github.com/tuancapoo/mgr-nx-deko)).
+  Más rápido y más nítido. Necesita una Adreno con el driver Turnip.
+- **Emulado (Xenia):** la GPU de Xbox 360 emulada. Funciona en más dispositivos (Mali incluida), pero más lento.
 
-## Avisos
+El APK no trae el juego: el código del juego va cifrado y solo se abre con el `default.xex` de tu propio disco.
 
-Projeto de fã, sem ligação com a Konami, a PlatinumGames ou a Microsoft. Nenhum dado do jogo
-protegido por direitos autorais é distribuído.
+### Requisitos
+- Tu propia ISO de Xbox 360 de **Metal Gear Rising: Revengeance (USA, Europe)** (Title ID `4B4E080A`).
+- Android 11 o más reciente, ARM64, Vulkan 1.3.
+- Recomendado: Adreno 6xx con el driver **Turnip** (la app lo descarga y lo activa en la pestaña Drivers).
+- ~8 GB libres para la ISO.
 
-### O APK não traz o jogo
+### Instalar e importar la ISO
+1. Descarga `Zandatsu-v1.0.apk` de la página de releases e instálalo.
+2. Abre la app y elige un perfil gráfico (Mínimo a Ultra; cada uno muestra los fps medidos).
+3. En **Inicio ▸ Archivos del juego**, toca **Importar .iso** y elige la ISO. La app comprueba el `default.xex` y lee
+   la ISO en su sitio, sin extraer (menos de 1 s). No borres ni muevas la ISO después.
+4. Adreno 6xx: en la pestaña **Drivers**, descarga un Turnip y actívalo. Con el driver del sistema el juego corre en
+   modo emulado.
+5. Toca **JUGAR**.
 
-O código recompilado, os hooks, o Renut e os shaders traduzidos ficam no `libgame.so`, que só entra no APK
-encriptado (`assets/libgame.zdat`, AES-256-GCM, `tools/pack-libgame.py`). A chave é o SHA-256 da imagem PE do
-`default.xex` (desencriptada e descomprimida por `src/xex_image.cpp`), por isso só existe no aparelho de quem
-importa o próprio disco. No fim do import a app lê o `default.xex` do jogador, confere o SHA-256 da chave
-(`assets/libgame.json`), desencripta o `libgame.so` para `getFilesDir()` e o `GameActivity` carrega-o de lá. Outro
-executável dá "versão do jogo não suportada" com o title ID e o SHA-1 esperados. O libmain.so do APK é só o leitor
-do XEX.
+Si extrajiste el juego con una versión anterior, el botón **Borrar archivos extraídos antiguos** libera ese espacio.
 
-### A ISO é lida no lugar
+### Opciones gráficas
+- **Perfiles:** Mínimo, Bajo, Medio, Alto, Ultra o Personalizado.
+- **Renut:** resolución 360p, 540p, 720p (consola), 1080p\*, 2K\* y 4K\* (\* = experimental); filtro final
+  bilineal, AMD FSR 1 o AMD CAS; sombras; brillo (bloom); anisotrópico hasta 16x.
+- **Xenia:** resolución de 360p a 4K, AMD FSR, FXAA, 30/60 FPS o 120 FPS con interpolación, sombras, brillo.
+- Todo también está en el menú del juego (botón Atrás), con el juego en marcha.
 
-"Importar .iso" não extrai nada: confere o `default.xex` da ISO (SHA-1), copia só ele (7 MB) e desencripta o
-libgame (0,4 s no RP5; antes copiava 7,4 GB em 49 s). A app guarda a permissão persistente da ISO
-(`IsoSource`, `game/.zandatsu-iso`); o `GameActivity` abre-a a cada arranque e passa o descritor ao nativo
-(`ZANDATSU_ISO_FD`, `src/mgr_app.h`), que a monta como disco (`DiscImageDevice`, patch 0179 do SDK). A ISO não
-pode ser apagada nem movida. Sem permissão persistente do fornecedor extrai-se como antes; "Importar pasta"
-continua a copiar. Teste: `bash tools/import-iso-test.sh <serial> <nome da iso>`.
+### Dispositivos probados
+fps de juego en 60 s de combate (24/10/2026).
 
-Antes de publicar um APK: `python3 tools/check-clean.py <apk> <libgame.so em claro> assets/default.xex`. Procura
-nomes do código gerado e milhares de pedaços do código do jogo e da imagem PE no APK, no repositório e no
-histórico do git.
+| Dispositivo | GPU | Modo | Resultado |
+|---|---|---|---|
+| Retroid Pocket 5 | Adreno 650 (Turnip) | Renut 720p | 56–58 fps con todos los perfiles (GPU 9,6–13,6 ms) |
+| RG Cube | Mali-G57 | Xenia | Mínimo 36, Bajo 42, Medio 15, Alto 10, Ultra 7 fps |
+| AYN Thor | — | — | aún sin medir |
+| AYN Odin 3 | — | — | aún sin medir |
 
-## Licença e créditos
+Problemas conocidos: [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md).
 
-Desde 23/10/2026 o Zandatsu é GPL-3.0 (`LICENSE`), com o código-fonte aberto. O renderizador nativo e as
-ferramentas vêm do [mgr-nx-deko](https://github.com/tuancapoo/mgr-nx-deko) (GPL-3.0), com a autorização dos autores
-(23/10/2026) para usar à vontade mantendo os créditos e o código aberto. O overlay do SDK continua MIT
-(`sdk/overlay-LICENSE`) e o ReXGlue SDK BSD-3-Clause. Créditos completos: [CREDITS.md](CREDITS.md).
+---
+
+## Créditos · Credits · Créditos
+
+Lista completa: [CREDITS.md](CREDITS.md).
+
+- [mgr-nx-deko](https://github.com/tuancapoo/mgr-nx-deko) (tuancapoo) e **reNut** (masterspike52): renderizador nativo /
+  native renderer / renderizador nativo.
+- [ReXGlue SDK](https://github.com/rexglue/rexglue-sdk) (Tom Clay) e/and/y [Xenia](https://xenia.jp): recompilador,
+  runtime, GPU emulada / recompiler, runtime, emulated GPU.
+- [XenDroid](https://github.com/rfandango/XenDroid) e/and/y [XenDroid Plus](https://github.com/phforner0/Xendroid-Plus):
+  correções de GPU e Turnip / GPU and Turnip fixes.
+- [ARMSX2](https://github.com/ARMSX2/ARMSX2): banco de bugs de driver, cache de pipelines / driver bug database,
+  pipeline cache.
+- **Turnip / Mesa** (K11MCH1, Mr. Purple, StevenMXZ, ARMSX2) e/and/y [libadrenotools](https://github.com/bylaws/libadrenotools).
+- AMD FidelityFX FSR 1 / CAS, plume, XenosRecomp.
+
+## Licença · License · Licencia
+
+[GPL-3.0](LICENSE). O código-fonte é aberto / The source code is open / El código fuente es abierto.
+Como compilar / How to build / Cómo compilar: [docs/BUILDING.md](docs/BUILDING.md) (pt-BR).
+
+Nenhum arquivo do jogo está incluído; é preciso ter o disco original. Sem ligação com a Konami.
+No game files are included; you need your own original disc. Not affiliated with Konami.
+No se incluye ningún archivo del juego; necesitas tu disco original. Sin relación con Konami.
