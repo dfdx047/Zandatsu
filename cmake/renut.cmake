@@ -109,6 +109,8 @@ add_library(mgr_renut_gpu OBJECT
     "${SM_ROOT}/src/renut_gpu_markers.cpp"
     # Dump de um frame (swordman_renut_frame_dump; patch renut/0015 chama-o).
     "${SM_ROOT}/src/renut_frame_dump.cpp"
+    # Sombras e brilho ligados/desligados (swordman_renut_shadows / _bloom; patch renut/0016 chama-o).
+    "${SM_ROOT}/src/renut_effects.cpp"
     # Os shaders do jogo traduzidos no PC (dados do jogo: so builds pessoais).
     "${SM_RENUT_OUT}/shader_cache.cpp")
 set_source_files_properties("${SM_RENUT_OUT}/shader_cache.cpp" PROPERTIES SKIP_PRECOMPILE_HEADERS ON)

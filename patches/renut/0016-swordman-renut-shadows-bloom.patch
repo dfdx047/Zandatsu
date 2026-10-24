@@ -1,0 +1,50 @@
+--- a/app/src/renut_engine/gpu/render/draw.cpp
++++ b/app/src/renut_engine/gpu/render/draw.cpp
+@@ -42,6 +42,7 @@
+ #include "renut_engine/gpu/log.h"
+ #include "renut_engine/gpu/render/pipeline.h"
+ #include "renut_engine/gpu/guest/resources.h"
++#include "renut_effects.h"  // SwordMan (Android): swordman_renut_shadows / _bloom (patch 0016)
+ #include "renut_engine/gpu/render/shader_library.h"  // banjo-nx: ShaderBoolSpecMask
+ #include "renut_engine/gpu/render/surfaces.h"
+ #include "renut_engine/gpu/render/textures.h"
+@@ -4209,6 +4210,30 @@
+   // bound it, or else as its own vfetches describe (bundle meshes).
+   const VertexDeclarationRecord *declaration = nullptr;
+   const u32 *shader_strides = nullptr;  // see GetStreamSource
++  // SwordMan (Android): the graphics options (src/renut_effects.h). Without shadows a cascade's casters are not drawn
++  // and the screen-space shadow quad (the one draw reading the cascades' atlas) becomes a white clear of its target;
++  // without bloom each draw of the chain becomes a black clear of its target. Every texture is still written.
++  {
++    namespace fx = swordman::renut_effects;
++    const bool no_shadows = fx::ShadowsOff(), no_bloom = fx::BloomOff();
++    if (no_shadows && fx::IsShadowDepth(device.U32(d3d::kDeviceOffsetDepthStencil)))
++      return true;
++    float clear_color[4] = {0.0f, 0.0f, 0.0f, 0.0f};
++    bool replace = no_bloom && ps && fx::IsBloomShader(ps->hash);
++    if (!replace && no_shadows && ps && ps->entry) {
++      for (u32 bits = ps->entry->textureFetchMask; bits && !replace; bits &= bits - 1) {
++        const u32 r = u32(__builtin_ctz(bits));
++        if (r < d3d::kTextureFetchSlots && fx::IsShadowAtlas(device.U32(d3d::kDeviceOffsetTextures + r * 4))) {
++          replace = true;
++          clear_color[0] = clear_color[1] = clear_color[2] = clear_color[3] = 1.0f;
++        }
++      }
++    }
++    if (replace) {
++      ClearStateLocked(device_state, 1, nullptr, clear_color, 0.0f, 0);
++      return true;
++    }
++  }
+   if (declaration_va) {
+     if (declaration_va != g_last_declaration_va) {
+       g_last_declaration =
+@@ -5838,6 +5863,8 @@
+   }
+   plume::RenderCommandList *cmd = s.command_list;
+   static uint32_t depth_logged = 0;
++  if (surface)  // SwordMan (Android): the shadow cascades' targets (src/renut_effects.h)
++    swordman::renut_effects::NoteResolve(surface->depth, surface->width, surface->height, source_va, dest_texture_va);
+ 
+   // The source rect within the target and the destination level.
+   auto fit = [&](const HostTexture *dest, ClearRect &src) {

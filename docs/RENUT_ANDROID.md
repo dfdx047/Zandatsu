@@ -285,3 +285,37 @@ bateria ≥ 40% e fps ≥ 50. Hangs contados no `dmesg` (`kgsl: GPU hang detecte
   mínimo, a desenhar para o alvo copiado a seguir por `CP_BLIT`. Falta o hash do jogo destes shaders: precisa de
   um hang com o anel da CPU (`tools/kgsl/hangmap.py` cruza as contagens do IB2 com o anel).
 - Investigação parada aqui (24/10, 10:00).
+
+## Opções gráficas do lançamento (24/10; menu Desempenho, só no Renut)
+
+### Mapa dos passes do MGR (dump de frames, `swordman_renut_frame_dump`, patch renut/0015)
+Com a cvar ligada, criar `files/frame_dump.req` no aparelho escreve o frame seguinte em `logs/frame_dump_<N>.txt`
+(cada draw com PS/VS, alvos, blend e texturas lidas; cada clear e resolve). `tools/renut-frame-passes.py` agrupa em
+passes. Frames vistos: título, menu de saves, pausa, 1.ª luta (slot 3), luta contra o MG RAY (slot 1), abertura do
+R-00 e a luta que se segue. Os hashes são os do Renut (não os do Xenia).
+
+| Passe | Alvo | Shaders (Renut) | Quem lê |
+|---|---|---|---|
+| Luminância 8x8 | 1280x720 → 8x8 | PS `6FE9E9BD` | ninguém no frame |
+| Partículas em baixa resolução | 256x256 | PS `7ED3746D` x40 | o próprio PS, somado na cena |
+| Pré-passe de profundidade | D 1280x720 | sem PS + `CA32771E` | resolve → profundidade |
+| Profundidade linear | 1280x720 32F | PS `86355BE0` | sombra em tela, efeitos |
+| **Cascatas do sol** | D 1024x1024 (x2) | sem PS + `90422A3A` | resolve → atlas 1024x2048 |
+| **Sombra em tela** | 1280x720, limpo a branco | PS `15796848…` (título: `B59EE8F6…`) | materiais (máscara) |
+| Materiais, efeitos | 1280x720 | ~150–300 PS | — |
+| **Brilho** | 320x176 → 80x48 → 48x32 | `07A5E482` (redução), `0AD31892`/`240A635A` (desfoque), `F71DC5AC` (soma) | composição final (t1) |
+| Composição + HUD | ecrã | `2173EC47` (cena, brilho, LUT 256x1, ruído) | — |
+
+- **Não há SSAO, profundidade de campo nem motion blur** nos frames do jogo: nenhum passe lê a profundidade para
+  desfocar, e a composição só lê cena, brilho, LUT e ruído. A abertura do R-00 é vídeo (texturas YUV 1024x576). O
+  desfoque do menu de pausa e das caixas de diálogo é da interface (PS `10140E45`), não um efeito gráfico. As funções
+  `sub_822998C8`, `sub_8235FA90` e `sub_823B3CE0` são do Nuts & Bolts (comentários do `graphics_options.h` do Renut):
+  no MGR esses endereços caem no meio de outras funções (`sub_82299878`, `sub_8235FA78`, `sub_823B3C08`).
+
+### Sombras e brilho (`swordman_renut_shadows` / `swordman_renut_bloom`, patch renut/0016, `src/renut_effects.*`)
+Ao vivo (lidas a cada draw). Nada fica sem escrever:
+- Sombras desligadas: os resolves de profundidade de um alvo quadrado ≥ 512 ensinam o alvo das cascatas e o atlas.
+  Os draws das cascatas (profundidade = esse alvo) não são desenhados; os clears e os resolves ficam. O draw que lê
+  o atlas (só a sombra em tela) passa a ser um clear a branco do alvo 0: a máscara fica "sem sombra".
+- Brilho desligado: os 4 PS da cadeia passam a clear a preto do alvo 0; as texturas da cadeia ficam a 0 e a
+  composição soma 0 (a imagem original).
