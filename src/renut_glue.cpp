@@ -200,7 +200,7 @@ void SwordManRenutShotOnSwap() {
 #define VK_NO_PROTOTYPES
 #include <vulkan/vulkan.h>
 
-bool SwordManRenutDeviceSupported() {
+bool SwordManRenutDeviceSupported(std::string* why) {
   void* library = plume_android_vulkan_library();
   if (!library) library = dlopen("libvulkan.so", RTLD_NOW | RTLD_LOCAL);
   auto get_instance_proc = library ? reinterpret_cast<PFN_vkGetInstanceProcAddr>(
@@ -208,6 +208,7 @@ bool SwordManRenutDeviceSupported() {
                                    : nullptr;
   if (!get_instance_proc) {
     REXLOG_ERROR("Renut: sem driver Vulkan");
+    if (why) *why = "vulkan";
     return false;
   }
   auto create_instance =
@@ -219,6 +220,7 @@ bool SwordManRenutDeviceSupported() {
   VkInstance instance = VK_NULL_HANDLE;
   if (!create_instance || create_instance(&info, nullptr, &instance) != VK_SUCCESS) {
     REXLOG_ERROR("Renut: vkCreateInstance (Vulkan 1.2) falhou");
+    if (why) *why = "vulkan-1.2";
     return false;
   }
 #define SM_VK(name) auto name = reinterpret_cast<PFN_##name>(get_instance_proc(instance, #name))
@@ -262,6 +264,7 @@ bool SwordManRenutDeviceSupported() {
   vkDestroyInstance(instance, nullptr);
   if (!missing.empty()) {
     REXLOG_ERROR("Renut: o driver nao tem{}; a usar o Xenia", missing);
+    if (why) *why = missing.substr(1);
     return false;
   }
   return true;

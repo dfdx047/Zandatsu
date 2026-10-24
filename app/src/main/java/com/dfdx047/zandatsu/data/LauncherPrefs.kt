@@ -69,6 +69,11 @@ class LauncherPrefs(context: Context) {
         get() = prefs.getInt(KEY_TURNIP_COMPAT_FLAGS, 0)
         set(v) = prefs.edit().putInt(KEY_TURNIP_COMPAT_FLAGS, v).apply()
 
+    /** O jogador ja escolheu um perfil no ecra do primeiro arranque (ProfilePicker). */
+    var profileChosen: Boolean
+        get() = prefs.getBoolean("profile_chosen", false)
+        set(v) = prefs.edit().putBoolean("profile_chosen", v).apply()
+
     /** Cheats: o jogo corre acelerado durante as logos (swordman_boot_fast_forward, patch 0168). */
     var skipLogos: Boolean
         get() = prefs.getBoolean("cheat_skip_logos", false)

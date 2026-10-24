@@ -417,4 +417,14 @@
     <string name="renut_shadows_sub">The sun\'s shadows (shadow map and screen shadow pass). Off: the scene is lit everywhere.</string>
     <string name="renut_bloom">Bloom</string>
     <string name="renut_bloom_sub">The glow around lights and the sword. Off: the original image, without glow.</string>
+    <string name="renut_res_experimental">* Experimental: on the RP5 (Turnip) 1080p, 2K and 4K hung the GPU (device lost) within 2 minutes of combat. If the picture freezes, go back to 720p.</string>
+    <string name="profile_pick_title">Choose your profile</string>
+    <string name="profile_pick_sub">Each one with the fps measured in 60 s of combat: Retroid Pocket 5 with the native renderer (Renut, Turnip driver) and RG Cube with the emulated one (Xenia, Mali-G57). This device will use: %1$s. Nothing is picked for you; you can change it later in Performance.</string>
+    <string name="profile_pick_fps_rp5">Retroid Pocket 5 (Renut): %1$s</string>
+    <string name="profile_pick_fps_cube">RG Cube (Xenia): %1$s</string>
+    <string name="renut_preset_minimum_desc">360p, no shadows or bloom</string>
+    <string name="delete_old_extracted">Delete old extracted files (%1$s)</string>
+    <string name="busy_deleting_old">Deleting old extracted files…</string>
+    <string name="drivers_renut_system_6xx">The system driver does not support Renut (the native renderer) on Adreno 6xx: download Turnip in the Drivers tab and enable it. Until then the game runs in emulated mode (Xenia), which is slower.</string>
+    <string name="drivers_renut_missing">This driver does not support Renut (missing: %1$s): the game runs in emulated mode (Xenia). Try another Turnip.</string>
 </resources>

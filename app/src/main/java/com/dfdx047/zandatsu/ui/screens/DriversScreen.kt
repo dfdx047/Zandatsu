@@ -37,6 +37,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -94,6 +95,13 @@ fun DriversScreen(vm: LauncherViewModel) {
                     )
                     if (g.tuDebug.isNotEmpty()) {
                         StatusLine(stringResource(R.string.drivers_turnip_auto, g.tuDebug), Level.INFO)
+                    }
+                    // Renut: no Adreno 6xx o driver do sistema nao serve; outro driver pode ter falhado a verificacao.
+                    val renutMissing = remember(vm.activeDriver) { com.dfdx047.zandatsu.data.RenutSupport.missing() }
+                    if (vm.activeDriver == null && g.gen == "a6xx") {
+                        StatusLine(stringResource(R.string.drivers_renut_system_6xx), Level.ERROR)
+                    } else if (renutMissing != null) {
+                        StatusLine(stringResource(R.string.drivers_renut_missing, renutMissing), Level.ERROR)
                     }
                     if (vm.driverBootFailed.isNotEmpty()) {
                         StatusLine(stringResource(R.string.drivers_boot_failed, vm.driverBootFailed.substringBefore(':')), Level.WARN)

@@ -1,5 +1,6 @@
 package com.dfdx047.zandatsu.game
 
+import com.dfdx047.zandatsu.data.renutLabel
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
@@ -477,12 +478,13 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
         val list = ArrayList<MenuItem>()
         list += choice(
             s(R.string.settings_resolution), s(R.string.renut_resolution_sub),
-            com.dfdx047.zandatsu.data.RENUT_RESOLUTIONS.map { it to it.label },
+            com.dfdx047.zandatsu.data.RENUT_RESOLUTIONS.map { it to it.renutLabel },
             if (c.resolution in com.dfdx047.zandatsu.data.RENUT_RESOLUTIONS) c.resolution else InternalResolution.P720,
         ) { v ->
             val next = c.copy(resolution = v)
             set(next, mapOf("sa2_render_height_handheld" to "${next.renutHeight}"))
         }
+        list += MInfo(s(R.string.renut_res_experimental))
         list += MInfo(s(R.string.renut_fps_note))
         list += MToggle(s(R.string.settings_show_fps), null, c.showFps) { v ->
             set(c.copy(showFps = v), mapOf("debug_overlay" to v.toString()))

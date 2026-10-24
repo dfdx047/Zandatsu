@@ -23,10 +23,10 @@ adb -s "$D" shell am force-stop "$APP"
 adb -s "$D" push "$ROOT/out/test_saves/GameData_00" "$A/mgr/B13EBABEBABEBABE/4B4E080A/00000001/SaveData/" > /dev/null
 adb -s "$D" shell "printf '$CV' > $A/cvars.txt"
 adb -s "$D" shell am start -n "$APP/.game.GameActivity" -a "$APP.PLAY" > /dev/null
-sleep 45; shot titulo
-press START 4; press A 4; press A 6; press A 25
+sleep "${BOOT:-45}"; shot titulo
+press START 4; press A 4; press A 6; press A "${LOAD:-25}"
 shot luta
-cmd "cvar swordman_renut_shadows=true"   # marca o início da luta no log
+cmd "cvar vibration=false"   # marca o início da luta no log (cvar neutra)
 end=$((SECONDS + SECS))
 while [ $SECONDS -lt $end ]; do press X 0.7; press Y 0.7; done
 shot fim
@@ -41,19 +41,23 @@ for l in open(log, errors='ignore'):
     if not m:
         continue
     t = sec(m[1])
-    if 'autopilot: cvar swordman_renut_shadows' in l and start is None:
+    if 'autopilot: cvar vibration' in l and start is None:
         start = t
     if 'device lost' in l and lost is None:
         lost = t
     r = re.search(r'\[renut\] ([\d.]+) s: (\d+) game frames \(([\d.]+) fps\).*GPU ([\d.]+) ms a frame', l)
     if r and start and t - float(r[1]) >= start and float(r[4]) < 1000 and not (lost and t > lost):
         win.append((float(r[3]), float(r[4])))
+    # Xenia (dbz3_perf_logging): janelas de 5 s, sem GPU ms.
+    x = re.search(r'dbz3: perf fps=[\d.]+ frames=\d+ window=([\d.]+)s.*game_fps=([\d.]+)', l)
+    if x and start and t - float(x[1]) >= start and not (lost and t > lost):
+        win.append((float(x[2]), float('nan')))
     s = re.search(r'(\d{3,4}x\d{3,4})', l) if 'scale' in l.lower() and not res else None
     if s:
         res = s[1]
 if not win:
     sys.exit(f'{name}: sem janelas na luta')
-print(f'{name}: {len(win)} janelas de 10 s, {statistics.mean(w[0] for w in win):.1f} fps de jogo, '
+print(f'{name}: {len(win)} janelas, {statistics.mean(w[0] for w in win):.1f} fps de jogo, '
       f'GPU {statistics.mean(w[1] for w in win):.2f} ms (min {min(w[1] for w in win):.2f}, max {max(w[1] for w in win):.2f})'
       + (f'; HANG aos {lost - start:.0f} s' if lost and start else ''))
 PY

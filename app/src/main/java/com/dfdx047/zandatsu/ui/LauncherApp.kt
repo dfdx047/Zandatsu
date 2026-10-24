@@ -106,6 +106,9 @@ fun LauncherApp(vm: LauncherViewModel) {
         vm.message = null
     }
 
+    // Primeiro arranque: o jogador escolhe o perfil (nada pre-escolhido).
+    if (vm.needsProfile) com.dfdx047.zandatsu.ui.screens.ProfilePicker(vm)
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         contentWindowInsets = WindowInsets.safeDrawing,

@@ -416,4 +416,14 @@
     <string name="renut_shadows_sub">Las sombras del sol (mapa de sombras y pase de sombra en pantalla). Desactivadas: la escena queda toda iluminada.</string>
     <string name="renut_bloom">Brillo</string>
     <string name="renut_bloom_sub">El brillo alrededor de las luces y la espada. Desactivado: la imagen original, sin brillo.</string>
+    <string name="renut_res_experimental">* Experimental: en la RP5 (Turnip) 1080p, 2K y 4K colgaron la GPU (device lost) en 2 minutos de combate. Si la imagen se congela, vuelve a 720p.</string>
+    <string name="profile_pick_title">Elige tu perfil</string>
+    <string name="profile_pick_sub">Cada uno con los fps medidos en 60 s de combate: Retroid Pocket 5 con el renderizador nativo (Renut, driver Turnip) y RG Cube con el emulado (Xenia, Mali-G57). Este dispositivo usará: %1$s. No hay nada elegido; puedes cambiarlo después en Rendimiento.</string>
+    <string name="profile_pick_fps_rp5">Retroid Pocket 5 (Renut): %1$s</string>
+    <string name="profile_pick_fps_cube">RG Cube (Xenia): %1$s</string>
+    <string name="renut_preset_minimum_desc">360p, sin sombras ni brillo</string>
+    <string name="delete_old_extracted">Borrar archivos extraídos antiguos (%1$s)</string>
+    <string name="busy_deleting_old">Borrando archivos extraídos antiguos…</string>
+    <string name="drivers_renut_system_6xx">El driver del sistema no soporta Renut (el renderizador nativo) en Adreno 6xx: descarga Turnip en la pestaña Drivers y actívalo. Mientras tanto el juego corre en modo emulado (Xenia), más lento.</string>
+    <string name="drivers_renut_missing">Este driver no soporta Renut (falta: %1$s): el juego corre en modo emulado (Xenia). Prueba otro Turnip.</string>
 </resources>

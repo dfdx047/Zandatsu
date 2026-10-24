@@ -26,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddToHomeScreen
 import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.LocalCafe
@@ -165,6 +166,14 @@ fun HomeScreen(vm: LauncherViewModel, goTo: (LauncherTab) -> Unit) {
                     Icon(Icons.Filled.FolderOpen, null)
                     Spacer(Modifier.width(6.dp))
                     Text(stringResource(R.string.import_folder))
+                }
+            }
+            // ISO ativa e sobras de uma extracao antiga: o jogo ja nao as le.
+            if (vm.staleBytes > 0) {
+                OutlinedButton(onClick = { vm.deleteStaleFiles() }, enabled = vm.busy == null) {
+                    Icon(Icons.Filled.DeleteSweep, null)
+                    Spacer(Modifier.width(6.dp))
+                    Text(stringResource(R.string.delete_old_extracted, "%.1f GB".format(vm.staleBytes / 1e9)))
                 }
             }
             OutlinedButton(onClick = { vm.refreshInstall(true) }, enabled = install?.installed == true && vm.busy == null) {

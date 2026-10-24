@@ -513,19 +513,52 @@ fun recommendedPreset(): GraphicsPreset {
 }
 
 /**
- * O Renut corre neste aparelho? O jogo verifica as funcoes Vulkan de que ele precisa (texturas BC,
- * buffer device address, ...) ao arrancar no modo renut e escreve renut_support.txt ("ok"/"no").
- * Antes da primeira verificacao: so nas Adreno (as Mali, como a do RG Cube, nao tem texturas BC).
+ * O Renut corre neste aparelho com este driver? O jogo verifica as funcoes Vulkan de que ele precisa (texturas BC,
+ * buffer device address, ...) ao arrancar no modo renut e escreve renut_support.txt ("ok", ou "no" e o que falta).
+ * A verificacao vale para o driver com que o jogo arrancou (renut_support_driver.txt, escrito no JOGAR): trocar de
+ * driver volta a testar. Antes de testar: so nas Adreno (as Mali, como a do RG Cube, nao tem texturas BC).
  */
 object RenutSupport {
-    fun supported(): Boolean = when (status()) {
+    private val dir get() = AppPaths.userToml.parentFile
+    private fun driver() = com.dfdx047.zandatsu.drivers.DriverRepository.activeDir() ?: "system"
+
+    fun supported(): Boolean = when (status()?.firstOrNull()) {
         "ok" -> true
         "no" -> false
-        else -> com.dfdx047.zandatsu.drivers.DriverRepository.isAdreno()
+        else -> com.dfdx047.zandatsu.drivers.DriverRepository.isAdreno() && !systemDriverOn6xx()
     }
 
-    private fun status(): String? = try {
-        File(AppPaths.userToml.parentFile, "renut_support.txt").takeIf { it.isFile }?.readText()?.trim()
+    /**
+     * Adreno 6xx com o driver do sistema (Qualcomm): o Renut nao corre (RP5, 24/10). O launcher avisa nos drivers e
+     * no Desempenho em vez de o jogo passar calado para o Xenia.
+     */
+    fun systemDriverOn6xx(): Boolean =
+        com.dfdx047.zandatsu.drivers.DriverRepository.isAdreno() &&
+            com.dfdx047.zandatsu.drivers.TurnipSupport.detect().gen == "a6xx" &&
+            com.dfdx047.zandatsu.drivers.DriverRepository.activeDir() == null
+
+    /** O que falta ao driver atual para o Renut (null = corre ou ainda nao foi testado). */
+    fun missing(): String? {
+        val s = status()?.takeIf { it.firstOrNull() == "no" } ?: return null
+        return s.getOrNull(1)?.ifEmpty { null } ?: "?"
+    }
+
+    /** JOGAR: o driver com que o jogo vai arrancar (o resultado da verificacao fica ligado a ele). */
+    fun noteLaunch() {
+        try {
+            File(dir, "renut_support_driver.txt").writeText(driver() + "\n")
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun status(): List<String>? = try {
+        val tested = File(dir, "renut_support_driver.txt").takeIf { it.isFile }?.readText()?.trim()
+        // Sem o ficheiro do driver (versoes antigas): o resultado vale para o driver atual.
+        if (tested != null && tested != driver()) {
+            null
+        } else {
+            File(dir, "renut_support.txt").takeIf { it.isFile }?.readLines()?.map { it.trim() }
+        }
     } catch (e: Exception) {
         null
     }
@@ -533,9 +566,23 @@ object RenutSupport {
 
 /** As resolucoes do Renut (menu Desempenho e menu do jogo). */
 val RENUT_RESOLUTIONS = listOf(
-    InternalResolution.P540, InternalResolution.P720, InternalResolution.P1080, InternalResolution.P1440,
-    InternalResolution.P2160,
+    InternalResolution.P360, InternalResolution.P540, InternalResolution.P720, InternalResolution.P1080,
+    InternalResolution.P1440, InternalResolution.P2160,
 )
+
+/**
+ * Experimentais no Renut (24/10): no RP5 (Turnip) 1080p, 1440p e 4K cairam em 2 min de luta (GPU hang do kgsl,
+ * "device lost"; memoria livre sempre acima de 3,5 GB). O menu marca-as com "*" e uma nota.
+ */
+val RENUT_EXPERIMENTAL = setOf(InternalResolution.P1080, InternalResolution.P1440, InternalResolution.P2160)
+
+/** O nome no menu do Renut: as experimentais com "*". */
+val InternalResolution.renutLabel: String
+    get() = when (this) {
+        InternalResolution.P1440 -> "2K"
+        InternalResolution.P2160 -> "4K"
+        else -> label
+    } + if (this in RENUT_EXPERIMENTAL) "*" else ""
 
 /** As do Xenia (sem 1080p: escala inteira). */
 val XENOS_RESOLUTIONS = InternalResolution.entries.filter { it != InternalResolution.P1080 }
@@ -544,12 +591,13 @@ val XENOS_RESOLUTIONS = InternalResolution.entries.filter { it != InternalResolu
  * Perfis do Renut (menu Desempenho). O MGR do Xbox 360 tem duas opcoes graficas que se desligam
  * (dumps de frames de 24/10): sombras do sol e brilho. SSAO e profundidade de campo nao existem no 360;
  * motion blur tambem nao (dumps na Ninja Run e a girar a camara, 24/10).
+ *  - Minimo: 360p, sem sombras nem brilho.
  *  - Baixo: 540p, sem sombras nem brilho.
  *  - Medio: 720p, sem sombras nem brilho.
  *  - Alto: 720p, tudo ligado.
  *  - Ultra: 720p, tudo ligado e anisotropico 16x.
  */
-enum class RenutPreset { LOW, MEDIUM, HIGH, ULTRA }
+enum class RenutPreset { MINIMUM, LOW, MEDIUM, HIGH, ULTRA }
 
 /**
  * Opcoes do Renut ja validadas no RP5 (titulo, pausa, cutscene, luta, ripper mode, fotos antes/depois e fight-bench).
@@ -569,6 +617,7 @@ private data class RenutPresetSpec(
 )
 
 private fun RenutPreset.spec(): RenutPresetSpec = when (this) {
+    RenutPreset.MINIMUM -> RenutPresetSpec(InternalResolution.P360, shadows = false, bloom = false, anisotropic = -1)
     RenutPreset.LOW -> RenutPresetSpec(InternalResolution.P540, shadows = false, bloom = false, anisotropic = -1)
     RenutPreset.MEDIUM -> RenutPresetSpec(InternalResolution.P720, shadows = false, bloom = false, anisotropic = -1)
     RenutPreset.HIGH -> RenutPresetSpec(InternalResolution.P720, shadows = true, bloom = true, anisotropic = -1)

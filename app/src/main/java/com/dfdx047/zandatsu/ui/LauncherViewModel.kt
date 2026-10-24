@@ -19,6 +19,11 @@ import androidx.lifecycle.viewModelScope
 import com.dfdx047.zandatsu.R
 import com.dfdx047.zandatsu.data.AppLanguage
 import com.dfdx047.zandatsu.data.AppLog
+import com.dfdx047.zandatsu.data.GraphicsPreset
+import com.dfdx047.zandatsu.data.RenutPreset
+import com.dfdx047.zandatsu.data.RenutSupport
+import com.dfdx047.zandatsu.data.withPreset
+import com.dfdx047.zandatsu.data.withRenutPreset
 import com.dfdx047.zandatsu.data.AppPaths
 import com.dfdx047.zandatsu.data.CrashReport
 import com.dfdx047.zandatsu.data.CrashReports
@@ -28,6 +33,7 @@ import com.dfdx047.zandatsu.data.ErrorKind
 import com.dfdx047.zandatsu.data.FileStatus
 import com.dfdx047.zandatsu.data.GameConfig
 import com.dfdx047.zandatsu.data.GameFiles
+import com.dfdx047.zandatsu.data.IsoSource
 import com.dfdx047.zandatsu.data.GameInstall
 import com.dfdx047.zandatsu.data.GameOrientation
 import com.dfdx047.zandatsu.data.GameLib
@@ -222,6 +228,23 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
     var config by mutableStateOf(GameConfig())
         private set
 
+    /** Primeiro arranque: falta o jogador escolher um perfil (nada vem escolhido). */
+    var needsProfile by mutableStateOf(!prefs.profileChosen)
+        private set
+
+    /**
+     * O perfil do ecra do primeiro arranque (0 = Minimo .. 4 = Ultra): o do Renut se o jogo corre nele, senao o
+     * do Xenia. As duas listas tem a mesma ordem.
+     */
+    fun chooseProfile(tier: Int) {
+        updateConfig { c ->
+            if (c.useRenut) c.withRenutPreset(RenutPreset.entries[tier]) else c.withPreset(GraphicsPreset.entries[tier])
+        }
+        prefs.profileChosen = true
+        needsProfile = false
+        AppLog.i("app", "perfil escolhido no primeiro arranque: $tier (${if (config.useRenut) "Renut" else "Xenia"})")
+    }
+
     fun updateConfig(transform: (GameConfig) -> GameConfig) {
         val next = transform(config)
         if (next == config) return
@@ -292,6 +315,23 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
         checkLastRun()
     }
 
+    /** Com a ISO ativa: bytes de ficheiros extraidos de importacoes antigas que ja se podem apagar. */
+    var staleBytes by mutableStateOf(0L)
+        private set
+
+    fun deleteStaleFiles() {
+        viewModelScope.launch(Dispatchers.IO) {
+            busy = Busy(R.string.busy_deleting_old)
+            try {
+                IsoSource.deleteStale()
+            } finally {
+                busy = null
+            }
+            staleBytes = IsoSource.staleBytes()
+            install = GameFiles.check()
+        }
+    }
+
     fun refreshInstall(fullHash: Boolean) {
         viewModelScope.launch(Dispatchers.IO) {
             if (fullHash) busy = Busy(R.string.busy_verifying)
@@ -305,6 +345,7 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
                 if (fullHash) busy = null
             }
             install = result
+            staleBytes = IsoSource.staleBytes()
             if (fullHash) {
                 if (result.playable) say(R.string.msg_verify_ok)
                 else say(R.string.msg_verify_problems)
@@ -394,6 +435,7 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
                 busy = null
             }
             install = GameFiles.check()
+            staleBytes = IsoSource.staleBytes()
         }
     }
 
@@ -414,6 +456,7 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
                 busy = null
             }
             install = GameFiles.check()
+            staleBytes = IsoSource.staleBytes()
         }
     }
 
@@ -443,6 +486,7 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
                 GameConfig.save(config)
                 GameConfig.saveSkipLogos(prefs.skipLogos)
             }
+            RenutSupport.noteLaunch()
             AppLog.i("launcher", "jogar: ${if (config.useRenut) "renut" else "xenos"} ${config.resolution.label} ${config.frameMode} ${config.presentEffect}")
             context.startActivity(Intent(context, GameActivity::class.java).setAction(PLAY_ACTION))
         }

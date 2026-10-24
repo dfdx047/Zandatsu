@@ -35,7 +35,9 @@ import com.dfdx047.zandatsu.data.GraphicsPreset
 import com.dfdx047.zandatsu.data.frameMode
 import com.dfdx047.zandatsu.data.withFrameMode
 import com.dfdx047.zandatsu.data.InternalResolution
+import com.dfdx047.zandatsu.data.RENUT_EXPERIMENTAL
 import com.dfdx047.zandatsu.data.RENUT_RESOLUTIONS
+import com.dfdx047.zandatsu.data.renutLabel
 import com.dfdx047.zandatsu.data.RenutPreset
 import com.dfdx047.zandatsu.data.XENOS_RESOLUTIONS
 import com.dfdx047.zandatsu.data.RenutValidated
@@ -84,6 +86,14 @@ fun PerformanceScreen(vm: LauncherViewModel) {
         // 24/10: o Renut (Direct3D nativo) onde o aparelho o corre; nas Mali (sem texturas BC) fica o
         // Xenia sozinho e esta escolha nem aparece.
         val renutOk = remember { RenutSupport.supported() }
+        // Adreno sem Renut com este driver: dizer porque (em vez de so esconder a escolha).
+        if (!renutOk && vm.isAdreno) {
+            StatusLine(
+                if (RenutSupport.systemDriverOn6xx()) stringResource(R.string.drivers_renut_system_6xx)
+                else stringResource(R.string.drivers_renut_missing, RenutSupport.missing() ?: "?"),
+                Level.ERROR,
+            )
+        }
         if (renutOk) {
             SectionCard(
                 stringResource(R.string.renderer_title),
@@ -339,12 +349,14 @@ private fun RenutOptions(vm: LauncherViewModel) {
     // Sem recomendacao por aparelho: so fica marcado o perfil que o jogador escolheu.
     val current = c.chosenRenutPreset()
     val names = mapOf(
+        RenutPreset.MINIMUM to stringResource(R.string.preset_minimum),
         RenutPreset.LOW to stringResource(R.string.renut_preset_low),
         RenutPreset.MEDIUM to stringResource(R.string.renut_preset_medium),
         RenutPreset.HIGH to stringResource(R.string.renut_preset_high),
         RenutPreset.ULTRA to stringResource(R.string.renut_preset_ultra),
     )
     val descs = mapOf(
+        RenutPreset.MINIMUM to stringResource(R.string.renut_preset_minimum_desc),
         RenutPreset.LOW to stringResource(R.string.renut_preset_low_desc),
         RenutPreset.MEDIUM to stringResource(R.string.renut_preset_medium_desc),
         RenutPreset.HIGH to stringResource(R.string.renut_preset_high_desc),
@@ -373,9 +385,13 @@ private fun RenutOptions(vm: LauncherViewModel) {
         SettingSegmented(
             title = stringResource(R.string.settings_resolution),
             subtitle = stringResource(R.string.renut_resolution_sub),
-            options = RENUT_RESOLUTIONS.map { r -> r to r.label },
+            options = RENUT_RESOLUTIONS.map { r -> r to r.renutLabel },
             selected = if (c.resolution in RENUT_RESOLUTIONS) c.resolution else InternalResolution.P720,
             onSelect = { v -> vm.updateConfig { it.copy(resolution = v) } },
+        )
+        StatusLine(
+            stringResource(R.string.renut_res_experimental),
+            if (c.resolution in RENUT_EXPERIMENTAL) Level.WARN else Level.INFO,
         )
         SettingSwitch(stringResource(R.string.settings_show_fps), checked = c.showFps) { on -> vm.updateConfig { it.copy(showFps = on) } }
     }

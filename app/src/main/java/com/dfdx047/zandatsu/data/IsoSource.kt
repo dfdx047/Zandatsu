@@ -49,6 +49,26 @@ object IsoSource {
         marker.delete()
     }
 
+    /**
+     * Com a ISO ativa: o que sobrou de importacoes antigas extraidas em game/ (tudo menos o default.xex e as marcas
+     * com ponto). O jogo ja nao le nada disso.
+     */
+    private fun staleFiles(): List<File> {
+        if (current() == null) return emptyList()
+        return AppPaths.gameDir.listFiles()?.filter { it.name != "default.xex" && !it.name.startsWith(".") }.orEmpty()
+    }
+
+    /** Bytes dos ficheiros extraidos antigos (0 sem ISO ativa ou sem sobras). */
+    fun staleBytes(): Long = staleFiles().sumOf { f -> f.walkTopDown().filter { it.isFile }.sumOf { it.length() } }
+
+    /** Apaga os ficheiros extraidos antigos; devolve os bytes libertados. */
+    fun deleteStale(): Long {
+        val bytes = staleBytes()
+        staleFiles().forEach { it.deleteRecursively() }
+        AppLog.i("import", "ficheiros extraidos antigos apagados: ${bytes / 1_000_000} MB")
+        return bytes
+    }
+
     /** Os caminhos da ISO (em minusculas), ou null se ela ja nao abre (apagada, movida, sem permissao). */
     fun files(): List<String>? {
         val (uri, size) = current() ?: return null

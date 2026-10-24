@@ -26,7 +26,7 @@
 #include <stdexcept>
 
 // src/renut_glue.cpp: as funcoes Vulkan que o Renut assume (false = fica o Xenia).
-bool SwordManRenutDeviceSupported();
+bool SwordManRenutDeviceSupported(std::string* why = nullptr);
 #endif
 
 class MgrApp : public rex::ReXApp {
@@ -66,14 +66,15 @@ class MgrApp : public rex::ReXApp {
   void OnPreSetup(rex::RuntimeConfig& config) override {
 #if defined(SM_RENUT)
     if (banjo::renut_gpu::Active()) {
-      const bool supported = SwordManRenutDeviceSupported();
+      std::string why;
+      const bool supported = SwordManRenutDeviceSupported(&why);
       if (!supported) {
         banjo::renut_gpu::detail::g_active = -1;  // Xenia ate ao fim da sessao
       }
 #if defined(__ANDROID__)
-      // O launcher le-o: "no" = este aparelho fica no modo emulado e as opcoes do Renut escondem-se.
+      // O launcher le-o: "no" = este driver fica no modo emulado; a 2.a linha diz o que falta (o launcher avisa).
       if (FILE* f = std::fopen((rex::GetAndroidAppDirectory() / "renut_support.txt").c_str(), "w")) {
-        std::fputs(supported ? "ok\n" : "no\n", f);
+        std::fputs(supported ? "ok\n" : ("no\n" + why + "\n").c_str(), f);
         std::fclose(f);
       }
 #endif
