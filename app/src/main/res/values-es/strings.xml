@@ -320,7 +320,6 @@
     <string name="close">Cerrar</string>
     <string name="game_title_small">METAL GEAR RISING</string>
     <string name="orientation_portrait">Vertical</string>
-    <string name="perf_effects_pending">Los interruptores de los efectos de MGR (profundidad de campo, desenfoque de movimiento, brillo) llegan en una próxima versión: primero hace falta capturar frames del juego.</string>
     <string name="perf_fps_30_hack">30 (hack)</string>
     <string name="perf_fps_30_note">Hack de 30 FPS: misma velocidad del juego, la mitad de los frames dibujados.</string>
     <string name="debug_selftest_text">Autotest del render: en el juego, abre el menú → Depuración → Autotest del render. Congela la imagen solo, apaga los atajos de la GPU uno a uno y compara las imágenes.</string>
@@ -418,5 +417,4 @@
     <string name="renut_shadows_sub">Las sombras del sol (mapa de sombras y pase de sombra en pantalla). Desactivadas: la escena queda toda iluminada.</string>
     <string name="renut_bloom">Brillo</string>
     <string name="renut_bloom_sub">El brillo alrededor de las luces y la espada. Desactivado: la imagen original, sin brillo.</string>
-    <string name="renut_effects_absent">El MGR de Xbox 360 no tiene pase de SSAO, profundidad de campo ni desenfoque de movimiento en el juego (la apertura es vídeo): no hay nada que desactivar.</string>
 </resources>

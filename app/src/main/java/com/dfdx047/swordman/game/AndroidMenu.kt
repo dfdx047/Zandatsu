@@ -526,8 +526,6 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
             MToggle(s(R.string.settings_vibration), null, c.vibration) { v ->
                 set(c.copy(vibration = v), mapOf("vibration" to v.toString()))
             },
-            MHeader(s(R.string.perf_effects_title)),
-            MInfo(s(R.string.perf_effects_pending)),
         )
     }
 

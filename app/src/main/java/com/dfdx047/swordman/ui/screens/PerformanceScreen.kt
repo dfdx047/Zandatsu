@@ -214,8 +214,6 @@ fun PerformanceScreen(vm: LauncherViewModel) {
         }
 
         // ---------------------------------------------------- efeitos e som
-        // Os efeitos do MGR (profundidade de campo, brilho, desfoque de movimento) desligam-se
-        // pelo hash dos shaders, que ainda falta tirar das capturas: por agora so o aviso.
         SectionCard(
             stringResource(R.string.perf_effects_title),
             Icons.Filled.BlurOn,

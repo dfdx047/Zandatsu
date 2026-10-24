@@ -321,7 +321,6 @@
     <string name="close">Close</string>
     <string name="game_title_small">METAL GEAR RISING</string>
     <string name="orientation_portrait">Portrait</string>
-    <string name="perf_effects_pending">The switches for MGR effects (depth of field, motion blur, bloom) arrive in a next version: they need frame captures of the game first.</string>
     <string name="perf_fps_30_hack">30 (hack)</string>
     <string name="perf_fps_30_note">30 FPS hack: same game speed, half the frames drawn.</string>
     <string name="debug_selftest_text">Render self-test: in the game, open the menu → Debug → Render self-test. It freezes the picture by itself, turns the GPU shortcuts off one by one and compares pictures.</string>
@@ -419,5 +418,4 @@
     <string name="renut_shadows_sub">The sun\'s shadows (shadow map and screen shadow pass). Off: the scene is lit everywhere.</string>
     <string name="renut_bloom">Bloom</string>
     <string name="renut_bloom_sub">The glow around lights and the sword. Off: the original image, without glow.</string>
-    <string name="renut_effects_absent">The Xbox 360 MGR has no SSAO, depth of field or motion blur pass in game (the opening is a video): there is nothing to switch off.</string>
 </resources>
