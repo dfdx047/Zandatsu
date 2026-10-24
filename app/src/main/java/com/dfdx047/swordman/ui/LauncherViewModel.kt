@@ -464,7 +464,7 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var activeDriver by mutableStateOf<String?>(null)
         private set
-    var driverSource by mutableStateOf(DriverRepository.sourcesForDevice().first())
+    var driverSource by mutableStateOf(DriverRepository.SOURCES.first())
         private set
     var driverReleases by mutableStateOf<List<DriverRelease>>(emptyList())
         private set
@@ -491,7 +491,13 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
 
     fun refreshDrivers() {
         viewModelScope.launch(Dispatchers.IO) {
-            installedDrivers = DriverRepository.installed()
+            // Fora do Adreno so ha o driver do sistema: um driver ativo de antes (o MaliSX2, 23/10) sai.
+            val old = DriverRepository.activeDir()
+            if (!isAdreno && old != null) {
+                AppLog.i("drivers", "nao e Adreno: $old desativado, driver do sistema")
+                DriverRepository.deactivate()
+            }
+            installedDrivers = if (isAdreno) DriverRepository.installed() else emptyList()
             activeDriver = DriverRepository.activeDir()
         }
     }
@@ -662,6 +668,7 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
 
     // Fica no fim da classe: as propriedades acima ja tem de estar inicializadas.
     init {
+        refreshDrivers()  // tambem tira um driver alternativo fora do Adreno
         viewModelScope.launch(Dispatchers.IO) {
             val loaded = GameConfig.load()
             withContext(Dispatchers.Main) { config = loaded }

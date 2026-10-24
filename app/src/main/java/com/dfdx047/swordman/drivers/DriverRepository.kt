@@ -42,16 +42,15 @@ object DriverRepository {
         DriverSource("MrPurple666", "purple-turnip", "Mr. Purple — Purple Turnip"),
         DriverSource("StevenMXZ", "freedreno_turnip-CI", "StevenMXZ — Turnip CI"),
         DriverSource("K11MCH1", "AdrenoToolsDrivers", "K11MCH1 — AdrenoTools Drivers"),
-        // 23/10: drivers do ARMSX2 (pacotes AdrenoTools). Turnip com os patches deles (Adreno
-        // 6xx/7xx) e o MaliSX2, Vulkan do Mesa para Mali Valhall/Bifrost (G52, G57, G68, G77,
-        // G78, G615, G715) sobre o driver kbase do kernel.
+        // 23/10: o Turnip do ARMSX2 (pacote AdrenoTools, Adreno 6xx/7xx).
         DriverSource("bmdhacks", "armsx2-turnip", "ARMSX2 — Turnip (Adreno 6xx/7xx)", "ARMSX2"),
-        DriverSource("bmdhacks", "malisx2", "ARMSX2 — MaliSX2 (Mali)", "MaliSX2"),
     )
 
-    /** As fontes que servem para a GPU deste aparelho: Turnip no Adreno, MaliSX2 no resto. */
-    fun sourcesForDevice(): List<DriverSource> =
-        if (isAdreno()) SOURCES.filter { it.repo != "malisx2" } else SOURCES.filter { it.repo == "malisx2" }
+    /**
+     * As fontes que servem para a GPU deste aparelho: Turnip no Adreno; nenhuma no resto. 24/10: o MaliSX2 saiu
+     * (imagem toda corrompida no RG Cube, Mali-G57); no Mali o jogo usa sempre o driver do sistema (Vulkan 1.3).
+     */
+    fun sourcesForDevice(): List<DriverSource> = if (isAdreno()) SOURCES else emptyList()
 
     /** Adreno (Qualcomm)? Os drivers Turnip so servem para Adreno. */
     fun isAdreno(): Boolean {

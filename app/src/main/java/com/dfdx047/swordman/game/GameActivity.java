@@ -630,6 +630,12 @@ public class GameActivity extends SDLActivity {
             deleteRecursively(internalDir);
             return;
         }
+        // Fora do Adreno so o driver do sistema (24/10: o MaliSX2 corrompia a imagem no Mali-G57).
+        if (!com.dfdx047.swordman.drivers.DriverRepository.INSTANCE.isAdreno()) {
+            deleteRecursively(internalDir);
+            mDriverNote = "sistema (nao e Adreno: " + candidates[0].getName() + " ignorado)";
+            return;
+        }
         File source = candidates[0];
         File target = new File(internalDir, source.getName());
         try {

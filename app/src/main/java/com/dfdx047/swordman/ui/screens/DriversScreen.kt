@@ -65,7 +65,7 @@ fun DriversScreen(vm: LauncherViewModel) {
     LaunchedEffect(Unit) {
         vm.refreshDrivers()
         vm.refreshTurnipBisect()
-        if (vm.driverReleases.isEmpty() && !vm.driverReleasesLoading) vm.loadDriverReleases()
+        if (vm.isAdreno && vm.driverReleases.isEmpty() && !vm.driverReleasesLoading) vm.loadDriverReleases()
     }
 
     LazyColumn(
@@ -103,6 +103,8 @@ fun DriversScreen(vm: LauncherViewModel) {
                 }
             }
         }
+        // Fora do Adreno (Mali): so o driver do sistema, sem escolha nem downloads.
+        if (!vm.isAdreno) return@LazyColumn
         item {
             SectionCard(stringResource(R.string.drivers_active_title), Icons.Filled.Memory) {
                 val active = vm.activeDriver

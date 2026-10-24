@@ -56,7 +56,7 @@
     <string name="err_import_missing">Faltan archivos obligatorios en media/: %1$s</string>
     <string name="err_import_io">La copia falló: %1$s. Revisa el espacio libre.</string>
     <string name="drivers_device">Este dispositivo</string>
-    <string name="drivers_not_adreno">No es una GPU Adreno: los drivers Turnip no se aplican. En Mali se puede probar MaliSX2 (descarga abajo); sin él se usa el driver del sistema.</string>
+    <string name="drivers_not_adreno">No es una GPU Adreno: el juego usa el driver Vulkan del sistema (los drivers Turnip son solo para Adreno).</string>
     <string name="drivers_active_title">Driver en uso</string>
     <string name="drivers_use_system">Usar driver del sistema</string>
     <string name="drivers_import">Importar .zip / .so</string>
