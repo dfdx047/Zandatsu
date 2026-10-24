@@ -1,4 +1,4 @@
-// Project SwordMan - estado do jogo e comandos ao vivo para o app (NativeGameState.kt).
+// Zandatsu - estado do jogo e comandos ao vivo para o app (NativeGameState.kt).
 //
 // A mesma interface JNI do Dragon Burst, para o launcher, o menu do jogo e os controles
 // por toque. O que dependia de enderecos do Burst Limit (lado do P1, luta/menus) ainda
@@ -46,7 +46,7 @@ bool g_paused = false;
 
 // Lado do P1 (Dragon Burst). Sem sentido no MGR: sempre desconhecido.
 extern "C" JNIEXPORT jint JNICALL
-Java_com_dfdx047_swordman_game_NativeGameState_nativeP1Side(JNIEnv*, jclass) {
+Java_com_dfdx047_zandatsu_game_NativeGameState_nativeP1Side(JNIEnv*, jclass) {
   return 0;
 }
 
@@ -56,7 +56,7 @@ Java_com_dfdx047_swordman_game_NativeGameState_nativeP1Side(JNIEnv*, jclass) {
 // AudioSystem::Pause(). O Kotlin chama isto a cada tick do HelperEngine (60 Hz).
 // ---------------------------------------------------------------------------
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_dfdx047_swordman_game_NativeGameState_nativeSyncPause(JNIEnv*, jclass, jboolean overlay_open,
+Java_com_dfdx047_zandatsu_game_NativeGameState_nativeSyncPause(JNIEnv*, jclass, jboolean overlay_open,
                                                                jboolean pause_quick_menu) {
   std::lock_guard<std::mutex> lock(g_pause_mu);
   auto* rt = rex::Runtime::instance();
@@ -84,7 +84,7 @@ Java_com_dfdx047_swordman_game_NativeGameState_nativeSyncPause(JNIEnv*, jclass, 
 
 /** Ao sair do jogo: nunca deixar a thread do jogo presa na pausa. */
 extern "C" JNIEXPORT void JNICALL
-Java_com_dfdx047_swordman_game_NativeGameState_nativeForceResume(JNIEnv*, jclass) {
+Java_com_dfdx047_zandatsu_game_NativeGameState_nativeForceResume(JNIEnv*, jclass) {
   {
     std::lock_guard<std::mutex> l(g_swordman_pause_mu);
     g_swordman_pause.store(false, std::memory_order_release);
@@ -97,19 +97,19 @@ Java_com_dfdx047_swordman_game_NativeGameState_nativeForceResume(JNIEnv*, jclass
 // No MGR ainda nao se sabe: -1 sempre que o jogo corre (o layout fica o escolhido).
 // ---------------------------------------------------------------------------
 extern "C" JNIEXPORT jint JNICALL
-Java_com_dfdx047_swordman_game_NativeGameState_nativeFightFlag(JNIEnv*, jclass) {
+Java_com_dfdx047_zandatsu_game_NativeGameState_nativeFightFlag(JNIEnv*, jclass) {
   return -1;
 }
 
 // Camara livre / modo foto (Dragon Burst). Nao existe no MGR.
 extern "C" JNIEXPORT jint JNICALL
-Java_com_dfdx047_swordman_game_NativeGameState_nativeMapFlag(JNIEnv*, jclass) {
+Java_com_dfdx047_zandatsu_game_NativeGameState_nativeMapFlag(JNIEnv*, jclass) {
   return rex::Runtime::instance() ? 0 : -1;
 }
 
 // Diagnostico para logs/controles.log: frames apresentados e se esta pausado.
 extern "C" JNIEXPORT jstring JNICALL
-Java_com_dfdx047_swordman_game_NativeGameState_nativeBattleDebug(JNIEnv* env, jclass) {
+Java_com_dfdx047_zandatsu_game_NativeGameState_nativeBattleDebug(JNIEnv* env, jclass) {
   if (!rex::Runtime::instance()) return env->NewStringUTF("sem jogo");
   char text[160];
   std::snprintf(text, sizeof(text), "frames=%llu pausa=%d",
@@ -120,7 +120,7 @@ Java_com_dfdx047_swordman_game_NativeGameState_nativeBattleDebug(JNIEnv* env, jc
 
 // Frames apresentados (VdSwap) desde o arranque: o app marca a sessao como "a correr".
 extern "C" JNIEXPORT jlong JNICALL
-Java_com_dfdx047_swordman_game_NativeGameState_nativeFrames(JNIEnv*, jclass) {
+Java_com_dfdx047_zandatsu_game_NativeGameState_nativeFrames(JNIEnv*, jclass) {
   return static_cast<jlong>(g_swordman_ticks.load(std::memory_order_relaxed));
 }
 
@@ -131,7 +131,7 @@ extern "C" size_t rex_swordman_ps_census(char* buf, size_t size, int reset);
 extern "C" void rex_swordman_set_skip_ps(const char* text);
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_dfdx047_swordman_game_NativeGameState_nativeSetSkipPs(JNIEnv* env, jclass, jstring text) {
+Java_com_dfdx047_zandatsu_game_NativeGameState_nativeSetSkipPs(JNIEnv* env, jclass, jstring text) {
   const char* t = env->GetStringUTFChars(text, nullptr);
   rex_swordman_set_skip_ps(t);
   REXLOG_INFO("swordman: pixel shaders saltados: '{}'", t);
@@ -139,7 +139,7 @@ Java_com_dfdx047_swordman_game_NativeGameState_nativeSetSkipPs(JNIEnv* env, jcla
 }
 
 extern "C" JNIEXPORT jlongArray JNICALL
-Java_com_dfdx047_swordman_game_NativeGameState_nativeGpuStats(JNIEnv* env, jclass) {
+Java_com_dfdx047_zandatsu_game_NativeGameState_nativeGpuStats(JNIEnv* env, jclass) {
   uint64_t v[2] = {0, 0};
   rex_swordman_gpu_stats(v);
   jlongArray out = env->NewLongArray(2);
@@ -149,7 +149,7 @@ Java_com_dfdx047_swordman_game_NativeGameState_nativeGpuStats(JNIEnv* env, jclas
 }
 
 extern "C" JNIEXPORT jstring JNICALL
-Java_com_dfdx047_swordman_game_NativeGameState_nativePsCensus(JNIEnv* env, jclass, jboolean reset) {
+Java_com_dfdx047_zandatsu_game_NativeGameState_nativePsCensus(JNIEnv* env, jclass, jboolean reset) {
   std::string text(rex_swordman_ps_census(nullptr, 0, 0) + 4096, '\0');
   const size_t n = rex_swordman_ps_census(text.data(), text.size(), reset ? 1 : 0);
   text.resize(std::min(n, text.size() - 1));
@@ -157,7 +157,7 @@ Java_com_dfdx047_swordman_game_NativeGameState_nativePsCensus(JNIEnv* env, jclas
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_dfdx047_swordman_game_NativeGameState_nativeDumpFight(JNIEnv*, jclass, jstring, jint, jlong) {
+Java_com_dfdx047_zandatsu_game_NativeGameState_nativeDumpFight(JNIEnv*, jclass, jstring, jint, jlong) {
   return JNI_FALSE;
 }
 
@@ -166,7 +166,7 @@ Java_com_dfdx047_swordman_game_NativeGameState_nativeDumpFight(JNIEnv*, jclass, 
 // mgr.toml, para o launcher ver as mesmas opcoes na proxima abertura.
 // ---------------------------------------------------------------------------
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_dfdx047_swordman_game_NativeGameState_nativeSetCvars(JNIEnv* env, jclass, jobjectArray names,
+Java_com_dfdx047_zandatsu_game_NativeGameState_nativeSetCvars(JNIEnv* env, jclass, jobjectArray names,
                                                               jobjectArray values, jboolean persist) {
   if (!rex::Runtime::instance()) return JNI_FALSE;
   const jsize n = env->GetArrayLength(names);
@@ -196,7 +196,7 @@ Java_com_dfdx047_swordman_game_NativeGameState_nativeSetCvars(JNIEnv* env, jclas
 }
 
 extern "C" JNIEXPORT jstring JNICALL
-Java_com_dfdx047_swordman_game_NativeGameState_nativeGetCvar(JNIEnv* env, jclass, jstring name) {
+Java_com_dfdx047_zandatsu_game_NativeGameState_nativeGetCvar(JNIEnv* env, jclass, jstring name) {
   if (!rex::Runtime::instance()) return env->NewStringUTF("");
   const char* cn = env->GetStringUTFChars(name, nullptr);
   const std::string value = rex::cvar::GetFlagByName(cn);
@@ -205,7 +205,7 @@ Java_com_dfdx047_swordman_game_NativeGameState_nativeGetCvar(JNIEnv* env, jclass
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_dfdx047_swordman_game_NativeGameState_nativeInvokeCommand(JNIEnv* env, jclass, jstring name,
+Java_com_dfdx047_zandatsu_game_NativeGameState_nativeInvokeCommand(JNIEnv* env, jclass, jstring name,
                                                                    jstring args) {
   if (!rex::Runtime::instance()) return JNI_FALSE;
   const char* cn = env->GetStringUTFChars(name, nullptr);
@@ -219,11 +219,11 @@ Java_com_dfdx047_swordman_game_NativeGameState_nativeInvokeCommand(JNIEnv* env, 
 
 // Sons de menu do proprio jogo (Dragon Burst). O MGR ainda nao: o menu do app fica mudo.
 extern "C" JNIEXPORT void JNICALL
-Java_com_dfdx047_swordman_game_NativeGameState_nativeMenuSound(JNIEnv*, jclass, jint) {}
+Java_com_dfdx047_zandatsu_game_NativeGameState_nativeMenuSound(JNIEnv*, jclass, jint) {}
 
 // Linha no log do jogo (autoteste do render, menu do app, controles).
 extern "C" JNIEXPORT void JNICALL
-Java_com_dfdx047_swordman_game_NativeGameState_nativeLogLine(JNIEnv* env, jclass, jstring line) {
+Java_com_dfdx047_zandatsu_game_NativeGameState_nativeLogLine(JNIEnv* env, jclass, jstring line) {
   const char* c = env->GetStringUTFChars(line, nullptr);
   REXLOG_INFO("swordman: {}", c);
   env->ReleaseStringUTFChars(line, c);
@@ -235,7 +235,7 @@ Java_com_dfdx047_swordman_game_NativeGameState_nativeLogLine(JNIEnv* env, jclass
 // chamado antes de o jogo arrancar (o ganho e global).
 // ---------------------------------------------------------------------------
 extern "C" JNIEXPORT void JNICALL
-Java_com_dfdx047_swordman_game_NativeGameState_nativeSetVolume(JNIEnv*, jclass, jint percent) {
+Java_com_dfdx047_zandatsu_game_NativeGameState_nativeSetVolume(JNIEnv*, jclass, jint percent) {
   const int p = percent < 0 ? 0 : (percent > 100 ? 100 : percent);
   // Curva quadratica: o meio do controlo soa a "metade" (o ouvido e logaritmico).
   const float linear = (p / 100.0f) * (p / 100.0f);
@@ -250,7 +250,7 @@ Java_com_dfdx047_swordman_game_NativeGameState_nativeSetVolume(JNIEnv*, jclass, 
 // chegam a tela" do autoteste.
 // ---------------------------------------------------------------------------
 extern "C" JNIEXPORT void JNICALL
-Java_com_dfdx047_swordman_game_NativeGameState_nativeSetDisplayHz(JNIEnv*, jclass, jfloat hz) {
+Java_com_dfdx047_zandatsu_game_NativeGameState_nativeSetDisplayHz(JNIEnv*, jclass, jfloat hz) {
   static std::atomic<int> logged_hz{-1};
   rex::perf::SetDisplayRefreshRate(hz);
   const int rounded = int(hz + 0.5f);
@@ -260,6 +260,6 @@ Java_com_dfdx047_swordman_game_NativeGameState_nativeSetDisplayHz(JNIEnv*, jclas
 }
 
 extern "C" JNIEXPORT jstring JNICALL
-Java_com_dfdx047_swordman_game_NativeGameState_nativePresentInfo(JNIEnv* env, jclass) {
+Java_com_dfdx047_zandatsu_game_NativeGameState_nativePresentInfo(JNIEnv* env, jclass) {
   return env->NewStringUTF(rex::perf::GetPresentInfo().c_str());
 }

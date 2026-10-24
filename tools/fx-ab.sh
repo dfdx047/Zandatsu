@@ -13,7 +13,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 D="$1"; N="$2"; CV_NAME="$3"; ON="$4"; OFF="$5"; shift 5
-APP=com.dfdx047.swordman
+APP=com.dfdx047.zandatsu
 A="/sdcard/Android/data/$APP/files"
 OUT="$ROOT/out/bench"; mkdir -p "$OUT"
 HALF="${HALF:-120}"

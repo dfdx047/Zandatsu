@@ -1,4 +1,4 @@
-// Project SwordMan - ganchos especificos do port Android.
+// Zandatsu - ganchos especificos do port Android.
 //
 // Pausa e contador de frames: o SDK chama rex_vdswap_hook no inicio de cada VdSwap
 // (patch 0100), na thread do jogo que apresenta o frame. E o equivalente generico do

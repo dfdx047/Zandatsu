@@ -1,4 +1,4 @@
-// Project SwordMan - vigia de travamento ("watchdog").
+// Zandatsu - vigia de travamento ("watchdog").
 //
 // O jogo passa uma vez por frame apresentado em SwordManPausePoint() (android_hooks.cpp,
 // chamado pelo VdSwap, patch 0100). Se esse contador parar 8 s sem uma pausa pedida (ou

@@ -1,4 +1,4 @@
-# Project SwordMan - nucleo nativo
+# Zandatsu - nucleo nativo
 #
 # Compila o SDK (external/rexglue-sdk: o mesmo do Dragon Burst, fork do ReXGlue do
 # Burst Limit com os patches Android de patches/) e o MGR recompilado (src/ e

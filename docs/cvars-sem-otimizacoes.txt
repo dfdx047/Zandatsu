@@ -2,7 +2,7 @@
 # do Dragon Fury desligadas (caminho emulado "puro", como o Xenia).
 #
 # Copiar para o aparelho:
-#   adb push docs/cvars-sem-otimizacoes.txt /sdcard/Android/data/com.dfdx047.swordman/files/cvars.txt
+#   adb push docs/cvars-sem-otimizacoes.txt /sdcard/Android/data/com.dfdx047.zandatsu/files/cvars.txt
 #
 # Primeiro a imagem certa, depois desempenho (OptXbox, GUIA_DE_PORT.md, fase 3).
 # Com a imagem certa, ligar uma de cada vez e medir com optxbox compare.

@@ -8,7 +8,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 D="$1"; OP="$2"
-APP=com.dfdx047.swordman
+APP=com.dfdx047.zandatsu
 P="/sdcard/Android/data/$APP/files/mgr/B13EBABEBABEBABE/4B4E080A/00000001"
 SRC="$ROOT/out/test_saves"
 on() { adb -s "$D" shell "[ -f $P/SaveData/.swordman_test ]"; }

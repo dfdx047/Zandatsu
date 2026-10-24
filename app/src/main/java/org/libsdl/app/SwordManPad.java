@@ -3,7 +3,7 @@ package org.libsdl.app;
 import android.view.KeyEvent;
 
 /**
- * Project SwordMan (vindo do DBZ3-Android): comando virtual dos controles por toque.
+ * Zandatsu (vindo do DBZ3-Android): comando virtual dos controles por toque.
  *
  * Regista no SDL um "joystick Android" que nao existe fisicamente e manda-lhe
  * botoes e eixos pelas mesmas funcoes JNI que o SDLControllerManager usa para
@@ -43,7 +43,7 @@ public final class SwordManPad {
             SwordManHaptics.install(SDL.getContext());
             // pid.codes (0x1209): VID/PID que nenhum driver HIDAPI do SDL reclama.
             // SDL 3.4: + acelerometro e giroscopio (o comando de toque nao os tem).
-            SDLControllerManager.nativeAddJoystick(DEVICE_ID, "Project SwordMan Touch",
+            SDLControllerManager.nativeAddJoystick(DEVICE_ID, "Zandatsu Touch",
                     "swordman-touch-pad", 0x1209, 0xDF03, BUTTON_MASK, 6, AXIS_MASK, 0,
                     true, false, false, false);
             sAttached = true;

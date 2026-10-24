@@ -1,6 +1,6 @@
 # Créditos
 
-O Project SwordMan (Metal Gear Rising: Revengeance para Android) é GPL-3.0 e o código-fonte é aberto. Ele existe
+O Zandatsu (Metal Gear Rising: Revengeance para Android) é GPL-3.0 e o código-fonte é aberto. Ele existe
 graças a estes projetos:
 
 | Projeto | O que veio dele | Licença |

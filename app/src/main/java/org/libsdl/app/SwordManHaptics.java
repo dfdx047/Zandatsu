@@ -7,7 +7,7 @@ import android.os.Vibrator;
 import android.os.VibratorManager;
 
 /**
- * DBZ3-Android / Project SwordMan: vibracao do jogo (rumble) no motor do aparelho.
+ * DBZ3-Android / Zandatsu: vibracao do jogo (rumble) no motor do aparelho.
  *
  * O SDL so faz rumble em comandos que tenham vibrador proprio. O comando
  * embutido de handhelds (Odin, Retroid) e os comandos Bluetooth sem motor nao

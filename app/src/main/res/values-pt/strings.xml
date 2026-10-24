@@ -161,7 +161,7 @@
     <string name="about_check_updates">Procurar atualizações</string>
     <string name="about_update_available">Versão %1$s disponível: ver o que mudou</string>
     <string name="about_project_title">O projeto</string>
-    <string name="about_project_text">Project SwordMan é o port para Android do Metal Gear Rising: Revengeance (Xbox 360), recompilado estaticamente com o ReXGlue SDK: o código do jogo roda nativo, só a GPU é emulada.</string>
+    <string name="about_project_text">Zandatsu é o port para Android do Metal Gear Rising: Revengeance (Xbox 360), recompilado estaticamente com o ReXGlue SDK: o código do jogo roda nativo, só a GPU é emulada.</string>
     <string name="about_credits">Agradecimentos: equipe do ReXGlue SDK, iExplosiveRage (fork Android do SDK), projeto Xenia (emulação da GPU), SDL, libadrenotools (bylaws) e quem compila os drivers Turnip/Mesa (Mr. Purple, StevenMXZ, K11MCH1).</string>
     <string name="about_legal">Projeto de fã não oficial e sem fins comerciais. Nenhum arquivo do jogo vem incluído: você precisa da sua própria cópia legal. Metal Gear Rising: Revengeance pertence à Konami e à PlatinumGames.</string>
     <string name="ingame_title">Controles</string>

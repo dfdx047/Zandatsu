@@ -39,12 +39,12 @@ val d3dTrace = (project.findProperty("df.d3dTrace") as String?) == "true"
 val thinLto = (project.findProperty("df.thinlto") as String?) == "true"
 
 android {
-    namespace = "com.dfdx047.swordman"
+    namespace = "com.dfdx047.zandatsu"
     compileSdk = 36
     ndkVersion = "28.2.13676358"
 
     defaultConfig {
-        applicationId = "com.dfdx047.swordman"
+        applicationId = "com.dfdx047.zandatsu"
         // API 30 (Android 11): memfd, posix_spawn, strtod_l e ASharedMemory
         // estao todos disponiveis no bionic.
         minSdk = 30

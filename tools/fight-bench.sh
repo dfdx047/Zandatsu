@@ -21,7 +21,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 D="$1"; N="$2"; shift 2
-APP=com.dfdx047.swordman
+APP=com.dfdx047.zandatsu
 A="/sdcard/Android/data/$APP/files"
 OUT="$ROOT/out/bench"; mkdir -p "$OUT"
 press() { adb -s "$D" shell am broadcast -a "$APP.CMD" -p "$APP" --es cmd "'press $1'" > /dev/null; sleep "$2"; }

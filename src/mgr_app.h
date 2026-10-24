@@ -38,7 +38,7 @@ class MgrApp : public rex::ReXApp {
   }
 
   // Android: o jogo fica em <pasta do app>/game (default.xex + media/), ou seja
-  // /sdcard/Android/data/com.dfdx047.swordman/files/game. O cvar game_data_root
+  // /sdcard/Android/data/com.dfdx047.zandatsu/files/game. O cvar game_data_root
   // (cvars.txt) continua a mandar, se estiver definido.
   void OnConfigurePaths(rex::PathConfig& paths) override {
 #if defined(__ANDROID__)

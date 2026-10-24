@@ -1,4 +1,4 @@
-# Renut (mgr-nx-deko) -> Project SwordMan (Android): porting analysis
+# Renut (mgr-nx-deko) -> Zandatsu (Android): porting analysis
 
 Date: 2026-10-23. Read-only analysis; no repo was modified.
 Paths: `MGRNX` = /tmp/claude-0/-home-claude/a7e7c5fc-7625-57d5-87d2-debffa507158/scratchpad/mgrnx ; `SM` = /home/claude/projectswordman ; `SDK` = /home/claude/sdkwork.

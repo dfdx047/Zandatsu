@@ -1,4 +1,4 @@
-# Project SwordMan
+# Zandatsu
 
 Port para Android de **Metal Gear Rising: Revengeance** (Xbox 360), recompilado estaticamente com o
 [ReXGlue SDK](https://github.com/rexglue/rexglue-sdk) v0.10.0 e com a GPU emulada (Vulkan, derivada
@@ -60,7 +60,7 @@ Ferramentas no PC (CachyOS): clang 20+, cmake 3.25+, ninja, Android Studio com o
    cmake.dir=/usr
    ```
 
-5. Abrir a pasta `ProjectSwordMan` no Android Studio e compilar a variante **release**
+5. Abrir a pasta `Zandatsu` no Android Studio e compilar a variante **release**
    (Build ▸ Select Build Variant ▸ `release`), ou na linha de comandos:
 
    ```fish
@@ -72,7 +72,7 @@ Ferramentas no PC (CachyOS): clang 20+, cmake 3.25+, ninja, Android Studio com o
 
 ## Primeiro teste no aparelho
 
-1. Abrir o app uma vez (cria a pasta `Android/data/com.dfdx047.swordman`).
+1. Abrir o app uma vez (cria a pasta `Android/data/com.dfdx047.zandatsu`).
 2. Copiar o jogo (~8 GB):
 
    ```fish
@@ -82,20 +82,20 @@ Ferramentas no PC (CachyOS): clang 20+, cmake 3.25+, ninja, Android Studio com o
 3. Desligar as otimizações de GPU para a primeira rodada (primeiro a imagem certa):
 
    ```fish
-   adb push docs/cvars-sem-otimizacoes.txt /sdcard/Android/data/com.dfdx047.swordman/files/cvars.txt
+   adb push docs/cvars-sem-otimizacoes.txt /sdcard/Android/data/com.dfdx047.zandatsu/files/cvars.txt
    ```
 
-4. Jogar, voltar ao launcher e tocar em **Exportar logs** (`Download/SwordMan-logs-*.zip`).
+4. Jogar, voltar ao launcher e tocar em **Exportar logs** (`Download/Zandatsu-logs-*.zip`).
 5. No PC:
 
    ```fish
-   cd ~/Optxbox && python3 -m optxbox report --adb --adb-pattern "SwordMan-logs-*.zip"
+   cd ~/Optxbox && python3 -m optxbox report --adb --adb-pattern "Zandatsu-logs-*.zip"
    ```
 
 Captura de 2 frames durante o jogo:
 
 ```fish
-adb shell 'echo 2 > /sdcard/Android/data/com.dfdx047.swordman/files/capture.req'
+adb shell 'echo 2 > /sdcard/Android/data/com.dfdx047.zandatsu/files/capture.req'
 ```
 
 A captura fica em `logs/capture/*.dfc` e entra no próximo **Exportar logs**.
@@ -115,7 +115,7 @@ protegido por direitos autorais é distribuído.
 
 ## Licença e créditos
 
-Desde 23/10/2026 o Project SwordMan é GPL-3.0 (`LICENSE`), com o código-fonte aberto. O renderizador nativo e as
+Desde 23/10/2026 o Zandatsu é GPL-3.0 (`LICENSE`), com o código-fonte aberto. O renderizador nativo e as
 ferramentas vêm do [mgr-nx-deko](https://github.com/tuancapoo/mgr-nx-deko) (GPL-3.0), com a autorização dos autores
 (23/10/2026) para usar à vontade mantendo os créditos e o código aberto. O overlay do SDK continua MIT
 (`sdk/overlay-LICENSE`) e o ReXGlue SDK BSD-3-Clause. Créditos completos: [CREDITS.md](CREDITS.md).

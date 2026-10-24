@@ -12,7 +12,7 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 D="$1"; N="$2"; shift 2
-APP=com.dfdx047.swordman
+APP=com.dfdx047.zandatsu
 A="/sdcard/Android/data/$APP/files"
 OUT="$ROOT/out/validate/$N"; rm -rf "$OUT"; mkdir -p "$OUT"
 cmd() { adb -s "$D" shell am broadcast -a "$APP.CMD" -p "$APP" --es cmd "'$*'" > /dev/null; }

@@ -1,4 +1,4 @@
-# Project SwordMan — instruções para o Claude Code
+# Zandatsu — instruções para o Claude Code
 
 Port de Metal Gear Rising: Revengeance (Xbox 360) para Android por recompilação estática
 (ReXGlue SDK, GPU Xenia/Vulkan). App Kotlin em `app/`, código do jogo gerado (nunca no git).
@@ -14,7 +14,7 @@ Port de Metal Gear Rising: Revengeance (Xbox 360) para Android por recompilaçã
 | Retroid Pocket 5 | `611e0fa0` | Adreno 650 (SD865), Turnip ou driver Qualcomm | 720p a 60 fps |
 | RG Cube | `RGCUBE13528869` | Mali-G57 | pelo menos 30 fps |
 
-- Pasta do app no aparelho: `/sdcard/Android/data/com.dfdx047.swordman/files`
+- Pasta do app no aparelho: `/sdcard/Android/data/com.dfdx047.zandatsu/files`
   (jogo em `game/`, `cvars.txt` sobrepõe cvars, logs em `logs/`).
 - Para testar cvars sem compilar: escrever `cvars.txt` com linhas `nome = valor` e reabrir o
   jogo; apagar o ficheiro (ou deixá-lo vazio) no fim. Sempre `vibration = false` nos testes.
@@ -34,7 +34,7 @@ Port de Metal Gear Rising: Revengeance (Xbox 360) para Android por recompilaçã
 
 ## Medir
 - Autoteste ao vivo do render (menu do jogo) mede a GPU A/B com o jogo a correr.
-- Comandos por broadcast: `adb -s <serial> shell am broadcast -a com.dfdx047.swordman.CMD -p com.dfdx047.swordman
+- Comandos por broadcast: `adb -s <serial> shell am broadcast -a com.dfdx047.zandatsu.CMD -p com.dfdx047.zandatsu
   --es cmd auto|capture|selftest|press ...` (ver `game/AutoPilot.kt`).
 - `swordman_skip_ps = HASH,HASH` salta draws por pixel shader (desligar efeitos para medir).
 - Loop sem ninguém: `tools/autoloop.sh` + `tools/autotest-plan.txt` (opcional).

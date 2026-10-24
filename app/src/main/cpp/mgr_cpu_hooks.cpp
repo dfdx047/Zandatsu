@@ -1,4 +1,4 @@
-// Project SwordMan - esperas ativas do MGR na CPU (limite de ~20 ms de Swap a Swap, 23/10).
+// Zandatsu - esperas ativas do MGR na CPU (limite de ~20 ms de Swap a Swap, 23/10).
 //
 // sub_828BED28: o lado de escrita de um lock leitor/escritor do jogo, usado pelos workers do escalonador de tarefas.
 // Entra numa secção crítica (obj+8, se obj+36 != 0) e espera que o contador de leitores (obj+0) chegue a 0 num laço

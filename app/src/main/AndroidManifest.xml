@@ -57,7 +57,7 @@
             android:theme="@style/Theme.SwordMan.Game"
             android:configChanges="layoutDirection|locale|fontScale|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation">
             <intent-filter>
-                <action android:name="com.dfdx047.swordman.PLAY" />
+                <action android:name="com.dfdx047.zandatsu.PLAY" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
             <intent-filter>

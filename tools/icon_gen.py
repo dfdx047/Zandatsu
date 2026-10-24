@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Gera o icone do Project SwordMan (Pillow): uma lamina escura com o fio em brasa e as
+"""Gera o icone do Zandatsu (Pillow): uma lamina escura com o fio em brasa e as
 letras MGR em blocos largos e metalicos (como o logotipo antigo do Metal Gear), cortadas a
 meio por um golpe brilhante, com a metade de cima ligeiramente deslocada.
 
@@ -215,7 +215,7 @@ def background():
 
 
 BACKGROUND_XML = """<?xml version="1.0" encoding="utf-8"?>
-<!-- Fundo do icone Project SwordMan: grafite com um brilho vermelho em baixo. Gerado por tools/icon_gen.py. -->
+<!-- Fundo do icone Zandatsu: grafite com um brilho vermelho em baixo. Gerado por tools/icon_gen.py. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp" android:height="108dp"
