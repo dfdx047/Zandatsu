@@ -107,6 +107,8 @@ add_library(mgr_renut_gpu OBJECT
     "${RENUT_APP_DIR}/src/renut_engine/sa2_compat/sa2_compat.cpp"
     # Marcadores de GPU por draw (swordman_renut_gpu_markers; patch renut/0014 chama-os).
     "${SM_ROOT}/src/renut_gpu_markers.cpp"
+    # Dump de um frame (swordman_renut_frame_dump; patch renut/0015 chama-o).
+    "${SM_ROOT}/src/renut_frame_dump.cpp"
     # Os shaders do jogo traduzidos no PC (dados do jogo: so builds pessoais).
     "${SM_RENUT_OUT}/shader_cache.cpp")
 set_source_files_properties("${SM_RENUT_OUT}/shader_cache.cpp" PROPERTIES SKIP_PRECOMPILE_HEADERS ON)

@@ -1,0 +1,75 @@
+--- a/app/src/renut_engine/gpu/render/draw.cpp
++++ b/app/src/renut_engine/gpu/render/draw.cpp
+@@ -27,6 +27,8 @@
+ #include <fmt/format.h>
+ #include <xxhash.h>
+ 
++#include "renut_frame_dump.h"  // SwordMan (Android): swordman_renut_frame_dump (patch 0015)
++
+ #include <rex/system/xmemory.h>
+ 
+ #include "renut_engine/gpu/backend/backend.h"
+@@ -4974,6 +4976,30 @@
+                                REXCVAR_GET(banjo_renut_diag_draw_log_s) > 0;
+   if (draw_log)
+     DrawLog(call, geometry, vs, ps, targets, key, sc, export_count);
++  // SwordMan (Android): one frame of draws, clears and resolves (swordman_renut_frame_dump, src/renut_frame_dump.h).
++  if (swordman::frame_dump::On() && swordman::frame_dump::Active(TextureFrameLocked())) {
++    std::string line = fmt::format("D vs {:016X} ps {:016X} prim {} n {} inst {} |", vs ? vs->hash : 0,
++                                   ps ? ps->hash : 0, call.primitive,
++                                   geometry.indexed ? geometry.index_count : geometry.vertex_count,
++                                   geometry.instance_count);
++    for (u32 i = 0; i < targets.color_count; ++i)
++      if (targets.colors[i])
++        line += fmt::format(" c{} {:08X} {}x{} f{}", i, targets.colors[i]->guest_va, targets.colors[i]->width,
++                            targets.colors[i]->height, int(targets.colors[i]->format));
++    if (targets.depth)
++      line += fmt::format(" z {:08X} {}x{} f{}", targets.depth->guest_va, targets.depth->width,
++                          targets.depth->height, int(targets.depth->format));
++    line += fmt::format(" | dc {:08X} bl {:08X} m {:X} |", key.depth_control, key.blend_control[0], key.color_mask);
++    for (u32 r = 0; r < d3d::kTextureFetchSlots; ++r) {
++      if (!(texture_mask & (1u << r)))
++        continue;
++      const u32 va = device.U32(d3d::kDeviceOffsetTextures + r * 4);
++      const HostTexture *t = va ? FindHostTextureLocked(va) : nullptr;
++      line += t ? fmt::format(" t{} {:08X} {}x{} g{}", r, va, t->width, t->height, int(t->guest_format))
++                : fmt::format(" t{} {:08X}", r, va);
++    }
++    swordman::frame_dump::Line(line);
++  }
+ #if defined(MGR_RENUT_RENDERER)
+   // Opt-in integration diagnostics: compare the guest's first depth-pass
+   // matrix, clip state and host viewport without changing the draw.
+@@ -5233,6 +5259,18 @@
+     DepthHandOverBeforeBindLocked(t.depth, &rect, flags);
+   if (t.depth && (flags & 0x20))
+     t.depth->stencil_used = true;
++  if (swordman::frame_dump::On() && swordman::frame_dump::Active(TextureFrameLocked())) {
++    std::string line = fmt::format("C flags {:X} rect {},{}-{},{} color {} {} {} {} z {} |", flags, rect.left,
++                                   rect.top, rect.right, rect.bottom, color[0], color[1], color[2], color[3], depth);
++    for (u32 i = 0; i < t.color_count; ++i)
++      if (t.colors[i])
++        line += fmt::format(" c{} {:08X} {}x{} f{}", i, t.colors[i]->guest_va, t.colors[i]->width,
++                            t.colors[i]->height, int(t.colors[i]->format));
++    if (t.depth)
++      line += fmt::format(" z {:08X} {}x{} f{}", t.depth->guest_va, t.depth->width, t.depth->height,
++                          int(t.depth->format));
++    swordman::frame_dump::Line(line);
++  }
+   if (!BindTargets(t))
+     return;
+   plume::RenderCommandList *cmd = State().command_list;
+@@ -5783,6 +5821,13 @@
+   const u32 source_va = source == 4 ? device.U32(d3d::kDeviceOffsetDepthStencil)
+                                     : device.U32(d3d::kDeviceOffsetRenderTargets + source * 4);
+   HostSurface *surface = GetHostSurfaceLocked(source_va);
++  if (swordman::frame_dump::On() && surface && swordman::frame_dump::Active(TextureFrameLocked())) {
++    const ClearRect r = source_rect ? *source_rect : ClearRect{0, 0, -1, -1};
++    swordman::frame_dump::Line(fmt::format(
++        "R {} {:08X} {}x{} f{} -> {:08X} at {},{} level {} slice {} rect {},{}-{},{} flags {:X}",
++        surface->depth ? "depth" : "color", source_va, surface->width, surface->height, int(surface->format),
++        dest_texture_va, dest_x, dest_y, dest_level, dest_slice, r.x1, r.y1, r.x2, r.y2, flags));
++  }
+   if (banjo::renut_gpu::ResolveTraceOn() && surface) {
+     const ClearRect r = source_rect ? *source_rect : ClearRect{0, 0, -1, -1};
+     RGPU_INFO("[trace] resolve {} {:08X} ({}x{} fmt {} samples {}) -> texture {:08X} at ({},{}) level {} slice {}, "
