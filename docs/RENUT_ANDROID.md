@@ -235,3 +235,53 @@ das janelas antes do hang (as corridas com hang antes da luta não têm números
   depois do início da luta (4 destes 6 passavam como "sem hang", com números de uma GPU que já não desenhava);
   agora conta-os ("HANG antes da luta, N s depois do arranque").
 - c2: depois de 1,5 min a luta passou a 78 draws/frame (fora do combate) e o resto não conta.
+
+### 2. Marcadores de GPU por draw (`swordman_renut_gpu_markers`, patch renut/0014, `src/renut_gpu_markers.*`)
+- Antes e depois de cada draw, clear, resolve, mip e scan-out, `vkCmdWriteBufferMarker2AMD` (início e fim do
+  pipeline) escreve o índice do comando num buffer HOST_VISIBLE|HOST_COHERENT mapeado. Um anel do lado da CPU
+  (65 536 entradas) guarda frame, tipo, PS, VS, alvo de cor (va, tamanho, formato), profundidade (va, formato),
+  primitiva, contagem e instâncias. No device lost, `logs/renut_gpu_hang.txt` recebe os comandos entre "o último
+  que acabou − 20" e "o último que começou + 20"; os marcados com `>` começaram mas não acabaram. O zip de logs já
+  leva tudo o que está em `logs/`.
+- O Turnip v27 anuncia `VK_AMD_buffer_marker`, mas o seu `vkCmdWriteBufferMarkerAMD` é o do Mesa comum, que salta
+  para uma entrada `CmdWriteBufferMarker2AMD` nula (SIGSEGV em pc 0). Os marcadores usam a 2AMD, obtida com
+  `vkGetDeviceProcAddr` (o plume não chama `volkLoadDevice`, e os globais do volk são trampolins da instância).
+- Com `banjo_renut_record_worker` a lista do Renut é um proxy que grava os comandos para uma thread worker. O
+  marcador entra no stream como mais um comando (`record::Marker`, op `kMarker`), e a worker escreve-o na lista
+  real, na sua posição.
+- Sem extensão não há fallback com `vkCmdFillBuffer`: não é permitido dentro de um render pass, onde estão os draws.
+  Os marcadores ficam desligados, com um aviso no log.
+- Custo (fight-bench 45 s, Raiden parado, 2 corridas de cada): GPU 9,3 / 10,5 → 15,3 / 14,5 ms/frame (+~5 ms, o
+  fim do pipeline espera pelo draw); fps 59,1 / 58,4 → 56,1 / 58,7. A GPU continua abaixo dos 16,6 ms, por isso
+  os marcadores podem ficar ligados em testes longos (mas mudam o ritmo da GPU).
+- O marcador só do início (`swordman_renut_gpu_markers_end = false`) custa quase o mesmo que os dois: no Turnip
+  o `vkCmdWriteBufferMarker2AMD` esvazia as caches do render pass mesmo no início do pipeline (GPU 13,0–16,5 ms
+  contra 10,8–11,5 na base). Custo zero só o anel da CPU (`swordman_renut_gpu_markers_cpu = true`: nada na GPU,
+  GPU 10,1 / 11,2 ms), que grava os últimos 16 384 comandos para cruzar com o snapshot do kgsl.
+
+### 3. Corridas no carregador (24/10, 07:10–10:00; RP5 em USB-PD, adb por Wi-Fi, Turnip v27, V0, 720p)
+Ciclos curtos: arranque, título, menus, carregamento e 3 min de luta (~4,5 min por corrida). Só contam corridas com
+bateria ≥ 40% e fps ≥ 50. Hangs contados no `dmesg` (`kgsl: GPU hang detected`). fps e GPU ms: medianas.
+
+| Modo | Corridas válidas | Minutos | Hangs | fps de jogo | GPU ms |
+|---|---|---|---|---|---|
+| base (sem marcadores) | 4 (hb_1–4) | ~18 | **2** (hb_3 aos 2,4 min de luta, hb_4 aos 1,5 min; bateria 100%) | 58,0 / 58,3 / 57,9 / 55,0 | 11,0 / 10,8 / 11,3 / 11,5 |
+| marcadores início + fim | 12 (hc_1–12) | ~54 | 0 | 51,4–59,3 (mediana 55,9) | 13,0–18,5 (mediana 16,1) |
+| marcadores só início | 4 (hs_1–4) | ~18 | 0 | 54,3 / 57,1 / 59,1 / 55,7 | 16,5 / 15,1 / 13,0 / 15,6 |
+| anel da CPU (nada na GPU) | 2 (hr_1–2) | ~9 | 0 | 56,9 / 58,7 | 11,2 / 10,1 |
+| marcadores, 10 min de luta (hk_1–3, antes do carregador) | 3 | ~35 | 0 | (o Raiden morria aos ~3 min: game over) | — |
+
+- **A bateria não é a causa**: no carregador, com 100%, a base pendurou 2 vezes em 4 corridas. A matriz do passo 1
+  (com bateria entre 9% e 37%) tinha dado 6 em 12.
+- **Os marcadores escondem o hang**: 0 em 16 corridas no carregador (~72 min; pela taxa da base seriam ~5–8). O
+  marcador esvazia as caches e sincroniza a cada draw: o hang depende do ritmo/da sincronização dentro do render
+  pass. Contorno possível (não ligado): marcadores só do início em Adreno 6xx, +4–5 ms de GPU a 720p.
+- **Onde pendura** (snapshot do kgsl, `/sys/class/kgsl/kgsl-3d0/snapshot/dump`, legível sem root; ferramentas em
+  `tools/kgsl/`): `RBBM_STATUS = 0x00E59005` = PC_DCALL, VFD, VPC, SP e HLSQ ocupados; RAS, TSE, RB, CCU, TPL1 e
+  UCHE parados. Um shader da fase de vértices não termina (sem esperar por memória nem texturas; nada chega ao
+  rasterizador). Nos dois hangs: a passagem principal da cena em sysmem (1280x720, profundidade D32 + stencil
+  separado em `0xf899000`) com uma consulta de oclusão à volta (`RB_SAMPLE_COUNTER` + `ZPASS_DONE`). hb_3: draws
+  pequenos indexados (6/18/66 índices), sem GS/HS/DS, VS em `0x5013c0100`; hb_4: VS em `0x500af7300` e um PS
+  mínimo, a desenhar para o alvo copiado a seguir por `CP_BLIT`. Falta o hash do jogo destes shaders: precisa de
+  um hang com o anel da CPU (`tools/kgsl/hangmap.py` cruza as contagens do IB2 com o anel).
+- Investigação parada aqui (24/10, 10:00).

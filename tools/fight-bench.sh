@@ -42,7 +42,9 @@ GTID=$(adb -s "$D" shell "grep -m1 'game thread' $A/logs/swordman_last.log" | se
 MAIN_CPU=""
 ROUNDS=$(( ${FIGHT_S:-45} * 2 / 3 ))
 for i in $(seq 1 "$ROUNDS"); do
-  if [ "${ATTACK:-1}" = 1 ]; then press X 1.5; else sleep 1.5; fi
+  # A a cada 8 voltas: na luta é um salto; no game over (o Raiden morre em ~3 min de golpes) escolhe Continue e a
+  # luta recomeça do checkpoint (senão o resto da corrida ficava no ecrã de game over, ~78 draws/frame).
+  if [ "${ATTACK:-1}" = 1 ]; then if [ $((i % 8)) = 0 ]; then press A 1.5; else press X 1.5; fi; else sleep 1.5; fi
   [ "$i" = 12 ] && adb -s "$D" exec-out screencap -p > "$OUT/${N}_luta.png"
   if [ -n "$GTID" ] && [ "$i" = 5 ]; then C0=$(ticks); S0=$(date +%s.%N); fi
   if [ -n "$GTID" ] && [ "$i" = $(( ROUNDS - 5 )) ] && [ -n "${C0:-}" ]; then

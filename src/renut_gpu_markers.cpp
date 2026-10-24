@@ -22,6 +22,15 @@ REXCVAR_DEFINE_BOOL(swordman_renut_gpu_markers, false, "SwordMan",
                     "Renut (diagnóstico): marcadores de GPU por draw; no device lost escreve logs/renut_gpu_hang.txt "
                     "com os comandos em que a GPU parou")
     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+REXCVAR_DEFINE_BOOL(swordman_renut_gpu_markers_cpu, false, "SwordMan",
+                    "Renut (diagnóstico): com swordman_renut_gpu_markers, só o anel da CPU (nada é escrito na GPU, o "
+                    "ritmo da GPU fica igual); no device lost escreve os últimos 16384 comandos para cruzar com o "
+                    "snapshot do kgsl (/sys/class/kgsl/kgsl-3d0/snapshot/dump)")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+REXCVAR_DEFINE_BOOL(swordman_renut_gpu_markers_end, true, "SwordMan",
+                    "Renut (diagnóstico): com swordman_renut_gpu_markers, também o marcador do fim de cada comando "
+                    "(o fim do pipeline espera pelo draw: +~5 ms de GPU e muda o ritmo); false = só o do início")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
 
 // Frames do jogo (src/renut_glue.cpp, contados no Swap).
 extern std::atomic<uint64_t> g_sa2_game_frames;
@@ -147,12 +156,15 @@ uint32_t Before(plume::RenderCommandList* cmd, const Info& info) {
   e.index = index;
   e.frame = g_sa2_game_frames.load(std::memory_order_relaxed);
   e.info = info;
+  static const bool cpu_only = REXCVAR_GET(swordman_renut_gpu_markers_cpu);
+  if (cpu_only) return index;
   banjo::renut_gpu::record::Marker(cmd, &Write, 0, index);  // o cmd pode ser o proxy do record worker
   return index;
 }
 
 void After(plume::RenderCommandList* cmd, uint32_t index) {
-  if (!index || !cmd) return;
+  static const bool end = REXCVAR_GET(swordman_renut_gpu_markers_end) && !REXCVAR_GET(swordman_renut_gpu_markers_cpu);
+  if (!index || !cmd || !end) return;
   banjo::renut_gpu::record::Marker(cmd, &Write, 4, index);
 }
 
@@ -171,13 +183,22 @@ void OnDeviceLost() {
     std::fprintf(f, "(o hang está entre 'acabou' e 'começou': os comandos marcados com > ainda não tinham acabado)\n\n");
     std::fprintf(f, "  índice    frame  tipo      PS                VS                cor (va wxh fmt)          "
                     "profund. (va fmt)  prim  contagem inst\n");
-    const uint32_t from = finished > 20 ? finished - 20 : 1;
-    const uint32_t to = started + 20 < recorded ? started + 20 : recorded;
-    for (uint32_t i = from; i <= to && i - from < 200; ++i) {
+    // Sem o marcador do fim (swordman_renut_gpu_markers_end = false) "acabou" fica 0: a janela é à volta do início.
+    const uint32_t base = finished ? finished : started;
+    uint32_t from = base > 20 ? base - 20 : 1;
+    uint32_t limit = 200;
+    // Só CPU: a GPU não escreveu nada; os últimos 16384 comandos gravados (cruzar com o snapshot do kgsl).
+    if (REXCVAR_GET(swordman_renut_gpu_markers_cpu)) {
+      from = recorded > 16384 ? recorded - 16383 : 1;
+      limit = 16384;
+    }
+    const uint32_t to = REXCVAR_GET(swordman_renut_gpu_markers_cpu) ? recorded
+                        : (started + 20 < recorded ? started + 20 : recorded);
+    for (uint32_t i = from; i <= to && i - from < limit; ++i) {
       const Entry& e = s.ring[i & (kRing - 1)];
       if (e.index != i) continue;
       const Info& n = e.info;
-      const char* mark = (i > finished && i <= started) ? ">" : " ";
+      const char* mark = (finished ? (i > finished && i <= started) : i == started) ? ">" : " ";
       std::fprintf(f, "%s %8u %8llu  %-8s  %016llX  %016llX  %08X %4ux%-4u fmt %-3u  %08X fmt %-3u  %4u  %8u %4u\n", mark,
                    i, (unsigned long long)e.frame, KindName(n.kind), (unsigned long long)n.ps,
                    (unsigned long long)n.vs, n.color_va, n.color_width, n.color_height, n.color_format, n.depth_va,
