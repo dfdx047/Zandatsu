@@ -11,6 +11,7 @@
 #endif
 
 #if defined(SM_RENUT)
+#include <cstdio>
 #include <functional>
 #include <optional>
 
@@ -57,8 +58,18 @@ class MgrApp : public rex::ReXApp {
   // Direct3D do mgr-nx-deko) desenha na janela com o seu proprio dispositivo Vulkan.
   void OnPreSetup(rex::RuntimeConfig& config) override {
 #if defined(SM_RENUT)
-    if (banjo::renut_gpu::Active() && !SwordManRenutDeviceSupported()) {
-      banjo::renut_gpu::detail::g_active = -1;  // Xenia ate ao fim da sessao
+    if (banjo::renut_gpu::Active()) {
+      const bool supported = SwordManRenutDeviceSupported();
+      if (!supported) {
+        banjo::renut_gpu::detail::g_active = -1;  // Xenia ate ao fim da sessao
+      }
+#if defined(__ANDROID__)
+      // O launcher le-o: "no" = este aparelho fica no modo emulado e as opcoes do Renut escondem-se.
+      if (FILE* f = std::fopen((rex::GetAndroidAppDirectory() / "renut_support.txt").c_str(), "w")) {
+        std::fputs(supported ? "ok\n" : "no\n", f);
+        std::fclose(f);
+      }
+#endif
     }
     if (banjo::renut_gpu::Active()) {
       renut::gpu::ConfigureRuntime(config);

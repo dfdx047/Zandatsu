@@ -27,6 +27,7 @@ import java.io.File
  *  - "press A" / "selftest" / "capture": um botao, so o autoteste, ou captura de frames (.dfc).
  *  - "seq LT:30 LT+X:6 LT:6": uma sequencia de passos "botoes:ticks" (60 Hz; botoes juntos com +), para
  *    segurar um botao e carregar outros por cima (Blade Mode: LT segurado, X/Y a cortar).
+ *  - "cvar nome=valor": muda uma cvar ao vivo, sem gravar (medicoes A/B: tools/fx-ab.sh).
  *  - "auto" com --ez capture true: captura 2 frames a meio da espera (mapa do frame).
  *  - "auto" com --ez attack true: golpes X/Y durante a espera e o autoteste (cena de luta).
  *
@@ -58,6 +59,10 @@ class AutoPilot(
                 cmd == "selftest" -> selfTest()
                 cmd.startsWith("press ") -> parse(cmd.substringAfter(' '))?.let(press)
                 cmd.startsWith("seq ") -> parseSequence(cmd.substringAfter(' '))?.let(sequence)
+                // "cvar nome=valor": muda uma cvar ao vivo sem gravar no mgr.toml (medicoes A/B pelo PC).
+                cmd.startsWith("cvar ") -> cmd.substringAfter(' ').split('=', limit = 2).takeIf { it.size == 2 }?.let {
+                    NativeGameState.setCvars(mapOf(it[0].trim() to it[1].trim()), persist = false)
+                }
             }
         }
     }

@@ -34,6 +34,12 @@ import com.dfdx047.swordman.data.GraphicsPreset
 import com.dfdx047.swordman.data.frameMode
 import com.dfdx047.swordman.data.withFrameMode
 import com.dfdx047.swordman.data.InternalResolution
+import com.dfdx047.swordman.data.RenutPreset
+import com.dfdx047.swordman.data.RenutValidated
+import com.dfdx047.swordman.data.RenutSupport
+import com.dfdx047.swordman.data.matchingRenutPreset
+import com.dfdx047.swordman.data.recommendedRenutPreset
+import com.dfdx047.swordman.data.withRenutPreset
 import com.dfdx047.swordman.data.matchingPreset
 import com.dfdx047.swordman.data.recommendedPreset
 import com.dfdx047.swordman.data.withPreset
@@ -71,6 +77,29 @@ fun PerformanceScreen(vm: LauncherViewModel) {
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         StatusLine(stringResource(R.string.settings_saved_note), Level.INFO)
+
+        // ---------------------------------------------------------- renderizador
+        // 24/10: o Renut (Direct3D nativo) onde o aparelho o corre; nas Mali (sem texturas BC) fica o
+        // Xenia sozinho e esta escolha nem aparece.
+        val renutOk = remember { RenutSupport.supported() }
+        if (renutOk) {
+            SectionCard(
+                stringResource(R.string.renderer_title),
+                Icons.Filled.Memory,
+                subtitle = stringResource(R.string.renderer_sub),
+            ) {
+                SettingSegmented(
+                    title = stringResource(R.string.renderer_title),
+                    options = listOf(true to stringResource(R.string.renderer_renut), false to stringResource(R.string.renderer_xenos)),
+                    selected = c.useRenut,
+                    onSelect = { v -> vm.updateConfig { it.copy(renderer = if (v) "renut" else "xenos") } },
+                )
+            }
+        }
+        if (c.useRenut) {
+            RenutOptions(vm)
+            return@Column
+        }
 
         // ------------------------------------------------------- predefinicoes
         val recommended = remember { recommendedPreset() }
@@ -335,5 +364,107 @@ private fun PresetCard(
             Text(desc, style = MaterialTheme.typography.bodyMedium)
             Text(socs, style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
         }
+    }
+}
+
+/**
+ * As opcoes do Renut: perfis Baixo/Medio/Alto/Ultra, resolucao (540p/720p, as medidas no Android),
+ * sombras, brilho e anisotropico. O FSR, o FXAA, os 30/120 FPS e a proporcao sao do Xenia.
+ */
+@Composable
+private fun RenutOptions(vm: LauncherViewModel) {
+    val c = vm.config
+    val recommended = remember { recommendedRenutPreset() }
+    val current = c.matchingRenutPreset()
+    val names = mapOf(
+        RenutPreset.LOW to stringResource(R.string.renut_preset_low),
+        RenutPreset.MEDIUM to stringResource(R.string.renut_preset_medium),
+        RenutPreset.HIGH to stringResource(R.string.renut_preset_high),
+        RenutPreset.ULTRA to stringResource(R.string.renut_preset_ultra),
+    )
+    val descs = mapOf(
+        RenutPreset.LOW to stringResource(R.string.renut_preset_low_desc),
+        RenutPreset.MEDIUM to stringResource(R.string.renut_preset_medium_desc),
+        RenutPreset.HIGH to stringResource(R.string.renut_preset_high_desc),
+        RenutPreset.ULTRA to stringResource(R.string.renut_preset_ultra_desc),
+    )
+    val socs = mapOf(
+        RenutPreset.LOW to stringResource(R.string.renut_preset_low_socs),
+        RenutPreset.MEDIUM to stringResource(R.string.renut_preset_medium_socs),
+        RenutPreset.HIGH to stringResource(R.string.renut_preset_high_socs),
+        RenutPreset.ULTRA to stringResource(R.string.renut_preset_ultra_socs),
+    )
+    // Perfis e opcoes de efeitos: so as validadas no aparelho (RenutValidated).
+    if (RenutValidated.PRESETS) SectionCard(
+        stringResource(R.string.preset_title),
+        Icons.Filled.Tune,
+        subtitle = stringResource(R.string.preset_sub),
+    ) {
+        RenutPreset.entries.forEach { p ->
+            PresetCard(
+                name = names.getValue(p),
+                desc = descs.getValue(p),
+                socs = stringResource(R.string.preset_for, socs.getValue(p)),
+                selected = current == p,
+                recommended = recommended == p,
+            ) { vm.updateConfig { it.withRenutPreset(p) } }
+        }
+        StatusLine(
+            if (current == null) stringResource(R.string.preset_custom, names.getValue(recommended))
+            else stringResource(R.string.preset_recommended, names.getValue(recommended)),
+            if (current == recommended) Level.OK else Level.INFO,
+        )
+        if (current != recommended) {
+            OutlinedButton(onClick = { vm.updateConfig { it.withRenutPreset(recommended) } }) {
+                Text(stringResource(R.string.preset_apply_recommended, names.getValue(recommended)))
+            }
+        }
+    }
+
+    SectionCard(stringResource(R.string.settings_performance), Icons.Filled.Speed) {
+        StatusLine(stringResource(R.string.renut_fps_note), Level.INFO)
+        SettingSegmented(
+            title = stringResource(R.string.settings_resolution),
+            subtitle = stringResource(R.string.renut_resolution_sub),
+            options = listOf(InternalResolution.P540, InternalResolution.P720).map { r -> r to r.label },
+            selected = if (c.resolution == InternalResolution.P540) InternalResolution.P540 else InternalResolution.P720,
+            onSelect = { v -> vm.updateConfig { it.copy(resolution = v) } },
+        )
+        SettingSwitch(stringResource(R.string.settings_show_fps), checked = c.showFps) { on -> vm.updateConfig { it.copy(showFps = on) } }
+    }
+
+    SectionCard(
+        stringResource(R.string.perf_effects_title),
+        Icons.Filled.BlurOn,
+        subtitle = stringResource(R.string.perf_effects_sub),
+    ) {
+        if (RenutValidated.SHADOWS) SettingSegmented(
+            title = stringResource(R.string.q_shadows),
+            subtitle = stringResource(R.string.renut_shadows_sub),
+            options = listOf(true to stringResource(R.string.q_high), false to stringResource(R.string.q_off)),
+            selected = c.renutShadows,
+            onSelect = { v -> vm.updateConfig { it.copy(renutShadows = v) } },
+        )
+        if (RenutValidated.BLOOM) SettingSegmented(
+            title = stringResource(R.string.renut_bloom),
+            subtitle = stringResource(R.string.renut_bloom_sub),
+            options = listOf(true to stringResource(R.string.on), false to stringResource(R.string.off)),
+            selected = c.renutBloom,
+            onSelect = { v -> vm.updateConfig { it.copy(renutBloom = v) } },
+        )
+        if (RenutValidated.PRESETS) HorizontalDivider()
+        SettingDropdown(
+            title = stringResource(R.string.settings_aniso),
+            options = listOf(-1 to stringResource(R.string.aniso_game), 2 to "2x", 3 to "4x", 4 to "8x", 5 to "16x"),
+            selected = if (c.anisotropic <= 1) -1 else c.anisotropic,
+            onSelect = { v -> vm.updateConfig { it.copy(anisotropic = v) } },
+        )
+        HorizontalDivider()
+        SettingSlider(
+            title = stringResource(R.string.settings_volume),
+            value = c.volume.toFloat(),
+            range = 0f..100f,
+            label = { v -> "${v.roundToInt()}%" },
+        ) { v -> vm.updateConfig { it.copy(volume = v.roundToInt().coerceIn(0, 100)) } }
     }
 }

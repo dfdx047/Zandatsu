@@ -55,15 +55,50 @@ data class GameConfig(
     val postLite: Boolean = true,             // dbz3_resolve_dedupe + dbz3_skip_null_draws + dbz3_discard_full_overwrite
     /** Todas as otimizacoes da GPU desligadas (caminho emulado "puro", para comparar a imagem). */
     val safeGpu: Boolean = false,
+    // Renderizador (24/10): auto = o Renut (Direct3D nativo) onde ele corre (RenutSupport), senao o
+    // Xenia emulado; renut / xenos = escolha do jogador (o Renut so vale onde e suportado).
+    val renderer: String = "auto",
+    // Opcoes do Renut (src/renut_effects.h): sombras do sol e brilho, ao vivo.
+    val renutShadows: Boolean = true,
+    val renutBloom: Boolean = true,
 ) {
+    /** O jogo corre no Renut com estas opcoes (escolha + aparelho). */
+    val useRenut: Boolean get() = renderer != "xenos" && RenutSupport.supported()
+
+    /** sa2_render_height_handheld: as alturas que o Renut faz no Android (sem 4K, patch renut/0009). */
+    val renutHeight: Int get() = when (resolution) {
+        InternalResolution.P360 -> 360
+        InternalResolution.P540 -> 540
+        InternalResolution.P720 -> 720
+        InternalResolution.P1440, InternalResolution.P2160 -> 1440
+    }
+
     /** Escala inteira (1 abaixo de 720p e em 720p, 2 em 1440p, 3 em 2160p). */
     val resolutionScale: Int get() = resolution.scale
 
     fun toToml(): Map<String, Any> {
         val opt = !safeGpu
         val adreno = com.dfdx047.swordman.drivers.DriverRepository.isAdreno()
+        val renut = useRenut
         return linkedMapOf(
             "gpu_plugin" to "xenos",
+            // Renut (24/10): renderizador nativo. Os passos do Xenia abaixo ficam escritos (servem se o
+            // jogo voltar ao Xenia por falta de funcoes Vulkan; o renut_support.txt diz ao launcher).
+            "swordman_renderer" to if (renut) "renut" else "xenos",
+            "swordman_renderer_choice" to renderer,
+            "sa2_render_height_handheld" to renutHeight,
+            // Principal no nucleo mais rapido, render nos outros grandes: +3 fps no RP5 (23/10).
+            "swordman_renut_cores" to 2,
+            // Opcao ainda nao validada no aparelho: fica escondida no menu e sempre ligada.
+            "swordman_renut_shadows" to (renutShadows || !RenutValidated.SHADOWS),
+            "swordman_renut_bloom" to (renutBloom || !RenutValidated.BLOOM),
+            "renut_anisotropic_filtering" to when (anisotropic) {
+                2 -> "2x"
+                3 -> "4x"
+                4 -> "8x"
+                5 -> "16x"
+                else -> "Game"
+            },
             "game_data_root" to AppPaths.gameDir.absolutePath,
             "gpu_allow_invalid_fetch_constants" to true,
             "log_file" to AppPaths.lastRunLog.absolutePath,
@@ -266,6 +301,11 @@ data class GameConfig(
                 intoTexture = bool("dbz3_render_into_texture", d.intoTexture),
                 postLite = bool("dbz3_resolve_dedupe", d.postLite),
                 safeGpu = bool("swordman_safe_gpu", d.safeGpu),
+                renderer = str("swordman_renderer_choice", d.renderer).let {
+                    if (it in listOf("auto", "renut", "xenos")) it else "auto"
+                },
+                renutShadows = bool("swordman_renut_shadows", d.renutShadows),
+                renutBloom = bool("swordman_renut_bloom", d.renutBloom),
             )
         }
 
@@ -457,5 +497,90 @@ fun recommendedPreset(): GraphicsPreset {
         has("S5E9925", "S5E9945", "S5E9955") -> GraphicsPreset.HIGH
         has("GS101", "GS201", "ZUMA", "TENSOR") -> GraphicsPreset.BALANCED
         else -> GraphicsPreset.LIGHT
+    }
+}
+
+/**
+ * O Renut corre neste aparelho? O jogo verifica as funcoes Vulkan de que ele precisa (texturas BC,
+ * buffer device address, ...) ao arrancar no modo renut e escreve renut_support.txt ("ok"/"no").
+ * Antes da primeira verificacao: so nas Adreno (as Mali, como a do RG Cube, nao tem texturas BC).
+ */
+object RenutSupport {
+    fun supported(): Boolean = when (status()) {
+        "ok" -> true
+        "no" -> false
+        else -> com.dfdx047.swordman.drivers.DriverRepository.isAdreno()
+    }
+
+    private fun status(): String? = try {
+        File(AppPaths.userToml.parentFile, "renut_support.txt").takeIf { it.isFile }?.readText()?.trim()
+    } catch (e: Exception) {
+        null
+    }
+}
+
+/**
+ * Perfis do Renut (menu Desempenho). O MGR do Xbox 360 tem duas opcoes graficas que se desligam
+ * (dumps de frames de 24/10): sombras do sol e brilho. Nao tem SSAO, profundidade de campo nem
+ * motion blur nos frames do jogo (a abertura e video).
+ *  - Baixo: 540p, sem sombras nem brilho.
+ *  - Medio: 720p, sem sombras nem brilho.
+ *  - Alto: 720p, tudo ligado.
+ *  - Ultra: 720p, tudo ligado e anisotropico 16x.
+ */
+enum class RenutPreset { LOW, MEDIUM, HIGH, ULTRA }
+
+/**
+ * Opcoes do Renut ja validadas no RP5 (titulo, pausa, cutscene, luta, ripper mode, fotos antes/depois e fight-bench).
+ * As que nao estao ficam escondidas nos menus e sempre ligadas; os perfis so aparecem com pelo menos uma validada.
+ */
+object RenutValidated {
+    const val SHADOWS = false
+    const val BLOOM = false
+    const val PRESETS = SHADOWS || BLOOM
+}
+
+private data class RenutPresetSpec(
+    val resolution: InternalResolution,
+    val shadows: Boolean,
+    val bloom: Boolean,
+    val anisotropic: Int,
+)
+
+private fun RenutPreset.spec(): RenutPresetSpec = when (this) {
+    RenutPreset.LOW -> RenutPresetSpec(InternalResolution.P540, shadows = false, bloom = false, anisotropic = -1)
+    RenutPreset.MEDIUM -> RenutPresetSpec(InternalResolution.P720, shadows = false, bloom = false, anisotropic = -1)
+    RenutPreset.HIGH -> RenutPresetSpec(InternalResolution.P720, shadows = true, bloom = true, anisotropic = -1)
+    RenutPreset.ULTRA -> RenutPresetSpec(InternalResolution.P720, shadows = true, bloom = true, anisotropic = 5)
+}
+
+fun GameConfig.withRenutPreset(p: RenutPreset): GameConfig {
+    val t = p.spec()
+    return copy(
+        resolution = t.resolution,
+        renutShadows = t.shadows || !RenutValidated.SHADOWS,
+        renutBloom = t.bloom || !RenutValidated.BLOOM,
+        anisotropic = t.anisotropic,
+    )
+}
+
+fun GameConfig.matchingRenutPreset(): RenutPreset? = RenutPreset.entries.firstOrNull { p ->
+    val t = p.spec()
+    t.resolution == resolution && t.anisotropic == anisotropic &&
+        (!RenutValidated.SHADOWS || t.shadows == renutShadows) && (!RenutValidated.BLOOM || t.bloom == renutBloom)
+}
+
+/** Perfil do Renut recomendado pela Adreno (o Renut so corre nas Adreno). */
+fun recommendedRenutPreset(): RenutPreset {
+    val adreno = try {
+        com.dfdx047.swordman.drivers.TurnipSupport.detect().adreno
+    } catch (e: Throwable) {
+        0
+    }
+    return when {
+        adreno == 750 || adreno >= 825 -> RenutPreset.ULTRA
+        adreno in 650..749 -> RenutPreset.HIGH
+        adreno in 618..649 -> RenutPreset.MEDIUM
+        else -> RenutPreset.LOW
     }
 }

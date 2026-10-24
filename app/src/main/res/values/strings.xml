@@ -396,4 +396,28 @@
     <string name="q_medium">Medium</string>
     <string name="q_low">Low</string>
     <string name="q_off">Off</string>
+    <!-- Renut (24/10) -->
+    <string name="on">On</string>
+    <string name="renderer_title">Renderer</string>
+    <string name="renderer_sub">Native: the game\'s Direct3D on Vulkan (Renut), faster and sharper. Emulated: the Xbox 360 GPU (Xenia), with FSR, FXAA and 30/120 FPS.</string>
+    <string name="renderer_renut">Native (Renut)</string>
+    <string name="renderer_xenos">Emulated (Xenia)</string>
+    <string name="renut_preset_low">Low</string>
+    <string name="renut_preset_medium">Medium</string>
+    <string name="renut_preset_high">High</string>
+    <string name="renut_preset_ultra">Ultra</string>
+    <string name="renut_preset_low_desc">540p, no shadows or bloom</string>
+    <string name="renut_preset_medium_desc">720p (console), no shadows or bloom</string>
+    <string name="renut_preset_high_desc">720p (console), shadows and bloom</string>
+    <string name="renut_preset_ultra_desc">720p (console), shadows, bloom, 16x anisotropic</string>
+    <string name="renut_preset_low_socs">Adreno 610–616 (Snapdragon 6xx)</string>
+    <string name="renut_preset_medium_socs">Adreno 618–642 (Snapdragon 7xx, 778G)</string>
+    <string name="renut_preset_high_socs">Adreno 650–740 (Retroid Pocket 5, Snapdragon 865/888/8 Gen 1/8 Gen 2)</string>
+    <string name="renut_preset_ultra_socs">Adreno 750 and newer (Snapdragon 8 Gen 3, 8 Elite)</string>
+    <string name="renut_fps_note">The game runs at 60 FPS (its own rate). The 30 FPS hack and 120 FPS are emulated renderer options.</string>
+    <string name="renut_resolution_sub">720p is the console\'s. 540p draws 56% of the pixels.</string>
+    <string name="renut_shadows_sub">The sun\'s shadows (shadow map and screen shadow pass). Off: the scene is lit everywhere.</string>
+    <string name="renut_bloom">Bloom</string>
+    <string name="renut_bloom_sub">The glow around lights and the sword. Off: the original image, without glow.</string>
+    <string name="renut_effects_absent">The Xbox 360 MGR has no SSAO, depth of field or motion blur pass in game (the opening is a video): there is nothing to switch off.</string>
 </resources>

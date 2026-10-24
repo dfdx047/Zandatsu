@@ -426,7 +426,7 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
                 GameConfig.save(config)
                 GameConfig.saveSkipLogos(prefs.skipLogos)
             }
-            AppLog.i("launcher", "jogar: ${config.resolution.label} ${config.frameMode} ${config.presentEffect}")
+            AppLog.i("launcher", "jogar: ${if (config.useRenut) "renut" else "xenos"} ${config.resolution.label} ${config.frameMode} ${config.presentEffect}")
             context.startActivity(Intent(context, GameActivity::class.java).setAction(PLAY_ACTION))
         }
     }

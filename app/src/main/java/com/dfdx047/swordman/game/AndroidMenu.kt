@@ -59,6 +59,7 @@ import com.dfdx047.swordman.data.FrameMode
 import com.dfdx047.swordman.data.GameConfig
 import com.dfdx047.swordman.data.InternalResolution
 import com.dfdx047.swordman.data.LauncherPrefs
+import com.dfdx047.swordman.data.RenutValidated
 import com.dfdx047.swordman.data.TouchMode
 import com.dfdx047.swordman.data.cvars
 import com.dfdx047.swordman.data.frameMode
@@ -372,6 +373,7 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
     private fun videoItems(): List<MenuItem> {
         val c = cfg
         val list = ArrayList<MenuItem>()
+        if (c.useRenut) return renutVideoItems(c)
         list += choice(
             s(R.string.settings_resolution), s(R.string.perf_resolution_sub),
             InternalResolution.entries.map { it to it.label }, c.resolution, restart = true,
@@ -463,9 +465,58 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
         return list
     }
 
-    /** Som e efeitos do jogo (os efeitos do MGR ainda dependem das capturas dos shaders). */
+    /** Renut: resolucao (540p/720p), FPS na tela e anisotropico; o resto e do Xenia. */
+    private fun renutVideoItems(c: GameConfig): List<MenuItem> {
+        val list = ArrayList<MenuItem>()
+        list += choice(
+            s(R.string.settings_resolution), s(R.string.renut_resolution_sub),
+            listOf(InternalResolution.P540, InternalResolution.P720).map { it to it.label },
+            if (c.resolution == InternalResolution.P540) InternalResolution.P540 else InternalResolution.P720,
+        ) { v ->
+            val next = c.copy(resolution = v)
+            set(next, mapOf("sa2_render_height_handheld" to "${next.renutHeight}"))
+        }
+        list += MInfo(s(R.string.renut_fps_note))
+        list += MToggle(s(R.string.settings_show_fps), null, c.showFps) { v ->
+            set(c.copy(showFps = v), mapOf("debug_overlay" to v.toString()))
+        }
+        list += choice(
+            s(R.string.settings_aniso), null,
+            listOf(-1 to s(R.string.aniso_game), 2 to "2x", 3 to "4x", 4 to "8x", 5 to "16x"),
+            if (c.anisotropic <= 1) -1 else c.anisotropic,
+        ) { v ->
+            val next = c.copy(anisotropic = v)
+            set(next, mapOf("renut_anisotropic_filtering" to next.toToml().getValue("renut_anisotropic_filtering").toString()))
+        }
+        return list
+    }
+
+    /** Som e efeitos do jogo: no Renut as sombras e o brilho, ao vivo. */
     private fun effectItems(): List<MenuItem> {
         val c = cfg
+        if (c.useRenut) return listOf(
+            MStep(s(R.string.settings_volume), null, "${c.volume}%") { d ->
+                val next = (c.volume + d * 10).coerceIn(0, 100)
+                NativeGameState.setVolume(next)
+                saveAppOnly(c.copy(volume = next))
+            },
+            MToggle(s(R.string.settings_vibration), null, c.vibration) { v ->
+                set(c.copy(vibration = v), mapOf("vibration" to v.toString()))
+            },
+        ) + listOfNotNull(
+            // So as opcoes validadas no aparelho (RenutValidated).
+            MHeader(s(R.string.perf_effects_title)).takeIf { RenutValidated.PRESETS },
+            choice(
+                s(R.string.q_shadows), s(R.string.renut_shadows_sub),
+                listOf(true to s(R.string.q_high), false to s(R.string.q_off)), c.renutShadows,
+            ) { v -> set(c.copy(renutShadows = v), mapOf("swordman_renut_shadows" to v.toString())) }
+                .takeIf { RenutValidated.SHADOWS },
+            choice(
+                s(R.string.renut_bloom), s(R.string.renut_bloom_sub),
+                listOf(true to s(R.string.on), false to s(R.string.off)), c.renutBloom,
+            ) { v -> set(c.copy(renutBloom = v), mapOf("swordman_renut_bloom" to v.toString())) }
+                .takeIf { RenutValidated.BLOOM },
+        )
         return listOf(
             MStep(s(R.string.settings_volume), null, "${c.volume}%") { d ->
                 val next = (c.volume + d * 10).coerceIn(0, 100)
