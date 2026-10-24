@@ -19,7 +19,7 @@ O repositório não tem o jogo nem o código gerado. É preciso ter o disco.
 | `sdk/overlay/` | Overlay do SDK do projeto DBZ3 HD Collection (MIT, `sdk/overlay-LICENSE`) |
 | `patches/` | Patches Android do SDK (0001–0048 do Dragon Fury; os do MGR começam no 0100) |
 | `external/rexglue-sdk-0.10/` | SDK preparado para o Android (fora do git, `tools/setup-sdk.sh`) |
-| `app/` | App Android: launcher, `GameActivity` (SDL), build nativo `libmain.so` |
+| `app/` | App Android: launcher, `GameActivity` (SDL), `libmain.so` (leitor do XEX) e `libgame.so` (o jogo, só encriptado no APK) |
 | `tools/` | `versions.env`, `setup-sdk.sh`, `apply-sdk-patches.sh`, `codegen.sh`, `push-game.sh` |
 | `docs/` | `cvars-sem-otimizacoes.txt` (primeiro teste) |
 
@@ -112,6 +112,20 @@ cmake --build out/build/linux-amd64-release
 
 Projeto de fã, sem ligação com a Konami, a PlatinumGames ou a Microsoft. Nenhum dado do jogo
 protegido por direitos autorais é distribuído.
+
+### O APK não traz o jogo
+
+O código recompilado, os hooks, o Renut e os shaders traduzidos ficam no `libgame.so`, que só entra no APK
+encriptado (`assets/libgame.zdat`, AES-256-GCM, `tools/pack-libgame.py`). A chave é o SHA-256 da imagem PE do
+`default.xex` (desencriptada e descomprimida por `src/xex_image.cpp`), por isso só existe no aparelho de quem
+importa o próprio disco. No fim do import a app lê o `default.xex` do jogador, confere o SHA-256 da chave
+(`assets/libgame.json`), desencripta o `libgame.so` para `getFilesDir()` e o `GameActivity` carrega-o de lá. Outro
+executável dá "versão do jogo não suportada" com o title ID e o SHA-1 esperados. O libmain.so do APK é só o leitor
+do XEX.
+
+Antes de publicar um APK: `python3 tools/check-clean.py <apk> <libgame.so em claro> assets/default.xex`. Procura
+nomes do código gerado e milhares de pedaços do código do jogo e da imagem PE no APK, no repositório e no
+histórico do git.
 
 ## Licença e créditos
 

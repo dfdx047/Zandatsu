@@ -26,6 +26,9 @@ Port de Metal Gear Rising: Revengeance (Xbox 360) para Android por recompilaçã
   O build usa o branch `main`.
 - Patches do SDK: `patches/NNNN-*.patch`, aplicados por `tools/apply-sdk-patches.sh`.
   Nunca editar um patch publicado: criar o próximo número.
+- O jogo (código gerado, hooks, Renut, shaders) vai no `libgame.so`, que só entra no APK encriptado com a chave
+  do `default.xex` (`tools/pack-libgame.py`); a app desencripta-o para `getFilesDir()` no import ou no JOGAR
+  quando o APK muda. `libmain.so` = só o leitor do XEX. Antes de publicar: `tools/check-clean.py`.
 
 ## Regras do driver
 - Otimizar para o Turnip; o driver Qualcomm continua opção. Nada de troca silenciosa de driver.
