@@ -319,3 +319,26 @@ Ao vivo (lidas a cada draw). Nada fica sem escrever:
   o atlas (só a sombra em tela) passa a ser um clear a branco do alvo 0: a máscara fica "sem sombra".
 - Brilho desligado: os 4 PS da cadeia passam a clear a preto do alvo 0; as texturas da cadeia ficam a 0 e a
   composição soma 0 (a imagem original).
+
+### Testes no RP5 (24/10, Turnip, 720p, `tools/fx-ab.sh`, saves de teste `tools/test-saves.sh`)
+Uma corrida por opção: arranca com a opção desligada, fotos no título, na luta e na pausa, 2 min de luta desligada e
+2 min ligada (a atacar; parado, o Raiden morre em ~2 min e a medição apanha o ecrã de Mission Failed).
+
+| Opção | Desligada | Ligada | A/B alternado 30 s x4 (mesma luta) | Imagem desligada (título, luta, pausa) | Cutscene em tempo real |
+|---|---|---|---|---|---|
+| Sombras | 57,5 fps, GPU 10,51 ms | 59,9 fps, GPU 8,55 ms | 59,0 vs 57,7 fps, GPU 6,45 vs 8,14 ms | sem artefatos | não capturada |
+| Brilho | 58,6 fps, GPU 9,40 ms | 59,5 fps, GPU 7,75 ms | — | sem artefatos | não capturada |
+| Tudo desligado (4 min) | 59,0 fps, GPU 8,96 ms | | | | só o vídeo do prólogo |
+| Ultra (tudo ligado, aniso 16x, 4 min) | | 59,1 fps, GPU 8,85 ms | | | |
+
+- As metades sequenciais não se comparam: a luta muda (os 2 min desligados apanharam os inimigos, os 2 min ligados o
+  fim da luta junto ao muro); o GPU ms segue a cena, não a opção. O único número limpo é o A/B alternado das sombras:
+  -1,7 ms de GPU desligadas. O brilho é uma cadeia a 320x176: entre corridas inteiras, ~0,3 ms.
+- No RP5 a 720p o jogo já está a ~59–60 fps com tudo ligado (GPU ~9 ms de 16,7): as opções não dão fps, dão folga de GPU
+  (bateria/temperatura) e servem para aparelhos mais fracos.
+- O início do prólogo (os primeiros ~2 min de um jogo novo) é vídeo (GPU a 5–6 %); a parte em tempo real vem depois e
+  ficou fora dos 5 min por opção. Enquanto não houver essa foto, as duas opções ficam escondidas (`RenutValidated`).
+- O slot 3 dos saves de teste aparece vazio no jogo mesmo com o ficheiro igual ao do jogador (os slots 1 e 2 de teste
+  carregam): os scripts usam o slot 1 de teste.
+- Hang da GPU (device lost) a 12:02 com tudo ligado, 8 s depois de carregar a luta, bateria a 90 % no USB: o hang do
+  Turnip não é só com a bateria baixa.
