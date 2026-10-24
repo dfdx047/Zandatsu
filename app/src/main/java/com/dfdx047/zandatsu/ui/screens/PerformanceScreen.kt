@@ -34,11 +34,12 @@ import com.dfdx047.zandatsu.data.GraphicsPreset
 import com.dfdx047.zandatsu.data.frameMode
 import com.dfdx047.zandatsu.data.withFrameMode
 import com.dfdx047.zandatsu.data.InternalResolution
+import com.dfdx047.zandatsu.data.RENUT_RESOLUTIONS
 import com.dfdx047.zandatsu.data.RenutPreset
+import com.dfdx047.zandatsu.data.XENOS_RESOLUTIONS
 import com.dfdx047.zandatsu.data.RenutValidated
 import com.dfdx047.zandatsu.data.RenutSupport
-import com.dfdx047.zandatsu.data.matchingRenutPreset
-import com.dfdx047.zandatsu.data.recommendedRenutPreset
+import com.dfdx047.zandatsu.data.chosenRenutPreset
 import com.dfdx047.zandatsu.data.withRenutPreset
 import com.dfdx047.zandatsu.data.matchingPreset
 import com.dfdx047.zandatsu.data.recommendedPreset
@@ -190,7 +191,7 @@ fun PerformanceScreen(vm: LauncherViewModel) {
             SettingSegmented(
                 title = stringResource(R.string.settings_resolution),
                 subtitle = stringResource(R.string.perf_resolution_sub),
-                options = InternalResolution.entries.map { r -> r to r.label },
+                options = XENOS_RESOLUTIONS.map { r -> r to r.label },
                 selected = c.resolution,
                 onSelect = { v -> vm.updateConfig { it.copy(resolution = v) } },
             )
@@ -333,7 +334,7 @@ fun PerformanceScreen(vm: LauncherViewModel) {
 private fun PresetCard(
     name: String,
     desc: String,
-    socs: String,
+    socs: String?,
     selected: Boolean,
     recommended: Boolean,
     onClick: () -> Unit,
@@ -360,7 +361,7 @@ private fun PresetCard(
                 if (selected) Pill(stringResource(R.string.preset_badge_active), scheme.primary)
             }
             Text(desc, style = MaterialTheme.typography.bodyMedium)
-            Text(socs, style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
+            if (socs != null) Text(socs, style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
         }
     }
 }
@@ -372,8 +373,8 @@ private fun PresetCard(
 @Composable
 private fun RenutOptions(vm: LauncherViewModel) {
     val c = vm.config
-    val recommended = remember { recommendedRenutPreset() }
-    val current = c.matchingRenutPreset()
+    // Sem recomendacao por aparelho: so fica marcado o perfil que o jogador escolheu.
+    val current = c.chosenRenutPreset()
     val names = mapOf(
         RenutPreset.LOW to stringResource(R.string.renut_preset_low),
         RenutPreset.MEDIUM to stringResource(R.string.renut_preset_medium),
@@ -386,12 +387,6 @@ private fun RenutOptions(vm: LauncherViewModel) {
         RenutPreset.HIGH to stringResource(R.string.renut_preset_high_desc),
         RenutPreset.ULTRA to stringResource(R.string.renut_preset_ultra_desc),
     )
-    val socs = mapOf(
-        RenutPreset.LOW to stringResource(R.string.renut_preset_low_socs),
-        RenutPreset.MEDIUM to stringResource(R.string.renut_preset_medium_socs),
-        RenutPreset.HIGH to stringResource(R.string.renut_preset_high_socs),
-        RenutPreset.ULTRA to stringResource(R.string.renut_preset_ultra_socs),
-    )
     // Perfis e opcoes de efeitos: so as validadas no aparelho (RenutValidated).
     if (RenutValidated.PRESETS) SectionCard(
         stringResource(R.string.preset_title),
@@ -402,21 +397,12 @@ private fun RenutOptions(vm: LauncherViewModel) {
             PresetCard(
                 name = names.getValue(p),
                 desc = descs.getValue(p),
-                socs = stringResource(R.string.preset_for, socs.getValue(p)),
+                socs = null,
                 selected = current == p,
-                recommended = recommended == p,
+                recommended = false,
             ) { vm.updateConfig { it.withRenutPreset(p) } }
         }
-        StatusLine(
-            if (current == null) stringResource(R.string.preset_custom, names.getValue(recommended))
-            else stringResource(R.string.preset_recommended, names.getValue(recommended)),
-            if (current == recommended) Level.OK else Level.INFO,
-        )
-        if (current != recommended) {
-            OutlinedButton(onClick = { vm.updateConfig { it.withRenutPreset(recommended) } }) {
-                Text(stringResource(R.string.preset_apply_recommended, names.getValue(recommended)))
-            }
-        }
+        if (current == null) StatusLine(stringResource(R.string.renut_preset_none), Level.INFO)
     }
 
     SectionCard(stringResource(R.string.settings_performance), Icons.Filled.Speed) {
@@ -424,8 +410,8 @@ private fun RenutOptions(vm: LauncherViewModel) {
         SettingSegmented(
             title = stringResource(R.string.settings_resolution),
             subtitle = stringResource(R.string.renut_resolution_sub),
-            options = listOf(InternalResolution.P540, InternalResolution.P720).map { r -> r to r.label },
-            selected = if (c.resolution == InternalResolution.P540) InternalResolution.P540 else InternalResolution.P720,
+            options = RENUT_RESOLUTIONS.map { r -> r to r.label },
+            selected = if (c.resolution in RENUT_RESOLUTIONS) c.resolution else InternalResolution.P720,
             onSelect = { v -> vm.updateConfig { it.copy(resolution = v) } },
         )
         SettingSwitch(stringResource(R.string.settings_show_fps), checked = c.showFps) { on -> vm.updateConfig { it.copy(showFps = on) } }

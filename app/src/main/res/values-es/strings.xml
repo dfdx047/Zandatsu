@@ -402,6 +402,7 @@
     <string name="renderer_sub">Nativo: el Direct3D del juego en Vulkan (Renut), más rápido y nítido. Emulado: la GPU de Xbox 360 (Xenia), con FSR, FXAA y 30/120 FPS.</string>
     <string name="renderer_renut">Nativo (Renut)</string>
     <string name="renderer_xenos">Emulado (Xenia)</string>
+    <string name="renut_preset_none">Ningún perfil elegido: elige uno o ajusta las opciones de abajo.</string>
     <string name="renut_preset_low">Bajo</string>
     <string name="renut_preset_medium">Medio</string>
     <string name="renut_preset_high">Alto</string>
@@ -410,12 +411,8 @@
     <string name="renut_preset_medium_desc">720p (consola), sin sombras ni brillo</string>
     <string name="renut_preset_high_desc">720p (consola), sombras y brillo</string>
     <string name="renut_preset_ultra_desc">720p (consola), sombras, brillo, anisotrópico 16x</string>
-    <string name="renut_preset_low_socs">Adreno 610–616 (Snapdragon 6xx)</string>
-    <string name="renut_preset_medium_socs">Adreno 618–642 (Snapdragon 7xx, 778G)</string>
-    <string name="renut_preset_high_socs">Adreno 650–740 (Retroid Pocket 5, Snapdragon 865/888/8 Gen 1/8 Gen 2)</string>
-    <string name="renut_preset_ultra_socs">Adreno 750 y más nuevas (Snapdragon 8 Gen 3, 8 Elite)</string>
     <string name="renut_fps_note">El juego va a 60 FPS (su propio ritmo). El hack de 30 FPS y los 120 FPS son del renderizador emulado.</string>
-    <string name="renut_resolution_sub">720p es la de la consola. 540p dibuja el 56% de los píxeles.</string>
+    <string name="renut_resolution_sub">720p es la de la consola. 540p dibuja el 56% de los píxeles; 1080p, 1440p y 4K dibujan 2,25x, 4x y 9x y se reducen a la pantalla.</string>
     <string name="renut_shadows_sub">Las sombras del sol (mapa de sombras y pase de sombra en pantalla). Desactivadas: la escena queda toda iluminada.</string>
     <string name="renut_bloom">Brillo</string>
     <string name="renut_bloom_sub">El brillo alrededor de las luces y la espada. Desactivado: la imagen original, sin brillo.</string>

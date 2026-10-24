@@ -61,19 +61,26 @@ data class GameConfig(
     // Opcoes do Renut (src/renut_effects.h): sombras do sol e brilho, ao vivo.
     val renutShadows: Boolean = true,
     val renutBloom: Boolean = true,
+    // Perfil do Renut que o jogador escolheu (nome do RenutPreset; vazio = nenhum). Nada e pre-selecionado.
+    val renutPreset: String = "",
 ) {
     /** O jogo corre no Renut com estas opcoes (escolha + aparelho). */
     val useRenut: Boolean get() = renderer != "xenos" && RenutSupport.supported()
 
-    /** sa2_render_height_handheld: as alturas que o Renut faz no Android (sem 4K, patch renut/0009). */
+    /**
+     * sa2_render_height_handheld: as alturas que o Renut faz no Android (escalas de render_scale.h: 540p pelo patch
+     * renut/0009, 4K pelo renut/0017). Os alvos de render escalam todos; a imagem final e reduzida para a tela.
+     */
     val renutHeight: Int get() = when (resolution) {
         InternalResolution.P360 -> 360
         InternalResolution.P540 -> 540
         InternalResolution.P720 -> 720
-        InternalResolution.P1440, InternalResolution.P2160 -> 1440
+        InternalResolution.P1080 -> 1080
+        InternalResolution.P1440 -> 1440
+        InternalResolution.P2160 -> 2160
     }
 
-    /** Escala inteira (1 abaixo de 720p e em 720p, 2 em 1440p, 3 em 2160p). */
+    /** Escala inteira do Xenia (1 abaixo de 720p e em 720p, 2 em 1080p/1440p, 3 em 2160p). */
     val resolutionScale: Int get() = resolution.scale
 
     fun toToml(): Map<String, Any> {
@@ -92,6 +99,7 @@ data class GameConfig(
             // Opcao ainda nao validada no aparelho: fica escondida no menu e sempre ligada.
             "swordman_renut_shadows" to (renutShadows || !RenutValidated.SHADOWS),
             "swordman_renut_bloom" to (renutBloom || !RenutValidated.BLOOM),
+            "swordman_renut_preset" to renutPreset,
             "renut_anisotropic_filtering" to when (anisotropic) {
                 2 -> "2x"
                 3 -> "4x"
@@ -306,6 +314,7 @@ data class GameConfig(
                 },
                 renutShadows = bool("swordman_renut_shadows", d.renutShadows),
                 renutBloom = bool("swordman_renut_bloom", d.renutBloom),
+                renutPreset = str("swordman_renut_preset", d.renutPreset),
             )
         }
 
@@ -388,8 +397,10 @@ enum class InternalResolution(val scale: Int, val percent: Int, val label: Strin
     P360(1, 50, "360p"),
     P540(1, 75, "540p"),
     P720(1, 100, "720p"),
-    P1440(2, 100, "2K"),
-    P2160(3, 100, "4K");
+    // So no Renut (sa2_render_height_handheld = 1080, escala 3/2); o Xenia so faz escalas inteiras (fica 2x).
+    P1080(2, 75, "1080p"),
+    P1440(2, 100, "1440p (2K)"),
+    P2160(3, 100, "2160p (4K)");
 
     /** Pixeis em relacao a 720p (0,25 em 360p, 4 em 1440p). */
     val pixelFactor: Double get() = scale * scale * (percent / 100.0) * (percent / 100.0)
@@ -397,6 +408,7 @@ enum class InternalResolution(val scale: Int, val percent: Int, val label: Strin
     companion object {
         fun from(scale: Int, percent: Int): InternalResolution = when {
             scale >= 3 -> P2160
+            scale == 2 && percent < 90 -> P1080
             scale == 2 -> P1440
             percent <= 60 -> P360
             percent < 90 -> P540
@@ -519,6 +531,15 @@ object RenutSupport {
     }
 }
 
+/** As resolucoes do Renut (menu Desempenho e menu do jogo). */
+val RENUT_RESOLUTIONS = listOf(
+    InternalResolution.P540, InternalResolution.P720, InternalResolution.P1080, InternalResolution.P1440,
+    InternalResolution.P2160,
+)
+
+/** As do Xenia (sem 1080p: escala inteira). */
+val XENOS_RESOLUTIONS = InternalResolution.entries.filter { it != InternalResolution.P1080 }
+
 /**
  * Perfis do Renut (menu Desempenho). O MGR do Xbox 360 tem duas opcoes graficas que se desligam
  * (dumps de frames de 24/10): sombras do sol e brilho. SSAO e profundidade de campo nao existem no 360;
@@ -561,26 +582,16 @@ fun GameConfig.withRenutPreset(p: RenutPreset): GameConfig {
         renutShadows = t.shadows || !RenutValidated.SHADOWS,
         renutBloom = t.bloom || !RenutValidated.BLOOM,
         anisotropic = t.anisotropic,
+        renutPreset = p.name,
     )
 }
+
+/** O perfil que o jogador escolheu, se as opcoes ainda forem as dele (mudar uma opcao = personalizado). */
+fun GameConfig.chosenRenutPreset(): RenutPreset? =
+    matchingRenutPreset()?.takeIf { it.name == renutPreset }
 
 fun GameConfig.matchingRenutPreset(): RenutPreset? = RenutPreset.entries.firstOrNull { p ->
     val t = p.spec()
     t.resolution == resolution && t.anisotropic == anisotropic &&
         (!RenutValidated.SHADOWS || t.shadows == renutShadows) && (!RenutValidated.BLOOM || t.bloom == renutBloom)
-}
-
-/** Perfil do Renut recomendado pela Adreno (o Renut so corre nas Adreno). */
-fun recommendedRenutPreset(): RenutPreset {
-    val adreno = try {
-        com.dfdx047.zandatsu.drivers.TurnipSupport.detect().adreno
-    } catch (e: Throwable) {
-        0
-    }
-    return when {
-        adreno == 750 || adreno >= 825 -> RenutPreset.ULTRA
-        adreno in 650..749 -> RenutPreset.HIGH
-        adreno in 618..649 -> RenutPreset.MEDIUM
-        else -> RenutPreset.LOW
-    }
 }

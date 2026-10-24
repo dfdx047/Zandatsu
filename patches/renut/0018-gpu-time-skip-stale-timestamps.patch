@@ -1,0 +1,13 @@
+--- a/app/src/renut_engine/gpu/backend/video.cpp
++++ b/app/src/renut_engine/gpu/backend/video.cpp
+@@ -656,7 +656,9 @@
+   const uint64_t *ns = pool->getResults();
+   uint64_t total = 0;
+   for (uint32_t i = 0; i < lists; ++i) {
+-    if (ns[2 * i + 1] > ns[2 * i])
++    // Zandatsu (renut/0018): a list's span over 250 ms is a stale or unwritten timestamp (seen on Turnip: 14 s and
++    // 106 s "a frame" while the game ran at 59 fps); a list that long would be a device lost, so it is left out.
++    if (ns[2 * i + 1] > ns[2 * i] && ns[2 * i + 1] - ns[2 * i] < 250000000ull)
+       total += ns[2 * i + 1] - ns[2 * i];
+   }
+   frame_stats::OnGpuFrame(double(total) / 1e6);

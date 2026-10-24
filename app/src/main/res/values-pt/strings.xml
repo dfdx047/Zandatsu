@@ -402,6 +402,7 @@
     <string name="renderer_sub">Nativo: o Direct3D do jogo em Vulkan (Renut), mais rápido e nítido. Emulado: a GPU do Xbox 360 (Xenia), com FSR, FXAA e 30/120 FPS.</string>
     <string name="renderer_renut">Nativo (Renut)</string>
     <string name="renderer_xenos">Emulado (Xenia)</string>
+    <string name="renut_preset_none">Nenhum perfil escolhido: escolha um ou ajuste as opções abaixo.</string>
     <string name="renut_preset_low">Baixo</string>
     <string name="renut_preset_medium">Médio</string>
     <string name="renut_preset_high">Alto</string>
@@ -410,12 +411,8 @@
     <string name="renut_preset_medium_desc">720p (console), sem sombras nem brilho</string>
     <string name="renut_preset_high_desc">720p (console), sombras e brilho</string>
     <string name="renut_preset_ultra_desc">720p (console), sombras, brilho, anisotrópico 16x</string>
-    <string name="renut_preset_low_socs">Adreno 610–616 (Snapdragon 6xx)</string>
-    <string name="renut_preset_medium_socs">Adreno 618–642 (Snapdragon 7xx, 778G)</string>
-    <string name="renut_preset_high_socs">Adreno 650–740 (Retroid Pocket 5, Snapdragon 865/888/8 Gen 1/8 Gen 2)</string>
-    <string name="renut_preset_ultra_socs">Adreno 750 e mais novas (Snapdragon 8 Gen 3, 8 Elite)</string>
     <string name="renut_fps_note">O jogo corre a 60 FPS (o ritmo dele). O hack de 30 FPS e os 120 FPS são do renderizador emulado.</string>
-    <string name="renut_resolution_sub">720p é a do console. 540p desenha 56% dos pixels.</string>
+    <string name="renut_resolution_sub">720p é a do console. 540p desenha 56% dos pixels; 1080p, 1440p e 4K desenham 2,25x, 4x e 9x e são reduzidas para a tela.</string>
     <string name="renut_shadows_sub">As sombras do sol (mapa de sombra e passe de sombra em tela). Desligadas: a cena fica toda iluminada.</string>
     <string name="renut_bloom">Brilho</string>
     <string name="renut_bloom_sub">O brilho à volta das luzes e da espada. Desligado: a imagem original, sem brilho.</string>

@@ -376,7 +376,7 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
         if (c.useRenut) return renutVideoItems(c)
         list += choice(
             s(R.string.settings_resolution), s(R.string.perf_resolution_sub),
-            InternalResolution.entries.map { it to it.label }, c.resolution, restart = true,
+            com.dfdx047.zandatsu.data.XENOS_RESOLUTIONS.map { it to it.label }, c.resolution, restart = true,
         ) { v ->
             set(
                 c.copy(resolution = v),
@@ -465,13 +465,13 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
         return list
     }
 
-    /** Renut: resolucao (540p/720p), FPS na tela e anisotropico; o resto e do Xenia. */
+    /** Renut: resolucao (540p a 4K), FPS na tela e anisotropico; o resto e do Xenia. */
     private fun renutVideoItems(c: GameConfig): List<MenuItem> {
         val list = ArrayList<MenuItem>()
         list += choice(
             s(R.string.settings_resolution), s(R.string.renut_resolution_sub),
-            listOf(InternalResolution.P540, InternalResolution.P720).map { it to it.label },
-            if (c.resolution == InternalResolution.P540) InternalResolution.P540 else InternalResolution.P720,
+            com.dfdx047.zandatsu.data.RENUT_RESOLUTIONS.map { it to it.label },
+            if (c.resolution in com.dfdx047.zandatsu.data.RENUT_RESOLUTIONS) c.resolution else InternalResolution.P720,
         ) { v ->
             val next = c.copy(resolution = v)
             set(next, mapOf("sa2_render_height_handheld" to "${next.renutHeight}"))
