@@ -311,7 +311,9 @@ object GameFiles {
         requireFiles(files.map { it.second })
 
         val total = xexDoc.length() + files.sumOf { it.first.length() }
-        ensureSpace(total)
+        // So o que vai ser copiado: os ficheiros que ja existem com o mesmo tamanho saltam (24/10: reimportar
+        // pedia o jogo inteiro de espaco livre).
+        ensureSpace(xexDoc.length() + files.filterNot { (d, rel) -> sameSize(rel, d.length()) }.sumOf { it.first.length() })
         val meter = Meter(total, onProgress)
         val buf = ByteArray(1 shl 20)
         fun copy(doc: DocumentFile, rel: String) {
@@ -371,6 +373,10 @@ object GameFiles {
      * default.xex antes de copiar e copia o default.xex e a media/ (o resto do disco -
      * $SystemUpdate, AvatarAssetPack, nxeart - nao e usado), o default.xex por ultimo.
      */
+    /** O ficheiro do jogo ja esta no app com este tamanho (o import salta-o). */
+    private fun sameSize(rel: String, size: Long): Boolean =
+        File(AppPaths.gameDir, rel).let { it.isFile && it.length() == size }
+
     fun importIso(context: Context, uri: Uri, onProgress: (ImportProgress) -> Unit) {
         val pfd = context.contentResolver.openFileDescriptor(uri, "r")
             ?: throw ImportException(ImportException.Reason.IO, "iso")
@@ -409,7 +415,7 @@ object GameFiles {
                 }.sortedBy { f -> f.offset } + xex
                 requireFiles(files.map { f -> f.path })
                 val total = files.sumOf { f -> f.size }
-                ensureSpace(total)
+                ensureSpace(xex.size + files.filter { f -> f !== xex && !sameSize(f.path, f.size) }.sumOf { f -> f.size })
                 AppPaths.xexFile.delete()
                 val meter = Meter(total, onProgress)
                 for (f in files) {
