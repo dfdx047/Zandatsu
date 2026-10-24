@@ -27,6 +27,7 @@ import java.io.File
  *  - "press A" / "selftest" / "capture": um botao, so o autoteste, ou captura de frames (.dfc).
  *  - "seq LT:30 LT+X:6 LT:6": uma sequencia de passos "botoes:ticks" (60 Hz; botoes juntos com +), para
  *    segurar um botao e carregar outros por cima (Blade Mode: LT segurado, X/Y a cortar).
+ *  - "look RX RY MS": analogico direito (camara) durante MS ms (procurar o motion blur).
  *  - "cvar nome=valor": muda uma cvar ao vivo, sem gravar (medicoes A/B: tools/fx-ab.sh).
  *  - "auto" com --ez capture true: captura 2 frames a meio da espera (mapa do frame).
  *  - "auto" com --ez attack true: golpes X/Y durante a espera e o autoteste (cena de luta).
@@ -59,6 +60,12 @@ class AutoPilot(
                 cmd == "selftest" -> selfTest()
                 cmd.startsWith("press ") -> parse(cmd.substringAfter(' '))?.let(press)
                 cmd.startsWith("seq ") -> parseSequence(cmd.substringAfter(' '))?.let(sequence)
+                // "look RX RY MS": analogico direito (camara) em RX/RY (-1..1) durante MS ms, depois ao centro.
+                cmd.startsWith("look ") -> cmd.split(' ').drop(1).mapNotNull { it.toFloatOrNull() }.takeIf { it.size == 3 }?.let { (rx, ry, ms) ->
+                    org.libsdl.app.SwordManPad.axis(2, rx)
+                    org.libsdl.app.SwordManPad.axis(3, ry)
+                    main.postDelayed({ org.libsdl.app.SwordManPad.axis(2, 0f); org.libsdl.app.SwordManPad.axis(3, 0f) }, ms.toLong())
+                }
                 // "cvar nome=valor": muda uma cvar ao vivo sem gravar no mgr.toml (medicoes A/B pelo PC).
                 cmd.startsWith("cvar ") -> cmd.substringAfter(' ').split('=', limit = 2).takeIf { it.size == 2 }?.let {
                     NativeGameState.setCvars(mapOf(it[0].trim() to it[1].trim()), persist = false)
