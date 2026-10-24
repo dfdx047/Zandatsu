@@ -96,11 +96,17 @@ echo "  $(grep -o 'g_shaderCacheEntryCount = [0-9]*' "$OUT/shader_cache.cpp")"
 mkdir -p "$OUT/host_shaders"
 for SP in overlay_vs:vs_6_0 overlay_ps:ps_6_0 present_vs:vs_6_0 present_ps:ps_6_0 \
           depth_resolve_ps:ps_6_0 depth_resolve_ms_ps:ps_6_0 texture_mip_ps:ps_6_0 resolve_copy_ps:ps_6_0 \
-          rectangle_list_gs:gs_6_0 point_sprite_gs:gs_6_0 stream_convert_cs:cs_6_0 target_readback_cs:cs_6_0; do
+          rectangle_list_gs:gs_6_0 point_sprite_gs:gs_6_0 stream_convert_cs:cs_6_0 target_readback_cs:cs_6_0 \
+          present_easu_ps:ps_6_0 present_rcas_ps:ps_6_0 present_cas_ps:ps_6_0; do
   S="${SP%%:*}"; P="${SP##*:}"
   EXTRA=()
+  HV=2021
   [[ "$P" == vs* ]] && EXTRA=(-fvk-invert-y)
-  "$DXC" -T "$P" -E main -HV 2021 -all-resources-bound -Wno-ignored-attributes -spirv -fvk-use-dx-layout \
+  # FSR 1 e CAS (renut/0019): os headers da AMD (third_party/fidelityfx, MIT) sao de antes do HLSL 2021 (ternario
+  # com vetores).
+  [[ "$S" == present_easu_ps || "$S" == present_rcas_ps || "$S" == present_cas_ps ]] &&
+    HV=2018 && EXTRA+=(-I "$ROOT/third_party/fidelityfx")
+  "$DXC" -T "$P" -E main -HV "$HV" -all-resources-bound -Wno-ignored-attributes -spirv -fvk-use-dx-layout \
     "${EXTRA[@]}" -Fh "$OUT/host_shaders/$S.spirv.h" -Vn "g_${S}_spirv" "$HOST_HLSL/$S.hlsl"
 done
 echo "  $(ls "$OUT/host_shaders" | wc -l) shaders do host"

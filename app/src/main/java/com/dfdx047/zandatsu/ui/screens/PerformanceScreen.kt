@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import com.dfdx047.zandatsu.R
 import com.dfdx047.zandatsu.data.DisplayRates
 import com.dfdx047.zandatsu.data.FrameMode
+import com.dfdx047.zandatsu.data.GameConfig
 import com.dfdx047.zandatsu.data.GraphicsPreset
 import com.dfdx047.zandatsu.data.frameMode
 import com.dfdx047.zandatsu.data.withFrameMode
@@ -257,45 +258,7 @@ fun PerformanceScreen(vm: LauncherViewModel) {
 
         // ---------------------------------------------------------------- imagem
         SectionCard(stringResource(R.string.settings_image), Icons.Filled.Wallpaper) {
-            SettingSegmented(
-                title = stringResource(R.string.settings_filter),
-                subtitle = stringResource(R.string.settings_filter_sub),
-                options = listOf("bilinear" to "Bilinear", "cas" to "AMD CAS", "fsr" to "AMD FSR 1"),
-                selected = c.presentEffect,
-                onSelect = { v -> vm.updateConfig { it.copy(presentEffect = v) } },
-            )
-            if (c.presentEffect == "fsr") {
-                SettingDropdown(
-                    title = stringResource(R.string.settings_fsr_mode),
-                    subtitle = stringResource(R.string.settings_fsr_mode_sub),
-                    options = listOf(
-                        "auto" to stringResource(R.string.fsr_native),
-                        "quality" to stringResource(R.string.fsr_quality),
-                        "balanced" to stringResource(R.string.fsr_balanced),
-                        "performance" to stringResource(R.string.fsr_performance),
-                        "ultra_performance" to stringResource(R.string.fsr_ultra),
-                    ),
-                    selected = c.fsrQuality,
-                    onSelect = { v -> vm.updateConfig { it.copy(fsrQuality = v) } },
-                )
-                if (c.fsrQuality != "auto" && c.resolutionScale < 2) {
-                    StatusLine(stringResource(R.string.settings_fsr_mode_no_effect), Level.INFO)
-                }
-                SettingSlider(
-                    title = stringResource(R.string.settings_fsr_sharpness),
-                    value = (2.0 - c.fsrSharpness).toFloat(),
-                    range = 0f..2f,
-                    label = { v -> "${(v / 2f * 100).roundToInt()}%" },
-                ) { v -> vm.updateConfig { it.copy(fsrSharpness = (2.0 - v).coerceIn(0.0, 2.0)) } }
-            }
-            if (c.presentEffect == "cas") {
-                SettingSlider(
-                    title = stringResource(R.string.settings_cas_sharpness),
-                    value = c.casSharpness.toFloat(),
-                    range = 0f..1f,
-                    label = { v -> "${(v * 100).roundToInt()}%" },
-                ) { v -> vm.updateConfig { it.copy(casSharpness = v.toDouble()) } }
-            }
+            FilterSettings(vm, c, quality = true)
             HorizontalDivider()
             SettingDropdown(
                 title = stringResource(R.string.settings_aa),
@@ -417,6 +380,10 @@ private fun RenutOptions(vm: LauncherViewModel) {
         SettingSwitch(stringResource(R.string.settings_show_fps), checked = c.showFps) { on -> vm.updateConfig { it.copy(showFps = on) } }
     }
 
+    SectionCard(stringResource(R.string.settings_image), Icons.Filled.Wallpaper) {
+        FilterSettings(vm, c, quality = false)
+    }
+
     SectionCard(
         stringResource(R.string.perf_effects_title),
         Icons.Filled.BlurOn,
@@ -450,5 +417,52 @@ private fun RenutOptions(vm: LauncherViewModel) {
             range = 0f..100f,
             label = { v -> "${v.roundToInt()}%" },
         ) { v -> vm.updateConfig { it.copy(volume = v.roundToInt().coerceIn(0, 100)) } }
+    }
+}
+
+/**
+ * Filtro da imagem final (bilinear, AMD CAS, AMD FSR 1) e a nitidez: o mesmo no Xenia e no Renut (patch renut/0019,
+ * passe final do Renut). O modo do FSR (resolucao interna) so existe no Xenia: no Renut e a resolucao.
+ */
+@Composable
+private fun FilterSettings(vm: LauncherViewModel, c: GameConfig, quality: Boolean) {
+    SettingSegmented(
+        title = stringResource(R.string.settings_filter),
+        subtitle = stringResource(R.string.settings_filter_sub),
+        options = listOf("bilinear" to "Bilinear", "cas" to "AMD CAS", "fsr" to "AMD FSR 1"),
+        selected = c.presentEffect,
+        onSelect = { v -> vm.updateConfig { it.copy(presentEffect = v) } },
+    )
+    if (c.presentEffect == "fsr") {
+        if (quality) SettingDropdown(
+            title = stringResource(R.string.settings_fsr_mode),
+            subtitle = stringResource(R.string.settings_fsr_mode_sub),
+            options = listOf(
+                "auto" to stringResource(R.string.fsr_native),
+                "quality" to stringResource(R.string.fsr_quality),
+                "balanced" to stringResource(R.string.fsr_balanced),
+                "performance" to stringResource(R.string.fsr_performance),
+                "ultra_performance" to stringResource(R.string.fsr_ultra),
+            ),
+            selected = c.fsrQuality,
+            onSelect = { v -> vm.updateConfig { it.copy(fsrQuality = v) } },
+        )
+        if (quality && c.fsrQuality != "auto" && c.resolutionScale < 2) {
+            StatusLine(stringResource(R.string.settings_fsr_mode_no_effect), Level.INFO)
+        }
+        SettingSlider(
+            title = stringResource(R.string.settings_fsr_sharpness),
+            value = (2.0 - c.fsrSharpness).toFloat(),
+            range = 0f..2f,
+            label = { v -> "${(v / 2f * 100).roundToInt()}%" },
+        ) { v -> vm.updateConfig { it.copy(fsrSharpness = (2.0 - v).coerceIn(0.0, 2.0)) } }
+    }
+    if (c.presentEffect == "cas") {
+        SettingSlider(
+            title = stringResource(R.string.settings_cas_sharpness),
+            value = c.casSharpness.toFloat(),
+            range = 0f..1f,
+            label = { v -> "${(v * 100).roundToInt()}%" },
+        ) { v -> vm.updateConfig { it.copy(casSharpness = v.toDouble()) } }
     }
 }

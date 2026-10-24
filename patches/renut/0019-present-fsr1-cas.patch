@@ -1,0 +1,399 @@
+--- a/app/src/renut_engine/gpu/backend/present.cpp
++++ b/app/src/renut_engine/gpu/backend/present.cpp
+@@ -61,6 +61,18 @@
+                     "Show each frame at the display's refresh: no tearing, and the game runs at "
+                     "the refresh rate (frame_cap then only limits below it). Off shows frames at "
+                     "once, with tearing.");
++
++#if defined(__ANDROID__)
++// Zandatsu (renut/0019): AMD FSR 1 and CAS at scan-out, with the SDK presenter's options (ui/presenter.cpp, the same
++// as the emulated GPU's): present_effect (bilinear, cas, fsr), present_fsr_sharpness_reduction,
++// present_cas_additional_sharpness. Read every frame: they change live from the app's menu.
++REXCVAR_DECLARE(std::string, present_effect);
++REXCVAR_DECLARE(double, present_fsr_sharpness_reduction);
++REXCVAR_DECLARE(double, present_cas_additional_sharpness);
++#include "host_shaders/present_cas_ps.spirv.h"
++#include "host_shaders/present_easu_ps.spirv.h"
++#include "host_shaders/present_rcas_ps.spirv.h"
++#endif
+ 
+ namespace renut::gpu {
+ 
+@@ -257,6 +269,190 @@
+     swordman::gpu_markers::After(cmd, marker);
+   }
+ }
++
++#if defined(__ANDROID__)
++// Zandatsu (renut/0019): present_effect on the scan-out, as the emulated GPU's presenter does it.
++//   fsr: AMD FSR 1. EASU from the frame into an image of the scan-out's size when that is larger than the frame (else
++//        the bilinear scan-out into it), then RCAS from that image to the output.
++//   cas: the bilinear scan-out into that image, then AMD CAS (sharpen only) from it to the output.
++// The game's gamma ramp and the output gamma go with the second pass. bilinear, the diagnostic texture view and a
++// pipeline that failed to build: the single pass of RecordScanOut. The captures (CaptureFrameLocked) stay bilinear.
++constexpr plume::RenderFormat kEffectFormat = plume::RenderFormat::R8G8B8A8_UNORM;  // kSwapChainFormat (video.cpp)
++
++enum class Effect { kBilinear, kFsr, kCas };
++
++struct PresentEffect {
++  bool built = false, failed = false;
++  std::unique_ptr<plume::RenderShader> easu_ps, rcas_ps, cas_ps;
++  std::unique_ptr<plume::RenderPipeline> easu, linear, rcas, cas;  // linear: present_ps into the image
++  std::unique_ptr<plume::RenderTexture> target;
++  std::unique_ptr<plume::RenderTextureView> view;
++  std::unique_ptr<plume::RenderFramebuffer> framebuffer;
++  uint32_t slot = kInvalidDescriptor, width = 0, height = 0;
++};
++PresentEffect g_effect;
++
++std::unique_ptr<plume::RenderPipeline> EffectPipeline(VideoState &s, plume::RenderShader *ps, const char *name) {
++  plume::RenderGraphicsPipelineDesc desc;
++  desc.pipelineLayout = s.utility_layout.get();
++  desc.vertexShader = s.present_vs.get();
++  desc.pixelShader = ps;
++  desc.primitiveTopology = plume::RenderPrimitiveTopology::TRIANGLE_LIST;
++  desc.cullMode = plume::RenderCullMode::NONE;
++  desc.renderTargetCount = 1;
++  desc.renderTargetFormat[0] = kEffectFormat;
++  desc.renderTargetBlend[0] = plume::RenderBlendDesc::Copy();
++  desc.depthTargetFormat = plume::RenderFormat::UNKNOWN;
++  std::unique_ptr<plume::RenderPipeline> pipeline = s.device->createGraphicsPipeline(desc);
++  if (pipeline)
++    pipeline->setName(name);
++  return pipeline;
++}
++
++// Once, the first time an effect is asked for.
++bool BuildEffectPipelines(VideoState &s) {
++  PresentEffect &e = g_effect;
++  if (e.built || e.failed)
++    return e.built;
++  e.easu_ps = CreateHostShader(s.device.get(), RENUT_HOST_SHADER(present_easu_ps), "present_easu_ps");
++  e.rcas_ps = CreateHostShader(s.device.get(), RENUT_HOST_SHADER(present_rcas_ps), "present_rcas_ps");
++  e.cas_ps = CreateHostShader(s.device.get(), RENUT_HOST_SHADER(present_cas_ps), "present_cas_ps");
++  if (e.easu_ps && e.rcas_ps && e.cas_ps && s.present_ps) {
++    e.easu = EffectPipeline(s, e.easu_ps.get(), "renut present: FSR EASU");
++    e.linear = EffectPipeline(s, s.present_ps.get(), "renut present: bilinear to the effect image");
++    e.rcas = EffectPipeline(s, e.rcas_ps.get(), "renut present: FSR RCAS");
++    e.cas = EffectPipeline(s, e.cas_ps.get(), "renut present: CAS");
++  }
++  e.built = e.easu && e.linear && e.rcas && e.cas;
++  e.failed = !e.built;
++  if (e.failed)
++    RGPU_ERROR("present_effect: the FSR/CAS pipelines failed to build; bilinear scan-out");
++  else
++    RGPU_INFO("present_effect: FSR 1 (EASU + RCAS) and CAS pipelines ready");
++  return e.built;
++}
++
++// The image between the passes, the scan-out's size (one bindless slot, kept).
++bool EnsureEffectTarget(VideoState &s, uint32_t w, uint32_t h) {
++  PresentEffect &e = g_effect;
++  if (e.target && e.width == w && e.height == h)
++    return true;
++  if (e.target)
++    detail::WaitAllSubmitted(s);  // the frames in flight still read the old one (only on a resize)
++  e.framebuffer.reset();
++  e.view.reset();
++  e.target.reset();
++  e.width = e.height = 0;
++  plume::RenderTextureDesc desc = plume::RenderTextureDesc::Texture2D(w, h, 1, kEffectFormat);
++  desc.flags |= plume::RenderTextureFlag::RENDER_TARGET;
++  e.target = s.device->createTexture(desc);
++  if (!e.target)
++    return false;
++  e.target->setName("renut present effect image");
++  e.view = e.target->createTextureView(plume::RenderTextureViewDesc::Texture2D(kEffectFormat));
++  const plume::RenderTexture *attachment = e.target.get();
++  e.framebuffer = s.device->createFramebuffer(plume::RenderFramebufferDesc(&attachment, 1));
++  if (e.slot == kInvalidDescriptor)
++    e.slot = Video::AllocateTextureSlotLocked();
++  if (!e.view || !e.framebuffer || e.slot == kInvalidDescriptor) {
++    e.framebuffer.reset();
++    e.view.reset();
++    e.target.reset();
++    return false;
++  }
++  Video::SetTextureSlotLocked(e.slot, e.target.get(), e.view.get());
++  e.width = w;
++  e.height = h;
++  RGPU_INFO("present_effect: effect image {}x{}", w, h);
++  return true;
++}
++
++// Before the output's render pass: the first pass into the effect image. The effect the scan-out then takes
++// (RecordEffectScanOut), bilinear when there is none.
++Effect RecordEffectPrePass(VideoState &s, const PresentImage &image, uint32_t out_w, uint32_t out_h) {
++  const std::string &name = REXCVAR_GET(present_effect);
++  const Effect effect = name == "fsr" ? Effect::kFsr : name == "cas" ? Effect::kCas : Effect::kBilinear;
++  if (effect == Effect::kBilinear || image.gamma > 0.0f)  // image.gamma: banjo_renut_diag_show_texture, as it is
++    return Effect::kBilinear;
++  const uint32_t src_w = image.source_width ? image.source_width : image.width;
++  const uint32_t src_h = image.source_height ? image.source_height : image.height;
++  const FrameFit fit = FitFrame(out_w, out_h, src_w, src_h);
++  const uint32_t w = uint32_t(fit.viewport.width + 0.5f), h = uint32_t(fit.viewport.height + 0.5f);
++  if (!w || !h || !BuildEffectPipelines(s) || !EnsureEffectTarget(s, w, h))
++    return Effect::kBilinear;
++  PresentEffect &e = g_effect;
++  plume::RenderCommandList *cmd = s.command_list;
++  if (image.layout && *image.layout != plume::RenderTextureLayout::SHADER_READ) {
++    cmd->barriers(plume::RenderBarrierStage::GRAPHICS,
++                  plume::RenderTextureBarrier(image.texture, plume::RenderTextureLayout::SHADER_READ));
++    *image.layout = plume::RenderTextureLayout::SHADER_READ;
++  }
++  cmd->barriers(plume::RenderBarrierStage::GRAPHICS,
++                plume::RenderTextureBarrier(e.target.get(), plume::RenderTextureLayout::COLOR_WRITE));
++  cmd->setFramebuffer(e.framebuffer.get());
++  cmd->setViewports(plume::RenderViewport(0.0f, 0.0f, float(w), float(h)));
++  cmd->setScissors(plume::RenderRect(0, 0, int32_t(w), int32_t(h)));
++  cmd->setGraphicsPipelineLayout(s.utility_layout.get());
++  // EASU only upscales: a frame as large as the output or larger goes in bilinear (FSR is then RCAS alone).
++  const bool easu = effect == Effect::kFsr && (float(w) > float(src_w) * fit.visible[0] + 0.5f ||
++                                               float(h) > float(src_h) * fit.visible[1] + 0.5f);
++  cmd->setPipeline(easu ? e.easu.get() : e.linear.get());
++  cmd->setGraphicsDescriptorSet(s.texture_set.get(), 0);
++  cmd->setGraphicsDescriptorSet(s.sampler_set.get(), 1);
++  UtilityPush push{};
++  // As RecordScanOut: the frame's share of the texture, less what the fit trims from its edges.
++  const float frame_u = image.width ? float(src_w) / float(image.width) : 1.0f;
++  const float frame_v = image.height ? float(src_h) / float(image.height) : 1.0f;
++  push.scale[0] = frame_u * fit.visible[0];
++  push.scale[1] = frame_v * fit.visible[1];
++  push.translate[0] = frame_u * (1.0f - fit.visible[0]) * 0.5f;
++  push.translate[1] = frame_v * (1.0f - fit.visible[1]) * 0.5f;
++  push.texture_index = image.descriptor;
++  push.sampler_index = kLinearClampSamplerSlot;
++  // EASU: the output's size; present_ps: no gamma and no ramp here (the second pass applies them).
++  push.param0 = easu ? float(w) : 1.0f;
++  push.param1 = easu ? float(h) : 0.0f;
++  cmd->setGraphicsPushConstants(0, &push, 0, sizeof(push));
++  cmd->drawInstanced(3, 1, 0, 0);
++  cmd->setFramebuffer(nullptr);
++  cmd->barriers(plume::RenderBarrierStage::GRAPHICS,
++                plume::RenderTextureBarrier(e.target.get(), plume::RenderTextureLayout::SHADER_READ));
++  return effect;
++}
++
++// In the output's render pass, in place of RecordScanOut: RCAS or CAS from the effect image, with the gamma ramp.
++void RecordEffectScanOut(VideoState &s, const PresentImage &image, uint32_t out_w, uint32_t out_h, Effect effect) {
++  const PresentEffect &e = g_effect;
++  plume::RenderCommandList *cmd = s.command_list;
++  const uint32_t src_w = image.source_width ? image.source_width : image.width;
++  const uint32_t src_h = image.source_height ? image.source_height : image.height;
++  const plume::RenderViewport vp = FitFrame(out_w, out_h, src_w, src_h).viewport;
++  cmd->setViewports(vp);
++  cmd->setScissors(plume::RenderRect(int32_t(vp.x), int32_t(vp.y), int32_t(vp.x + vp.width),
++                                     int32_t(vp.y + vp.height)));
++  cmd->setGraphicsPipelineLayout(s.utility_layout.get());
++  cmd->setPipeline(effect == Effect::kFsr ? e.rcas.get() : e.cas.get());
++  cmd->setGraphicsDescriptorSet(s.texture_set.get(), 0);
++  cmd->setGraphicsDescriptorSet(s.sampler_set.get(), 1);
++  UtilityPush push{};
++  push.scale[0] = push.scale[1] = 1.0f;
++  push.texture_index = e.slot;
++  // The shaders read the image with Load: the sampler's word carries the sharpness (a float's bits).
++  const float sharpness = effect == Effect::kFsr ? float(REXCVAR_GET(present_fsr_sharpness_reduction))
++                                                 : float(REXCVAR_GET(present_cas_additional_sharpness));
++  push.sampler_index = std::bit_cast<uint32_t>(sharpness);
++  push.param0 = s.output_gamma;
++  const uint32_t ramp_slot =
++      g_gamma.uploaded && g_gamma.slot != kInvalidDescriptor && REXCVAR_GET(sa2_renut_gamma_ramp) ? g_gamma.slot : 0u;
++  push.param1 = std::bit_cast<float>(ramp_slot);
++  cmd->setGraphicsPushConstants(0, &push, 0, sizeof(push));
++  swordman::gpu_markers::Info marker_info;
++  marker_info.kind = swordman::gpu_markers::kScanOut;
++  const uint32_t marker = swordman::gpu_markers::Before(cmd, marker_info);
++  cmd->drawInstanced(3, 1, 0, 0);
++  swordman::gpu_markers::After(cmd, marker);
++}
++#endif
+ 
+ // banjo-nx: the test captures (banjo_renut_capture.h). CaptureFrame asks; the next Present, minimized or not, scans
+ // the guest image out once more into an offscreen target of the frame's size and reads it back.
+@@ -476,10 +672,14 @@
+   const uint32_t out_w = s.swap_chain->getWidth();
+   const uint32_t out_h = s.swap_chain->getHeight();
+ 
++  const bool scan_out = image && image->texture && image->descriptor != kInvalidDescriptor;
++#if defined(__ANDROID__)
++  // Zandatsu (renut/0019): FSR/CAS's first pass, before the output's render pass.
++  const Effect effect = scan_out ? RecordEffectPrePass(s, *image, out_w, out_h) : Effect::kBilinear;
++#endif
+   cmd->barriers(plume::RenderBarrierStage::GRAPHICS,
+                 plume::RenderTextureBarrier(back, plume::RenderTextureLayout::COLOR_WRITE));
+   cmd->setFramebuffer(back_fb);
+-  const bool scan_out = image && image->texture && image->descriptor != kInvalidDescriptor;
+   // Letterbox bars (and the whole output when there is no guest image). banjo-nx (2026-10-19, GPU): not when the
+   // frame covers the whole output, where the scan-out writes every pixel the clear would.
+   bool covers = false;
+@@ -492,6 +692,11 @@
+   if (!covers)
+     cmd->clearColor(0, plume::RenderColor(0.0f, 0.0f, 0.0f, 1.0f));
+ 
++#if defined(__ANDROID__)
++  if (scan_out && effect != Effect::kBilinear)
++    RecordEffectScanOut(s, *image, out_w, out_h, effect);
++  else
++#endif
+   if (scan_out)
+     RecordScanOut(s, *image, out_w, out_h);
+ 
+--- /dev/null
++++ b/app/src/renut_engine/gpu/shaders/host/present_output.hlsli
+@@ -0,0 +1,30 @@
++// Zandatsu (renut/0019): the end of the scan-out, shared by present_ps's effect variants (present_rcas_ps,
++// present_cas_ps): the game's display gamma ramp, then the output gamma. The same steps as present_ps.hlsl.
++//   param0 = output gamma exponent (1 = passthrough); param1's bits = the ramp's bindless slot, 0 = none.
++#ifndef PRESENT_OUTPUT_HLSLI
++#define PRESENT_OUTPUT_HLSLI
++
++float3 PresentOutput(float3 color)
++{
++    const uint ramp = asuint(g_Push.param1);
++    if (ramp != 0u)
++    {
++        const uint3 i = uint3(saturate(color) * 255.0 + 0.5);
++        color = float3(g_Textures[NonUniformResourceIndex(ramp)].Load(int3(i.x, 0, 0)).x,
++                       g_Textures[NonUniformResourceIndex(ramp)].Load(int3(i.y, 0, 0)).y,
++                       g_Textures[NonUniformResourceIndex(ramp)].Load(int3(i.z, 0, 0)).z);
++    }
++    if (g_Push.param0 != 1.0)
++        color = pow(saturate(color), g_Push.param0);
++    return color;
++}
++
++// The effect passes read the intermediate image 1:1: uv * its size is the pixel's centre.
++int2 PresentPixel(float2 uv)
++{
++    uint w, h;
++    g_Textures[NonUniformResourceIndex(g_Push.textureIndex)].GetDimensions(w, h);
++    return int2(uv * float2(w, h));
++}
++
++#endif
+--- /dev/null
++++ b/app/src/renut_engine/gpu/shaders/host/present_easu_ps.hlsl
+@@ -0,0 +1,48 @@
++// Zandatsu (renut/0019): AMD FidelityFX FSR 1 EASU, the first pass of present_effect = fsr when the frame is upscaled
++// (backend/present.cpp, RecordEffectPrePass): the guest frame into the intermediate image of the output's size.
++//   scale/translate = the frame's share of the texture (as present_vs); param0/param1 = the output's width/height.
++#include "utility.hlsli"
++
++#define A_GPU 1
++#define A_HLSL 1
++#include "ffx_a.h"
++
++AF4 FsrEasuRF(AF2 p)
++{
++    return g_Textures[NonUniformResourceIndex(g_Push.textureIndex)].GatherRed(
++        g_Samplers[NonUniformResourceIndex(g_Push.samplerIndex)], p);
++}
++AF4 FsrEasuGF(AF2 p)
++{
++    return g_Textures[NonUniformResourceIndex(g_Push.textureIndex)].GatherGreen(
++        g_Samplers[NonUniformResourceIndex(g_Push.samplerIndex)], p);
++}
++AF4 FsrEasuBF(AF2 p)
++{
++    return g_Textures[NonUniformResourceIndex(g_Push.textureIndex)].GatherBlue(
++        g_Samplers[NonUniformResourceIndex(g_Push.samplerIndex)], p);
++}
++
++#define FSR_EASU_F 1
++#include "ffx_fsr1.h"
++
++struct PSInput
++{
++    float4 position : SV_Position;
++    float2 uv : TEXCOORD0;
++};
++
++float4 main(PSInput input) : SV_Target0
++{
++    uint w, h;
++    g_Textures[NonUniformResourceIndex(g_Push.textureIndex)].GetDimensions(w, h);
++    const float2 size = float2(w, h);
++    const float2 view = g_Push.scale * size;  // the frame, in source texels
++    AU4 con0, con1, con2, con3;
++    FsrEasuCon(con0, con1, con2, con3, view.x, view.y, size.x, size.y, g_Push.param0, g_Push.param1);
++    // The frame starts at translate (the fit's trim): moved in source texels.
++    con0.zw = asuint(asfloat(con0.zw) + g_Push.translate * size);
++    AF3 color;
++    FsrEasuF(color, AU2(input.position.xy), con0, con1, con2, con3);
++    return float4(color, 1.0);
++}
+--- /dev/null
++++ b/app/src/renut_engine/gpu/shaders/host/present_rcas_ps.hlsl
+@@ -0,0 +1,34 @@
++// Zandatsu (renut/0019): AMD FidelityFX FSR 1 RCAS, the second pass of present_effect = fsr: the intermediate image
++// (EASU's, or the bilinear scan-out's when the frame is not upscaled) sharpened to the output, then the gamma ramp.
++//   textureIndex = the intermediate image (read 1:1); samplerIndex's bits = the sharpness reduction in stops (float,
++//   present_fsr_sharpness_reduction); param0/param1 as present_ps.
++#include "utility.hlsli"
++#include "present_output.hlsli"
++
++#define A_GPU 1
++#define A_HLSL 1
++#include "ffx_a.h"
++
++AF4 FsrRcasLoadF(ASU2 p)
++{
++    return g_Textures[NonUniformResourceIndex(g_Push.textureIndex)].Load(int3(p, 0));
++}
++void FsrRcasInputF(inout AF1 r, inout AF1 g, inout AF1 b) {}
++
++#define FSR_RCAS_F 1
++#include "ffx_fsr1.h"
++
++struct PSInput
++{
++    float4 position : SV_Position;
++    float2 uv : TEXCOORD0;
++};
++
++float4 main(PSInput input) : SV_Target0
++{
++    AU4 con;
++    FsrRcasCon(con, asfloat(g_Push.samplerIndex));
++    AF3 color;
++    FsrRcasF(color.r, color.g, color.b, AU2(PresentPixel(input.uv)), con);
++    return float4(PresentOutput(color), 1.0);
++}
+--- /dev/null
++++ b/app/src/renut_engine/gpu/shaders/host/present_cas_ps.hlsl
+@@ -0,0 +1,35 @@
++// Zandatsu (renut/0019): AMD FidelityFX CAS (sharpen only), the second pass of present_effect = cas: the intermediate
++// image (the bilinear scan-out at the output's size) sharpened, then the gamma ramp.
++//   textureIndex = the intermediate image (read 1:1); samplerIndex's bits = the sharpness in 0-1 (float,
++//   present_cas_additional_sharpness); param0/param1 as present_ps.
++#include "utility.hlsli"
++#include "present_output.hlsli"
++
++#define A_GPU 1
++#define A_HLSL 1
++#include "ffx_a.h"
++
++AF3 CasLoad(ASU2 p)
++{
++    return g_Textures[NonUniformResourceIndex(g_Push.textureIndex)].Load(int3(p, 0)).rgb;
++}
++void CasInput(inout AF1 r, inout AF1 g, inout AF1 b) {}
++
++#include "ffx_cas.h"
++
++struct PSInput
++{
++    float4 position : SV_Position;
++    float2 uv : TEXCOORD0;
++};
++
++float4 main(PSInput input) : SV_Target0
++{
++    uint w, h;
++    g_Textures[NonUniformResourceIndex(g_Push.textureIndex)].GetDimensions(w, h);
++    AU4 const0, const1;
++    CasSetup(const0, const1, asfloat(g_Push.samplerIndex), AF1(w), AF1(h), AF1(w), AF1(h));
++    AF3 color;
++    CasFilter(color.r, color.g, color.b, AU2(PresentPixel(input.uv)), const0, const1, true);
++    return float4(PresentOutput(color), 1.0);
++}

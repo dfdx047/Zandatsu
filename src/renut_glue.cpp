@@ -22,6 +22,8 @@
 
 #include "renut_engine/gpu/sa2_renut_yield.h"
 
+REXCVAR_DECLARE(std::string, present_effect);  // SDK (ui/presenter.cpp)
+
 REXCVAR_DEFINE_STRING(swordman_renderer, "xenos", "SwordMan",
                       "Renderizador, escolhido no arranque. xenos = GPU do Xbox emulada (Xenia, plugin xenos). "
                       "renut = Direct3D do jogo nativo no Renut do mgr-nx-deko (plume, Vulkan)")
@@ -278,10 +280,18 @@ void SwordManRenutOverlayStatsOnSwap() {
     rex::perf::RecordGuestFrontbuffer(1280, 720);
     rex::perf::SetDrawResolutionScale(1, 1, 1, 1);
     rex::perf::SetDrawResolutionPercent(uint32_t(height > 0 ? height * 100 / 720 : 100));
-    rex::perf::SetUpscalerOverride("Renut \xC2\xB7 bilinear");
     return true;
   }();
   (void)once;
+  // O filtro do passe final (renut/0019: FSR 1, CAS), ao vivo: o menu muda present_effect com o jogo a correr.
+  static std::string shown;
+  const std::string &effect = REXCVAR_GET(present_effect);
+  if (effect != shown) {
+    shown = effect;
+    rex::perf::SetUpscalerOverride(effect == "fsr"   ? "Renut \xC2\xB7 AMD FSR 1"
+                                   : effect == "cas" ? "Renut \xC2\xB7 AMD CAS"
+                                                     : "Renut \xC2\xB7 bilinear");
+  }
   rex::perf::RecordGuestSwap();
 }
 

@@ -425,12 +425,27 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
             listOf(true to s(R.string.aspect_original), false to s(R.string.aspect_stretch)), c.letterbox,
         ) { v -> set(c.copy(letterbox = v), mapOf("present_letterbox" to v.toString())) }
         list += MHeader(s(R.string.settings_filter))
+        list += filterItems(c, quality = true)
+        list += choice(
+            s(R.string.settings_aa), null,
+            listOf("none" to s(R.string.off), "fxaa" to "FXAA", "fxaa_extreme" to "FXAA Extreme"), c.fxaa,
+        ) { v -> set(c.copy(fxaa = v), mapOf("swap_post_effect" to v)) }
+        list += choice(
+            s(R.string.settings_aniso), null,
+            listOf(-1 to s(R.string.aniso_game), 1 to "1x", 2 to "2x", 3 to "4x", 4 to "8x", 5 to "16x"), c.anisotropic,
+        ) { v -> set(c.copy(anisotropic = v), mapOf("anisotropic_override" to "$v")) }
+        return list
+    }
+
+    /** Filtro da imagem final e nitidez, no Xenia e no Renut (renut/0019); o modo do FSR so no Xenia. */
+    private fun filterItems(c: GameConfig, quality: Boolean): List<MenuItem> {
+        val list = ArrayList<MenuItem>()
         list += choice(
             s(R.string.settings_filter), s(R.string.settings_filter_sub),
             listOf("bilinear" to "Bilinear", "cas" to "AMD CAS", "fsr" to "AMD FSR 1"), c.presentEffect,
         ) { v -> set(c.copy(presentEffect = v), mapOf("present_effect" to v)) }
         if (c.presentEffect == "fsr") {
-            list += choice(
+            if (quality) list += choice(
                 s(R.string.settings_fsr_mode), s(R.string.settings_fsr_mode_sub),
                 listOf(
                     "auto" to s(R.string.fsr_native),
@@ -454,18 +469,10 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
                 set(c.copy(casSharpness = next), mapOf("present_cas_additional_sharpness" to num(next)))
             }
         }
-        list += choice(
-            s(R.string.settings_aa), null,
-            listOf("none" to s(R.string.off), "fxaa" to "FXAA", "fxaa_extreme" to "FXAA Extreme"), c.fxaa,
-        ) { v -> set(c.copy(fxaa = v), mapOf("swap_post_effect" to v)) }
-        list += choice(
-            s(R.string.settings_aniso), null,
-            listOf(-1 to s(R.string.aniso_game), 1 to "1x", 2 to "2x", 3 to "4x", 4 to "8x", 5 to "16x"), c.anisotropic,
-        ) { v -> set(c.copy(anisotropic = v), mapOf("anisotropic_override" to "$v")) }
         return list
     }
 
-    /** Renut: resolucao (540p a 4K), FPS na tela e anisotropico; o resto e do Xenia. */
+    /** Renut: resolucao (540p a 4K), FPS na tela, filtro (FSR/CAS) e anisotropico; o resto e do Xenia. */
     private fun renutVideoItems(c: GameConfig): List<MenuItem> {
         val list = ArrayList<MenuItem>()
         list += choice(
@@ -480,6 +487,8 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
         list += MToggle(s(R.string.settings_show_fps), null, c.showFps) { v ->
             set(c.copy(showFps = v), mapOf("debug_overlay" to v.toString()))
         }
+        list += MHeader(s(R.string.settings_filter))
+        list += filterItems(c, quality = false)
         list += choice(
             s(R.string.settings_aniso), null,
             listOf(-1 to s(R.string.aniso_game), 2 to "2x", 3 to "4x", 4 to "8x", 5 to "16x"),
