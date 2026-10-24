@@ -123,6 +123,15 @@ importa o próprio disco. No fim do import a app lê o `default.xex` do jogador,
 executável dá "versão do jogo não suportada" com o title ID e o SHA-1 esperados. O libmain.so do APK é só o leitor
 do XEX.
 
+### A ISO é lida no lugar
+
+"Importar .iso" não extrai nada: confere o `default.xex` da ISO (SHA-1), copia só ele (7 MB) e desencripta o
+libgame (0,4 s no RP5; antes copiava 7,4 GB em 49 s). A app guarda a permissão persistente da ISO
+(`IsoSource`, `game/.zandatsu-iso`); o `GameActivity` abre-a a cada arranque e passa o descritor ao nativo
+(`ZANDATSU_ISO_FD`, `src/mgr_app.h`), que a monta como disco (`DiscImageDevice`, patch 0179 do SDK). A ISO não
+pode ser apagada nem movida. Sem permissão persistente do fornecedor extrai-se como antes; "Importar pasta"
+continua a copiar. Teste: `bash tools/import-iso-test.sh <serial> <nome da iso>`.
+
 Antes de publicar um APK: `python3 tools/check-clean.py <apk> <libgame.so em claro> assets/default.xex`. Procura
 nomes do código gerado e milhares de pedaços do código do jogo e da imagem PE no APK, no repositório e no
 histórico do git.
