@@ -10,7 +10,7 @@
 #   GRADLE_ARGS="-Pdf.thinlto=true" bash tools/build.sh   # ThinLTO no codigo gerado
 #
 # O codegen (o passo mais lento) so corre quando muda algo que o afeta: o
-# mgr_manifest.toml, o mgr_overrides.toml, os patches do SDK (o rexglue e
+# mgr_manifest.toml, o mgr_overrides.toml, o mgr_codegen.toml, os patches do SDK (o rexglue e
 # compilado a partir dele) ou o default.xex. Fica um carimbo em generated/.
 set -euo pipefail
 
@@ -48,7 +48,7 @@ STAMP_FILE="generated/.codegen-stamp"
 # os da GPU/runtime nao mudam o codigo gerado (0111: 88 s de codegen com "0 written").
 CODEGEN_PATCHES="$(grep -lE '^\+\+\+ b/(src/(codegen|rexglue)|include/rex/codegen)/' patches/*.patch 2>/dev/null || true)"
 # shellcheck disable=SC2086
-STAMP="$(cat mgr_manifest.toml mgr_overrides.toml $CODEGEN_PATCHES assets/default.xex 2>/dev/null | sha1sum | cut -d' ' -f1)"
+STAMP="$(cat mgr_manifest.toml mgr_overrides.toml mgr_codegen.toml $CODEGEN_PATCHES assets/default.xex 2>/dev/null | sha1sum | cut -d' ' -f1)"
 if [ ! -f generated/default/sources.cmake ] || [ "$(cat "$STAMP_FILE" 2>/dev/null)" != "$STAMP" ]; then
   step "codegen (mudou o manifesto, os overrides, os patches ou o default.xex)"
   bash tools/codegen.sh --force

@@ -182,3 +182,35 @@ PGO), medido com o fight-bench.
 
 `tools/fight-bench.sh`: medianas, GPU ms impossíveis descartados (o Renut às vezes reporta uma janela errada),
 Swap a Swap no resumo, `ATTACK=0` para comparar mudanças pequenas (±1 fps em vez de ±3).
+
+## Fase codegen/CPU (24/10; RP5, Turnip v27, fight-bench 720p, `cores = 2`, Raiden parado)
+Corridas com `device lost` excluídas das médias (ver abaixo). "Principal" = CPU da thread principal do jogo.
+
+| Passo | fps de jogo | Swap a Swap | Principal | Resultado |
+|---|---|---|---|---|
+| base (PLT entre funções `sub_*`) | 57,1 / 57,9 / 55,1 | 17,0 / 16,6 / 17,9 ms | 12/11/13% | referência |
+| 1. `-Bsymbolic-functions` | 57,8 / 59,5 | 16,7 / 15,4 ms | 12/11% | ~0,8–1 ms com a mesma carga; **ligado** |
+| 2. ThinLTO (código gerado + libmain) | 56,7 / 58,7 | 17,4 / 15,8 ms | 14/12% | igual ao 1; opção `-Pdf.thinlto=true`, **desligado** |
+| V0 = SDK 0178 com tudo desligado | mediana 57,3 (7 corridas) | 16,8 ms | 12–13% | igual; não validado |
+
+- PLT: 25 334 entradas `sub_*` → 0 com `-Bsymbolic-functions` (ficam 194 imports do kernel, que estão no
+  librexruntime, partilhado com o plugin do Xenia: ligar o SDK estático não é possível). O código gerado já era `-O3`.
+- ThinLTO: build completo numa pasta `.cxx` à parte em 293 s, relink 19 s.
+- SDK 0178: as opções de codegen do mgr-nx-deko (o patch deles, só codegen/ppc/templates, aplica limpo) e um
+  `rex/sys_counters.h` sem contagens. Com tudo desligado já muda o código: `sync`/`lwsync`/`eieio` passam a
+  `std::atomic_thread_fence` (~490; antes não geravam nada, incorreto no ARM64) e uma tabela de `switch` perde
+  uma entrada falsa. `mgr_codegen.toml` (incluído no manifesto e no carimbo do codegen) liga as opções.
+- V1–V4 compilam (fragmentos TOML: V1 `cr/ctr/xer/reserved_as_local` + `skip_msr`; V2 + `non_volatile_as_local`;
+  V3 + `non_argument_as_local` com a lista `keep` de 12 085 funções do mgr-nx-deko; V4 + as reduções "diet").
+  V5 (`args_in_registers`) precisa de `mgr_args_exclude.txt` (as 25 funções com hook). **Ainda não medidas nem
+  validadas.** Build de cada variante: ~5 min.
+- Validação: `tools/validate-run.sh` + `tools/validate-compare.py` (título e menus, save do slot 3, 3 min de luta
+  com Blade Mode por `seq` do AutoPilot, game over + continue, cutscene do prólogo comparada com a base).
+
+### Bloqueio: `VK_ERROR_DEVICE_LOST` intermitente no Renut (Turnip v27)
+A validação da base congelou a imagem aos ~2 min de luta: `Vulkan device lost`, e no `dmesg`
+`kgsl: MISC: GPU hang detected ... status 00E59005` (um hang, não uma falha de página; o mesmo status sempre).
+O jogo continua a fazer Swaps, por isso o fight-bench não o via (as janelas de "GPU ms" absurdos eram isto).
+Frequência por corrida de 2,5 min de luta: base 9/~42; `TU_DEBUG=...,sysmem` 1/12; V0 3/10; V0 sem geometry
+shaders (`swordman_renut_no_gs`, patch renut/0012) 1/4 (teste interrompido). Os laços dos shaders traduzidos são
+todos limitados (constantes literais). Causa ainda por encontrar; até lá nenhuma variante passa "nada pode travar".
