@@ -1,0 +1,412 @@
+Project SwordMan: contadores do audio no log (issues #3 e #5, o som some em lutas). Por cliente XAudio (o MGR usa
+dois): frames entregues, tocados, underruns, callbacks do jogo e o mais lento; dos contextos XMA, erros e quantos
+tinham trabalho. Registo e remocao de cliente em INFO. Uma linha a cada 5 s com algo anormal, senao a cada 60 s.
+
+--- a/include/rex/audio/sdl/sdl_audio_driver.h
++++ b/include/rex/audio/sdl/sdl_audio_driver.h
+@@ -37,6 +37,11 @@
+ 
+   rex::thread::Semaphore* semaphore_ = nullptr;
+ 
++ public:
++  int stats_index_ = -1;  // SwordMan (0180): cliente do AudioSystem, para os contadores
++  static void LogStats();
++
++ protected:
+   SDL_AudioStream* sdl_stream_ = nullptr;
+   bool sdl_initialized_ = false;
+   uint8_t sdl_device_channels_ = 0;
+--- a/src/filesystem/devices/disc_image_file.cpp
++++ b/src/filesystem/devices/disc_image_file.cpp
+@@ -10,6 +10,9 @@
+  */
+ 
+ #include <rex/filesystem/devices/disc_image_entry.h>
++#include <rex/audio/audio_stats.h>  // Project SwordMan (0180)
++
++#include <chrono>
+ #include <rex/filesystem/devices/disc_image_file.h>
+ 
+ #include <algorithm>
+@@ -32,8 +35,20 @@
+   }
+   size_t real_offset = entry_->data_offset() + byte_offset;
+   size_t real_length = std::min(buffer.size(), entry_->data_size() - byte_offset);
++  const auto start = std::chrono::steady_clock::now();  // SwordMan (0180)
+   std::memcpy(buffer.data(), entry_->mmap()->data() + real_offset, real_length);
+   *out_bytes_read = real_length;
++  {
++    auto& c = audio::stats::Get();
++    const uint32_t us = uint32_t(
++        std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start).count());
++    c.disc_reads.fetch_add(1, std::memory_order_relaxed);
++    c.disc_bytes.fetch_add(real_length, std::memory_order_relaxed);
++    if (us > 20000) {
++      c.disc_slow_reads.fetch_add(1, std::memory_order_relaxed);
++    }
++    audio::stats::Max(c.disc_max_read_us, us);
++  }
+   return X_STATUS_SUCCESS;
+ }
+ 
+--- a/src/audio/audio_system.cpp
++++ b/src/audio/audio_system.cpp
+@@ -12,6 +12,9 @@
+ #include <rex/assert.h>
+ #include <rex/audio/audio_driver.h>
+ #include <rex/audio/audio_system.h>
++#include <rex/audio/audio_stats.h>  // Project SwordMan (0180)
++
++#include <chrono>
+ #include <rex/audio/flags.h>
+ #include <rex/audio/xma/decoder.h>
+ #include <rex/dbg.h>
+@@ -146,8 +149,16 @@
+         }
+         SCOPE_profile_cpu_i("apu", "rex::audio::AudioSystem->client_callback");
+         uint64_t args[] = {client_callback_arg};
++        const auto callback_start = std::chrono::steady_clock::now();  // SwordMan (0180)
+         function_dispatcher_->Execute(worker_thread_->thread_state(), client_callback, args,
+                                       rex::countof(args));
++        if (auto* c = stats::ClientAt(int(index))) {
++          c->pumped.fetch_add(1, std::memory_order_relaxed);
++          stats::Max(c->max_callback_us,
++                     uint32_t(std::chrono::duration_cast<std::chrono::microseconds>(
++                                  std::chrono::steady_clock::now() - callback_start)
++                                  .count()));
++        }
+         if (diag_pump_count < 10) {
+           REXAPU_DEBUG("AudioWorker: callback returned for client {}", index);
+         }
+@@ -255,6 +266,7 @@
+   assert_not_null(driver);
+ 
+   clients_[index] = {driver, callback, callback_arg, ptr, true};
++  REXAPU_INFO("audio: cliente {} registado (callback {:08X})", index, callback);  // SwordMan (0180)
+ 
+   if (out_index) {
+     *out_index = index;
+@@ -277,12 +289,16 @@
+   assert_true(index < kMaximumClientCount);
+   assert_true(clients_[index].driver != NULL);
+   (clients_[index].driver)->SubmitFrame(samples_ptr);
++  if (auto* c = stats::ClientAt(int(index))) {  // SwordMan (0180)
++    c->submitted.fetch_add(1, std::memory_order_relaxed);
++  }
+ }
+ 
+ void AudioSystem::UnregisterClient(size_t index) {
+   SCOPE_profile_cpu_f("apu");
+ 
+   assert_true(index < kMaximumClientCount);
++  REXAPU_INFO("audio: cliente {} removido", index);  // SwordMan (0180)
+   uint32_t wrapped_callback_arg;
+   {
+     std::lock_guard<std::mutex> clients_lock(clients_mutex_);
+--- a/src/audio/sdl/sdl_audio_driver.cpp
++++ b/src/audio/sdl/sdl_audio_driver.cpp
+@@ -18,12 +18,16 @@
+ #include <rex/audio/downmix.h>
+ #include <rex/audio/flags.h>
+ #include <rex/audio/sdl/sdl_audio_driver.h>
++#include <rex/audio/audio_stats.h>  // Project SwordMan (0180)
+ #include <rex/cvar.h>
+ #include <rex/dbg.h>
+ #include <rex/logging.h>
+ #include <rex/perf/counter.h>
+ #include <SDL3/SDL.h>
+ 
++#include <chrono>
++#include <string>
++
+ REXCVAR_DEFINE_BOOL(audio_mute, false, "Audio", "Mute audio output");
+ 
+ namespace rex::audio::sdl {
+@@ -139,6 +143,9 @@
+     std::unique_lock<std::mutex> guard(frames_mutex_);
+     frames_queued_.push(output_frame);
+     PROFILE_BUFFER_QUEUE_DEPTH(static_cast<int64_t>(frames_queued_.size()));
++    if (auto* c = stats::ClientAt(stats_index_)) {  // SwordMan (0180)
++      stats::Max(c->max_queued, uint32_t(frames_queued_.size()));
++    }
+   }
+ }
+ 
+@@ -182,6 +189,7 @@
+   const StereoFold fold = GetStereoFold();
+   const SurroundMix mix = GetSurroundMix();
+   const float gain = GetOutputGain();
++  stats::Client* client_stats = stats::ClientAt(driver->stats_index_);  // SwordMan (0180)
+   while (additional_amount > 0) {
+     static uint32_t sdl_callback_count = 0;
+     std::unique_lock<std::mutex> guard(driver->frames_mutex_);
+@@ -190,6 +198,9 @@
+         REXAPU_DEBUG("SDLCallback: no frames queued (silence)");
+         sdl_callback_count++;
+       }
++      if (client_stats) {
++        client_stats->underruns.fetch_add(1, std::memory_order_relaxed);
++      }
+       std::memset(data, 0, len);
+       if (!SDL_PutAudioStreamData(stream, data, len)) {
+         REXAPU_ERROR("SDL_PutAudioStreamData() failed while filling silence: {}", SDL_GetError());
+@@ -222,6 +233,9 @@
+         break;
+       }
+       driver->frames_unused_.push(buffer);
++      if (client_stats) {
++        client_stats->played.fetch_add(1, std::memory_order_relaxed);
++      }
+ 
+       auto ret = driver->semaphore_->Release(1, nullptr);
+       assert_true(ret);
+@@ -229,6 +243,62 @@
+     }
+   }
+   SDL_stack_free(data);
++  LogStats();
++}
++
++// SwordMan (0180): uma linha a cada 5 s com algo anormal na janela (underruns, um cliente que entregou ou tocou bem
++// menos que o tempo real, erros XMA), senao a cada 60 s. Corre no callback de qualquer cliente: se um deixar de ser
++// chamado, o outro continua a contar por ele. Um frame = 256 amostras a 48 kHz: 937,5 em 5 s.
++void SDLAudioDriver::LogStats() {
++  static std::mutex mutex;
++  static auto window_start = std::chrono::steady_clock::now();
++  static uint32_t quiet_windows = 0;
++  std::unique_lock<std::mutex> lock(mutex, std::try_to_lock);
++  if (!lock.owns_lock()) {
++    return;
++  }
++  const auto now = std::chrono::steady_clock::now();
++  const auto elapsed = now - window_start;
++  if (elapsed < std::chrono::seconds(5)) {
++    return;
++  }
++  window_start = now;
++  const uint32_t expected =
++      uint32_t(std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count() * 48 / 256);
++  auto& c = stats::Get();
++  bool odd = false;
++  std::string clients;
++  for (uint32_t i = 0; i < stats::kClients; ++i) {
++    auto& s = c.clients[i];
++    const uint32_t submitted = s.submitted.exchange(0), played = s.played.exchange(0),
++                   underruns = s.underruns.exchange(0), pumped = s.pumped.exchange(0),
++                   max_cb = s.max_callback_us.exchange(0), max_queued = s.max_queued.exchange(0);
++    if (!submitted && !played && !underruns && !pumped) {
++      continue;
++    }
++    odd = odd || underruns || submitted < expected * 9 / 10 || played < expected * 9 / 10;
++    clients += fmt::format(" | c{}: {} entregues, {} tocados, {} underruns, {} callbacks (max {:.1f} ms), fila {}", i,
++                           submitted, played, underruns, pumped, max_cb / 1000.0f, max_queued);
++  }
++  const uint32_t split = c.xma_split_no_next.exchange(0), header = c.xma_error4_split_header.exchange(0),
++                 errors = c.xma_decode_errors.exchange(0), enabled = c.xma_max_enabled.exchange(0),
++                 passes = c.xma_passes.exchange(0), max_allocated = c.xma_max_allocated.exchange(0),
++                 alloc_failures = c.xma_alloc_failures.exchange(0);
++  const int32_t allocated = c.xma_allocated.load(std::memory_order_relaxed);
++  const uint32_t disc_reads = c.disc_reads.exchange(0), disc_slow = c.disc_slow_reads.exchange(0),
++                 disc_max_us = c.disc_max_read_us.exchange(0);
++  const uint64_t disc_bytes = c.disc_bytes.exchange(0);
++  odd = odd || split || header || errors || alloc_failures || disc_slow;
++  if (odd || ++quiet_windows >= 12) {
++    quiet_windows = 0;
++    REXAPU_INFO("audio {:.1f}s (esperado {} frames){}{} | XMA: {} alocados (max {}, {} falhas de alocacao), {} "
++                "passadas, ate {} contextos com trabalho, {} frames partidos sem o buffer seguinte, {} cabecalhos "
++                "invalidos, {} erros | disco: {} leituras, {:.1f} MB, {} > 20 ms, max {:.1f} ms",
++                std::chrono::duration<float>(elapsed).count(), expected, clients.empty() ? " | sem clientes" : "",
++                clients, allocated, std::max<uint32_t>(max_allocated, uint32_t(std::max(allocated, 0))),
++                alloc_failures, passes, enabled, split, header, errors, disc_reads, disc_bytes / 1048576.0,
++                disc_slow, disc_max_us / 1000.0f);
++  }
+ }
+ 
+ }  // namespace rex::audio::sdl
+--- a/src/audio/sdl/sdl_audio_system.cpp
++++ b/src/audio/sdl/sdl_audio_system.cpp
+@@ -29,10 +29,11 @@
+   AudioSystem::Initialize();
+ }
+ 
+-X_STATUS SDLAudioSystem::CreateDriver([[maybe_unused]] size_t index,
++X_STATUS SDLAudioSystem::CreateDriver(size_t index,
+                                       rex::thread::Semaphore* semaphore, AudioDriver** out_driver) {
+   assert_not_null(out_driver);
+   auto driver = new SDLAudioDriver(memory_, semaphore);
++  driver->stats_index_ = int(index);  // SwordMan (0180)
+   if (!driver->Initialize()) {
+     driver->Shutdown();
+     delete driver;
+--- a/src/audio/xma_context.cpp
++++ b/src/audio/xma_context.cpp
+@@ -13,6 +13,7 @@
+ #include <cstring>
+ 
+ #include <rex/audio/xma/context.h>
++#include <rex/audio/audio_stats.h>  // Project SwordMan (0180)
+ #include <rex/audio/xma/decoder.h>
+ #include <rex/audio/flags.h>
+ #include <rex/audio/xma/helpers.h>
+@@ -518,6 +519,7 @@
+   if (ret < 0) {
+     char errbuf[AV_ERROR_MAX_STRING_SIZE];
+     av_strerror(ret, errbuf, sizeof(errbuf));
++    stats::Get().xma_decode_errors.fetch_add(1, std::memory_order_relaxed);  // SwordMan (0180)
+     REXAPU_ERROR("XmaContext {}: Error sending packet for decoding: {} ({})", id(), errbuf, ret);
+     return false;
+   }
+@@ -529,6 +531,7 @@
+   if (ret < 0) {
+     char errbuf[AV_ERROR_MAX_STRING_SIZE];
+     av_strerror(ret, errbuf, sizeof(errbuf));
++    stats::Get().xma_decode_errors.fetch_add(1, std::memory_order_relaxed);  // SwordMan (0180)
+     REXAPU_ERROR("XmaContext {}: Error during decoding: {} ({})", id(), errbuf, ret);
+     return false;
+   }
+@@ -580,6 +583,7 @@
+   const int16_t packet_index = GetPacketNumber(current_input_size, data->input_buffer_read_offset);
+ 
+   if (packet_index == -1) {
++    stats::Get().xma_decode_errors.fetch_add(1, std::memory_order_relaxed);  // SwordMan (0180)
+     REXAPU_ERROR("XmaContext {}: Invalid packet index. Input read offset: {}", id(),
+                  static_cast<uint32_t>(data->input_buffer_read_offset));
+     return;
+@@ -627,6 +631,7 @@
+ 
+     uint64_t frame_size = combined.Peek(kBitsPerFrameHeader);
+     if (frame_size == xma::kMaxFrameLength) {
++      stats::Get().xma_error4_split_header.fetch_add(1, std::memory_order_relaxed);  // SwordMan (0180)
+       data->error_status = 4;
+       return;
+     }
+@@ -640,6 +645,7 @@
+                                                       packet_info.current_frame_size_);
+ 
+   if (bits_to_copy == 0) {
++    stats::Get().xma_decode_errors.fetch_add(1, std::memory_order_relaxed);  // SwordMan (0180)
+     REXAPU_ERROR("XmaContext {}: There are no bits to copy!", id());
+     SwapInputBuffer(data);
+     return;
+@@ -650,6 +656,7 @@
+       const uint8_t* next_packet =
+           GetNextPacket(data, next_packet_index, current_input_packet_count);
+       if (!next_packet) {
++        stats::Get().xma_split_no_next.fetch_add(1, std::memory_order_relaxed);  // SwordMan (0180)
+         data->error_status = 4;
+         return;
+       }
+--- a/src/audio/xma_decoder.cpp
++++ b/src/audio/xma_decoder.cpp
+@@ -13,6 +13,7 @@
+ 
+ #include <rex/audio/xma/context.h>
+ #include <rex/audio/xma/decoder.h>
++#include <rex/audio/audio_stats.h>  // Project SwordMan (0180)
+ #include <rex/cvar.h>
+ #include <rex/dbg.h>
+ #include <rex/logging.h>
+@@ -158,6 +159,12 @@
+       did_work = did_work || worked;
+     };
+     if (REXCVAR_GET(xma_worker_enabled_contexts_only)) {
++      // SwordMan (0180): quantos contextos tem trabalho nesta passada.
++      uint32_t enabled = 0;
++      for (uint32_t word = 0; word < kEnabledContextMaskWords; ++word)
++        enabled += uint32_t(std::popcount(enabled_context_mask_[word].load(std::memory_order_relaxed)));
++      stats::Max(stats::Get().xma_max_enabled, enabled);
++      stats::Get().xma_passes.fetch_add(1, std::memory_order_relaxed);
+       for (uint32_t word = 0; word < kEnabledContextMaskWords && worker_running_; ++word) {
+         std::atomic<uint64_t>& mask = enabled_context_mask_[word];
+         uint64_t bits = mask.load(std::memory_order_seq_cst);
+@@ -238,12 +245,21 @@
+   size_t index = context_bitmap_.Acquire();
+   if (index == -1) {
+     // Out of contexts.
++    // SwordMan (0180): um som novo que nao toca; os primeiros ficam no log.
++    const uint32_t failures = stats::Get().xma_alloc_failures.fetch_add(1, std::memory_order_relaxed);
++    static std::atomic<uint32_t> logged{0};
++    if (logged.fetch_add(1, std::memory_order_relaxed) < 5) {
++      REXAPU_WARN("XMA: sem contextos livres ({} alocados), o som nao toca (falha {})", uint32_t(kContextCount),
++                  failures + 1);
++    }
+     return 0;
+   }
+ 
+   XmaContext& context = contexts_[index];
+   assert_false(context.is_allocated());
+   context.set_is_allocated(true);
++  stats::Max(stats::Get().xma_max_allocated,
++             uint32_t(stats::Get().xma_allocated.fetch_add(1, std::memory_order_relaxed) + 1));  // SwordMan (0180)
+   return context.guest_ptr();
+ }
+ 
+@@ -255,6 +271,7 @@
+   assert_true(context.is_allocated());
+   context.Release();
+   context_bitmap_.Release(context_id);
++  stats::Get().xma_allocated.fetch_sub(1, std::memory_order_relaxed);  // SwordMan (0180)
+ }
+ 
+ bool XmaDecoder::BlockOnContext(uint32_t guest_ptr, bool poll) {
+--- /dev/null
++++ b/include/rex/audio/audio_stats.h
+@@ -0,0 +1,58 @@
++/**
++ * Project SwordMan (patch 0180): contadores do audio para o log (issues #3 e #5: o som some em lutas com varios
++ * inimigos). Uma linha a cada 5 s quando alguma coisa anormal aconteceu na janela (e a cada 60 s de qualquer forma):
++ * por cliente XAudio (o MGR usa dois), frames entregues pelo jogo, frames tocados, underruns, despachos do worker e o
++ * callback mais lento do jogo; e dos contextos XMA, os erros e quantos tinham trabalho.
++ */
++#pragma once
++
++#include <atomic>
++#include <cstdint>
++
++namespace rex::audio::stats {
++
++constexpr uint32_t kClients = 8;  // AudioSystem::kMaximumClientCount
++
++struct Client {
++  std::atomic<uint32_t> submitted{0};    // frames que o jogo entregou (XAudioSubmitRenderDriverFrame)
++  std::atomic<uint32_t> played{0};       // frames que o SDL levou
++  std::atomic<uint32_t> underruns{0};    // pedidos do SDL sem frame na fila (silencio)
++  std::atomic<uint32_t> pumped{0};       // callbacks do jogo despachados pelo worker
++  std::atomic<uint32_t> max_callback_us{0};
++  std::atomic<uint32_t> max_queued{0};
++};
++
++struct Counters {
++  Client clients[kClients];
++  std::atomic<uint32_t> xma_split_no_next{0};        // frame partido para o proximo buffer, que ainda nao e valido
++  std::atomic<uint32_t> xma_error4_split_header{0};  // cabecalho partido com tamanho invalido
++  std::atomic<uint32_t> xma_decode_errors{0};        // ffmpeg / pacote invalido / sem bits
++  std::atomic<uint32_t> xma_max_enabled{0};          // contextos XMA com trabalho numa passada do worker
++  std::atomic<uint32_t> xma_passes{0};
++  std::atomic<int32_t> xma_allocated{0};        // contextos XMA alocados agora (de 320)
++  std::atomic<uint32_t> xma_max_allocated{0};
++  std::atomic<uint32_t> xma_alloc_failures{0};  // XMACreateContext sem contexto livre: o som nao toca
++  // Leituras da imagem do disco (mmap; em /sdcard cada falta de pagina passa pelo FUSE): o streaming do Wwise
++  // (musica, vozes) vem dai.
++  std::atomic<uint32_t> disc_reads{0};
++  std::atomic<uint32_t> disc_slow_reads{0};  // > 20 ms
++  std::atomic<uint32_t> disc_max_read_us{0};
++  std::atomic<uint64_t> disc_bytes{0};
++};
++
++inline Counters& Get() {
++  static Counters c;
++  return c;
++}
++
++inline void Max(std::atomic<uint32_t>& a, uint32_t v) {
++  uint32_t cur = a.load(std::memory_order_relaxed);
++  while (v > cur && !a.compare_exchange_weak(cur, v, std::memory_order_relaxed)) {
++  }
++}
++
++inline Client* ClientAt(int index) {
++  return index >= 0 && uint32_t(index) < kClients ? &Get().clients[index] : nullptr;
++}
++
++}  // namespace rex::audio::stats
