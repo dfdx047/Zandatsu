@@ -102,6 +102,8 @@
     <string name="settings_aspect_mode">Imagen</string>
     <string name="aspect_original">Original 16:9</string>
     <string name="aspect_stretch">Estirar para llenar</string>
+    <string name="aspect_widescreen">Panorámico (experimental)</string>
+    <string name="aspect_widescreen_sub">Panorámico: el juego dibuja con la forma de tu pantalla (más visión a los lados; el HUD mantiene el diseño 16:9). Se aplica la próxima vez que arranque el juego.</string>
     <string name="settings_controls">Controles</string>
     <string name="settings_touch">Controles táctiles</string>
     <string name="settings_touch_sub">Botones en pantalla sobre el juego.</string>

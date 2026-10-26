@@ -111,6 +111,8 @@ add_library(mgr_renut_gpu OBJECT
     "${SM_ROOT}/src/renut_frame_dump.cpp"
     # Sombras e brilho ligados/desligados (swordman_renut_shadows / _bloom; patch renut/0016 chama-o).
     "${SM_ROOT}/src/renut_effects.cpp"
+    # Widescreen hor+ do MGR (swordman_aspect; o Renut le a largura em guest/sa2_screen.cpp, patch renut/0022).
+    "${SM_ROOT}/src/mgr_widescreen.cpp"
     # Os shaders do jogo traduzidos no PC (dados do jogo: so builds pessoais).
     "${SM_RENUT_OUT}/shader_cache.cpp")
 set_source_files_properties("${SM_RENUT_OUT}/shader_cache.cpp" PROPERTIES SKIP_PRECOMPILE_HEADERS ON)

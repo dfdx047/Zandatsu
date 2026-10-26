@@ -421,10 +421,7 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
                 live["debug_overlay_position"]?.ifEmpty { null } ?: "top-left",
             ) { v -> setLive("debug_overlay_position", v) }
         }
-        list += choice(
-            s(R.string.settings_aspect_mode), null,
-            listOf(true to s(R.string.aspect_original), false to s(R.string.aspect_stretch)), c.letterbox,
-        ) { v -> set(c.copy(letterbox = v), mapOf("present_letterbox" to v.toString())) }
+        list += aspectItem(c)
         list += MHeader(s(R.string.settings_filter))
         list += filterItems(c, quality = true)
         list += choice(
@@ -474,6 +471,19 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
     }
 
     /** Renut: resolucao (540p a 4K), FPS na tela, filtro (FSR/CAS) e anisotropico; o resto e do Xenia. */
+    /** Proporcao: original / esticar ao vivo; widescreen (so no Renut) vale no proximo arranque. */
+    private fun aspectItem(c: GameConfig): MChoice = choice(
+        s(R.string.settings_aspect_mode), if (c.useRenut) s(R.string.aspect_widescreen_sub) else null,
+        listOfNotNull(
+            "original" to s(R.string.aspect_original),
+            "stretch" to s(R.string.aspect_stretch),
+            if (c.useRenut) "widescreen" to s(R.string.aspect_widescreen) else null,
+        ),
+        if (c.aspect == "widescreen" && !c.useRenut) "original" else c.aspect,
+    ) { v ->
+        set(c.copy(aspect = v), mapOf("present_letterbox" to (v != "stretch").toString(), "swordman_aspect" to v))
+    }
+
     private fun renutVideoItems(c: GameConfig): List<MenuItem> {
         val list = ArrayList<MenuItem>()
         list += choice(
@@ -489,6 +499,7 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
         list += MToggle(s(R.string.settings_show_fps), null, c.showFps) { v ->
             set(c.copy(showFps = v), mapOf("debug_overlay" to v.toString()))
         }
+        list += aspectItem(c)
         list += MHeader(s(R.string.settings_filter))
         list += filterItems(c, quality = false)
         list += choice(
