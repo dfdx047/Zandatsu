@@ -28,15 +28,15 @@ O Zandatsu é um port de Metal Gear Rising: Revengeance para Android, por recomp
 corre nativo em ARM64. Tem dois renderizadores:
 
 - **Nativo (Renut):** o Direct3D do jogo traduzido para Vulkan (do [mgr-nx-deko](https://github.com/tuancapoo/mgr-nx-deko)). Mais
-  rápido e mais nítido. Precisa de uma Adreno com o driver Turnip.
-- **Emulado (Xenia):** a GPU do Xbox 360 emulada. Corre em mais aparelhos (Mali incluída), mais lento.
+  rápido e mais nítido. Adreno com o driver Turnip, ou Mali G57 e mais novas com o driver do sistema.
+- **Emulado (Xenia):** a GPU do Xbox 360 emulada. Corre em mais aparelhos, mais lento.
 
 O APK não traz o jogo: o código do jogo vai encriptado e só abre com o `default.xex` do seu próprio disco.
 
 ### Requisitos
 - A sua ISO de **Metal Gear Rising: Revengeance (USA, Europe)** do Xbox 360 (Title ID `4B4E080A`).
 - Android 11 ou mais novo, ARM64, Vulkan 1.3.
-- Recomendado: Adreno 6xx com o driver **Turnip** (o app baixa e ativa na aba Drivers).
+- Recomendado: Adreno 6xx com o driver **Turnip** (o app baixa e ativa na aba Drivers), ou Mali G57 e mais novas.
 - ~8 GB livres para a ISO.
 
 ### Instalar e importar a ISO
@@ -56,15 +56,27 @@ Se já extraiu o jogo numa versão antiga, o botão **Apagar arquivos extraídos
 - **Xenia:** resolução 360p a 4K, AMD FSR, FXAA, 30/60 FPS ou 120 FPS com interpolação, sombras, brilho.
 - Tudo também no menu do jogo (botão Voltar), com o jogo a correr.
 
+### Novidades desde a v1.0
+- **Renut na Mali:** as texturas BC são descomprimidas na GPU. Nas Mali G57 e mais novas o Renut é o padrão; passou
+  a regressão completa no RG Cube (título, menus, save, luta, game over, cutscene).
+- **FSR mais leve:** o mesmo FSR 1 custa cerca de 4× menos GPU (meia precisão): no RP5 com a GPU no mínimo
+  (305 MHz), de 18,7 para 4,6 ms por frame.
+- **1080p no RP5:** de 44 para 47 fps na luta (continua experimental, ver os problemas conhecidos).
+- **Rotação:** o jogo não fica mais em retrato quando o aparelho está com a rotação travada (#1).
+- **Atualização:** o launcher não pede mais para atualizar sem parar (#1).
+
 ### Aparelhos testados
-fps de jogo em 60 s de luta (24/10/2026).
+fps de jogo na luta do prólogo (26/10/2026).
 
 | Aparelho | GPU | Modo | Resultado |
 |---|---|---|---|
-| Retroid Pocket 5 | Adreno 650 (Turnip) | Renut 720p | 56–58 fps em todos os perfis (GPU 9,6–13,6 ms) |
-| RG Cube | Mali-G57 | Xenia | Mínimo 36, Baixo 42, Médio 15, Alto 10, Ultra 7 fps |
-| AYN Thor | — | — | ainda não medido |
-| AYN Odin 3 | — | — | ainda não medido |
+| Retroid Pocket 5 | Adreno 650 (Turnip) | Renut 720p bilinear | 57 fps (GPU 6,8 ms) |
+| Retroid Pocket 5 | Adreno 650 (Turnip) | Renut 540p FSR | 56 fps |
+| Retroid Pocket 5 | Adreno 650 (Turnip) | Renut 1080p\* | 47 fps |
+| RG Cube | Mali-G57 | Renut 540p | 36–40 fps |
+| RG Cube | Mali-G57 | Xenia, perfil Baixo (25/10) | 33–35 fps |
+| AYN Thor | Adreno 740 (Turnip) | Renut 1080p FSR | 60 fps (24/10) |
+| AYN Odin 3 | Adreno 830 (Turnip) | Renut 1440p (2K) FSR | 60 fps (24/10) |
 
 Problemas conhecidos: [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md).
 
@@ -78,8 +90,8 @@ executable ([ReXGlue SDK](https://github.com/rexglue/rexglue-sdk)). It is not a 
 runs natively on ARM64. There are two renderers:
 
 - **Native (Renut):** the game's Direct3D translated to Vulkan (from [mgr-nx-deko](https://github.com/tuancapoo/mgr-nx-deko)).
-  Faster and sharper. Needs an Adreno GPU with the Turnip driver.
-- **Emulated (Xenia):** the Xbox 360 GPU, emulated. Runs on more devices (including Mali), but slower.
+  Faster and sharper. Adreno with the Turnip driver, or Mali G57 and newer with the system driver.
+- **Emulated (Xenia):** the Xbox 360 GPU, emulated. Runs on more devices, but slower.
 
 The APK does not contain the game: the game code ships encrypted and only opens with the `default.xex` from your own
 disc.
@@ -87,7 +99,8 @@ disc.
 ### Requirements
 - Your own Xbox 360 ISO of **Metal Gear Rising: Revengeance (USA, Europe)** (Title ID `4B4E080A`).
 - Android 11 or newer, ARM64, Vulkan 1.3.
-- Recommended: Adreno 6xx with the **Turnip** driver (the app downloads and enables it in the Drivers tab).
+- Recommended: Adreno 6xx with the **Turnip** driver (the app downloads and enables it in the Drivers tab), or Mali
+  G57 and newer.
 - ~8 GB free for the ISO.
 
 ### Install and import the ISO
@@ -108,15 +121,27 @@ If you extracted the game with an older version, the **Delete old extracted file
 - **Xenia:** resolution 360p to 4K, AMD FSR, FXAA, 30/60 FPS or 120 FPS with interpolation, shadows, bloom.
 - All of it is also in the in-game menu (Back button), while the game runs.
 
+### What's new since v1.0
+- **Renut on Mali:** BC textures are decompressed on the GPU. On Mali G57 and newer Renut is the default; it passed
+  the full regression on the RG Cube (title, menus, save, combat, game over, cutscene).
+- **Lighter FSR:** the same FSR 1 costs about 4× less GPU time (half precision): on the RP5 with the GPU at its
+  minimum (305 MHz), from 18.7 to 4.6 ms a frame.
+- **1080p on the RP5:** from 44 to 47 fps in combat (still experimental, see the known issues).
+- **Rotation:** the game no longer ends up in portrait when the device's rotation is locked (#1).
+- **Updates:** the launcher no longer asks to update over and over (#1).
+
 ### Tested devices
-Game fps over 60 s of combat (2026-10-24).
+Game fps in the prologue fight (2026-10-26).
 
 | Device | GPU | Mode | Result |
 |---|---|---|---|
-| Retroid Pocket 5 | Adreno 650 (Turnip) | Renut 720p | 56–58 fps with every profile (GPU 9.6–13.6 ms) |
-| RG Cube | Mali-G57 | Xenia | Minimum 36, Low 42, Medium 15, High 10, Ultra 7 fps |
-| AYN Thor | — | — | not measured yet |
-| AYN Odin 3 | — | — | not measured yet |
+| Retroid Pocket 5 | Adreno 650 (Turnip) | Renut 720p bilinear | 57 fps (GPU 6.8 ms) |
+| Retroid Pocket 5 | Adreno 650 (Turnip) | Renut 540p FSR | 56 fps |
+| Retroid Pocket 5 | Adreno 650 (Turnip) | Renut 1080p\* | 47 fps |
+| RG Cube | Mali-G57 | Renut 540p | 36–40 fps |
+| RG Cube | Mali-G57 | Xenia, Low profile (2026-10-25) | 33–35 fps |
+| AYN Thor | Adreno 740 (Turnip) | Renut 1080p FSR | 60 fps (2026-10-24) |
+| AYN Odin 3 | Adreno 830 (Turnip) | Renut 1440p (2K) FSR | 60 fps (2026-10-24) |
 
 Known issues: [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md).
 
@@ -130,15 +155,16 @@ de Xbox 360 ([ReXGlue SDK](https://github.com/rexglue/rexglue-sdk)). No es un em
 del juego corre nativo en ARM64. Tiene dos renderizadores:
 
 - **Nativo (Renut):** el Direct3D del juego traducido a Vulkan (de [mgr-nx-deko](https://github.com/tuancapoo/mgr-nx-deko)).
-  Más rápido y más nítido. Necesita una Adreno con el driver Turnip.
-- **Emulado (Xenia):** la GPU de Xbox 360 emulada. Funciona en más dispositivos (Mali incluida), pero más lento.
+  Más rápido y más nítido. Adreno con el driver Turnip, o Mali G57 y más nuevas con el driver del sistema.
+- **Emulado (Xenia):** la GPU de Xbox 360 emulada. Funciona en más dispositivos, pero más lento.
 
 El APK no trae el juego: el código del juego va cifrado y solo se abre con el `default.xex` de tu propio disco.
 
 ### Requisitos
 - Tu propia ISO de Xbox 360 de **Metal Gear Rising: Revengeance (USA, Europe)** (Title ID `4B4E080A`).
 - Android 11 o más reciente, ARM64, Vulkan 1.3.
-- Recomendado: Adreno 6xx con el driver **Turnip** (la app lo descarga y lo activa en la pestaña Drivers).
+- Recomendado: Adreno 6xx con el driver **Turnip** (la app lo descarga y lo activa en la pestaña Drivers), o Mali
+  G57 y más nuevas.
 - ~8 GB libres para la ISO.
 
 ### Instalar e importar la ISO
@@ -159,15 +185,27 @@ Si extrajiste el juego con una versión anterior, el botón **Borrar archivos ex
 - **Xenia:** resolución de 360p a 4K, AMD FSR, FXAA, 30/60 FPS o 120 FPS con interpolación, sombras, brillo.
 - Todo también está en el menú del juego (botón Atrás), con el juego en marcha.
 
+### Novedades desde la v1.0
+- **Renut en Mali:** las texturas BC se descomprimen en la GPU. En las Mali G57 y más nuevas Renut es el predeterminado;
+  pasó la regresión completa en la RG Cube (título, menús, partida guardada, combate, game over, cinemática).
+- **FSR más ligero:** el mismo FSR 1 cuesta unas 4 veces menos GPU (media precisión): en la RP5 con la GPU al mínimo
+  (305 MHz), de 18,7 a 4,6 ms por fotograma.
+- **1080p en la RP5:** de 44 a 47 fps en combate (sigue siendo experimental, ver los problemas conocidos).
+- **Rotación:** el juego ya no queda en vertical cuando la rotación del dispositivo está bloqueada (#1).
+- **Actualización:** el launcher ya no pide actualizar sin parar (#1).
+
 ### Dispositivos probados
-fps de juego en 60 s de combate (24/10/2026).
+fps de juego en el combate del prólogo (26/10/2026).
 
 | Dispositivo | GPU | Modo | Resultado |
 |---|---|---|---|
-| Retroid Pocket 5 | Adreno 650 (Turnip) | Renut 720p | 56–58 fps con todos los perfiles (GPU 9,6–13,6 ms) |
-| RG Cube | Mali-G57 | Xenia | Mínimo 36, Bajo 42, Medio 15, Alto 10, Ultra 7 fps |
-| AYN Thor | — | — | aún sin medir |
-| AYN Odin 3 | — | — | aún sin medir |
+| Retroid Pocket 5 | Adreno 650 (Turnip) | Renut 720p bilineal | 57 fps (GPU 6,8 ms) |
+| Retroid Pocket 5 | Adreno 650 (Turnip) | Renut 540p FSR | 56 fps |
+| Retroid Pocket 5 | Adreno 650 (Turnip) | Renut 1080p\* | 47 fps |
+| RG Cube | Mali-G57 | Renut 540p | 36–40 fps |
+| RG Cube | Mali-G57 | Xenia, perfil Bajo (25/10) | 33–35 fps |
+| AYN Thor | Adreno 740 (Turnip) | Renut 1080p FSR | 60 fps (24/10) |
+| AYN Odin 3 | Adreno 830 (Turnip) | Renut 1440p (2K) FSR | 60 fps (24/10) |
 
 Problemas conocidos: [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md).
 

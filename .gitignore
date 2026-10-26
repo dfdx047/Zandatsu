@@ -32,3 +32,4 @@ generated/.codegen-stamp
 # Shaders traduzidos do Renut (dados do jogo, nunca no git)
 out/renut/
 mgr_game/
+tools/__pycache__/
