@@ -11,12 +11,18 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -24,8 +30,6 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.dfdx047.zandatsu.R
 import com.dfdx047.zandatsu.ui.LauncherViewModel
-import com.dfdx047.zandatsu.ui.components.Level
-import com.dfdx047.zandatsu.ui.components.StatusLine
 
 /**
  * O fps de cada perfil (Minimo .. Ultra) medido em 60 s de luta (tools/renut-fight.sh, saves de teste, 24/10):
@@ -38,8 +42,10 @@ object ProfileFps {
 }
 
 /**
- * Primeiro arranque: "Escolha seu perfil". Os cinco perfis com o fps medido no RP5 e no Cube ao lado; nada vem
- * escolhido e o ecra so fecha com uma escolha (muda-se depois no Desempenho).
+ * Primeiro arranque (26/10): "Detectamos a sua GPU" e o perfil sugerido para ela (GpuSuggestion: aparelho testado ou
+ * familia), com Aceitar / Escolher eu mesmo. Nada e aplicado sem o jogador aceitar; "Escolher eu mesmo" mostra os
+ * cinco perfis com o aparelho-alvo de cada um (Renut) ou o fps no RG Cube (Xenia). O ecra so fecha com uma escolha
+ * (muda-se depois no Desempenho).
  */
 @Composable
 fun ProfilePicker(vm: LauncherViewModel) {
@@ -59,6 +65,17 @@ fun ProfilePicker(vm: LauncherViewModel) {
             R.string.preset_high_desc, R.string.preset_ultra_desc,
         )
     }
+    val suggestion = remember { com.dfdx047.zandatsu.data.GpuSuggestion.detect() }
+    val gpu = remember { com.dfdx047.zandatsu.drivers.DriverRepository.gpuName().ifEmpty { com.dfdx047.zandatsu.drivers.DriverRepository.socName() } }
+    var chooseMyself by remember { mutableStateOf(false) }
+    val target = { i: Int ->
+        when {
+            renut -> com.dfdx047.zandatsu.data.RENUT_PRESET_TARGETS[i]
+            // Xenia: so o RG Cube foi medido; numa Adreno (driver do sistema) esse numero enganaria.
+            com.dfdx047.zandatsu.drivers.DriverRepository.isAdreno() -> null
+            else -> ProfileFps.CUBE[i]?.let { "RG Cube (Xenia): %.0f fps".format(it) }
+        }
+    }
     Dialog(
         onDismissRequest = {},
         properties = DialogProperties(
@@ -72,34 +89,54 @@ fun ProfilePicker(vm: LauncherViewModel) {
                 Modifier.verticalScroll(rememberScrollState()).padding(24.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text(stringResource(R.string.profile_pick_title), style = MaterialTheme.typography.headlineSmall)
+                Text(stringResource(R.string.gpu_detected_title, gpu), style = MaterialTheme.typography.headlineSmall)
+                Text(
+                    if (suggestion.known != null) stringResource(R.string.gpu_detected_known, suggestion.known)
+                    else stringResource(R.string.gpu_detected_family, suggestion.family),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 Text(
                     stringResource(
-                        R.string.profile_pick_sub,
+                        R.string.profile_pick_renderer,
                         stringResource(if (renut) R.string.renderer_renut else R.string.renderer_xenos),
                     ),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                if (com.dfdx047.zandatsu.data.RenutSupport.systemDriverOn6xx()) {
-                    StatusLine(stringResource(R.string.drivers_renut_system_6xx), Level.ERROR)
-                }
-                BoxWithConstraints(Modifier.fillMaxWidth()) {
-                    val cards: @Composable (Modifier) -> Unit = { m ->
-                        names.indices.forEach { i ->
-                            ProfileCard(
-                                name = stringResource(names[i]),
-                                desc = stringResource(descs[i]),
-                                rp5 = ProfileFps.RP5[i],
-                                cube = ProfileFps.CUBE[i],
-                                modifier = m,
-                            ) { vm.chooseProfile(i) }
-                        }
+                com.dfdx047.zandatsu.ui.components.TurnipWarning(vm)
+                if (!chooseMyself) {
+                    Text(stringResource(R.string.profile_suggested), style = MaterialTheme.typography.titleMedium)
+                    ProfileCard(
+                        name = stringResource(names[suggestion.tier]),
+                        desc = stringResource(descs[suggestion.tier]),
+                        target = target(suggestion.tier),
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = null,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Button(onClick = { vm.chooseProfile(suggestion.tier) }) { Text(stringResource(R.string.profile_accept)) }
+                        OutlinedButton(onClick = { chooseMyself = true }) { Text(stringResource(R.string.profile_choose_myself)) }
                     }
-                    if (maxWidth > 720.dp) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) { cards(Modifier.weight(1f)) }
-                    } else {
-                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) { cards(Modifier.fillMaxWidth()) }
+                } else {
+                    Text(stringResource(R.string.profile_pick_title), style = MaterialTheme.typography.titleMedium)
+                    BoxWithConstraints(Modifier.fillMaxWidth()) {
+                        val cards: @Composable (Modifier) -> Unit = { m ->
+                            names.indices.forEach { i ->
+                                ProfileCard(
+                                    name = stringResource(names[i]) +
+                                        if (i == suggestion.tier) " · " + stringResource(R.string.profile_suggested_tag) else "",
+                                    desc = stringResource(descs[i]),
+                                    target = target(i),
+                                    modifier = m,
+                                ) { vm.chooseProfile(i) }
+                            }
+                        }
+                        if (maxWidth > 720.dp) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) { cards(Modifier.weight(1f)) }
+                        } else {
+                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) { cards(Modifier.fillMaxWidth()) }
+                        }
                     }
                 }
             }
@@ -111,31 +148,26 @@ fun ProfilePicker(vm: LauncherViewModel) {
 private fun ProfileCard(
     name: String,
     desc: String,
-    rp5: Double?,
-    cube: Double?,
+    target: String?,
     modifier: Modifier,
-    onClick: () -> Unit,
+    onClick: (() -> Unit)?,
 ) {
     val scheme = MaterialTheme.colorScheme
-    val fps = { v: Double? -> if (v == null) "—" else "%.0f fps".format(v) }
-    Card(
-        onClick = onClick,
-        modifier = modifier,
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = scheme.surfaceContainerHigh),
-        border = BorderStroke(1.dp, scheme.outlineVariant),
-    ) {
+    val content: @Composable () -> Unit = {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(name, style = MaterialTheme.typography.titleMedium, color = scheme.primary)
             Text(desc, style = MaterialTheme.typography.bodySmall)
-            Text(
-                stringResource(R.string.profile_pick_fps_rp5, fps(rp5)),
-                style = MaterialTheme.typography.labelLarge,
-            )
-            Text(
-                stringResource(R.string.profile_pick_fps_cube, fps(cube)),
-                style = MaterialTheme.typography.labelLarge,
-            )
+            if (target != null) {
+                Text(stringResource(R.string.profile_target, target), style = MaterialTheme.typography.labelLarge)
+            }
         }
+    }
+    val colors = CardDefaults.cardColors(containerColor = scheme.surfaceContainerHigh)
+    val shape = RoundedCornerShape(14.dp)
+    val border = BorderStroke(1.dp, scheme.outlineVariant)
+    if (onClick != null) {
+        Card(onClick = onClick, modifier = modifier, shape = shape, colors = colors, border = border) { content() }
+    } else {
+        Card(modifier = modifier, shape = shape, colors = colors, border = border) { content() }
     }
 }

@@ -407,10 +407,10 @@
     <string name="renut_preset_medium">Medio</string>
     <string name="renut_preset_high">Alto</string>
     <string name="renut_preset_ultra">Ultra</string>
-    <string name="renut_preset_low_desc">540p, sin sombras ni brillo</string>
-    <string name="renut_preset_medium_desc">720p (consola), sin sombras ni brillo</string>
-    <string name="renut_preset_high_desc">720p (consola), sombras y brillo</string>
-    <string name="renut_preset_ultra_desc">720p (consola), sombras, brillo, anisotrópico 16x</string>
+    <string name="renut_preset_low_desc">540p con AMD FSR, sombras y brillo</string>
+    <string name="renut_preset_medium_desc">720p (consola), sombras y brillo, audio en los núcleos pequeños</string>
+    <string name="renut_preset_high_desc">1080p, sombras y brillo, mapas de sombra y mipmaps más ligeros, audio en los núcleos pequeños</string>
+    <string name="renut_preset_ultra_desc">2K con AMD FSR, sombras, brillo, anisotrópico 16x</string>
     <string name="renut_fps_note">El juego va a 60 FPS (su propio ritmo). El hack de 30 FPS y los 120 FPS son del renderizador emulado.</string>
     <string name="renut_resolution_sub">720p es la de la consola. 540p dibuja el 56% de los píxeles; 1080p, 1440p y 4K dibujan 2,25x, 4x y 9x y se reducen a la pantalla.</string>
     <string name="renut_shadows_sub">Las sombras del sol (mapa de sombras y pase de sombra en pantalla). Desactivadas: la escena queda toda iluminada.</string>
@@ -421,7 +421,7 @@
     <string name="profile_pick_sub">Cada uno con los fps medidos en 60 s de combate: Retroid Pocket 5 con el renderizador nativo (Renut, driver Turnip) y RG Cube con el emulado (Xenia, Mali-G57). Este dispositivo usará: %1$s. No hay nada elegido; puedes cambiarlo después en Rendimiento.</string>
     <string name="profile_pick_fps_rp5">Retroid Pocket 5 (Renut): %1$s</string>
     <string name="profile_pick_fps_cube">RG Cube (Xenia): %1$s</string>
-    <string name="renut_preset_minimum_desc">360p, sin sombras ni brillo</string>
+    <string name="renut_preset_minimum_desc">540p con AMD FSR, sin sombras ni brillo, audio en los núcleos pequeños</string>
     <string name="delete_old_extracted">Borrar archivos extraídos antiguos (%1$s)</string>
     <string name="busy_deleting_old">Borrando archivos extraídos antiguos…</string>
     <string name="drivers_renut_system_6xx">El driver del sistema no soporta Renut (el renderizador nativo) en Adreno 6xx: descarga Turnip en la pestaña Drivers y actívalo. Mientras tanto el juego corre en modo emulado (Xenia), más lento.</string>
@@ -432,4 +432,17 @@
     <string name="drivers_radv_needs_android14">Los drivers RADV para Xclipse necesitan Android 14 o más reciente (este dispositivo tiene Android %1$s). El juego se queda con el driver de Samsung.</string>
     <string name="err_driver_min_api">Este driver necesita Android API %1$s o más reciente (este dispositivo: API %2$d).</string>
     <string name="err_driver_wrong_gpu">%1$s no sirve para esta GPU: los drivers Turnip son solo para Adreno y los RADV solo para Samsung Xclipse.</string>
+    <string name="gpu_detected_title">Detectamos tu GPU: %1$s</string>
+    <string name="gpu_detected_known">Probada en: %1$s.</string>
+    <string name="gpu_detected_family">Aún no probamos esta GPU; sugerencia por familia (%1$s).</string>
+    <string name="profile_pick_renderer">Este dispositivo usará: %1$s. No se aplica nada sin que aceptes; puedes cambiarlo después en Rendimiento.</string>
+    <string name="profile_suggested">Perfil sugerido</string>
+    <string name="profile_suggested_tag">sugerido</string>
+    <string name="profile_accept">Aceptar</string>
+    <string name="profile_choose_myself">Elegir yo mismo</string>
+    <string name="profile_target">Objetivo: %1$s</string>
+    <string name="turnip_required">En Adreno, el renderizador nativo (Renut) necesita Turnip. Con el driver del sistema el juego usa el modo emulado y va lento.</string>
+    <string name="turnip_recommended">Driver recomendado para %1$s: %2$s</string>
+    <string name="turnip_open_drivers">Abrir Drivers</string>
+    <string name="turnip_drivers_later">Puedes instalarlo en la pestaña Drivers después de elegir el perfil. El driver nunca se cambia solo.</string>
 </resources>

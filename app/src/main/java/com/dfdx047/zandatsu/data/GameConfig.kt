@@ -64,6 +64,10 @@ data class GameConfig(
     val renutBloom: Boolean = true,
     // Perfil do Renut que o jogador escolheu (nome do RenutPreset; vazio = nenhum). Nada e pre-selecionado.
     val renutPreset: String = "",
+    // Opcoes de 26/10, desligadas por padrao; os perfis ligam-nas onde o aparelho-alvo as validou (RenutPreset).
+    val renutLazyMips: Boolean = false,     // swordman_renut_resolve_mips_lazy: mips dos resolves so quando lidos (>720p)
+    val renutShadow1x: Boolean = false,     // renut_shadow_resolution "1x": sombras no tamanho do console (>720p)
+    val audioLittleCores: Boolean = false,  // swordman_audio_little_cores: threads de audio nos nucleos pequenos
 ) {
     /**
      * O jogo corre no Renut com estas opcoes (escolha + aparelho). auto so escolhe o Renut numa GPU validada (Adreno):
@@ -105,6 +109,9 @@ data class GameConfig(
             "swordman_renut_shadows" to (renutShadows || !RenutValidated.SHADOWS),
             "swordman_renut_bloom" to (renutBloom || !RenutValidated.BLOOM),
             "swordman_renut_preset" to renutPreset,
+            "swordman_renut_resolve_mips_lazy" to renutLazyMips,
+            "renut_shadow_resolution" to if (renutShadow1x) "1x" else "Resolution",
+            "swordman_audio_little_cores" to audioLittleCores,
             "renut_anisotropic_filtering" to when (anisotropic) {
                 2 -> "2x"
                 3 -> "4x"
@@ -320,6 +327,9 @@ data class GameConfig(
                 renutShadows = bool("swordman_renut_shadows", d.renutShadows),
                 renutBloom = bool("swordman_renut_bloom", d.renutBloom),
                 renutPreset = str("swordman_renut_preset", d.renutPreset),
+                renutLazyMips = bool("swordman_renut_resolve_mips_lazy", d.renutLazyMips),
+                renutShadow1x = str("renut_shadow_resolution", "Resolution") == "1x",
+                audioLittleCores = bool("swordman_audio_little_cores", d.audioLittleCores),
             )
         }
 
@@ -641,14 +651,17 @@ val InternalResolution.renutLabel: String
 val XENOS_RESOLUTIONS = InternalResolution.entries.filter { it != InternalResolution.P1080 }
 
 /**
- * Perfis do Renut (menu Desempenho). O MGR do Xbox 360 tem duas opcoes graficas que se desligam
- * (dumps de frames de 24/10): sombras do sol e brilho. SSAO e profundidade de campo nao existem no 360;
- * motion blur tambem nao (dumps na Ninja Run e a girar a camara, 24/10).
- *  - Minimo: 360p, sem sombras nem brilho.
- *  - Baixo: 540p, sem sombras nem brilho.
- *  - Medio: 720p, sem sombras nem brilho.
- *  - Alto: 720p, tudo ligado.
- *  - Ultra: 720p, tudo ligado e anisotropico 16x.
+ * Perfis do Renut (menu Desempenho e primeiro arranque), cada um com um aparelho-alvo (26/10). Uma opcao nova so
+ * entra num perfil se no alvo nao derrubar o fps abaixo da meta nem estragar a imagem (regressao no aparelho):
+ *  - Minimo: SD480+ (perfil sd480p do RP5: 2 A77 + 4 A55, GPU a 305 MHz), 30 fps estaveis. 540p FSR sem sombras nem
+ *    brilho, audio nos nucleos pequenos: 40,4 fps (pior janela 38,3).
+ *  - Baixo: RG Cube (Mali-G57), 30+. 540p FSR com sombras e brilho: 36,8 fps.
+ *  - Medio: RP5 720p, 60. 720p com sombras e brilho (a 720p nao custam: GPU ~6 ms, o limite e a CPU) e audio nos
+ *    nucleos pequenos: 59,9 fps (todas as janelas da luta entre 59,3 e 60,0; sem o audio nos pequenos, 58,2).
+ *  - Alto: RP5 1080p / AYN Thor, o maximo estavel. 1080p com sombras e brilho, mips dos resolves so quando lidos,
+ *    sombras no tamanho do console e audio nos nucleos pequenos: 55,6 fps no RP5 (pior janela 49,2).
+ *  - Ultra: AYN Odin 3 (Adreno 830) 2K a 60 com FSR (medido pelo autor, 24/10), sombras, brilho, anisotropico 16x e
+ *    os mips so quando lidos (validados no RP5 a 1080p; so tiram trabalho).
  */
 enum class RenutPreset { MINIMUM, LOW, MEDIUM, HIGH, ULTRA }
 
@@ -667,14 +680,25 @@ private data class RenutPresetSpec(
     val shadows: Boolean,
     val bloom: Boolean,
     val anisotropic: Int,
+    val effect: String = "bilinear",
+    val lazyMips: Boolean = false,
+    val shadow1x: Boolean = false,
+    val audioLittle: Boolean = false,
 )
 
 private fun RenutPreset.spec(): RenutPresetSpec = when (this) {
-    RenutPreset.MINIMUM -> RenutPresetSpec(InternalResolution.P360, shadows = false, bloom = false, anisotropic = -1)
-    RenutPreset.LOW -> RenutPresetSpec(InternalResolution.P540, shadows = false, bloom = false, anisotropic = -1)
-    RenutPreset.MEDIUM -> RenutPresetSpec(InternalResolution.P720, shadows = false, bloom = false, anisotropic = -1)
-    RenutPreset.HIGH -> RenutPresetSpec(InternalResolution.P720, shadows = true, bloom = true, anisotropic = -1)
-    RenutPreset.ULTRA -> RenutPresetSpec(InternalResolution.P720, shadows = true, bloom = true, anisotropic = 5)
+    RenutPreset.MINIMUM -> RenutPresetSpec(
+        InternalResolution.P540, shadows = false, bloom = false, anisotropic = -1, effect = "fsr", audioLittle = true,
+    )
+    RenutPreset.LOW -> RenutPresetSpec(InternalResolution.P540, shadows = true, bloom = true, anisotropic = -1, effect = "fsr")
+    RenutPreset.MEDIUM -> RenutPresetSpec(InternalResolution.P720, shadows = true, bloom = true, anisotropic = -1, audioLittle = true)
+    RenutPreset.HIGH -> RenutPresetSpec(
+        InternalResolution.P1080, shadows = true, bloom = true, anisotropic = -1, lazyMips = true, shadow1x = true,
+        audioLittle = true,
+    )
+    RenutPreset.ULTRA -> RenutPresetSpec(
+        InternalResolution.P1440, shadows = true, bloom = true, anisotropic = 5, effect = "fsr", lazyMips = true,
+    )
 }
 
 fun GameConfig.withRenutPreset(p: RenutPreset): GameConfig {
@@ -684,6 +708,10 @@ fun GameConfig.withRenutPreset(p: RenutPreset): GameConfig {
         renutShadows = t.shadows || !RenutValidated.SHADOWS,
         renutBloom = t.bloom || !RenutValidated.BLOOM,
         anisotropic = t.anisotropic,
+        presentEffect = t.effect,
+        renutLazyMips = t.lazyMips,
+        renutShadow1x = t.shadow1x,
+        audioLittleCores = t.audioLittle,
         renutPreset = p.name,
     )
 }
@@ -694,6 +722,56 @@ fun GameConfig.chosenRenutPreset(): RenutPreset? =
 
 fun GameConfig.matchingRenutPreset(): RenutPreset? = RenutPreset.entries.firstOrNull { p ->
     val t = p.spec()
-    t.resolution == resolution && t.anisotropic == anisotropic &&
+    t.resolution == resolution && t.anisotropic == anisotropic && t.effect == presentEffect &&
+        t.lazyMips == renutLazyMips && t.shadow1x == renutShadow1x && t.audioLittle == audioLittleCores &&
         (!RenutValidated.SHADOWS || t.shadows == renutShadows) && (!RenutValidated.BLOOM || t.bloom == renutBloom)
 }
+
+/**
+ * Primeiro arranque (26/10): o perfil sugerido para a GPU deste aparelho (0 = Minimo .. 4 = Ultra). Primeiro pela
+ * tabela dos aparelhos testados (Adreno 650 = Retroid Pocket 5, 740 = AYN Thor, 830 = AYN Odin 3, Mali-G57 = RG Cube;
+ * as Adreno 610-619 sao a classe do SD480+, alvo do Minimo, simulada no RP5); senao pela familia: Adreno 6xx Medio,
+ * 7xx Alto, 8xx Ultra; Mali do nivel da G57 (G5x/G6x) Baixo, mais nova Medio; Xclipse Medio. Nada e aplicado sem o
+ * jogador aceitar.
+ */
+object GpuSuggestion {
+    /** [known]: o aparelho testado com esta GPU (null = sugestao pela familia, em [family]). */
+    data class Suggestion(val tier: Int, val known: String?, val family: String)
+
+    fun detect(): Suggestion {
+        val dr = com.dfdx047.zandatsu.drivers.DriverRepository
+        val name = dr.gpuName()
+        if (dr.isAdreno()) {
+            val n = com.dfdx047.zandatsu.drivers.TurnipSupport.detect().adreno.takeIf { it != 0 }
+                ?: Regex("Adreno[^0-9]*(\\d{3})", RegexOption.IGNORE_CASE).find(name)?.groupValues?.get(1)?.toIntOrNull()
+                ?: 0
+            return when {
+                n == 650 -> Suggestion(2, "Retroid Pocket 5 (Adreno 650)", "Adreno 6xx")
+                n == 740 -> Suggestion(3, "AYN Thor (Adreno 740)", "Adreno 7xx")
+                n == 830 -> Suggestion(4, "AYN Odin 3 (Adreno 830)", "Adreno 8xx")
+                n in 610..619 -> Suggestion(0, "SD480+ (Adreno 619)", "Adreno 6xx")
+                n in 600..699 -> Suggestion(2, null, "Adreno 6xx")
+                n in 700..799 -> Suggestion(3, null, "Adreno 7xx")
+                n >= 800 -> Suggestion(4, null, "Adreno 8xx")
+                else -> Suggestion(2, null, "Adreno")
+            }
+        }
+        if (dr.isXclipse()) return Suggestion(2, null, "Xclipse")
+        val mali = Regex("Mali-G(\\d+)", RegexOption.IGNORE_CASE).find(name)?.groupValues?.get(1)?.toIntOrNull()
+        return when {
+            mali == 57 -> Suggestion(1, "RG Cube (Mali-G57)", "Mali")
+            mali != null && mali < 70 -> Suggestion(1, null, "Mali-G$mali")
+            mali != null -> Suggestion(2, null, "Mali-G$mali")
+            else -> Suggestion(1, null, name.ifEmpty { "?" })
+        }
+    }
+}
+
+/** O aparelho-alvo de cada perfil do Renut e o fps medido nele (luta do prologo; RenutPreset). */
+val RENUT_PRESET_TARGETS = listOf(
+    "Retroid Pocket 5 @ SD480+, 540p FSR: 40 fps",
+    "RG Cube (Mali-G57), 540p FSR: 37 fps",
+    "Retroid Pocket 5, 720p: 60 fps",
+    "Retroid Pocket 5, 1080p: 56 fps · AYN Thor, 1080p FSR: 60 fps",
+    "AYN Odin 3, 2K FSR: 60 fps",
+)

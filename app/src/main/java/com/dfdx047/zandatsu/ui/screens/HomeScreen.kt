@@ -93,6 +93,8 @@ fun HomeScreen(vm: LauncherViewModel, goTo: (LauncherTab) -> Unit) {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
+        // 26/10: Adreno com o driver do sistema = modo emulado; aviso grande antes do JOGAR.
+        com.dfdx047.zandatsu.ui.components.TurnipWarning(vm) { goTo(LauncherTab.DRIVERS) }
         // Palco: a lamina a cortar a pedra, o titulo, o estado e JOGAR.
         val (statusText, level) = when {
             install == null -> stringResource(R.string.status_checking) to Level.INFO

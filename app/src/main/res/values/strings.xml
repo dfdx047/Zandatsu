@@ -408,10 +408,10 @@
     <string name="renut_preset_medium">Medium</string>
     <string name="renut_preset_high">High</string>
     <string name="renut_preset_ultra">Ultra</string>
-    <string name="renut_preset_low_desc">540p, no shadows or bloom</string>
-    <string name="renut_preset_medium_desc">720p (console), no shadows or bloom</string>
-    <string name="renut_preset_high_desc">720p (console), shadows and bloom</string>
-    <string name="renut_preset_ultra_desc">720p (console), shadows, bloom, 16x anisotropic</string>
+    <string name="renut_preset_low_desc">540p with AMD FSR, shadows and bloom</string>
+    <string name="renut_preset_medium_desc">720p (console), shadows and bloom, audio on the small cores</string>
+    <string name="renut_preset_high_desc">1080p, shadows and bloom, lighter shadow maps and mipmaps, audio on the small cores</string>
+    <string name="renut_preset_ultra_desc">2K with AMD FSR, shadows, bloom, 16x anisotropic</string>
     <string name="renut_fps_note">The game runs at 60 FPS (its own rate). The 30 FPS hack and 120 FPS are emulated renderer options.</string>
     <string name="renut_resolution_sub">720p is the console\'s. 540p draws 56% of the pixels; 1080p, 1440p and 4K draw 2.25x, 4x and 9x and are scaled down to the screen.</string>
     <string name="renut_shadows_sub">The sun\'s shadows (shadow map and screen shadow pass). Off: the scene is lit everywhere.</string>
@@ -422,7 +422,7 @@
     <string name="profile_pick_sub">Each one with the fps measured in 60 s of combat: Retroid Pocket 5 with the native renderer (Renut, Turnip driver) and RG Cube with the emulated one (Xenia, Mali-G57). This device will use: %1$s. Nothing is picked for you; you can change it later in Performance.</string>
     <string name="profile_pick_fps_rp5">Retroid Pocket 5 (Renut): %1$s</string>
     <string name="profile_pick_fps_cube">RG Cube (Xenia): %1$s</string>
-    <string name="renut_preset_minimum_desc">360p, no shadows or bloom</string>
+    <string name="renut_preset_minimum_desc">540p with AMD FSR, no shadows or bloom, audio on the small cores</string>
     <string name="delete_old_extracted">Delete old extracted files (%1$s)</string>
     <string name="busy_deleting_old">Deleting old extracted files…</string>
     <string name="drivers_renut_system_6xx">The system driver does not support Renut (the native renderer) on Adreno 6xx: download Turnip in the Drivers tab and enable it. Until then the game runs in emulated mode (Xenia), which is slower.</string>
@@ -433,4 +433,17 @@
     <string name="drivers_radv_needs_android14">RADV drivers for Xclipse need Android 14 or newer (this device has Android %1$s). The game keeps the Samsung driver.</string>
     <string name="err_driver_min_api">This driver needs Android API %1$s or newer (this device: API %2$d).</string>
     <string name="err_driver_wrong_gpu">%1$s is not for this GPU: Turnip drivers are for Adreno only, RADV for Samsung Xclipse only.</string>
+    <string name="gpu_detected_title">We detected your GPU: %1$s</string>
+    <string name="gpu_detected_known">Tested on: %1$s.</string>
+    <string name="gpu_detected_family">We have not tested this GPU yet; suggestion by family (%1$s).</string>
+    <string name="profile_pick_renderer">This device will use: %1$s. Nothing is applied until you accept; you can change it later in Performance.</string>
+    <string name="profile_suggested">Suggested profile</string>
+    <string name="profile_suggested_tag">suggested</string>
+    <string name="profile_accept">Accept</string>
+    <string name="profile_choose_myself">Choose myself</string>
+    <string name="profile_target">Target: %1$s</string>
+    <string name="turnip_required">On Adreno, the native renderer (Renut) needs Turnip. With the system driver the game uses emulated mode and runs slowly.</string>
+    <string name="turnip_recommended">Recommended driver for %1$s: %2$s</string>
+    <string name="turnip_open_drivers">Open Drivers</string>
+    <string name="turnip_drivers_later">You can install it in the Drivers tab after choosing a profile. The driver is never changed for you.</string>
 </resources>
