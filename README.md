@@ -76,6 +76,11 @@ Se já extraiu o jogo numa versão antiga, o botão **Apagar arquivos extraídos
 - **Game over e Continue** validados no RP5 e no RG Cube.
 - **Rotação:** o jogo não fica mais em retrato quando o aparelho está com a rotação travada (#1).
 - **Atualização:** o launcher não pede mais para atualizar sem parar (#1).
+- **Áudio:** o estado do som vai para o log a cada segundo, e o stream de saída é reaberto sozinho se parar por
+  500 ms. O som que some (#3, #5, #8, #9, #11) ainda não foi reproduzido nem corrigido: mande um log da v1.1 quando
+  acontecer.
+- **Crash depois de ~17 min (#9):** uma função do jogo que faltava na recompilação foi adicionada (o crash não foi
+  reproduzido aqui).
 
 ### Aparelhos testados
 fps de jogo na luta do prólogo (26/10/2026).
@@ -153,6 +158,11 @@ If you extracted the game with an older version, the **Delete old extracted file
 - **Game over and Continue** validated on the RP5 and the RG Cube.
 - **Rotation:** the game no longer ends up in portrait when the device's rotation is locked (#1).
 - **Updates:** the launcher no longer asks to update over and over (#1).
+- **Audio:** the sound state goes to the log every second, and the output stream is reopened by itself if it stops
+  for 500 ms. The disappearing sound (#3, #5, #8, #9, #11) has not been reproduced or fixed yet: send a v1.1 log when
+  it happens.
+- **Crash after ~17 min (#9):** a game function missing from the recompilation was added (the crash was not
+  reproduced here).
 
 ### Tested devices
 Game fps in the prologue fight (2026-10-26).
@@ -230,6 +240,11 @@ Si extrajiste el juego con una versión anterior, el botón **Borrar archivos ex
 - **Game over y Continue** validados en la RP5 y en la RG Cube.
 - **Rotación:** el juego ya no queda en vertical cuando la rotación del dispositivo está bloqueada (#1).
 - **Actualización:** el launcher ya no pide actualizar sin parar (#1).
+- **Audio:** el estado del sonido va al log cada segundo, y el stream de salida se reabre solo si se para 500 ms.
+  El sonido que desaparece (#3, #5, #8, #9, #11) todavía no se reprodujo ni se corrigió: manda un log de la v1.1
+  cuando pase.
+- **Cierre después de ~17 min (#9):** se añadió una función del juego que faltaba en la recompilación (el cierre no se
+  reprodujo aquí).
 
 ### Dispositivos probados
 fps de juego en el combate del prólogo (26/10/2026).
