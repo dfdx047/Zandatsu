@@ -140,6 +140,8 @@ public final class TurnipSupport {
      * o Turnip le o TU_DEBUG uma vez). Junta ao TU_DEBUG que o utilizador escolheu.
      */
     public static void applyAutoEnv(Gpu gpu, Map<String, String> env) {
+        // So o Turnip no Adreno: no RADV das Xclipse (One UI) nem o FD_DEV_FEATURES abaixo se aplica.
+        if (!DriverRepository.INSTANCE.isAdreno()) return;
         if (!gpu.tuDebug.isEmpty()) {
             String cur = env.get("TU_DEBUG");
             env.put("TU_DEBUG", cur == null || cur.isEmpty() ? gpu.tuDebug : cur + "," + gpu.tuDebug);

@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.provider.OpenableColumns
 import androidx.annotation.StringRes
 import androidx.appcompat.app.AppCompatDelegate
@@ -525,7 +526,16 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var activeDriver by mutableStateOf<String?>(null)
         private set
-    var driverSource by mutableStateOf(DriverRepository.SOURCES.first())
+    /** Samsung Xclipse (drivers RADV); sabe-se no refreshDrivers (o nome da GPU vem do GL, fora da thread da UI). */
+    var isXclipse by mutableStateOf(false)
+        private set
+    /** Nome da GPU (GL_RENDERER), "" ate ao refreshDrivers. */
+    var gpuName by mutableStateOf("")
+        private set
+    /** As fontes de download para esta GPU (Turnip no Adreno, RADV na Xclipse com Android 14+). */
+    var driverSources by mutableStateOf<List<DriverSource>>(emptyList())
+        private set
+    var driverSource by mutableStateOf(DriverRepository.TURNIP_SOURCES.first())
         private set
     var driverReleases by mutableStateOf<List<DriverRelease>>(emptyList())
         private set
@@ -552,14 +562,22 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
 
     fun refreshDrivers() {
         viewModelScope.launch(Dispatchers.IO) {
-            // Fora do Adreno so ha o driver do sistema: um driver ativo de antes (o MaliSX2, 23/10) sai.
+            val xclipse = DriverRepository.isXclipse()
+            gpuName = DriverRepository.gpuName()
+            isXclipse = xclipse
+            // Um driver ativo que nao serve para esta GPU sai (o MaliSX2 de 23/10 no Mali; Turnip na Xclipse; RADV
+            // no Adreno). Fica o do sistema.
             val old = DriverRepository.activeDir()
-            if (!isAdreno && old != null) {
-                AppLog.i("drivers", "nao e Adreno: $old desativado, driver do sistema")
+            val kind = DriverRepository.activeKind()
+            if (old != null && (kind == null || !DriverRepository.fitsDevice(kind))) {
+                AppLog.i("drivers", "$old ($kind) nao serve para esta GPU: desativado, driver do sistema")
                 DriverRepository.deactivate()
             }
-            installedDrivers = if (isAdreno) DriverRepository.installed() else emptyList()
+            installedDrivers = if (isAdreno || xclipse) DriverRepository.installed() else emptyList()
             activeDriver = DriverRepository.activeDir()
+            val sources = DriverRepository.sourcesForDevice()
+            if (sources.isNotEmpty() && driverSource !in sources) driverSource = sources.first()
+            driverSources = sources
         }
     }
 
@@ -590,7 +608,7 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
                 AppLog.i("drivers", "descarregado: ${d.name}")
                 say(R.string.msg_driver_installed, d.name)
             } catch (e: DriverException) {
-                say(driverError(e), e.message ?: "-")
+                sayDriverError(e)
                 showError(ErrorKind.DRIVER_INSTALL, "${asset.name}: ${e.reason} ${e.message ?: ""}")
             } finally {
                 busy = null
@@ -609,7 +627,7 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
                 AppLog.i("drivers", "importado: ${d.name}")
                 say(R.string.msg_driver_installed, d.name)
             } catch (e: DriverException) {
-                say(driverError(e), e.message ?: "-")
+                sayDriverError(e)
                 showError(ErrorKind.DRIVER_INSTALL, "$name: ${e.reason} ${e.message ?: ""}")
             } finally {
                 busy = null
@@ -623,10 +641,29 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
         DriverException.Reason.NOT_ZIP -> R.string.err_driver_not_zip
         DriverException.Reason.NETWORK -> R.string.err_network
         DriverException.Reason.IO -> R.string.err_driver_io
+        DriverException.Reason.MIN_API -> R.string.err_driver_min_api
+        DriverException.Reason.WRONG_GPU -> R.string.err_driver_wrong_gpu
+    }
+
+    /** Aviso de um driver recusado (o MIN_API leva tambem a API deste aparelho). */
+    private fun sayDriverError(e: DriverException) {
+        if (e.reason == DriverException.Reason.MIN_API) say(driverError(e), e.message ?: "-", Build.VERSION.SDK_INT)
+        else say(driverError(e), e.message ?: "-")
     }
 
     fun activateDriver(d: InstalledDriver) {
         viewModelScope.launch(Dispatchers.IO) {
+            // Nunca se ativa um driver que nao serve para esta GPU ou para esta versao do Android.
+            if (Build.VERSION.SDK_INT < d.minApi) {
+                AppLog.i("drivers", "recusado ${d.name}: minApi ${d.minApi} > ${Build.VERSION.SDK_INT}")
+                say(R.string.err_driver_min_api, d.minApi.toString(), Build.VERSION.SDK_INT)
+                return@launch
+            }
+            if (!DriverRepository.fitsDevice(d.kind)) {
+                AppLog.i("drivers", "recusado ${d.name}: ${d.kind} nao serve para esta GPU")
+                say(R.string.err_driver_wrong_gpu, d.name)
+                return@launch
+            }
             DriverRepository.activate(d)
             AppLog.i("drivers", "ativo: ${d.name}")
             prefs.clearDriverBootState()
@@ -729,9 +766,11 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
 
     // Fica no fim da classe: as propriedades acima ja tem de estar inicializadas.
     init {
-        refreshDrivers()  // tambem tira um driver alternativo fora do Adreno
+        refreshDrivers()  // tambem tira um driver alternativo que nao serve para esta GPU
         viewModelScope.launch(Dispatchers.IO) {
             val loaded = GameConfig.load()
+            // A decisao do Renut neste aparelho (oferecido ou nao, porque, o que o auto escolhe) para o log.
+            AppLog.i("launcher", RenutSupport.describe(loaded.renderer))
             withContext(Dispatchers.Main) { config = loaded }
             // Garante que o toml existe com as opcoes do launcher desde o primeiro arranque.
             GameConfig.save(loaded)

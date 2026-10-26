@@ -55,8 +55,9 @@ data class GameConfig(
     val postLite: Boolean = true,             // dbz3_resolve_dedupe + dbz3_skip_null_draws + dbz3_discard_full_overwrite
     /** Todas as otimizacoes da GPU desligadas (caminho emulado "puro", para comparar a imagem). */
     val safeGpu: Boolean = false,
-    // Renderizador (24/10): auto = o Renut (Direct3D nativo) onde ele corre (RenutSupport), senao o
-    // Xenia emulado; renut / xenos = escolha do jogador (o Renut so vale onde e suportado).
+    // Renderizador (24/10): auto = o Renut (Direct3D nativo) nas Adreno onde ele corre (RenutSupport), senao o
+    // Xenia emulado; renut / xenos = escolha do jogador (o Renut so vale onde nao falhou a verificacao; fora do
+    // Adreno e experimental e so por escolha, 26/10).
     val renderer: String = "auto",
     // Opcoes do Renut (src/renut_effects.h): sombras do sol e brilho, ao vivo.
     val renutShadows: Boolean = true,
@@ -64,8 +65,12 @@ data class GameConfig(
     // Perfil do Renut que o jogador escolheu (nome do RenutPreset; vazio = nenhum). Nada e pre-selecionado.
     val renutPreset: String = "",
 ) {
-    /** O jogo corre no Renut com estas opcoes (escolha + aparelho). */
-    val useRenut: Boolean get() = renderer != "xenos" && RenutSupport.supported()
+    /**
+     * O jogo corre no Renut com estas opcoes (escolha + aparelho). auto so escolhe o Renut numa GPU validada (Adreno):
+     * nas outras fica o Xenia mesmo com renut_support.txt "ok", e o Renut so por escolha explicita.
+     */
+    val useRenut: Boolean get() = renderer != "xenos" && RenutSupport.supported() &&
+        (renderer == "renut" || RenutSupport.validatedGpu())
 
     /**
      * sa2_render_height_handheld: as alturas que o Renut faz no Android (escalas de render_scale.h: 540p pelo patch
@@ -516,16 +521,57 @@ fun recommendedPreset(): GraphicsPreset {
  * O Renut corre neste aparelho com este driver? O jogo verifica as funcoes Vulkan de que ele precisa (texturas BC,
  * buffer device address, ...) ao arrancar no modo renut e escreve renut_support.txt ("ok", ou "no" e o que falta).
  * A verificacao vale para o driver com que o jogo arrancou (renut_support_driver.txt, escrito no JOGAR): trocar de
- * driver volta a testar. Antes de testar: so nas Adreno (as Mali, como a do RG Cube, nao tem texturas BC).
+ * driver volta a testar. 26/10: o nativo ja nao pede texturas BC (descomprime-as) e basta-lhe 5 descriptor sets, por
+ * isso fora do Adreno (Mali, Xclipse) o Renut tambem se oferece, mas so por escolha do jogador (experimental): o auto
+ * so o escolhe numa GPU validada. Se faltar algo o jogo volta ao Xenia nessa sessao e escreve "no" e o motivo.
  */
 object RenutSupport {
     private val dir get() = AppPaths.userToml.parentFile
     private fun driver() = com.dfdx047.zandatsu.drivers.DriverRepository.activeDir() ?: "system"
 
+    /**
+     * O Renut pode ser escolhido com este driver: "ok", ou ainda nao testado (no Adreno 6xx o driver do sistema nao
+     * serve); "no" = falhou a verificacao.
+     */
     fun supported(): Boolean = when (status()?.firstOrNull()) {
         "ok" -> true
         "no" -> false
-        else -> com.dfdx047.zandatsu.drivers.DriverRepository.isAdreno() && !systemDriverOn6xx()
+        else -> !systemDriverOn6xx()
+    }
+
+    /** GPU onde o Renut foi validado (Adreno): so ai o "auto" o escolhe. Nas outras e experimental. */
+    fun validatedGpu(): Boolean = com.dfdx047.zandatsu.drivers.DriverRepository.isAdreno()
+
+    /** Linha para o AppLog: a decisao do Renut neste aparelho e porque. */
+    fun describe(renderer: String): String {
+        val dr = com.dfdx047.zandatsu.drivers.DriverRepository
+        val st = status()
+        val raw = try {
+            File(dir, "renut_support.txt").takeIf { it.isFile }?.readLines()?.joinToString(" | ") { it.trim() }
+        } catch (e: Exception) {
+            null
+        }
+        val tested = try {
+            File(dir, "renut_support_driver.txt").takeIf { it.isFile }?.readText()?.trim()
+        } catch (e: Exception) {
+            null
+        }
+        val offered = supported()
+        val use = renderer != "xenos" && offered && (renderer == "renut" || validatedGpu())
+        val why = when {
+            st?.firstOrNull() == "no" -> "falhou a verificacao: ${missing()}"
+            st?.firstOrNull() == "ok" && !validatedGpu() -> "verificado ok, GPU nao validada (experimental)"
+            st?.firstOrNull() == "ok" -> "verificado ok"
+            systemDriverOn6xx() -> "Adreno 6xx com o driver do sistema"
+            !validatedGpu() -> "ainda nao testado, GPU nao validada (experimental)"
+            else -> "ainda nao testado"
+        }
+        val gpu = if (validatedGpu()) "Adreno" else if (dr.isXclipse()) "Xclipse" else "outra"
+        return "renut: ${if (offered) "oferecido" else "nao oferecido"} ($why); escolha $renderer -> " +
+            (if (use) "renut" else "xenos") +
+            (if (renderer == "auto" && offered && !validatedGpu()) " (auto fica no Xenia: GPU nao validada)" else "") +
+            "; GPU $gpu '${dr.gpuName().ifEmpty { "?" }}' SoC ${dr.socName()}; driver ${driver()}" +
+            "; renut_support.txt=${raw ?: "-"} (testado com ${tested ?: "-"})"
     }
 
     /**

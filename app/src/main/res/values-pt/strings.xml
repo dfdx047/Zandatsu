@@ -426,4 +426,10 @@
     <string name="busy_deleting_old">Apagando arquivos extraídos antigos…</string>
     <string name="drivers_renut_system_6xx">O driver do sistema não suporta o Renut (renderizador nativo) no Adreno 6xx: baixe o Turnip na aba Drivers e ative-o. Até lá o jogo corre no modo emulado (Xenia), mais lento.</string>
     <string name="drivers_renut_missing">Este driver não suporta o Renut (falta: %1$s): o jogo corre no modo emulado (Xenia). Experimente outro Turnip.</string>
+    <string name="renderer_experimental">Experimental nesta GPU: o Renut é novo fora das Adreno. Se faltar à GPU algo de que ele precisa, o jogo volta ao Xenia e o launcher mostra o que faltou.</string>
+    <string name="renderer_renut_missing_gpu">Esta GPU/driver não suporta o Renut (falta: %1$s): o jogo corre no modo emulado (Xenia).</string>
+    <string name="drivers_xclipse_warning">Samsung Xclipse: os drivers RADV (Mesa) são experimentais. Um travamento da GPU com o RADV pode reiniciar o telefone. O driver da Samsung continua disponível (Usar o do sistema).</string>
+    <string name="drivers_radv_needs_android14">Os drivers RADV para Xclipse precisam do Android 14 ou mais recente (este aparelho tem Android %1$s). O jogo fica com o driver da Samsung.</string>
+    <string name="err_driver_min_api">Este driver precisa do Android API %1$s ou mais recente (este aparelho: API %2$d).</string>
+    <string name="err_driver_wrong_gpu">%1$s não serve para esta GPU: os drivers Turnip são só para Adreno e os RADV só para Samsung Xclipse.</string>
 </resources>

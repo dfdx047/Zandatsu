@@ -66,8 +66,14 @@ fun DriversScreen(vm: LauncherViewModel) {
     LaunchedEffect(Unit) {
         vm.refreshDrivers()
         vm.refreshTurnipBisect()
-        if (vm.isAdreno && vm.driverReleases.isEmpty() && !vm.driverReleasesLoading) vm.loadDriverReleases()
     }
+    // As fontes desta GPU so se sabem depois do refreshDrivers (Turnip no Adreno, RADV na Xclipse).
+    LaunchedEffect(vm.driverSources) {
+        if (vm.driverSources.isNotEmpty() && vm.driverReleases.isEmpty() && !vm.driverReleasesLoading) {
+            vm.loadDriverReleases(vm.driverSource)
+        }
+    }
+    val radvOldAndroid = vm.isXclipse && android.os.Build.VERSION.SDK_INT < DriverRepository.RADV_MIN_API
 
     LazyColumn(
         Modifier.fillMaxSize(),
@@ -77,6 +83,9 @@ fun DriversScreen(vm: LauncherViewModel) {
         item {
             SectionCard(stringResource(R.string.drivers_device), Icons.Filled.PhoneAndroid) {
                 Text(vm.socName, style = MaterialTheme.typography.bodyLarge)
+                if (vm.gpuName.isNotEmpty()) {
+                    Text(vm.gpuName, style = MaterialTheme.typography.bodyMedium)
+                }
                 val g = vm.turnipGpu
                 if (g.adreno != 0) {
                     Text(stringResource(R.string.drivers_gpu_line, g.adreno, g.gen), style = MaterialTheme.typography.bodyMedium)
@@ -106,13 +115,26 @@ fun DriversScreen(vm: LauncherViewModel) {
                     if (vm.driverBootFailed.isNotEmpty()) {
                         StatusLine(stringResource(R.string.drivers_boot_failed, vm.driverBootFailed.substringBefore(':')), Level.WARN)
                     }
+                } else if (vm.isXclipse) {
+                    // 26/10: RADV (Mesa) nas Xclipse, experimental e so por escolha; o driver da Samsung fica.
+                    StatusLine(stringResource(R.string.drivers_xclipse_warning), Level.WARN)
+                    if (radvOldAndroid) {
+                        StatusLine(stringResource(R.string.drivers_radv_needs_android14, android.os.Build.VERSION.RELEASE), Level.WARN)
+                    }
+                    val renutMissing = remember(vm.activeDriver) { com.dfdx047.zandatsu.data.RenutSupport.missing() }
+                    if (renutMissing != null) {
+                        StatusLine(stringResource(R.string.renderer_renut_missing_gpu, renutMissing), Level.ERROR)
+                    }
+                    if (vm.driverBootFailed.isNotEmpty()) {
+                        StatusLine(stringResource(R.string.drivers_boot_failed, vm.driverBootFailed.substringBefore(':')), Level.WARN)
+                    }
                 } else {
                     StatusLine(stringResource(R.string.drivers_not_adreno), Level.WARN)
                 }
             }
         }
-        // Fora do Adreno (Mali): so o driver do sistema, sem escolha nem downloads.
-        if (!vm.isAdreno) return@LazyColumn
+        // Fora do Adreno e da Xclipse (Mali): so o driver do sistema, sem escolha nem downloads.
+        if (!vm.isAdreno && !vm.isXclipse) return@LazyColumn
         item {
             SectionCard(stringResource(R.string.drivers_active_title), Icons.Filled.Memory) {
                 val active = vm.activeDriver
@@ -144,11 +166,13 @@ fun DriversScreen(vm: LauncherViewModel) {
                 )
             }
         }
+        // Xclipse num Android antes do 14: o RADV nao corre, sem lista (a explicacao esta no cartao do aparelho).
+        if (radvOldAndroid || vm.driverSources.isEmpty()) return@LazyColumn
         item {
             SectionCard(stringResource(R.string.drivers_download_title), Icons.Filled.CloudDownload, subtitle = stringResource(R.string.drivers_download_sub)) {
                 SettingSegmented(
                     title = stringResource(R.string.drivers_source),
-                    options = DriverRepository.sourcesForDevice().map { it to it.short },
+                    options = vm.driverSources.map { it to it.short },
                     selected = vm.driverSource,
                     onSelect = { vm.loadDriverReleases(it) },
                 )

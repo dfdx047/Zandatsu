@@ -522,12 +522,17 @@ public class GameActivity extends SDLActivity {
         // (ex. TU_DEBUG=sysmem no A830 e nos A710/720/722). O buffer unico de 512 MB e o BC
         // descomprimido ficam so como escolha manual: o Turnip diz 128 MB em todas as geracoes e
         // o problema das cores no RP5 era o do passo 4 (patch 0077), nao estes.
-        File[] drivers = new File(appDir, "driver").listFiles((dir, name) -> name.endsWith(".so"));
-        boolean custom = drivers != null && drivers.length > 0;
+        // 26/10: so com o Turnip num Adreno; com o RADV (Xclipse) nada do Turnip se aplica.
+        File driverLib = com.dfdx047.zandatsu.drivers.DriverRepository.INSTANCE.libraryIn(new File(appDir, "driver"));
+        boolean custom = driverLib != null
+                && com.dfdx047.zandatsu.drivers.DriverRepository.INSTANCE.isAdreno()
+                && com.dfdx047.zandatsu.drivers.DriverRepository.INSTANCE.kindOf(driverLib.getName())
+                        != com.dfdx047.zandatsu.drivers.DriverKind.RADV;
+        File[] drivers = custom ? new File[] {driverLib} : null;
         com.dfdx047.zandatsu.drivers.TurnipSupport.Gpu gpu =
                 com.dfdx047.zandatsu.drivers.TurnipSupport.detect();
         Log.i(TAG, "GPU: " + gpu + " kgsl=" + com.dfdx047.zandatsu.drivers.TurnipSupport.hasKgsl()
-                + " driver=" + (custom ? drivers[0].getName() : "sistema"));
+                + " driver=" + (driverLib != null ? driverLib.getName() : "sistema"));
         if (custom && prefs.getBoolean("turnip_bisect", false)) {
             // Bisect do Turnip: so o passo desta vez, nada mais (para o resultado ser claro).
             String[][] steps = com.dfdx047.zandatsu.drivers.TurnipSupport.steps(
@@ -644,36 +649,52 @@ public class GameActivity extends SDLActivity {
     }
 
     /**
-     * Driver Vulkan alternativo (ex. Turnip): se a pasta "driver" da pasta da app
-     * tiver um .so, copia-o para a pasta interna (o Android nao deixa carregar
-     * bibliotecas a partir do armazenamento partilhado) e diz ao runtime para o
-     * usar via libadrenotools. Sem .so nessa pasta, usa-se o driver do sistema.
+     * Driver Vulkan alternativo (Turnip, ou RADV nas Xclipse): se a pasta "driver" da pasta da app
+     * tiver um .so, copia as .so para a pasta interna (o Android nao deixa carregar
+     * bibliotecas a partir do armazenamento partilhado) e diz ao runtime para usar a principal
+     * (libraryName do meta.json) via libadrenotools. Sem .so nessa pasta, usa-se o driver do sistema.
      */
     private void installCustomVulkanDriver(File appDir) {
         File internalDir = new File(getFilesDir(), "driver");
-        File[] candidates = new File(appDir, "driver").listFiles(
-                (dir, name) -> name.endsWith(".so"));
-        if (candidates == null || candidates.length == 0) {
+        File activeDir = new File(appDir, "driver");
+        File[] candidates = activeDir.listFiles((dir, name) -> name.endsWith(".so"));
+        File source = com.dfdx047.zandatsu.drivers.DriverRepository.INSTANCE.libraryIn(activeDir);
+        if (candidates == null || candidates.length == 0 || source == null) {
             deleteRecursively(internalDir);
             return;
         }
-        // Fora do Adreno so o driver do sistema (24/10: o MaliSX2 corrompia a imagem no Mali-G57).
-        if (!com.dfdx047.zandatsu.drivers.DriverRepository.INSTANCE.isAdreno()) {
+        // Turnip so no Adreno; fora dele so o RADV (o launcher so o deixa ativar nas Xclipse). 24/10: o MaliSX2
+        // corrompia a imagem no Mali-G57.
+        boolean radv = com.dfdx047.zandatsu.drivers.DriverRepository.INSTANCE.kindOf(source.getName())
+                == com.dfdx047.zandatsu.drivers.DriverKind.RADV;
+        boolean adreno = com.dfdx047.zandatsu.drivers.DriverRepository.INSTANCE.isAdreno();
+        if (adreno == radv) {
             deleteRecursively(internalDir);
-            mDriverNote = "sistema (nao e Adreno: " + candidates[0].getName() + " ignorado)";
+            mDriverNote = "sistema (" + source.getName() + " nao serve para esta GPU: ignorado)";
             return;
         }
-        File source = candidates[0];
         File target = new File(internalDir, source.getName());
         try {
-            if (!target.isFile() || target.length() != source.length()
-                    || target.lastModified() != source.lastModified()) {
+            // Todas as .so do pacote (a principal pode precisar das outras ao lado).
+            boolean stale = false;
+            for (File so : candidates) {
+                File t = new File(internalDir, so.getName());
+                if (!t.isFile() || t.length() != so.length() || t.lastModified() != so.lastModified()) {
+                    stale = true;
+                    break;
+                }
+            }
+            File[] old = internalDir.listFiles();
+            if (stale || old == null || old.length != candidates.length) {
                 deleteRecursively(internalDir);
                 //noinspection ResultOfMethodCallIgnored
                 internalDir.mkdirs();
-                Files.copy(source.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING);
-                //noinspection ResultOfMethodCallIgnored
-                target.setLastModified(source.lastModified());
+                for (File so : candidates) {
+                    File t = new File(internalDir, so.getName());
+                    Files.copy(so.toPath(), t.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                    //noinspection ResultOfMethodCallIgnored
+                    t.setLastModified(so.lastModified());
+                }
             }
             setEnv("REX_VULKAN_DRIVER_DIR", internalDir.getAbsolutePath() + "/");
             setEnv("REX_VULKAN_DRIVER_NAME", target.getName());

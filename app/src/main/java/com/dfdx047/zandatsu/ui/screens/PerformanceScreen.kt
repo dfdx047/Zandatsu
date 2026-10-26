@@ -83,14 +83,18 @@ fun PerformanceScreen(vm: LauncherViewModel) {
         StatusLine(stringResource(R.string.settings_saved_note), Level.INFO)
 
         // ---------------------------------------------------------- renderizador
-        // 24/10: o Renut (Direct3D nativo) onde o aparelho o corre; nas Mali (sem texturas BC) fica o
-        // Xenia sozinho e esta escolha nem aparece.
+        // 24/10: o Renut (Direct3D nativo) onde o aparelho o corre. 26/10: fora do Adreno (Mali, Xclipse) a escolha
+        // tambem aparece, marcada experimental; o auto continua no Xenia nessas GPUs.
         val renutOk = remember { RenutSupport.supported() }
-        // Adreno sem Renut com este driver: dizer porque (em vez de so esconder a escolha).
-        if (!renutOk && vm.isAdreno) {
+        val renutMissing = remember { RenutSupport.missing() }
+        // Sem Renut com este driver: dizer porque (em vez de so esconder a escolha).
+        if (!renutOk && (vm.isAdreno || renutMissing != null)) {
             StatusLine(
-                if (RenutSupport.systemDriverOn6xx()) stringResource(R.string.drivers_renut_system_6xx)
-                else stringResource(R.string.drivers_renut_missing, RenutSupport.missing() ?: "?"),
+                when {
+                    RenutSupport.systemDriverOn6xx() -> stringResource(R.string.drivers_renut_system_6xx)
+                    vm.isAdreno -> stringResource(R.string.drivers_renut_missing, renutMissing ?: "?")
+                    else -> stringResource(R.string.renderer_renut_missing_gpu, renutMissing ?: "?")
+                },
                 Level.ERROR,
             )
         }
@@ -100,6 +104,9 @@ fun PerformanceScreen(vm: LauncherViewModel) {
                 Icons.Filled.Memory,
                 subtitle = stringResource(R.string.renderer_sub),
             ) {
+                if (!RenutSupport.validatedGpu()) {
+                    StatusLine(stringResource(R.string.renderer_experimental), Level.WARN)
+                }
                 SettingSegmented(
                     title = stringResource(R.string.renderer_title),
                     options = listOf(true to stringResource(R.string.renderer_renut), false to stringResource(R.string.renderer_xenos)),
