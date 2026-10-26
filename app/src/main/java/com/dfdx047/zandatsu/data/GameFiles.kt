@@ -262,7 +262,7 @@ object GameFiles {
             val present = onDisk || inIso
             val damaged = cut.any { p ->
                 if (e.directory) p.lowercase().startsWith(e.path.lowercase() + "/") else p.equals(e.path, true)
-            } || (present && !e.directory && e.path.endsWith(".CPK", true) && !cpkLooksOk(f))
+            } || (onDisk && !e.directory && e.path.endsWith(".CPK", true) && !cpkLooksOk(f))  // na ISO: sem ficheiro na pasta
             list += FileCheck(
                 e.path, e.required,
                 when {

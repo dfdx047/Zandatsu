@@ -389,6 +389,15 @@ public class GameActivity extends SDLActivity {
         reportDisplayRate();
     }
 
+    /**
+     * O SDL pede uma orientacao ao criar a janela (janela redimensionavel e sem hint: FULL_USER, que segue a rotacao do
+     * sistema e podia por o jogo em vertical; issue #1). Fica sempre a do launcher.
+     */
+    @Override
+    public void setOrientationBis(int w, int h, boolean resizable, String hint) {
+        applyOrientation();
+    }
+
     /** Orientacao escolhida no launcher: paisagem (as duas), vertical ou pelo sensor (todas). */
     private void applyOrientation() {
         @SuppressWarnings("deprecation")

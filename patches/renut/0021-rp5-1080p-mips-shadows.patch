@@ -1,0 +1,324 @@
+SwordMan (Android): Renut no RP5 (Adreno 650), 26/10.
+- Relatorio de 10 s do thread do jogo: espera no Swap (fila do render thread) e em BlockOnFence, por frame.
+- swordman_renut_resolve_mips (padrao on): os niveis de mip do host nos resolves de cor com escala.
+- swordman_renut_resolve_mips_lazy (padrao off): os niveis de mip de um resolve so sao feitos quando um draw o le num alvo menor.
+- renut_shadow_resolution (1x..4x) passa a valer no MGR: escala so os alvos das sombras (quadrados >= 512 e o atlas 1024x2048).
+--- a/app/src/renut_engine/perf/frame_stats.h
++++ b/app/src/renut_engine/perf/frame_stats.h
+@@ -1,4 +1,5 @@
+ #pragma once
++#include <cstdint>
+ // Frame statistics for the FPS overlay. A game frame is one D3DDevice_Swap:
+ // the frames the game actually finishes, whatever its update loop does.
+ 
+@@ -41,6 +42,10 @@
+ // Called by the renderer when the game thread has waited for the render
+ // thread (Swap's frame pacing, fence waits), for the CPU time to leave out.
+ void OnGameThreadWait(double ms);
++// SwordMan (Android): the same waits split by cause for the 10 s report (sa2_renut_pacing.cpp): 0 = the Swap's
++// wait for the render thread (kMaxFramesAhead), 1 = BlockOnFence. Returns and clears the sums (ms).
++void NoteGameThreadWait(int cause, double ms);
++void TakeGameThreadWaits(double &swap_ms, double &fence_ms, uint64_t &fence_waits);
+ 
+ Snapshot Get();
+ 
+--- a/app/src/renut_engine/perf/frame_stats.cpp
++++ b/app/src/renut_engine/perf/frame_stats.cpp
+@@ -1,3 +1,4 @@
++#include <atomic>
+ // banjo-nx: the frame statistics Renut's renderer reports into (renut_engine/perf/frame_stats.h, copied from Renut by
+ // tools/renut_gpu_import.py). Renut's own frame_stats.cpp also hooks the game's main loop (appMainTickPreDraw /
+ // appMainDraw), which banjo-nx's FPS code hooks already, so this keeps the numbers without those hooks: a game frame is
+@@ -117,6 +118,21 @@
+   s.wait_sum += ms;
+ }
+ 
++namespace {
++std::atomic<uint64_t> g_wait_us[2]{}, g_fence_waits{0};
++}
++
++void NoteGameThreadWait(int cause, double ms) {
++  g_wait_us[cause & 1].fetch_add(uint64_t(ms * 1000.0), std::memory_order_relaxed);
++  if (cause == 1) g_fence_waits.fetch_add(1, std::memory_order_relaxed);
++}
++
++void TakeGameThreadWaits(double &swap_ms, double &fence_ms, uint64_t &fence_waits) {
++  swap_ms = g_wait_us[0].exchange(0, std::memory_order_relaxed) / 1000.0;
++  fence_ms = g_wait_us[1].exchange(0, std::memory_order_relaxed) / 1000.0;
++  fence_waits = g_fence_waits.exchange(0, std::memory_order_relaxed);
++}
++
+ Snapshot Get() {
+   State& s = S();
+   std::lock_guard lock(s.mutex);
+--- a/app/src/renut_engine/gpu/backend/render_thread.cpp
++++ b/app/src/renut_engine/gpu/backend/render_thread.cpp
+@@ -445,6 +445,7 @@
+   lock.unlock();
+   const auto waited = std::chrono::steady_clock::now() - waiting;
+   frame_stats::OnGameThreadWait(std::chrono::duration<double, std::milli>(waited).count());
++  frame_stats::NoteGameThreadWait(0, std::chrono::duration<double, std::milli>(waited).count());  // SwordMan
+   // banjo-nx (2026-10-19, banjo_late_input): this frame's slack (the game thread only: one Swap at a time).
+   {
+     // The game's frame interval (the game thread only), averaged over about 16 frames.
+--- a/app/src/renut_engine/gpu/d3d/hooks/device.cpp
++++ b/app/src/renut_engine/gpu/d3d/hooks/device.cpp
+@@ -613,8 +613,10 @@
+     if (!render_thread::WaitForFenceProgress(std::chrono::milliseconds(2)))
+       break;  // no render thread: nothing would complete it
+   }
+-  renut::frame_stats::OnGameThreadWait(
+-      std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - waiting).count());
++  const double waited_ms =
++      std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - waiting).count();
++  renut::frame_stats::OnGameThreadWait(waited_ms);
++  renut::frame_stats::NoteGameThreadWait(1, waited_ms);  // SwordMan
+   return 0;
+ }
+ 
+--- a/app/src/renut_engine/gpu/sa2_renut_pacing.cpp
++++ b/app/src/renut_engine/gpu/sa2_renut_pacing.cpp
+@@ -13,6 +13,7 @@
+ //   - sa2_vsync_relaxed on (the player's default): goes at once, and the next one is due an interval after it (the
+ //     native renderer's relaxed vsync: 50-59 fps instead of a fall to 30);
+ //   - off: waits for the next refresh of the 60 Hz grid, as fixed vsync does.
++#include "renut_engine/perf/frame_stats.h"
+ #include "renut_engine/gpu/sa2_renut_pacing.h"
+ 
+ #include <algorithm>
+@@ -106,6 +107,16 @@
+                 "{:.2f} ms a frame paced; {} frames late (sa2_renut_vblank_pacing)",
+                 Ms(released - s.since) / 1000.0, s.frames, s.work_ms / double(s.frames), s.work_max_ms,
+                 s.sleep_ms / double(s.frames), s.late);
++  {
++    // SwordMan (Android): where the game thread waited (render thread queue at Swap, or the GPU at BlockOnFence).
++    double swap_ms = 0.0, fence_ms = 0.0;
++    uint64_t fence_waits = 0;
++    ::renut::frame_stats::TakeGameThreadWaits(swap_ms, fence_ms, fence_waits);
++    if (s.frames)
++      REXLOG_INFO("[renut] game thread waits: {:.2f} ms a frame at Swap (render thread), {:.2f} ms a frame in "
++                  "BlockOnFence ({:.1f} a frame)",
++                  swap_ms / double(s.frames), fence_ms / double(s.frames), double(fence_waits) / double(s.frames));
++  }
+   // The game thread's other measure: what its draws keep of the device (backend/queued.cpp).
+   if (const std::string deltas = ::renut::gpu::SnapshotDeltaReport(); !deltas.empty())
+     REXLOG_INFO("[renut] {}", deltas);
+--- a/app/src/renut_engine/gpu/render/textures.cpp
++++ b/app/src/renut_engine/gpu/render/textures.cpp
+@@ -9,6 +9,7 @@
+ #include <cstring>
+ #include <mutex>
+ #include <unordered_map>
++#include <utility>
+ #include <vector>
+ 
+ #include <xxhash.h>
+@@ -25,6 +26,16 @@
+ #include "renut_engine/gpu/backend/video.h"
+ #include "renut_gpu_markers.h"  // SwordMan (Android): swordman_renut_gpu_markers (patch 0014)
+ 
++#include <rex/cvar.h>
++
++// SwordMan (Android, renut/0021): the host mip levels of scaled color resolves (UpdateResolveMipsLocked). At 1080p
++// (1.5x) each resolve of the scene is drawn again at half size and copied into level 1: ~3 ms of GPU a frame on the
++// RP5. Off, the effects that read the resolve at a smaller size sample level 0 (more aliasing in bloom and blur).
++REXCVAR_DEFINE_BOOL(swordman_renut_resolve_mips, true, "SwordMan",
++                    "Renut: niveis de mip do host nos resolves de cor com escala (1080p ou mais)");
++REXCVAR_DEFINE_BOOL(swordman_renut_resolve_mips_lazy, false, "SwordMan",
++                    "Renut: niveis de mip dos resolves feitos so quando um draw le o resolve num alvo menor");
++
+ namespace renut::gpu {
+ 
+ namespace {
+@@ -634,7 +645,7 @@
+   const uint32_t h = scale.Size((t.height + bs - 1) / bs * bs);
+   t.extra_levels = 0;
+   if (render_target && host_levels && t.dimension == TextureDimension::Tex2D &&
+-      State().texture_mip_ps) {
++      State().texture_mip_ps && REXCVAR_GET(swordman_renut_resolve_mips)) {
+     // No more than the host size has.
+     const uint32_t host_levels_max = 32 - uint32_t(std::countl_zero(std::max(w, h)));
+     t.extra_levels = std::min(ExtraLevels(scale), host_levels_max - 1);
+@@ -1159,6 +1170,58 @@
+   texture->layout = layout;
+ }
+ 
++// SwordMan (Android, renut/0021): swordman_renut_resolve_mips_lazy.
++namespace {
++uint32_t g_bind_target_width = 0, g_bind_target_height = 0;
++bool g_bind_mips_drawn = false, g_bind_no_memo = false;
++}  // namespace
++
++bool DeferResolveMipsLocked(HostTexture *texture, const plume::RenderRect &rect) {
++  static const bool lazy = REXCVAR_GET(swordman_renut_resolve_mips_lazy);
++  if (!lazy || !texture)
++    return false;
++  HostTexture &t = *texture;
++  if (t.mips_pending) {
++    t.mips_rect = plume::RenderRect(std::min(t.mips_rect.left, rect.left), std::min(t.mips_rect.top, rect.top),
++                                    std::max(t.mips_rect.right, rect.right), std::max(t.mips_rect.bottom, rect.bottom));
++  } else {
++    t.mips_pending = true;
++    t.mips_rect = rect;
++    ++g_texture_epoch;  // the binds' sampler words change (LodScaleForBindLocked)
++  }
++  return true;
++}
++
++void SetBindTargetSizeLocked(uint32_t width, uint32_t height) {
++  g_bind_target_width = width;
++  g_bind_target_height = height;
++}
++
++bool TakeBindMipsDrawnLocked() { return std::exchange(g_bind_mips_drawn, false); }
++bool TakeBindNoMemoLocked() { return std::exchange(g_bind_no_memo, false); }
++
++namespace {
++
++// HostTexture::extra_levels reached by a bind's sampler (SamplerSlotLocked): none at all, the levels as they are, or,
++// pending ones, rebuilt first when the draw's target is smaller than the texture (a downsample).
++RenderScale LodScaleForBindLocked(HostTexture &t) {
++  if (!t.extra_levels)
++    return {};
++  if (!t.mips_pending)
++    return t.scale;
++  if (g_bind_target_width >= t.width && g_bind_target_height >= t.height) {
++    g_bind_no_memo = true;
++    return {};
++  }
++  t.mips_pending = false;
++  UpdateResolveMipsLocked(&t, t.mips_rect);
++  g_bind_mips_drawn = true;
++  ++g_texture_epoch;
++  return t.scale;
++}
++
++}  // namespace
++
+ TextureBinding BindTextureLocked(u32 texture_va, const TextureFetch &device_fetch, BindEffects *fx) {
+   TextureBinding binding;
+   binding.dimension = HostDimension(device_fetch);
+@@ -1246,7 +1309,7 @@
+     }
+     binding.stacked = resolved->stacked;
+     binding.scale = resolved->scale;
+-    binding.lod_scale = resolved->extra_levels ? resolved->scale : RenderScale{};
++    binding.lod_scale = LodScaleForBindLocked(*resolved);
+     return binding;
+   }
+   auto &slot = TextureSlot(texture_va);
+@@ -1392,7 +1455,7 @@
+   }
+   binding.stacked = t.stacked;
+   binding.scale = t.scale;
+-  binding.lod_scale = t.extra_levels ? t.scale : RenderScale{};
++  binding.lod_scale = LodScaleForBindLocked(t);
+   return binding;
+ }
+ 
+--- a/app/src/renut_engine/gpu/render/textures.h
++++ b/app/src/renut_engine/gpu/render/textures.h
+@@ -50,6 +50,10 @@
+   // downsamples to quarter size and below) average what the guest texels
+   // cover, as one guest bilinear tap does. Sampled up to LOD log2(scale).
+   uint32_t extra_levels = 0;
++  // SwordMan (Android, renut/0021, swordman_renut_resolve_mips_lazy): a resolve wrote level 0 over 'mips_rect' (host
++  // texels) and the host levels are not rebuilt yet; they are when a draw samples it into a smaller target.
++  bool mips_pending = false;
++  plume::RenderRect mips_rect;
+   // Level 0 without the fetch swizzle, which the levels are made from.
+   std::unique_ptr<plume::RenderTextureView> level0_view;
+   uint32_t level0_slot = UINT32_MAX;
+@@ -264,6 +268,18 @@
+ // viewport changed.
+ void UpdateResolveMipsLocked(HostTexture *texture, const plume::RenderRect &rect);
+ 
++// SwordMan (Android, renut/0021): swordman_renut_resolve_mips_lazy. After a resolve into a texture with host levels:
++// false when they are to be rebuilt now (UpdateResolveMipsLocked); true when they were left pending, to be rebuilt by
++// the first bind that samples the texture into a target smaller than it (BindTextureLocked), and binds into a target
++// as big or bigger sample level 0 alone, as at 1x.
++bool DeferResolveMipsLocked(HostTexture *texture, const plume::RenderRect &rect);
++// The guest size of the targets of the draw whose textures are bound next (FillTextures).
++void SetBindTargetSizeLocked(uint32_t width, uint32_t height);
++// Whether the binds since the last call rebuilt host levels (the list's framebuffer, pipeline and viewport changed),
++// and whether one of them answered for a texture with pending levels (an answer FillTextures' memo must not keep).
++bool TakeBindMipsDrawnLocked();
++bool TakeBindNoMemoLocked();
++
+ // A single-level color target of a resolve destination's format and host
+ // size, which a multisampled resolve into one with host levels goes through
+ // (plume's Vulkan resolve writes every level of its destination, from levels
+--- a/app/src/renut_engine/gpu/render/draw.cpp
++++ b/app/src/renut_engine/gpu/render/draw.cpp
+@@ -2147,6 +2147,10 @@
+     }
+     BindEffects fx;
+     const TextureBinding binding = BindTextureLocked(texture_va, fetch, &fx);
++    // SwordMan (Android, renut/0021): an answer that depended on the draw's target size is not kept.
++    const bool no_memo = TakeBindNoMemoLocked();
++    if (no_memo && all_memo)
++      *all_memo = false;
+     if (slot_fx)
+       slot_fx[r] = fx;
+     const uint32_t dim = binding.dimension == TextureDimension::Tex3D  ? 1
+@@ -2167,7 +2171,7 @@
+     }
+     sc.texture_indices[dim][r] = index;
+     sc.sampler_indices[r] = SamplerWord(SamplerSlotLocked(fetch, binding.lod_scale));
+-    if (memo) {
++    if (memo && !no_memo) {
+       m.va = texture_va;
+       std::memcpy(m.device, fetch.dword, sizeof(m.device));
+       std::memcpy(m.header, &header->Format, sizeof(m.header));
+@@ -4439,6 +4443,9 @@
+   const u32 texture_mask =
+       (vs->entry ? vs->entry->textureFetchMask : 0) | (ps && ps->entry ? ps->entry->textureFetchMask : 0);
+   g_handover_targets = &targets;  // banjo-nx (2026-10-19, banjo_deko3d_depth_handover)
++  // SwordMan (Android, renut/0021): what a pending resolve's host levels are rebuilt for (LodScaleForBindLocked).
++  SetBindTargetSizeLocked(targets.guest_width ? targets.guest_width : targets.width,
++                          targets.guest_height ? targets.guest_height : targets.height);
+   // sa2-nx (2026-10-20, sa2_renut_chain_reuse): the previous chain draw's texture and sampler words when FillTextures'
+   // memo would answer every bound slot as it did then: the device's fetch constants and texture words unchanged
+   // (bytes 1152-1775, 12920-13023), the same slots, frame, texture and depth epochs and depth target, and each bound
+@@ -4530,6 +4537,14 @@
+   if (textures_reused && targets_reuse_on)
+     treuse.seq = chain.seq;
+   g_handover_targets = nullptr;
++  if (TakeBindMipsDrawnLocked()) {
++    // SwordMan (Android, renut/0021): a bind rebuilt a resolve's host levels (LodScaleForBindLocked), which changed
++    // the list's framebuffer, pipeline, layout and viewport.
++    g_bound.framebuffer = nullptr;
++    g_bound.pipeline = nullptr;
++    g_bound.layout = false;
++    g_bound.viewport_set = false;
++  }
+ 
+   const d3d::Device &dev = device.dev();
+   const u8 *bools = reinterpret_cast<const u8 *>(&dev.m_Constants.VertexShaderB[0]);
+@@ -5996,7 +6011,7 @@
+               host_y, z, &box);
+         }
+         TransitionTextureLocked(dest, plume::RenderTextureLayout::SHADER_READ);
+-        if (dest->extra_levels) {
++        if (dest->extra_levels && !DeferResolveMipsLocked(dest, dest_rect)) {  // SwordMan (Android, renut/0021)
+           UpdateResolveMipsLocked(dest, dest_rect);
+           // The draw path binds its own layout, pipeline and viewport again.
+           g_bound.pipeline = nullptr;
+--- a/app/src/renut_engine/gpu/render/graphics_options.cpp
++++ b/app/src/renut_engine/gpu/render/graphics_options.cpp
+@@ -121,7 +121,14 @@
+   // MGR: no evidence identifies N&B's SSAO EDRAM base 1864, its shadow-map
+   // dimensions or its post-process targets in this game. Preserve the guest
+   // targets' relative sizes instead of applying another game's heuristics.
+-  (void)desc;
++  // SwordMan (Android, renut/0021): renut_shadow_resolution other than Resolution scales the shadow targets alone,
++  // the guest's square ones of 512 or more and the 1024x2048 atlas (the screen's are 1280x720 and smaller): 1x keeps
++  // them the console's size at 1080p, where they cost ~2.5 ms of the RP5's GPU at 1.5x.
++  if (!g_latched.shadow_follows_resolution) {
++    const u32 w = d3d::SurfaceWidth(desc.Size), h = d3d::SurfaceHeight(desc.Size);
++    if (w >= 512 && (h == w || h == 2 * w))
++      return g_latched.shadow_scale;
++  }
+   return resolution;
+ }
+ 
