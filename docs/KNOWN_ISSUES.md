@@ -29,6 +29,9 @@ Zandatsu v1.0 e branch de desenvolvimento (26/10/2026).
    reabre sozinho o stream de saída se ele parar por 500 ms. Se acontecer com você, **sem fechar o jogo**, abra o
    menu (Voltar) e toque em **Exportar logs**; mande o zip na issue.
 7. **A ISO não pode ser apagada nem movida** depois de importada: o jogo lê-a no lugar. Se a mover, importe de novo.
+8. **Widescreen (experimental, só Renut).** A cena fica certa (hor+), mas o HUD continua no layout 16:9 encostado à
+   esquerda (o mapa fica a meio da tela) e o título 3D tem o texto à esquerda; logos e vídeos ficam 16:9 com barras.
+   No RP5 o fecho do jogo pelo Turnip (item 1) apareceu mais vezes em widescreen (4 em ~14 arranques).
 
 ## English
 
@@ -58,6 +61,9 @@ Zandatsu v1.0 e branch de desenvolvimento (26/10/2026).
    itself if it stops for 500 ms. If it happens to you, **without closing the game**, open the menu (Back) and tap
    **Export logs**; attach the zip to the issue.
 7. **The ISO can't be deleted or moved** after importing: the game reads it in place. If you move it, import again.
+8. **Widescreen (experimental, Renut only).** The scene is right (hor+), but the HUD stays in the 16:9 layout against
+   the left edge (the map ends up mid-screen) and the 3D title has its text on the left; logos and videos stay 16:9
+   with bars. On the RP5 the Turnip crash (item 1) showed up more often in widescreen (4 in ~14 launches).
 
 ## Español
 
@@ -87,3 +93,7 @@ Zandatsu v1.0 e branch de desenvolvimento (26/10/2026).
    pasa, **sin cerrar el juego**, abre el menú (Atrás) y toca **Exportar logs**; adjunta el zip en la issue.
 7. **La ISO no se puede borrar ni mover** después de importarla: el juego la lee en su sitio. Si la mueves, impórtala
    de nuevo.
+8. **Panorámica (experimental, solo Renut).** La escena queda bien (hor+), pero el HUD sigue en el diseño 16:9 pegado
+   a la izquierda (el mapa queda en medio de la pantalla) y el título 3D tiene el texto a la izquierda; los logos y
+   los vídeos quedan en 16:9 con barras. En la RP5 el cierre del juego por Turnip (punto 1) apareció más veces en
+   panorámica (4 en ~14 arranques).

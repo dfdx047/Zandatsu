@@ -299,9 +299,14 @@ fun PerformanceScreen(vm: LauncherViewModel) {
         SectionCard(stringResource(R.string.settings_aspect), Icons.Filled.PhotoSizeSelectLarge) {
             SettingSegmented(
                 title = stringResource(R.string.settings_aspect_mode),
-                options = listOf(true to stringResource(R.string.aspect_original), false to stringResource(R.string.aspect_stretch)),
-                selected = c.letterbox,
-                onSelect = { v -> vm.updateConfig { it.copy(letterbox = v) } },
+                options = listOfNotNull(
+                    "original" to stringResource(R.string.aspect_original),
+                    "stretch" to stringResource(R.string.aspect_stretch),
+                    if (c.useRenut) "widescreen" to stringResource(R.string.aspect_widescreen) else null,
+                ),
+                selected = if (c.aspect == "widescreen" && !c.useRenut) "original" else c.aspect,
+                subtitle = if (c.useRenut) stringResource(R.string.aspect_widescreen_sub) else null,
+                onSelect = { v -> vm.updateConfig { it.copy(aspect = v) } },
             )
         }
 

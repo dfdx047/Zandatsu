@@ -1,0 +1,355 @@
+SwordMan (Android): proporcao da imagem e widescreen do MGR no Renut, 26/10.
+- swordman_aspect: original (16:9 inteiro, com barras; antes cortava ate 15% de cada borda), stretch (esticar), widescreen.
+- guest/sa2_screen.cpp: a largura da tela do jogo e a que o MGR usou ao criar o dispositivo (src/mgr_widescreen.cpp).
+- Os alvos 1280x720 da cena (o MGR cria-os a parte do dispositivo), as texturas onde os resolve, os viewports e
+  scissors de 1280 nesses alvos e os retangulos dos resolves passam a largura da tela (hor+).
+- Frames 2D (menos de 8 draws em alvos alargados: logos, videos) mostram as 1280 colunas da consola, 16:9 com barras;
+  o quad dos videos (PS 6E6A2121A431D6E8) desenha-se nessas colunas (d3d/hooks/device.cpp, render/draw.cpp).
+--- a/app/src/renut_engine/gpu/render/draw.cpp
++++ b/app/src/renut_engine/gpu/render/draw.cpp
+@@ -2,6 +2,7 @@
+  * @file    gpu/render/draw.cpp
+  */
+ #include "renut_engine/gpu/render/draw.h"
++#include "renut_engine/gpu/guest/widescreen.h"
+ 
+ #include <algorithm>
+ #include <array>
+@@ -1473,7 +1474,14 @@
+   key[19] = t.guest_width;
+   key[20] = t.guest_height;
+   key[21] = t.scale.code;
+-  key[22] = 0;
++  // SwordMan (2026-10-26, widescreen): a widened target's viewport differs from the back buffer's of the same size.
++  {
++    const HostSurface *first = t.color_count && t.colors[0] ? t.colors[0] : t.depth;
++    key[22] = first && GuestScreenWidth() > 1280 && IsWidenedSurface(first->guest_va) ? 1u : 0u;
++    if (key[22])
++      NoteWidenedDraw();
++
++  }
+   key[23] = 0;
+   static u32 last_key[24];
+   static ViewportState last;
+@@ -1490,8 +1498,16 @@
+   const d3d::Device &dev = device.dev();
+   const u32 vte = dev.m_ControlPacket.VteControl;
+   const d3d::ValuesPacket &v = dev.m_ValuesPacket;
+-  const float xs = (vte & 0x01) ? float(v.VportXScale) : 1.0f;
++  float xs = (vte & 0x01) ? float(v.VportXScale) : 1.0f;
+   float xo = (vte & 0x02) ? float(v.VportXOffset) : 0.0f;
++  // SwordMan (2026-10-26, widescreen): a 1280x720 viewport on a target widened to the screen (WidenScreenSurface)
++  // covers the wider target: the game sizes those passes for the console's screen.
++  const HostSurface *first = t.color_count && t.colors[0] ? t.colors[0] : t.depth;
++  const bool widened = first && GuestScreenWidth() > 1280 && IsWidenedSurface(first->guest_va);
++  if (widened && (vte & 0x03) == 0x03 && std::fabs(xs - 640.0f) < 0.01f && std::fabs(xo - 640.0f) < 0.01f) {
++    xs = float(GuestScreenWidth()) * 0.5f;
++    xo = xs;
++  }
+   const float ys = (vte & 0x04) ? float(v.VportYScale) : 1.0f;
+   float yo = (vte & 0x08) ? float(v.VportYOffset) : 0.0f;
+   const float zs = (vte & 0x10) ? float(v.VportZScale) : 1.0f;
+@@ -1559,6 +1575,8 @@
+   const u32 br = dev.m_WindowPacket.WindowScissorBR;
+   int32_t sx1 = int32_t(tl & 0x7FFF) + wx + tx, sy1 = int32_t((tl >> 16) & 0x7FFF) + wy + ty;
+   int32_t sx2 = int32_t(br & 0x7FFF) + wx + tx, sy2 = int32_t((br >> 16) & 0x7FFF) + wy + ty;
++  if (widened && sx2 == 1280)  // SwordMan (widescreen), as the viewport above
++    sx2 = int32_t(GuestScreenWidth());
+   // A target grown for tiling: D3D bounds the window scissor by the tile-sized
+   // surface, and the GPU applies it per tile in window coordinates, so across
+   // the tiles that bound covers the whole target (a one-tile draw is cut to
+@@ -4604,6 +4622,16 @@
+     g_viewport_reuse.predication = g_replay_predication;
+     g_viewport_reuse.viewport = viewport;
+   }
++  // SwordMan (2026-10-26, widescreen): MGR's movies (the prerendered cutscenes, CRI's pixel shader 6E6A2121A431D6E8,
++  // the only new shader when the prologue's starts) cover the whole wider back buffer, stretched; drawn into its
++  // console 1280 columns instead, the present's 2D frame (guest/widescreen.h) shows them 16:9 with bars, under their
++  // subtitles, which are in those columns already.
++  if (ps && ps->hash == 0x6E6A2121A431D6E8ull && GuestScreenWidth() > 1280 &&
++      targets.guest_width == GuestScreenWidth() && viewport.viewport.x == 0.0f &&
++      std::fabs(viewport.viewport.width - float(targets.scale.Size(GuestScreenWidth()))) < 1.0f) {
++    viewport.viewport.width = float(targets.scale.Size(1280));
++    viewport.scissor.right = std::min(viewport.scissor.right, int32_t(targets.scale.Size(1280)));
++  }
+   sc.screen_space = viewport.screen_space ? 1 : 0;
+   std::memcpy(sc.screen_scale, viewport.screen_scale, sizeof(sc.screen_scale));
+   std::memcpy(sc.screen_offset, viewport.screen_offset, sizeof(sc.screen_offset));
+@@ -5865,6 +5893,15 @@
+   const u32 source = flags & 7;
+   const u32 source_va = source == 4 ? device.U32(d3d::kDeviceOffsetDepthStencil)
+                                     : device.U32(d3d::kDeviceOffsetRenderTargets + source * 4);
++  // SwordMan (2026-10-26, widescreen): a resolve (or clear) of the console's 1280 columns of a widened target takes
++  // the whole width.
++  ClearRect widened_rect;
++  if (source_rect && source_rect->x1 == 0 && source_rect->x2 == 1280 && GuestScreenWidth() > 1280 &&
++      IsWidenedSurface(source_va)) {
++    widened_rect = *source_rect;
++    widened_rect.x2 = int32_t(GuestScreenWidth());
++    source_rect = &widened_rect;
++  }
+   HostSurface *surface = GetHostSurfaceLocked(source_va);
+   if (swordman::frame_dump::On() && surface && swordman::frame_dump::Active(TextureFrameLocked())) {
+     const ClearRect r = source_rect ? *source_rect : ClearRect{0, 0, -1, -1};
+@@ -5902,6 +5939,9 @@
+     return src.x2 > src.x1 && src.y2 > src.y1;
+   };
+ 
++  // SwordMan (2026-10-26, widescreen): the game's 1280x720 copies of the screen follow the wider screen.
++  if (surface && dest_texture_va && dest_level == 0)
++    WidenScreenTexture(dest_texture_va, surface->width, surface->height);
+   if (surface && dest_texture_va) {
+     if (surface->depth) {
+       HostTexture *dest =
+@@ -6156,6 +6196,9 @@
+   image.height = texture->alloc_height;
+   image.source_width = texture->scale.Size(texture->width);
+   image.source_height = texture->scale.Size(texture->height);
++  // SwordMan (2026-10-26, widescreen): a 2D frame shows the console's 1280 columns (guest/widescreen.h).
++  if (Frame2D() && texture->width == GuestScreenWidth() && texture->width > 1280 && texture->height == 720)
++    image.source_width = texture->scale.Size(1280);
+   return image;
+ }
+ 
+--- a/app/src/renut_engine/gpu/render/surfaces.cpp
++++ b/app/src/renut_engine/gpu/render/surfaces.cpp
+@@ -404,6 +404,7 @@
+   // Targets made before the first Swap are of the configured scale too.
+   if (!g_resolution_latched)
+     LatchResolutionScaleLocked();
++  WidenScreenSurface(surface_va);  // SwordMan (2026-10-26, widescreen)
+   const auto *desc = GuestPtr<const d3d::SurfaceDesc>(surface_va + sizeof(d3d::Resource));
+   if (!desc)
+     return nullptr;
+--- a/app/src/renut_engine/gpu/backend/present.cpp
++++ b/app/src/renut_engine/gpu/backend/present.cpp
+@@ -4,6 +4,7 @@
+  *          submit and present.
+  */
+ #include <algorithm>
++#include <cmath>
+ #include <atomic>
+ #include <bit>
+ #include <chrono>
+@@ -57,6 +58,13 @@
+                     "Renut's renderer: apply the game's display gamma ramp at scan-out, as the Xbox 360's display "
+                     "controller, the emulated GPU and the native renderer do (off: the frame as rendered, lighter)");
+ 
++// SwordMan (2026-10-26): FitFrame below; widescreen: guest/sa2_screen.cpp.
++REXCVAR_DEFINE_STRING(swordman_aspect, "original", "SwordMan",
++                      "Proporcao: original = 16:9 com barras; stretch = esticar ate a tela; widescreen = o jogo "
++                      "desenha na proporcao da tela (hor+, vale no proximo arranque do jogo)")
++    .allowed({"original", "stretch", "widescreen"})
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++
+ REXCVAR_DEFINE_BOOL(renut_vsync, true, "Nuts&Bolts/Graphics",
+                     "Show each frame at the display's refresh: no tearing, and the game runs at "
+                     "the refresh rate (frame_cap then only limits below it). Off shows frames at "
+@@ -102,32 +110,27 @@
+   }
+ }
+ 
+-// The most of the game's frame trimmed off either axis to fill the output.
+-constexpr float kMaxTrim = 0.15f;
++// SwordMan (2026-10-26): how the game's frame fills a screen that is not its shape (a 20:9 phone, say).
++// original: the whole frame, with bars; stretch: the whole frame stretched over the screen; widescreen: the game
++// renders at the screen's shape (guest/sa2_screen.cpp, the game's screen width at start), so it fills it as is.
++// Before, the frame covered the screen and lost up to 15% of each edge (made for maximized PC windows), which on a
++// phone cut the HUD.
+ 
+ struct FrameFit {
+   plume::RenderViewport viewport;
+   float visible[2] = {1.0f, 1.0f};  // the share of the frame shown on each axis
+ };
+ 
+-// The frame fills the output (a window that is not the frame's shape, say a
+-// maximized one) without bars: it covers it, keeping its proportions, and the
+-// part that overflows is trimmed evenly from both edges. Past kMaxTrim, the
+-// rest is fitted with bars.
+ FrameFit FitFrame(uint32_t out_w, uint32_t out_h, uint32_t src_w, uint32_t src_h) {
+   FrameFit fit;
+   fit.viewport = plume::RenderViewport(0.0f, 0.0f, float(out_w), float(out_h));
+-  if (src_w == 0 || src_h == 0 || out_w == 0 || out_h == 0)
++  if (src_w == 0 || src_h == 0 || out_w == 0 || out_h == 0 || REXCVAR_GET(swordman_aspect) == "stretch")
+     return fit;
+   const float out_aspect = float(out_w) / float(out_h);
+-  float src_aspect = float(src_w) / float(src_h);
+-  if (src_aspect > out_aspect) {
+-    fit.visible[0] = std::max(out_aspect / src_aspect, 1.0f - kMaxTrim);
+-    src_aspect *= fit.visible[0];
+-  } else {
+-    fit.visible[1] = std::max(src_aspect / out_aspect, 1.0f - kMaxTrim);
+-    src_aspect /= fit.visible[1];
+-  }
++  const float src_aspect = float(src_w) / float(src_h);
++  // Within half a percent: a frame of the screen's shape whose width was rounded to 16.
++  if (std::fabs(src_aspect / out_aspect - 1.0f) < 0.005f)
++    return fit;
+   float w = float(out_w), h = float(out_h);
+   if (src_aspect > out_aspect)
+     h = w / src_aspect;
+--- a/app/src/renut_engine/gpu/guest/sa2_screen.cpp
++++ b/app/src/renut_engine/gpu/guest/sa2_screen.cpp
+@@ -8,10 +8,105 @@
+  */
+ #include "renut_engine/gpu/guest/widescreen.h"
+ 
++#include <atomic>
++
++#include "renut_engine/gpu/d3d/d3d.h"
++#include "renut_engine/gpu/guest/guest_memory.h"
++#include "renut_engine/gpu/log.h"
++
+ namespace renut::gpu {
+ 
++namespace {
++// SwordMan (2026-10-26): the width the game created its device with (SetGuestScreenWidth), 0 until then.
++std::atomic<uint32_t> g_width{0};
++}  // namespace
++
+ uint32_t GuestScreenWidth() {
+-  return 1280;
++  const uint32_t width = g_width.load(std::memory_order_acquire);
++  return width ? width : 1280;
++}
++
++void SetGuestScreenWidth(uint32_t width) {
++  g_width.store(width, std::memory_order_release);
++}
++
++bool WidenScreenTexture(u32 header_va, uint32_t source_width, uint32_t source_height) {
++  const uint32_t width = GuestScreenWidth();
++  if (width <= 1280 || source_width != width || source_height != 720)
++    return false;
++  auto *texture = GuestPtr<d3d::BaseTexture>(header_va);
++  if (!texture)
++    return false;
++  d3d::TextureFetchConstant &fetch = texture->Format;
++  const uint32_t size = fetch.dword[2].get();
++  if ((size & 0x1FFF) + 1 != 1280 || ((size >> 13) & 0x1FFF) + 1 != 720)
++    return false;
++  // XGSetTextureHeader's fields: the pitch in 32-texel units (dword 0, bits 22-30), width - 1 (dword 2, bits 0-12).
++  // The game's memory behind it stays a 1280 one: the texels live in the host texture, which follows the header.
++  const uint32_t pitch = (width + 31) / 32;
++  fetch.dword[0] = (fetch.dword[0].get() & ~(0x1FFu << 22)) | (pitch << 22);
++  fetch.dword[2] = (size & ~0x1FFFu) | (width - 1);
++  RGPU_INFO("Widescreen: texture {:08X} 1280x720 -> {}x720", header_va, width);
++  return true;
+ }
+ 
+ } // namespace renut::gpu
++
++namespace renut::gpu {
++
++namespace {
++// The render targets WidenScreenSurface widened (the scene's; not the device's back buffer, already the screen's).
++constexpr int kMaxWidened = 32;
++u32 g_widened[kMaxWidened] = {};
++int g_widened_count = 0;
++}  // namespace
++
++bool IsWidenedSurface(u32 surface_va) {
++  for (int i = 0; i < g_widened_count; ++i)
++    if (g_widened[i] == surface_va)
++      return true;
++  return false;
++}
++
++namespace {
++std::atomic<uint32_t> g_widened_draws{0};
++std::atomic<bool> g_frame_2d{false};
++}  // namespace
++
++void NoteWidenedDraw() {
++  g_widened_draws.fetch_add(1, std::memory_order_relaxed);
++}
++
++uint32_t TakeWidenedDraws() {
++  return g_widened_draws.exchange(0, std::memory_order_relaxed);
++}
++
++void SetFrame2D(bool frame_2d) {
++  g_frame_2d.store(frame_2d, std::memory_order_relaxed);
++}
++
++bool Frame2D() {
++  return g_frame_2d.load(std::memory_order_relaxed);
++}
++
++bool WidenScreenSurface(u32 surface_va) {
++  const uint32_t width = GuestScreenWidth();
++  if (width <= 1280)
++    return false;
++  auto *desc = GuestPtr<d3d::SurfaceDesc>(surface_va + sizeof(d3d::Resource));
++  if (!desc)
++    return false;
++  const uint32_t size = desc->Size.get();
++  if (d3d::SurfaceWidth(size) != 1280 || d3d::SurfaceHeight(size) != 720 || (desc->SurfaceInfo.get() & 0x3FFF) != 1280)
++    return false;
++  desc->Size = (size & ~(0x3FFFu << 18)) | ((width - 1) << 18);
++  desc->SurfaceInfo = (desc->SurfaceInfo.get() & ~0x3FFFu) | width;
++  if (!IsWidenedSurface(surface_va) && g_widened_count < kMaxWidened)
++    g_widened[g_widened_count++] = surface_va;
++  static uint32_t logged = 0;
++  if (logged++ < 16)
++    RGPU_INFO("Widescreen: surface {:08X} 1280x720 -> {}x720", surface_va, width);
++  return true;
++}
++
++}  // namespace renut::gpu
+--- a/app/src/renut_engine/gpu/guest/widescreen.h
++++ b/app/src/renut_engine/gpu/guest/widescreen.h
+@@ -19,4 +19,28 @@
+ // stays 720.
+ uint32_t GuestScreenWidth();
+ 
++// SwordMan (2026-10-26, sa2_screen.cpp): the game's screen width, set when it creates its device.
++void SetGuestScreenWidth(uint32_t width);
++
++// SwordMan (2026-10-26): a 1280x720 texture the game resolves its wider screen into is made the screen's width
++// (render/draw.cpp, before the resolve). True when the header changed.
++bool WidenScreenTexture(uint32_t header_va, uint32_t source_width, uint32_t source_height);
++
++// SwordMan (2026-10-26): a 1280x720 render target (the scene's, which MGR sizes apart from its device) is made the
++// screen's width when bound (render/surfaces.cpp). True when the header changed.
++bool WidenScreenSurface(uint32_t surface_va);
++// One WidenScreenSurface widened: its 1280x720 viewports and scissors are widened too (render/draw.cpp).
++bool IsWidenedSurface(uint32_t surface_va);
++
++// SwordMan (2026-10-26): frames with (almost) no draw to a widened target (logos, videos, menus) are 2D in the
++// console's 1280 columns, at the left of the wider back buffer: the present shows those 1280 columns, 16:9 with bars.
++// On the RP5 the logos make 3 such draws a frame (the scene's clears and passes), the movies (the prologue's cutscene)
++// 0, the 3D title 63-106, combat 150-380.
++// NoteWidenedDraw: a draw into a widened target (render/draw.cpp). TakeWidenedDraws: at the Swap, the frame's count,
++// and clears it. SetFrame2D / Frame2D: the presented frame's state (render thread, FrontBufferImageLocked).
++void NoteWidenedDraw();
++uint32_t TakeWidenedDraws();
++void SetFrame2D(bool frame_2d);
++bool Frame2D();
++
+ } // namespace renut::gpu
+--- a/app/src/renut_engine/gpu/d3d/hooks/device.cpp
++++ b/app/src/renut_engine/gpu/d3d/hooks/device.cpp
+@@ -47,6 +47,7 @@
+ 
+ #include "renut_engine/perf/frame_stats.h"
+ #include "renut_engine/gpu/guest/callbacks.h"
++#include "renut_engine/gpu/guest/widescreen.h"  // SwordMan (2026-10-26)
+ #include "renut_engine/gpu/guest/command_buffers.h"
+ #include "renut_engine/gpu/d3d/d3d.h"
+ #include "renut_engine/gpu/d3d/d3d_native.h"
+@@ -936,10 +937,13 @@
+     // (sa2_renut_gamma_ramp).
+   }
+ 
+-  render_thread::QueueFrame([front_buffer, swap_ordinal, device_va, completed_swap] {
++  // SwordMan (2026-10-26, widescreen): a frame with under 8 draws to a widened target is 2D (guest/widescreen.h).
++  const bool frame_2d = renut::gpu::GuestScreenWidth() > 1280 && renut::gpu::TakeWidenedDraws() < 8;
++  render_thread::QueueFrame([front_buffer, swap_ordinal, device_va, completed_swap, frame_2d] {
+     PresentImage image;
+     {
+       std::lock_guard lock(State().mutex);
++      renut::gpu::SetFrame2D(frame_2d);
+       image = FrontBufferImageLocked(front_buffer);
+       if (image.texture)
+         State().last_front_buffer = front_buffer;

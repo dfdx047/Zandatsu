@@ -102,6 +102,8 @@
     <string name="settings_aspect_mode">Imagem</string>
     <string name="aspect_original">Original 16:9</string>
     <string name="aspect_stretch">Esticar</string>
+    <string name="aspect_widescreen">Widescreen (experimental)</string>
+    <string name="aspect_widescreen_sub">Widescreen: o jogo desenha na proporção da tela (mais visão dos lados; o HUD fica no layout 16:9). Vale no próximo arranque do jogo.</string>
     <string name="settings_controls">Controles</string>
     <string name="settings_touch">Controles na tela</string>
     <string name="settings_touch_sub">Botões por cima do jogo.</string>

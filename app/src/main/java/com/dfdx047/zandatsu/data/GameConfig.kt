@@ -39,7 +39,10 @@ data class GameConfig(
     // 0114 (experimental): aritmetica dos pixel shaders em fp16 (RelaxedPrecision).
     val psFp16: Boolean = false,
     val showFps: Boolean = false,             // debug_overlay
-    val letterbox: Boolean = true,            // present_letterbox (16:9 com barras / esticar)
+    // Proporcao (26/10): original = 16:9 com barras, stretch = esticar ate a tela (present_letterbox no Xenia,
+    // swordman_aspect no Renut), widescreen = o jogo desenha na proporcao da tela (hor+, so no Renut, experimental;
+    // no Xenia fica como original).
+    val aspect: String = "original",
     val volume: Int = 100,                    // volume geral 0-100 (app, rex::audio::SetOutputGain)
     val vibration: Boolean = true,            // vibration
     val deadzone: Double = 0.0,               // left/right_stick_deadzone_percentage 0-0.5
@@ -138,7 +141,8 @@ data class GameConfig(
             // 30 FPS: o jogo continua a 60 (mesma velocidade) e so metade dos frames e desenhada.
             "dbz3_frameskip" to if (frameMode == FrameMode.FPS30) 1 else 0,
             "debug_overlay" to showFps,
-            "present_letterbox" to letterbox,
+            "present_letterbox" to (aspect != "stretch"),
+            "swordman_aspect" to aspect,
             "vibration" to vibration,
             "left_stick_deadzone_percentage" to deadzone.coerceIn(0.0, 1.0),
             "right_stick_deadzone_percentage" to deadzone.coerceIn(0.0, 1.0),
@@ -223,6 +227,7 @@ data class GameConfig(
 
     companion object {
         val EFFECTS = listOf("bilinear", "cas", "fsr")
+        val ASPECTS = listOf("original", "stretch", "widescreen")
         val FSR_QUALITY = listOf("auto", "quality", "balanced", "performance", "ultra_performance")
         val FXAA = listOf("none", "fxaa", "fxaa_extreme")
         /** Pixel shaders do desfoque do brilho do MGR (swordman_skip_ps). */
@@ -307,7 +312,8 @@ data class GameConfig(
                 // no RP5); a opcao saiu do launcher e fica sempre desligada.
                 psFp16 = false,
                 showFps = bool("debug_overlay", d.showFps),
-                letterbox = bool("present_letterbox", d.letterbox),
+                aspect = str("swordman_aspect", if (bool("present_letterbox", true)) "original" else "stretch")
+                    .let { if (it in ASPECTS) it else "original" },
                 volume = int("swordman_volume", d.volume).coerceIn(0, 100),
                 vibration = bool("vibration", d.vibration),
                 deadzone = dbl("left_stick_deadzone_percentage", d.deadzone).coerceIn(0.0, 0.5),

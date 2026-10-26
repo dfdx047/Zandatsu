@@ -56,6 +56,8 @@ Se já extraiu o jogo numa versão antiga, o botão **Apagar arquivos extraídos
   Ultra (AYN Odin 3 2K, 60), ou Personalizado.
 - **Renut:** resolução 360p, 540p, 720p (console), 1080p\*, 2K\* e 4K\* (\* = experimental); filtro final
   bilinear, AMD FSR 1 ou AMD CAS; sombras; brilho (bloom); anisotrópico até 16x.
+- **Proporção:** Original (16:9 com barras), Esticar ou Widescreen (só Renut, experimental: o jogo desenha na
+  proporção da tela, hor+; logos e vídeos ficam 16:9 com barras).
 - **Xenia:** resolução 360p a 4K, AMD FSR, FXAA, 30/60 FPS ou 120 FPS com interpolação, sombras, brilho.
 - Tudo também no menu do jogo (botão Voltar), com o jogo a correr.
 
@@ -65,6 +67,7 @@ Se já extraiu o jogo numa versão antiga, o botão **Apagar arquivos extraídos
 - **FSR mais leve:** o mesmo FSR 1 custa cerca de 4× menos GPU (meia precisão): no RP5 com a GPU no mínimo
   (305 MHz), de 18,7 para 4,6 ms por frame.
 - **1080p no RP5:** de 44 para 47 fps na luta (continua experimental, ver os problemas conhecidos).
+- **Widescreen (experimental):** no RP5 em 20:9 e 21:9, 54–55 fps a 720p.
 - **Perfis com aparelho-alvo:** cada perfil foi medido no seu aparelho; o Médio dá 60 fps na luta no RP5 (59,9).
 - **Primeiro arranque:** "Detectamos a sua GPU", com o perfil sugerido pela tabela de aparelhos testados ou pela
   família da GPU.
@@ -130,6 +133,8 @@ If you extracted the game with an older version, the **Delete old extracted file
   Ultra (AYN Odin 3 2K, 60), or Custom.
 - **Renut:** resolution 360p, 540p, 720p (console), 1080p\*, 2K\* and 4K\* (\* = experimental); final filter
   bilinear, AMD FSR 1 or AMD CAS; shadows; bloom; anisotropic up to 16x.
+- **Aspect ratio:** Original (16:9 with bars), Stretch or Widescreen (Renut only, experimental: the game renders at
+  the screen's shape, hor+; logos and videos stay 16:9 with bars).
 - **Xenia:** resolution 360p to 4K, AMD FSR, FXAA, 30/60 FPS or 120 FPS with interpolation, shadows, bloom.
 - All of it is also in the in-game menu (Back button), while the game runs.
 
@@ -139,6 +144,7 @@ If you extracted the game with an older version, the **Delete old extracted file
 - **Lighter FSR:** the same FSR 1 costs about 4× less GPU time (half precision): on the RP5 with the GPU at its
   minimum (305 MHz), from 18.7 to 4.6 ms a frame.
 - **1080p on the RP5:** from 44 to 47 fps in combat (still experimental, see the known issues).
+- **Widescreen (experimental):** on the RP5 at 20:9 and 21:9, 54–55 fps at 720p.
 - **Profiles with a target device:** each profile was measured on its device; Medium runs combat at 60 fps on the
   RP5 (59.9).
 - **First launch:** "We detected your GPU", with the profile suggested from the tested-device table or the GPU family.
@@ -203,6 +209,8 @@ Si extrajiste el juego con una versión anterior, el botón **Borrar archivos ex
   Ultra (AYN Odin 3 2K, 60) o Personalizado.
 - **Renut:** resolución 360p, 540p, 720p (consola), 1080p\*, 2K\* y 4K\* (\* = experimental); filtro final
   bilineal, AMD FSR 1 o AMD CAS; sombras; brillo (bloom); anisotrópico hasta 16x.
+- **Proporción:** Original (16:9 con barras), Estirar o Panorámica (solo Renut, experimental: el juego dibuja con la
+  forma de la pantalla, hor+; los logos y los vídeos quedan en 16:9 con barras).
 - **Xenia:** resolución de 360p a 4K, AMD FSR, FXAA, 30/60 FPS o 120 FPS con interpolación, sombras, brillo.
 - Todo también está en el menú del juego (botón Atrás), con el juego en marcha.
 
@@ -212,6 +220,7 @@ Si extrajiste el juego con una versión anterior, el botón **Borrar archivos ex
 - **FSR más ligero:** el mismo FSR 1 cuesta unas 4 veces menos GPU (media precisión): en la RP5 con la GPU al mínimo
   (305 MHz), de 18,7 a 4,6 ms por fotograma.
 - **1080p en la RP5:** de 44 a 47 fps en combate (sigue siendo experimental, ver los problemas conocidos).
+- **Panorámica (experimental):** en la RP5 a 20:9 y 21:9, 54–55 fps a 720p.
 - **Perfiles con dispositivo objetivo:** cada perfil se midió en su dispositivo; el Medio da 60 fps en combate en la
   RP5 (59,9).
 - **Primer arranque:** "Detectamos tu GPU", con el perfil sugerido por la tabla de dispositivos probados o por la
