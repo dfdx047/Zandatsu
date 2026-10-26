@@ -1,0 +1,784 @@
+SwordMan (Android): Renut na Mali (RG Cube, Mali-G57 r40).
+- Texturas BC (DXT1/3/5, DXT5A, DXN) sem textureCompressionBC: descomprimidas no upload por compute
+  (bc_decode_cs, enderecos do anel de upload) ou na CPU. swordman_renut_bc_decode = auto|native|compute|cpu.
+- maxBoundDescriptorSets < 8 (Mali: 7): layout dos draws compactado em 5 sets e SPIR-V renumerado.
+- Capacidades textureCompressionBC e maxBoundDescriptorSets no plume.
+
+--- a/app/thirdparty/plume/plume_render_interface_types.h
++++ b/app/thirdparty/plume/plume_render_interface_types.h
+@@ -1809,6 +1809,12 @@
+ 
+         // Buffers.
+         bool bufferDeviceAddress = false;
++
++        // Textures. SwordMan (Android): BC formats sampled natively (Mali has none; Renut decodes them then).
++        bool textureCompressionBC = false;
++
++        // Descriptor sets. SwordMan (Android): Mali-G57 (r40) binds 7, Renut's draws use 8 unless compacted.
++        uint32_t maxBoundDescriptorSets = 8;
+         
+         // Samplers.
+         bool samplerMirrorClampToEdge = false;
+--- a/app/thirdparty/plume/plume_vulkan.cpp
++++ b/app/thirdparty/plume/plume_vulkan.cpp
+@@ -4894,6 +4894,8 @@
+ 
+         // Fill capabilities.
+         capabilities.geometryShader = deviceFeatures.features.geometryShader;
++        capabilities.textureCompressionBC = deviceFeatures.features.textureCompressionBC;  // SwordMan (Android)
++        capabilities.maxBoundDescriptorSets = physicalDeviceProperties.limits.maxBoundDescriptorSets;  // SwordMan (Android)
+         capabilities.raytracing = rayTracingSupported;
+         capabilities.raytracingStateUpdate = false;
+         capabilities.sampleLocations = (sampleLocationProperties.sampleLocationSampleCounts != 0);
+--- a/app/src/renut_engine/gpu/render/format.h
++++ b/app/src/renut_engine/gpu/render/format.h
+@@ -158,8 +158,27 @@
+   R10G11B11,     // Fmt10_11_11: R 10, G 11, B 11 bits, UNORM, to RGBA16 UNORM
+   Depth24,       // Fmt24_8 / Fmt24_8_Float: depth in the high 24 bits, to R32_FLOAT
+   CTX1,          // 4x4 blocks of two-component (normal map) data, decoded to R8G8
++  // SwordMan (Android): BC blocks decoded for a device without textureCompressionBC (DecodedBcInfo): BC1-3 to
++  // RGBA8, BC4 to R8, BC5 to R8G8. Decoded by bc_decode_cs on the GPU, or by DecodeBlockRow.
++  BC1,
++  BC2,
++  BC3,
++  BC4,
++  BC5,
+ };
+ 
++// SwordMan (Android): the BC conversions (BC1 = 1 .. BC5 = 5, the bc_decode_cs format), 0 for any other.
++inline uint32_t BcDecodeFormat(TexelConversion conversion) {
++  switch (conversion) {
++  case TexelConversion::BC1: return 1;
++  case TexelConversion::BC2: return 2;
++  case TexelConversion::BC3: return 3;
++  case TexelConversion::BC4: return 4;
++  case TexelConversion::BC5: return 5;
++  default: return 0;
++  }
++}
++
+ struct TextureFormatInfo {
+   plume::RenderFormat host = plume::RenderFormat::UNKNOWN;
+   TexelConversion conversion = TexelConversion::Unsupported;
+@@ -177,6 +196,10 @@
+ // signed in the fetch constant).
+ TextureFormatInfo GetTextureFormatInfo(GpuTextureFormat format, bool is_signed);
+ 
++// SwordMan (Android): a BC format's info (GetTextureFormatInfo, compressed) as decoded blocks of plain texels, for a
++// device that cannot sample BC; 'info' unchanged for any other format.
++TextureFormatInfo DecodedBcInfo(const TextureFormatInfo &info);
++
+ // Converts 'count' guest blocks (already byte-swapped per the fetch endian)
+ // into host blocks.
+ void ConvertTexels(TexelConversion conversion, const uint8_t *src, uint8_t *dst, uint32_t count);
+--- a/app/src/renut_engine/gpu/render/format.cpp
++++ b/app/src/renut_engine/gpu/render/format.cpp
+@@ -239,6 +239,44 @@
+   }
+ }
+ 
++TextureFormatInfo DecodedBcInfo(const TextureFormatInfo &info) {
++  using F = plume::RenderFormat;
++  if (!info.compressed)
++    return info;
++  TextureFormatInfo out = info;
++  uint32_t texel_bytes = 4;
++  switch (info.host) {
++  case F::BC1_UNORM:
++    out.conversion = TexelConversion::BC1;
++    out.host = F::R8G8B8A8_UNORM;
++    break;
++  case F::BC2_UNORM:
++    out.conversion = TexelConversion::BC2;
++    out.host = F::R8G8B8A8_UNORM;
++    break;
++  case F::BC3_UNORM:
++    out.conversion = TexelConversion::BC3;
++    out.host = F::R8G8B8A8_UNORM;
++    break;
++  case F::BC4_UNORM:
++    out.conversion = TexelConversion::BC4;
++    out.host = F::R8_UNORM;
++    texel_bytes = 1;
++    break;
++  case F::BC5_UNORM:
++    out.conversion = TexelConversion::BC5;
++    out.host = F::R8G8_UNORM;
++    texel_bytes = 2;
++    break;
++  default:
++    return info;
++  }
++  out.host_block_bytes = info.block_size * info.block_size * texel_bytes;
++  out.compressed = false;
++  out.decoded_blocks = true;
++  return out;
++}
++
+ namespace {
+ 
+ inline uint8_t Expand(uint32_t value, uint32_t bits) {
+@@ -332,8 +370,114 @@
+   }
+ }
+ 
++namespace {
++
++// SwordMan (Android): BC decoding on the CPU, as bc_decode_cs does it (swordman_renut_bc_decode = cpu).
++uint32_t Load32(const uint8_t *p) {
++  uint32_t v;
++  std::memcpy(&v, p, 4);
++  return v;
++}
++
++void Rgb565(uint32_t c, uint32_t out[3]) {
++  const uint32_t r = (c >> 11) & 31, g = (c >> 5) & 63, b = c & 31;
++  out[0] = (r << 3) | (r >> 2);
++  out[1] = (g << 2) | (g >> 4);
++  out[2] = (b << 3) | (b >> 2);
++}
++
++// The 16 colours of a BC1 colour block as RGBA8 words, texel i at out[i].
++void DecodeColorBlock(const uint8_t *block, bool opaque, uint32_t out[16]) {
++  const uint32_t endpoints = Load32(block), indices = Load32(block + 4);
++  const uint32_t c0 = endpoints & 0xFFFF, c1 = endpoints >> 16;
++  uint32_t a[3], b[3], palette[4];
++  Rgb565(c0, a);
++  Rgb565(c1, b);
++  auto pack = [](uint32_t r, uint32_t g, uint32_t bl, uint32_t al) { return r | (g << 8) | (bl << 16) | (al << 24); };
++  palette[0] = pack(a[0], a[1], a[2], 255);
++  palette[1] = pack(b[0], b[1], b[2], 255);
++  if (opaque || c0 > c1) {
++    palette[2] = pack((2 * a[0] + b[0] + 1) / 3, (2 * a[1] + b[1] + 1) / 3, (2 * a[2] + b[2] + 1) / 3, 255);
++    palette[3] = pack((a[0] + 2 * b[0] + 1) / 3, (a[1] + 2 * b[1] + 1) / 3, (a[2] + 2 * b[2] + 1) / 3, 255);
++  } else {
++    palette[2] = pack((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2, 255);
++    palette[3] = 0;
++  }
++  for (uint32_t i = 0; i < 16; ++i)
++    out[i] = palette[(indices >> (2 * i)) & 3];
++}
++
++// The 16 values of a BC4 block.
++void DecodeAlphaBlock(const uint8_t *block, uint8_t out[16]) {
++  const uint32_t a0 = block[0], a1 = block[1];
++  uint64_t bits = 0;
++  for (uint32_t i = 0; i < 6; ++i)
++    bits |= uint64_t(block[2 + i]) << (8 * i);
++  for (uint32_t i = 0; i < 16; ++i) {
++    const uint32_t index = uint32_t(bits >> (3 * i)) & 7;
++    uint32_t v;
++    if (index == 0)
++      v = a0;
++    else if (index == 1)
++      v = a1;
++    else if (a0 > a1)
++      v = ((8 - index) * a0 + (index - 1) * a1 + 3) / 7;
++    else if (index == 6)
++      v = 0;
++    else if (index == 7)
++      v = 255;
++    else
++      v = ((6 - index) * a0 + (index - 1) * a1 + 2) / 5;
++    out[i] = uint8_t(v);
++  }
++}
++
++void DecodeBcRow(TexelConversion conversion, const uint8_t *src, uint8_t *dst, uint32_t count,
++                 uint32_t dst_row_pitch) {
++  const uint32_t format = BcDecodeFormat(conversion);
++  const uint32_t block_bytes = (format == 1 || format == 4) ? 8 : 16;
++  const uint32_t texel_bytes = format == 4 ? 1 : format == 5 ? 2 : 4;
++  for (uint32_t b = 0; b < count; ++b, src += block_bytes) {
++    uint8_t *out = dst + size_t(b) * 4 * texel_bytes;
++    if (format == 4 || format == 5) {
++      uint8_t r[16], g[16];
++      DecodeAlphaBlock(src, r);
++      if (format == 5)
++        DecodeAlphaBlock(src + 8, g);
++      for (uint32_t i = 0; i < 16; ++i) {
++        uint8_t *texel = out + size_t(i / 4) * dst_row_pitch + (i % 4) * texel_bytes;
++        texel[0] = r[i];
++        if (format == 5)
++          texel[1] = g[i];
++      }
++      continue;
++    }
++    uint32_t color[16];
++    DecodeColorBlock(format == 1 ? src : src + 8, format != 1, color);
++    uint8_t alpha[16];
++    if (format == 3) {
++      DecodeAlphaBlock(src, alpha);
++    } else if (format == 2) {
++      for (uint32_t i = 0; i < 16; ++i)
++        alpha[i] = uint8_t(((src[i / 2] >> (4 * (i & 1))) & 15) * 17);
++    }
++    for (uint32_t i = 0; i < 16; ++i) {
++      uint32_t c = color[i];
++      if (format != 1)
++        c = (c & 0x00FFFFFFu) | (uint32_t(alpha[i]) << 24);
++      std::memcpy(out + size_t(i / 4) * dst_row_pitch + (i % 4) * 4, &c, 4);
++    }
++  }
++}
++
++} // namespace
++
+ void DecodeBlockRow(TexelConversion conversion, const uint8_t *src, uint8_t *dst, uint32_t count,
+                     uint32_t dst_row_pitch) {
++  if (BcDecodeFormat(conversion)) {
++    DecodeBcRow(conversion, src, dst, count, dst_row_pitch);
++    return;
++  }
+   if (conversion != TexelConversion::CTX1)
+     return;
+   // CTX1, as the game's own encoder writes it (EncodeBlockCTX1, 0x828D1580):
+--- a/app/src/renut_engine/gpu/render/textures.cpp
++++ b/app/src/renut_engine/gpu/render/textures.cpp
+@@ -422,6 +422,23 @@
+                 plume::RenderTextureBarrier(t.texture.get(), plume::RenderTextureLayout::COPY_DEST));
+   t.layout = plume::RenderTextureLayout::COPY_DEST;
+ 
++  // SwordMan (Android): BC decoded on the GPU (bc_decode_cs): the guest blocks are staged as they are (endian-swapped,
++  // rows of blocks), decoded into a second staging allocation, and that is copied as decoded blocks. The dispatches
++  // of all levels go first, between two barriers, then the copies.
++  const bool gpu_decode = BcDecodeFormat(t.info.conversion) && s.bc_decode == BcDecodeMode::Compute &&
++                          s.bc_decode_pipeline && UsesVulkanBindings();
++  TextureFormatInfo raw_info = t.info;
++  raw_info.conversion = TexelConversion::Copy;
++  raw_info.host_block_bytes = raw_info.guest_block_bytes;
++  raw_info.decoded_blocks = false;
++  struct BcCopy {
++    uint32_t level, slice, copy_w, copy_h, d, row_texels, blocks_h, slice_pitch;
++    UploadAllocation staging;
++  };
++  std::vector<BcCopy> bc_copies;
++  std::vector<BcDecodePush> bc_dispatches;
++  std::vector<plume::RenderBuffer *> bc_buffers;
++
+   const bool is_3d_data = fetch.Dimension() == TextureDimension::Tex3D;
+   // Host array layers (cube faces, stacked layers); a stacked texture's extra
+   // layer (StackedLayers) repeats its last one.
+@@ -461,6 +478,39 @@
+       if (!staging)
+         return false;
+       auto *dst = static_cast<uint8_t *>(staging.cpu);
++      if (gpu_decode) {
++        // SwordMan (Android): the blocks to their own staging, the decoded texels written by the GPU into 'staging'.
++        const uint32_t raw_row_pitch = (blocks_w * raw_info.guest_block_bytes + 255u) & ~255u;
++        const uint32_t raw_slice_pitch = raw_row_pitch * blocks_h;
++        UploadAllocation blocks = s.uploads[s.frame].Allocate(uint64_t(raw_slice_pitch) * d, 512);
++        if (!blocks || !blocks.gpu_address || !staging.gpu_address)
++          return false;
++        auto *raw = static_cast<uint8_t *>(blocks.cpu);
++        if (defer_read)
++          g_pending_fills.push_back({raw_info, fetch, src, blocks_w, blocks_h, d, raw, raw_row_pitch, raw_slice_pitch});
++        else
++          ReadLevel(raw_info, fetch, src, blocks_w, blocks_h, d, raw, raw_row_pitch, raw_slice_pitch);
++        BcDecodePush push{};
++        push.src = blocks.gpu_address;
++        push.dst = staging.gpu_address;
++        push.blocks_w = blocks_w;
++        push.blocks_h = blocks_h;
++        push.block_count = blocks_w * blocks_h * d;
++        push.format = BcDecodeFormat(t.info.conversion);
++        push.src_row_pitch = raw_row_pitch;
++        push.src_slice_pitch = raw_slice_pitch;
++        push.dst_row_pitch = row_pitch / bs;
++        push.dst_slice_pitch = slice_pitch;
++        bc_dispatches.push_back(push);
++        auto *buffer = const_cast<plume::RenderBuffer *>(staging.ref.ref);
++        if (std::find(bc_buffers.begin(), bc_buffers.end(), buffer) == bc_buffers.end())
++          bc_buffers.push_back(buffer);
++        const uint32_t copy_w = std::min(blocks_w * bs, std::max(1u, t.alloc_width >> level));
++        const uint32_t copy_h = std::min(blocks_h * bs, std::max(1u, t.alloc_height >> level));
++        bc_copies.push_back(
++            {level, slice, copy_w, copy_h, d, row_pitch / t.info.host_block_bytes * bs, blocks_h, slice_pitch, staging});
++        continue;
++      }
+       if (defer_read)
+         g_pending_fills.push_back({t.info, fetch, src, blocks_w, blocks_h, d, dst, row_pitch, slice_pitch});
+       else
+@@ -498,6 +548,44 @@
+       }
+     }
+   }
++  if (!bc_dispatches.empty()) {
++    // SwordMan (Android): bc_decode_cs, then the copies of what it wrote. The compute pipeline is bound on its own
++    // bind point (the draw's graphics pipeline and sets stay); the barriers end any render pass, as the texture's did.
++    static const uint32_t kBcProfileLabel = gpu_profile::Label("BC decode");
++    gpu_profile::Mark(s, kBcProfileLabel);
++    std::vector<plume::RenderBufferBarrier> barriers;
++    for (plume::RenderBuffer *buffer : bc_buffers)
++      barriers.push_back(plume::RenderBufferBarrier(buffer, plume::RenderBufferAccess::WRITE));
++    cmd->barriers(plume::RenderBarrierStage::COMPUTE, barriers.data(), uint32_t(barriers.size()));
++    cmd->setComputePipelineLayout(s.bc_decode_layout.get());
++    cmd->setPipeline(s.bc_decode_pipeline.get());
++    for (const BcDecodePush &push : bc_dispatches) {
++      cmd->setComputePushConstants(0, &push, 0, sizeof(push));
++      cmd->dispatch((push.block_count + 63) / 64, 1, 1);
++    }
++    for (plume::RenderBufferBarrier &b : barriers)
++      b.accessBits = plume::RenderBufferAccess::READ;
++    cmd->barriers(plume::RenderBarrierStage::COPY, barriers.data(), uint32_t(barriers.size()));
++    for (const BcCopy &c : bc_copies) {
++      if (c.d > 1 && c.copy_h != c.blocks_h * bs) {
++        // As above: the footprint's height is also its rows per depth slice, one depth slice at a time.
++        for (uint32_t z = 0; z < c.d; ++z) {
++          cmd->copyTextureRegion(
++              plume::RenderTextureCopyLocation::Subresource(t.texture.get(), c.level, c.slice),
++              plume::RenderTextureCopyLocation::PlacedFootprint(c.staging.ref.ref, t.info.host, c.copy_w, c.copy_h,
++                                                                1, c.row_texels,
++                                                                c.staging.ref.offset + uint64_t(z) * c.slice_pitch),
++              0, 0, z, nullptr);
++        }
++      } else {
++        cmd->copyTextureRegion(
++            plume::RenderTextureCopyLocation::Subresource(t.texture.get(), c.level, c.slice),
++            plume::RenderTextureCopyLocation::PlacedFootprint(c.staging.ref.ref, t.info.host, c.copy_w, c.copy_h,
++                                                              c.d, c.row_texels, c.staging.ref.offset),
++            0, 0, 0, nullptr);
++      }
++    }
++  }
+   return true;
+ }
+ 
+@@ -522,6 +610,9 @@
+   t.dimension = HostDimension(fetch);
+   t.guest_format = fetch.Format();
+   t.info = GetTextureFormatInfo(fetch.Format(), AllSigned(fetch));
++  // SwordMan (Android): BC as plain texels where the device cannot sample it (swordman_renut_bc_decode).
++  if (State().bc_decode != BcDecodeMode::Native)
++    t.info = DecodedBcInfo(t.info);
+   t.width = width;
+   t.height = height;
+   t.depth = depth;
+--- a/app/src/renut_engine/gpu/render/pipeline.h
++++ b/app/src/renut_engine/gpu/render/pipeline.h
+@@ -45,6 +45,16 @@
+ constexpr uint32_t kPixelConstantsSet = 6;
+ constexpr uint32_t kSharedConstantsSet = 7;
+ 
++// SwordMan (Android): a device that binds fewer than 8 descriptor sets (Mali-G57, r40: 7) gets the draw layout
++// compacted: the texture table (bound at 0, 1, 2 and 4: one set, each space a view type) at 0 only, the samplers at 1,
++// the constants at 2-4. The draw shaders' SPIR-V is renumbered to match (RemapDrawShaderSets).
++void SetDrawSetsCompact(bool compact);
++bool DrawSetsCompact();
++// The set a draw layout set number (0-7, the shaders' spaces) is bound at.
++uint32_t DrawSetIndex(uint32_t set);
++// Renumbers the DescriptorSet decorations of a draw shader's SPIR-V (words) to DrawSetIndex; nothing when not compact.
++void RemapDrawShaderSets(uint32_t *words, size_t word_count);
++
+ bool BuildDrawLayout(VideoState &s);
+ 
+ // Everything a pipeline is built from. Compared and hashed as raw bytes, so
+--- a/app/src/renut_engine/gpu/render/pipeline.cpp
++++ b/app/src/renut_engine/gpu/render/pipeline.cpp
+@@ -982,6 +982,46 @@
+ 
+ } // namespace
+ 
++namespace {
++bool g_draw_sets_compact = false;
++}
++
++void SetDrawSetsCompact(bool compact) { g_draw_sets_compact = compact; }
++
++bool DrawSetsCompact() { return g_draw_sets_compact; }
++
++uint32_t DrawSetIndex(uint32_t set) {
++  if (!g_draw_sets_compact)
++    return set;
++  switch (set) {
++  case 0:
++  case 1:
++  case 2:
++  case 4:
++    return 0;  // the one texture table
++  case 3:
++    return 1;  // samplers
++  default:
++    return set >= kVertexConstantsSet ? set - kVertexConstantsSet + 2 : set;
++  }
++}
++
++void RemapDrawShaderSets(uint32_t *words, size_t word_count) {
++  if (!g_draw_sets_compact || word_count < 5)
++    return;
++  constexpr uint32_t kOpDecorate = 71;
++  constexpr uint32_t kDecorationDescriptorSet = 34;
++  for (size_t i = 5; i < word_count;) {
++    const uint32_t length = words[i] >> 16;
++    const uint32_t opcode = words[i] & 0xFFFF;
++    if (length == 0 || i + length > word_count)
++      break;
++    if (opcode == kOpDecorate && length >= 4 && words[i + 2] == kDecorationDescriptorSet)
++      words[i + 3] = DrawSetIndex(words[i + 3]);
++    i += length;
++  }
++}
++
+ bool BuildDrawLayout(VideoState &s) {
+   plume::RenderDescriptorSetBuilder textures;
+   textures.begin();
+@@ -995,11 +1035,17 @@
+ 
+   plume::RenderPipelineLayoutBuilder layout;
+   layout.begin(false, true);
++  if (DrawSetsCompact()) {
++    // SwordMan (Android): spaces 0, 1, 2 and 4 all at set 0 (the same table), samplers at 1, constants at 2-4.
++    layout.addDescriptorSet(textures);
++    layout.addDescriptorSet(samplers);
++  } else {
+   layout.addDescriptorSet(textures);  // space0 Texture2D[]
+   layout.addDescriptorSet(textures);  // space1 Texture3D[]
+   layout.addDescriptorSet(textures);  // space2 TextureCube[]
+   layout.addDescriptorSet(samplers);  // space3 SamplerState[]
+   layout.addDescriptorSet(textures);  // space4 Texture2DArray[] (stacked textures)
++  }
+   plume::RenderDescriptorSetBuilder constants;
+   constants.begin();
+   constants.addConstantBufferDynamic(0);
+--- a/app/src/renut_engine/gpu/render/draw.cpp
++++ b/app/src/renut_engine/gpu/render/draw.cpp
+@@ -351,7 +351,7 @@
+   const uint32_t offset32 = uint32_t(offset);
+   if (g_bound.constant_sets[slot] == set && g_bound.constant_offsets[slot] == offset32)
+     return;
+-  cmd->setGraphicsDescriptorSetDynamic(set, set_index, &offset32, 1);
++  cmd->setGraphicsDescriptorSetDynamic(set, DrawSetIndex(set_index), &offset32, 1);  // SwordMan (Android): compact sets
+   g_bound.constant_sets[slot] = set;
+   g_bound.constant_offsets[slot] = offset32;
+ }
+@@ -4908,11 +4908,16 @@
+ 
+   if (!g_bound.layout) {
+     cmd->setGraphicsPipelineLayout(s.draw_layout.get());
++    if (DrawSetsCompact()) {  // SwordMan (Android): see SetDrawSetsCompact
++      cmd->setGraphicsDescriptorSet(s.texture_set.get(), 0);
++      cmd->setGraphicsDescriptorSet(s.sampler_set.get(), 1);
++    } else {
+     cmd->setGraphicsDescriptorSet(s.texture_set.get(), 0);
+     cmd->setGraphicsDescriptorSet(s.texture_set.get(), 1);
+     cmd->setGraphicsDescriptorSet(s.texture_set.get(), 2);
+     cmd->setGraphicsDescriptorSet(s.sampler_set.get(), 3);
+     cmd->setGraphicsDescriptorSet(s.texture_set.get(), 4);
++    }
+     g_bound.layout = true;
+     g_bound.pipeline = nullptr;
+     std::fill(std::begin(g_bound.root_set), std::end(g_bound.root_set), false);
+--- a/app/src/renut_engine/gpu/render/shader_library.cpp
++++ b/app/src/renut_engine/gpu/render/shader_library.cpp
+@@ -2,6 +2,7 @@
+  * @file    gpu/render/shader_library.cpp
+  */
+ #include "renut_engine/gpu/render/shader_library.h"
++#include "renut_engine/gpu/render/pipeline.h"  // SwordMan (Android): RemapDrawShaderSets
+ 
+ #include <algorithm>
+ #include <atomic>
+@@ -146,6 +147,8 @@
+       RGPU_ERROR("SPIR-V decode failed for shader {:016X}", entry.hash);
+       return nullptr;
+     }
++    // SwordMan (Android): the draw layout's compact set numbers (Mali, 7 sets).
++    RemapDrawShaderSets(reinterpret_cast<uint32_t *>(spirv.data()), spirv.size() / 4);
+     return device->createShader(spirv.data(), spirv.size(), "main",
+                                 plume::RenderShaderFormat::SPIRV);
+   }
+--- a/app/src/renut_engine/gpu/backend/video.h
++++ b/app/src/renut_engine/gpu/backend/video.h
+@@ -74,6 +74,28 @@
+ constexpr uint32_t kStreamConvertBuffers = kFramesInFlight + 1;
+ constexpr uint32_t kStreamConvertMaxStrideWords = 255;
+ 
++// SwordMan (Android): matches BcDecodePush in shaders/host/bc_decode_cs.hlsl.
++struct BcDecodePush {
++  uint64_t src;
++  uint64_t dst;
++  uint32_t blocks_w;
++  uint32_t blocks_h;
++  uint32_t block_count;
++  uint32_t format;
++  uint32_t src_row_pitch;
++  uint32_t src_slice_pitch;
++  uint32_t dst_row_pitch;
++  uint32_t dst_slice_pitch;
++};
++static_assert(sizeof(BcDecodePush) == 48);
++
++// SwordMan (Android): how BC textures reach the shaders (swordman_renut_bc_decode, BuildBcDecodePipeline).
++enum class BcDecodeMode : uint8_t {
++  Native,   // BC host formats, copied as they are
++  Compute,  // decoded by bc_decode_cs when uploaded
++  Cpu,      // decoded on the CPU when uploaded
++};
++
+ // Matches TargetReadbackPush in shaders/host/target_readback_cs.hlsl.
+ struct TargetReadbackPush {
+   uint32_t texture_index;
+@@ -207,6 +229,11 @@
+   // draw.cpp): null when the pipeline could not be made, and draws wait for
+   // the exports instead. The set is replaced, never rewritten, when the
+   // buffers change (earlier dispatches of the slot still use it).
++  // SwordMan (Android): BC textures decoded when the device has no BC formats (BuildBcDecodePipeline).
++  BcDecodeMode bc_decode = BcDecodeMode::Native;
++  std::unique_ptr<plume::RenderPipelineLayout> bc_decode_layout;
++  std::unique_ptr<plume::RenderShader> bc_decode_cs;
++  std::unique_ptr<plume::RenderPipeline> bc_decode_pipeline;
+   std::unique_ptr<plume::RenderPipelineLayout> stream_convert_layout;
+   std::unique_ptr<plume::RenderShader> stream_convert_cs;
+   std::unique_ptr<plume::RenderPipeline> stream_convert_pipeline;
+--- a/app/src/renut_engine/gpu/backend/video.cpp
++++ b/app/src/renut_engine/gpu/backend/video.cpp
+@@ -49,6 +49,7 @@
+ #include "host_shaders/rectangle_list_gs.spirv.h"
+ #include "host_shaders/point_sprite_gs.spirv.h"
+ #include "host_shaders/stream_convert_cs.spirv.h"
++#include "host_shaders/bc_decode_cs.spirv.h"  // SwordMan (Android)
+ #include "host_shaders/target_readback_cs.spirv.h"
+ #include "host_shaders/texture_mip_ps.spirv.h"
+ #include "host_shaders/resolve_copy_ps.spirv.h"
+@@ -84,6 +85,15 @@
+                     "points)")
+     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+ 
++// SwordMan (Android): BC textures (the guest's DXT1/3/5, DXT5A, DXN) on a device without textureCompressionBC
++// (Mali): decoded on the GPU by bc_decode_cs when uploaded (compute) or on the CPU (cpu). auto = native where the
++// device has BC, compute elsewhere; the Renut check (src/renut_glue.cpp) also picks compute for RADV on Xclipse,
++// whose BC4/BC5 are emulated by the driver. native/compute/cpu force one (compute and cpu work on any device).
++REXCVAR_DEFINE_STRING(swordman_renut_bc_decode, "auto", "SwordMan",
++                      "Renut: BC textures native, decoded on the GPU (compute) or on the CPU (cpu); auto = native "
++                      "where the device has BC formats, compute elsewhere")
++    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
++
+ REXCVAR_DEFINE_BOOL(sa2_renut_double_buffer, false, "SA2/Renderer",
+                     "Renut's renderer: a swapchain of 2 images instead of 3 (input latency: a finished frame is shown at "
+                     "the next refresh instead of queueing behind one already waiting). Off by default: a frame that "
+@@ -346,6 +356,13 @@
+       CreateHostShader(s.device.get(), RENUT_HOST_SHADER(rectangle_list_gs), "rectangle_list_gs");
+   s.point_sprite_gs =
+       CreateHostShader(s.device.get(), RENUT_HOST_SHADER(point_sprite_gs), "point_sprite_gs");
++  if (DrawSetsCompact() && IsVulkan()) {
++    // SwordMan (Android): it reads SharedConstants at set 7, renumbered with the draw shaders' (SetDrawSetsCompact).
++    std::vector<uint32_t> words(sizeof(g_point_sprite_gs_spirv) / 4);
++    std::memcpy(words.data(), g_point_sprite_gs_spirv, words.size() * 4);
++    RemapDrawShaderSets(words.data(), words.size());
++    s.point_sprite_gs = s.device->createShader(words.data(), words.size() * 4, "main", plume::RenderShaderFormat::SPIRV);
++  }
+ }
+ 
+ // See shaders/host/stream_convert_cs.hlsl.
+@@ -380,6 +397,39 @@
+   s.stream_convert_pipeline->setName("renut stream convert");
+ }
+ 
++// SwordMan (Android): see shaders/host/bc_decode_cs.hlsl. No descriptor sets: the blocks and the texels are reached
++// by their upload ring addresses. Picks s.bc_decode (swordman_renut_bc_decode).
++void BuildBcDecodePipeline(VideoState &s) {
++  const std::string want = REXCVAR_GET(swordman_renut_bc_decode);
++  const bool native = s.device->getCapabilities().textureCompressionBC;
++  const bool need = !native || want == "compute" || want == "cpu";
++  if (need && want != "cpu") {
++    plume::RenderPipelineLayoutBuilder layout;
++    layout.begin(false, false);
++    layout.addPushConstant(0, 0, sizeof(BcDecodePush), plume::RenderShaderStageFlag::COMPUTE);
++    layout.end();
++    s.bc_decode_layout = layout.create(s.device.get());
++    s.bc_decode_cs = CreateHostShader(s.device.get(), RENUT_HOST_SHADER(bc_decode_cs), "bc_decode_cs");
++    if (s.bc_decode_layout && s.bc_decode_cs) {
++      s.bc_decode_pipeline = s.device->createComputePipeline(
++          plume::RenderComputePipelineDesc(s.bc_decode_layout.get(), s.bc_decode_cs.get(), 64, 1, 1));
++    }
++    if (s.bc_decode_pipeline)
++      s.bc_decode_pipeline->setName("renut bc decode");
++    else
++      RGPU_WARN("BC decode pipeline creation failed; BC textures are decoded on the CPU");
++  }
++  if (!need)
++    s.bc_decode = BcDecodeMode::Native;
++  else
++    s.bc_decode = s.bc_decode_pipeline ? BcDecodeMode::Compute : BcDecodeMode::Cpu;
++  RGPU_INFO("BC textures: {} (device BC formats: {}, swordman_renut_bc_decode = {})",
++            s.bc_decode == BcDecodeMode::Native    ? "native"
++            : s.bc_decode == BcDecodeMode::Compute ? "decoded on the GPU (compute)"
++                                                   : "decoded on the CPU",
++            native ? "yes" : "no", want);
++}
++
+ // See shaders/host/target_readback_cs.hlsl.
+ plume::RenderDescriptorSetBuilder TargetReadbackSetBuilder() {
+   plume::RenderDescriptorSetBuilder buffers;
+@@ -1011,6 +1061,12 @@
+     RGPU_INFO("Swapchain: the window has no size yet (minimized); presenting starts when it has one");
+   }
+ 
++  // SwordMan (Android): Mali-G57 (r40) binds 7 descriptor sets; the draw layout has 8 unless compacted. Not on Adreno:
++  // Turnip reports 4 there but has always bound the 8 (the layout the Renut is validated with).
++  const bool adreno = uint32_t(s.device->getDescription().vendor) == 0x5143;
++  SetDrawSetsCompact(IsVulkan() && !adreno && s.device->getCapabilities().maxBoundDescriptorSets < 8);
++  if (DrawSetsCompact())
++    RGPU_INFO("Draw layout: compact descriptor sets ({} bound at most)", s.device->getCapabilities().maxBoundDescriptorSets);
+   if (!BuildUtilityLayout(s) || !BuildSamplers(s) || !BuildNullTexture(s) ||
+       !BuildPresentPipeline(s) || !BuildDepthResolvePipelines(s) || !BuildDrawLayout(s)) {
+     return false;
+@@ -1018,6 +1074,7 @@
+   BuildRectangleListShader(s);
+   BuildStreamConvertPipeline(s);
+   BuildTargetReadbackPipeline(s);
++  BuildBcDecodePipeline(s);  // SwordMan (Android)
+   // Optional: without it, scaled resolve destinations keep one level.
+   s.texture_mip_ps =
+       CreateHostShader(s.device.get(), RENUT_HOST_SHADER(texture_mip_ps), "texture_mip_ps");
+--- /dev/null
++++ b/app/src/renut_engine/gpu/shaders/host/bc_decode_cs.hlsl
+@@ -0,0 +1,148 @@
++// SwordMan (Android): decodes BC1-BC5 blocks (the guest's DXT1, DXT2/3, DXT4/5, DXT5A and DXN) into plain texels
++// for a device without textureCompressionBC (Mali), or where the driver's BC copies are not trusted
++// (swordman_renut_bc_decode). The staging holds the guest blocks already endian-swapped (ReadLevel in
++// render/textures.cpp), in rows of blocks; the output is the decoded_blocks layout (DecodeBlockRow in
++// render/format.cpp): each row of blocks is 4 rows of texels, dstRowPitch bytes apart, then copied into the
++// texture as for any uncompressed format. One thread per block. Both buffers are reached by their device address
++// (the upload ring's), so the pipeline has no descriptor sets.
++// The decode follows the BCn rules of the Vulkan spec (Data Format specification, "S3TC" and "RGTC"); the
++// approach (a compute pass per upload, a thread per block) is the one of Themaister's Granite (MIT) as used by
++// leegao/bcn_layer, rewritten here for the five formats the Xbox 360 has.
++// Must match BcDecodePush in render/textures.cpp.
++
++struct BcDecodePush
++{
++    uint64_t src;          // device address of block (0, 0, 0)
++    uint64_t dst;          // device address of texel (0, 0, 0)
++    uint blocksW;
++    uint blocksH;
++    uint blockCount;       // blocksW * blocksH * depth
++    uint format;           // 1 BC1, 2 BC2, 3 BC3, 4 BC4, 5 BC5
++    uint srcRowPitch;      // bytes between rows of blocks
++    uint srcSlicePitch;
++    uint dstRowPitch;      // bytes between rows of texels
++    uint dstSlicePitch;
++};
++
++[[vk::push_constant]] ConstantBuffer<BcDecodePush> g_Push;
++
++uint Load(uint64_t address) { return vk::RawBufferLoad<uint>(address, 4); }
++void Store(uint64_t address, uint value) { vk::RawBufferStore<uint>(address, value, 4); }
++
++uint3 Rgb565(uint c)
++{
++    const uint r = (c >> 11) & 31, g = (c >> 5) & 63, b = c & 31;
++    return uint3((r << 3) | (r >> 2), (g << 2) | (g >> 4), (b << 3) | (b >> 2));
++}
++
++// BC1 colour: four RGBA8 palette entries. 'opaque' (BC2/BC3) always uses the four-colour mode.
++void ColorPalette(uint endpoints, bool opaque, out uint4 palette[4])
++{
++    const uint c0 = endpoints & 0xFFFF, c1 = endpoints >> 16;
++    const uint3 a = Rgb565(c0), b = Rgb565(c1);
++    palette[0] = uint4(a, 255);
++    palette[1] = uint4(b, 255);
++    if (opaque || c0 > c1) {
++        palette[2] = uint4((2 * a + b + 1) / 3, 255);
++        palette[3] = uint4((a + 2 * b + 1) / 3, 255);
++    } else {
++        palette[2] = uint4((a + b) / 2, 255);
++        palette[3] = uint4(0, 0, 0, 0);
++    }
++}
++
++// BC4 (and the alpha of BC3, each half of BC5): the 8 values of the block's two endpoints.
++uint AlphaValue(uint a0, uint a1, uint index)
++{
++    if (index == 0) return a0;
++    if (index == 1) return a1;
++    if (a0 > a1) return ((8 - index) * a0 + (index - 1) * a1 + 3) / 7;
++    if (index == 6) return 0;
++    if (index == 7) return 255;
++    return ((6 - index) * a0 + (index - 1) * a1 + 2) / 5;
++}
++
++// The 16 values of a BC4 block (two words), texel i in bits 8i of out[i / 4].
++void DecodeAlpha(uint w0, uint w1, out uint rows[4])
++{
++    const uint a0 = w0 & 0xFF, a1 = (w0 >> 8) & 0xFF;
++    // 48 bits of 3-bit indices from byte 2.
++    const uint lo = (w0 >> 16) | (w1 << 16);  // indices 0-9 (and 2 bits of 10)
++    const uint hi = w1 >> 8;                  // bits 24-47: indices 8-15
++    for (uint y = 0; y < 4; ++y) {
++        uint row = 0;
++        for (uint x = 0; x < 4; ++x) {
++            const uint i = y * 4 + x;
++            const uint index = i < 8 ? (lo >> (3 * i)) & 7 : (hi >> (3 * (i - 8))) & 7;
++            row |= AlphaValue(a0, a1, index) << (8 * x);
++        }
++        rows[y] = row;
++    }
++}
++
++[numthreads(64, 1, 1)]
++void main(uint3 id : SV_DispatchThreadID)
++{
++    const uint block = id.x;
++    if (block >= g_Push.blockCount)
++        return;
++    const uint bx = block % g_Push.blocksW;
++    const uint rest = block / g_Push.blocksW;
++    const uint by = rest % g_Push.blocksH;
++    const uint bz = rest / g_Push.blocksH;
++    const uint format = g_Push.format;
++    const uint blockBytes = (format == 1 || format == 4) ? 8 : 16;
++    const uint64_t src = g_Push.src + uint64_t(bz) * g_Push.srcSlicePitch + uint64_t(by) * g_Push.srcRowPitch +
++                         uint64_t(bx) * blockBytes;
++    const uint texelBytes = format == 4 ? 1 : format == 5 ? 2 : 4;
++    const uint64_t dst = g_Push.dst + uint64_t(bz) * g_Push.dstSlicePitch +
++                         uint64_t(by * 4) * g_Push.dstRowPitch + uint64_t(bx) * 4 * texelBytes;
++
++    if (format == 4 || format == 5) {
++        uint r[4], g[4];
++        DecodeAlpha(Load(src), Load(src + 4), r);
++        if (format == 4) {
++            for (uint y = 0; y < 4; ++y)
++                Store(dst + uint64_t(y) * g_Push.dstRowPitch, r[y]);
++            return;
++        }
++        DecodeAlpha(Load(src + 8), Load(src + 12), g);
++        for (uint y = 0; y < 4; ++y) {
++            // Two RG8 texels per word.
++            const uint lo = (r[y] & 0xFF) | ((g[y] & 0xFF) << 8) | (((r[y] >> 8) & 0xFF) << 16) | (((g[y] >> 8) & 0xFF) << 24);
++            const uint hi = ((r[y] >> 16) & 0xFF) | (((g[y] >> 16) & 0xFF) << 8) | ((r[y] >> 24) << 16) | ((g[y] >> 24) << 24);
++            const uint64_t row = dst + uint64_t(y) * g_Push.dstRowPitch;
++            Store(row, lo);
++            Store(row + 4, hi);
++        }
++        return;
++    }
++
++    // BC1 colour block: at 0 for BC1, after the 8 alpha bytes for BC2 and BC3.
++    const uint64_t color = format == 1 ? src : src + 8;
++    uint4 palette[4];
++    ColorPalette(Load(color), format != 1, palette);
++    const uint indices = Load(color + 4);
++    uint alpha[4];
++    if (format == 3) {
++        DecodeAlpha(Load(src), Load(src + 4), alpha);
++    } else if (format == 2) {
++        // 4 bits per texel, a row of four in each 16 bits.
++        const uint w0 = Load(src), w1 = Load(src + 4);
++        for (uint y = 0; y < 4; ++y) {
++            const uint bits = ((y < 2 ? w0 : w1) >> (16 * (y & 1))) & 0xFFFF;
++            uint row = 0;
++            for (uint x = 0; x < 4; ++x)
++                row |= ((bits >> (4 * x)) & 15) * 17 << (8 * x);
++            alpha[y] = row;
++        }
++    }
++    for (uint y = 0; y < 4; ++y) {
++        const uint64_t row = dst + uint64_t(y) * g_Push.dstRowPitch;
++        for (uint x = 0; x < 4; ++x) {
++            const uint4 c = palette[(indices >> (2 * (y * 4 + x))) & 3];
++            const uint a = format == 1 ? c.a : (alpha[y] >> (8 * x)) & 0xFF;
++            Store(row + 4 * x, c.r | (c.g << 8) | (c.b << 16) | (a << 24));
++        }
++    }
++}

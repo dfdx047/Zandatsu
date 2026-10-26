@@ -7,6 +7,7 @@
 #include <atomic>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <string>
 
 #include <dlfcn.h>
@@ -23,6 +24,7 @@
 #include "renut_engine/gpu/sa2_renut_yield.h"
 
 REXCVAR_DECLARE(std::string, present_effect);  // SDK (ui/presenter.cpp)
+REXCVAR_DECLARE(std::string, swordman_renut_bc_decode);  // Renut (renut/0020): texturas BC sem suporte do driver
 
 REXCVAR_DEFINE_STRING(swordman_renderer, "xenos", "SwordMan",
                       "Renderizador, escolhido no arranque. xenos = GPU do Xbox emulada (Xenia, plugin xenos). "
@@ -254,9 +256,38 @@ bool SwordManRenutDeviceSupported(std::string* why) {
              f12.descriptorBindingVariableDescriptorCount && f12.descriptorBindingSampledImageUpdateAfterBind,
          "descriptorIndexing");
     need(p12.maxDescriptorSetUpdateAfterBindSampledImages >= 8192, "8192-texturas");
-    need(f.features.textureCompressionBC, "textureCompressionBC");
-    need(f.features.vertexPipelineStoresAndAtomics, "vertexPipelineStoresAndAtomics");
+    // Sem texturas BC (Mali) o Renut descomprime-as no upload (renut/0020, swordman_renut_bc_decode): ja nao falta.
+    // RADV nas Xclipse (Samsung/AMD): BC4/BC5/BC7 emulados pelo driver (convertidos para EAC/BC3, e uma copia de volta
+    // devolve o convertido): auto -> descompressao por compute, exata.
+    const bool radv_xclipse = p12.driverID == VK_DRIVER_ID_MESA_RADV &&
+                              std::strstr(p.properties.deviceName, "Xclipse") != nullptr;
+    if (radv_xclipse && REXCVAR_GET(swordman_renut_bc_decode) == "auto") {
+      REXCVAR_SET(swordman_renut_bc_decode, std::string("compute"));
+      REXLOG_INFO("Renut: RADV na Xclipse, texturas BC descomprimidas por compute (swordman_renut_bc_decode)");
+    }
+    if (!f.features.textureCompressionBC) {
+      REXLOG_INFO("Renut: o driver nao tem texturas BC; descomprimidas no upload (swordman_renut_bc_decode = {})",
+                  REXCVAR_GET(swordman_renut_bc_decode));
+    }
+    // Mali (IDVS): sem vertexPipelineStoresAndAtomics, porque o vertex shader pode correr mais de uma vez por vertice. O
+    // memexport dos vertex shaders do jogo so faz escritas simples (o mesmo valor no mesmo sitio), sem atomicos: repetir
+    // nao muda o resultado. Aviso em vez de recusa (o Renut fora do Adreno e experimental, escolha do jogador).
+    if (!f.features.vertexPipelineStoresAndAtomics) {
+      REXLOG_WARN("Renut: o driver nao tem vertexPipelineStoresAndAtomics (memexport nos vertex shaders sem garantia)");
+    }
     need(d32s8.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT, "D32S8");
+    // O layout dos draws do Renut usa 8 descriptor sets (texturas 2D/3D/cubo/array, samplers, 3 de constantes). A Mali-G57
+    // (r40) so liga 7 e o driver corrompe a pilha em vez de falhar no vkCreatePipelineLayout: abaixo de 8 o Renut compacta
+    // o layout em 5 (renut/0020, SetDrawSetsCompact). No Adreno nao: o Turnip diz 4 mas sempre ligou os 8.
+    if (p.properties.vendorID != 0x5143) {
+      need(p.properties.limits.maxBoundDescriptorSets >= 5, "5-descriptor-sets");
+    }
+    REXLOG_INFO("Renut: limites maxBoundDescriptorSets {} maxPerStageDescriptorUpdateAfterBindSampledImages {} "
+                "maxDescriptorSetUpdateAfterBindSampledImages {} maxPerStageUpdateAfterBindResources {} "
+                "maxDescriptorSetUpdateAfterBindUniformBuffersDynamic {} maxPushConstantsSize {}",
+                p.properties.limits.maxBoundDescriptorSets, p12.maxPerStageDescriptorUpdateAfterBindSampledImages,
+                p12.maxDescriptorSetUpdateAfterBindSampledImages, p12.maxPerStageUpdateAfterBindResources,
+                p12.maxDescriptorSetUpdateAfterBindUniformBuffersDynamic, p.properties.limits.maxPushConstantsSize);
     REXLOG_INFO("Renut: {} (Vulkan {}.{}), geometryShader {}", p.properties.deviceName,
                 VK_API_VERSION_MAJOR(p.properties.apiVersion), VK_API_VERSION_MINOR(p.properties.apiVersion),
                 f.features.geometryShader ? "sim" : "nao (retangulos e point sprites ficam errados)");
