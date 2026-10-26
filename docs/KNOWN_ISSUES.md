@@ -7,7 +7,8 @@ Zandatsu v1.0 e branch de desenvolvimento (26/10/2026).
 1. **Adreno 650 (Retroid Pocket 5) com Turnip: travamentos curtos da GPU e, às vezes, o jogo fecha.** O hardware
    detecta um travamento da GPU (`kgsl: GPU hang detected`) uma a três vezes a cada ~3 min de luta, em qualquer
    resolução, com ou sem sombras e FSR. Na maioria das vezes é só um engasgo (um frame de ~40 ms). Às vezes, logo a
-   seguir, o driver Turnip fecha o jogo (visto 3 vezes em 26/10) ou a imagem congela. Feche e reabra o jogo. A causa
+   seguir, o driver Turnip fecha o jogo (`kgsl_queue_submit`; visto 6 vezes em 26/10, 3 delas em 9 lutas de 3–4 min a
+   720p à noite) ou a imagem congela. Feche e reabra o jogo. A causa
    ainda está a ser investigada. Teste de drivers no RP5 (26/10, 15 min de luta cada, 720p): Turnip MrPurple T19 =
    60 fps e 2 hangs; driver do sistema = 0 hangs, mas sem Renut (modo emulado, 32 fps). O Turnip continua o
    recomendado. O Turnip do ARMSX2 não foi testado.
@@ -21,8 +22,12 @@ Zandatsu v1.0 e branch de desenvolvimento (26/10/2026).
    corre no modo emulado (Xenia), mais lento. Baixe e ative o Turnip na aba Drivers (o app mostra um aviso grande
    com o driver recomendado e um atalho para a aba). O driver Qualcomm
    v615.77 (issue #6) importa, mas trava a GPU em ~36 s.
-6. **O som some (#3, #5): ainda não reproduzido.** Se acontecer com você, use **Exportar logs** logo depois de sair do
-   jogo e mande o zip na issue.
+6. **O som some (#3, #5, #8, #9, #11): ainda não reproduzido.** Os relatos vêm de Adreno, Mali e Odin 3, com Turnip e
+   com o driver do sistema: a música continua, os golpes e as vozes somem. Em ~40 min de luta no RP5 e no RG Cube
+   (26/10, com rajadas de X, notificações e saídas/voltas ao app) não houve underruns na luta, nem stream parado, nem
+   erros XMA, e os golpes aparecem no som gravado. O jogo agora escreve o estado do áudio a cada segundo no log e
+   reabre sozinho o stream de saída se ele parar por 500 ms. Se acontecer com você, **sem fechar o jogo**, abra o
+   menu (Voltar) e toque em **Exportar logs**; mande o zip na issue.
 7. **A ISO não pode ser apagada nem movida** depois de importada: o jogo lê-a no lugar. Se a mover, importe de novo.
 
 ## English
@@ -30,7 +35,8 @@ Zandatsu v1.0 e branch de desenvolvimento (26/10/2026).
 1. **Adreno 650 (Retroid Pocket 5) with Turnip: short GPU hangs, and sometimes the game closes.** The hardware detects
    a GPU hang (`kgsl: GPU hang detected`) one to three times every ~3 minutes of combat, at any resolution, with or
    without shadows and FSR. Most of the time it is just a hitch (one ~40 ms frame). Sometimes, right after one, the
-   Turnip driver closes the game (seen 3 times on 2026-10-26) or the picture freezes. Close and reopen the game. The
+   Turnip driver closes the game (`kgsl_queue_submit`; seen 6 times on 2026-10-26, 3 of them in 9 fights of 3–4 min
+   at 720p in the evening) or the picture freezes. Close and reopen the game. The
    cause is still being investigated. Driver test on the RP5 (2026-10-26, 15 min of combat each, 720p): Turnip
    MrPurple T19 = 60 fps and 2 hangs; system driver = 0 hangs, but no Renut (emulated mode, 32 fps). Turnip stays
    the recommended driver. The ARMSX2 Turnip was not tested.
@@ -44,8 +50,13 @@ Zandatsu v1.0 e branch de desenvolvimento (26/10/2026).
    game runs in emulated mode (Xenia), which is slower. Download and enable Turnip in the Drivers tab (the app warns
    you with a large notice, the recommended driver and a shortcut to the tab). The Qualcomm v615.77 driver
    (issue #6) imports, but hangs the GPU after ~36 s.
-6. **Sound disappears (#3, #5): not reproduced yet.** If it happens to you, tap **Export logs** right after leaving
-   the game and attach the zip to the issue.
+6. **Sound disappears (#3, #5, #8, #9, #11): not reproduced yet.** Reports come from Adreno, Mali and the Odin 3,
+   with Turnip and with the system driver: the music keeps playing, sword hits and voices go silent. In ~40 min of
+   combat on the RP5 and the RG Cube (2026-10-26, with rapid X bursts, notifications and leaving/returning to the app)
+   there were no underruns in combat, no stalled stream and no XMA errors, and the sword hits are present in the
+   recorded audio. The game now writes the audio state to the log every second and reopens the output stream by
+   itself if it stops for 500 ms. If it happens to you, **without closing the game**, open the menu (Back) and tap
+   **Export logs**; attach the zip to the issue.
 7. **The ISO can't be deleted or moved** after importing: the game reads it in place. If you move it, import again.
 
 ## Español
@@ -53,7 +64,8 @@ Zandatsu v1.0 e branch de desenvolvimento (26/10/2026).
 1. **Adreno 650 (Retroid Pocket 5) con Turnip: cuelgues cortos de la GPU y, a veces, el juego se cierra.** El hardware
    detecta un cuelgue de la GPU (`kgsl: GPU hang detected`) de una a tres veces cada ~3 min de combate, a cualquier
    resolución, con o sin sombras y FSR. Casi siempre es solo un tirón (un fotograma de ~40 ms). A veces, justo después,
-   el driver Turnip cierra el juego (visto 3 veces el 26/10) o la imagen se congela. Cierra y vuelve a abrir el juego.
+   el driver Turnip cierra el juego (`kgsl_queue_submit`; visto 6 veces el 26/10, 3 de ellas en 9 combates de
+   3–4 min a 720p por la noche) o la imagen se congela. Cierra y vuelve a abrir el juego.
    La causa todavía se está investigando. Prueba de drivers en la RP5 (26/10, 15 min de combate cada uno, 720p):
    Turnip MrPurple T19 = 60 fps y 2 cuelgues; driver del sistema = 0 cuelgues, pero sin Renut (modo emulado, 32 fps).
    Turnip sigue siendo el recomendado. El Turnip de ARMSX2 no se probó.
@@ -67,7 +79,11 @@ Zandatsu v1.0 e branch de desenvolvimento (26/10/2026).
    el juego corre en modo emulado (Xenia), más lento. Descarga y activa Turnip en la pestaña Drivers (la app muestra un
    aviso grande con el driver recomendado y un acceso directo a la pestaña).
    El driver de Qualcomm v615.77 (issue #6) se importa, pero cuelga la GPU a los ~36 s.
-6. **El sonido desaparece (#3, #5): aún no reproducido.** Si te pasa, toca **Exportar logs** justo después de
-   salir del juego y adjunta el zip en la issue.
+6. **El sonido desaparece (#3, #5, #8, #9, #11): aún no reproducido.** Los reportes vienen de Adreno, Mali y la
+   Odin 3, con Turnip y con el driver del sistema: la música sigue, los golpes y las voces desaparecen. En ~40 min de
+   combate en la RP5 y la RG Cube (26/10, con ráfagas de X, notificaciones y salidas/vueltas a la app) no hubo
+   underruns en combate, ni stream parado, ni errores XMA, y los golpes están en el sonido grabado. El juego ahora
+   escribe el estado del audio en el log cada segundo y reabre solo el stream de salida si se para 500 ms. Si te
+   pasa, **sin cerrar el juego**, abre el menú (Atrás) y toca **Exportar logs**; adjunta el zip en la issue.
 7. **La ISO no se puede borrar ni mover** después de importarla: el juego la lee en su sitio. Si la mueves, impórtala
    de nuevo.
