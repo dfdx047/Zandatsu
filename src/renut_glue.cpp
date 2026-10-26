@@ -353,6 +353,14 @@ struct CoreSets {
   bool ok = false;
 };
 
+// Desligada (perfis de desempenho, núcleos desligados pelo sistema): fica de fora.
+bool CoreOnline(int cpu) {
+  if (cpu == 0) return true;
+  std::ifstream f("/sys/devices/system/cpu/cpu" + std::to_string(cpu) + "/online");
+  int on = 1;
+  return !(f >> on) || on != 0;
+}
+
 const CoreSets& Cores() {
   static const CoreSets sets = [] {
     CoreSets out;
@@ -371,10 +379,17 @@ const CoreSets& Cores() {
       if (freq[i] > hi) { hi = freq[i]; fastest = int(i); }
     }
     if (hi == lo) return out;
+    // Só os ligados: o mais rápido e os grandes entre eles (um desligado como "grande" deixava a thread solta).
+    hi = 0;
+    fastest = -1;
+    for (size_t i = 0; i < freq.size(); ++i) {
+      if (freq[i] > lo && CoreOnline(int(i)) && freq[i] > hi) { hi = freq[i]; fastest = int(i); }
+    }
+    if (fastest < 0) return out;
     CPU_ZERO(&out.big); CPU_ZERO(&out.fastest); CPU_ZERO(&out.others);
     CPU_SET(fastest, &out.fastest);
     for (size_t i = 0; i < freq.size(); ++i) {
-      if (freq[i] > lo) {
+      if (freq[i] > lo && CoreOnline(int(i))) {
         CPU_SET(int(i), &out.big);
         if (int(i) != fastest) CPU_SET(int(i), &out.others);
       }
@@ -402,6 +417,82 @@ void PlaceCurrentThread(const char* what, bool main_thread) {
 }  // namespace
 
 extern "C" void swordman_renut_render_thread_start() { PlaceCurrentThread("thread de render", false); }
+
+// ---------------------------------------------------------------------------------------------------------------
+// Threads de áudio nos núcleos pequenos (swordman_audio_little_cores, Xenia e Renut). Com poucos núcleos grandes
+// (perfil SD480+ no RP5: 2 A77 e 4 A55) o Wwise (AK::EventManager, ~50% de um núcleo), o XMA, o Audio Worker e a
+// SDLThread disputavam os grandes com as threads do jogo: presos nos pequenos, a luta a 540p subiu de 32-35 para
+// 36-41 fps, sem underruns. Uma thread que procura as threads pelo nome (/proc/self/task/<tid>/comm), a cada 2 s no
+// primeiro minuto e depois a cada 10 s, porque nascem ao longo do arranque.
+// ---------------------------------------------------------------------------------------------------------------
+#include <algorithm>
+#include <chrono>
+#include <dirent.h>
+#include <set>
+#include <thread>
+
+REXCVAR_DEFINE_BOOL(swordman_audio_little_cores, false, "SwordMan",
+                    "Threads de áudio (Wwise, XMA, Audio Worker, SDLThread) só nos núcleos pequenos")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+
+namespace {
+
+void AudioPlacementLoop(cpu_set_t little, std::string list) {
+  static const char* const kNames[] = {"AK::", "XMA Decoder", "Audio Worker", "SDLThread"};
+  std::set<int> done;
+  for (int round = 0;; ++round) {
+    if (DIR* dir = opendir("/proc/self/task")) {
+      while (dirent* e = readdir(dir)) {
+        const int tid = std::atoi(e->d_name);
+        if (tid <= 0 || done.count(tid)) continue;
+        std::ifstream f(std::string("/proc/self/task/") + e->d_name + "/comm");
+        std::string name;
+        std::getline(f, name);
+        for (const char* prefix : kNames) {
+          if (name.rfind(prefix, 0) != 0) continue;
+          done.insert(tid);
+          const bool ok = sched_setaffinity(tid, sizeof(little), &little) == 0;
+          REXLOG_INFO("swordman: {} ({}) nos núcleos {}{}", name, tid, list, ok ? "" : " (recusado)");
+          break;
+        }
+      }
+      closedir(dir);
+    }
+    std::this_thread::sleep_for(std::chrono::seconds(round < 30 ? 2 : 10));
+  }
+}
+
+}  // namespace
+
+void SwordManStartAudioPlacement() {
+  if (!REXCVAR_GET(swordman_audio_little_cores)) return;
+  // Os pequenos: os ligados com o menor máximo do cpufreq.
+  std::vector<std::pair<int, long>> cpus;
+  for (int cpu = 0; cpu < CPU_SETSIZE; ++cpu) {
+    std::ifstream f("/sys/devices/system/cpu/cpu" + std::to_string(cpu) + "/cpufreq/cpuinfo_max_freq");
+    long khz = 0;
+    if (!(f >> khz)) break;
+    if (CoreOnline(cpu)) cpus.emplace_back(cpu, khz);
+  }
+  long lo = 0, hi = 0;
+  for (const auto& [cpu, khz] : cpus) {
+    lo = lo ? std::min(lo, khz) : khz;
+    hi = std::max(hi, khz);
+  }
+  if (cpus.empty() || lo == hi) {
+    REXLOG_INFO("swordman: swordman_audio_little_cores sem efeito (núcleos todos iguais)");
+    return;
+  }
+  cpu_set_t little;
+  CPU_ZERO(&little);
+  std::string list;
+  for (const auto& [cpu, khz] : cpus) {
+    if (khz != lo) continue;
+    CPU_SET(cpu, &little);
+    list += (list.empty() ? "" : ",") + std::to_string(cpu);
+  }
+  std::thread(AudioPlacementLoop, little, list).detach();
+}
 
 void SwordManRenutPlaceMainThreadOnSwap() {
   static const bool once = (PlaceCurrentThread("thread principal do jogo", true), true);

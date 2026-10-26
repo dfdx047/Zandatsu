@@ -27,6 +27,7 @@
 
 // src/renut_glue.cpp: as funcoes Vulkan que o Renut assume (false = fica o Xenia).
 bool SwordManRenutDeviceSupported(std::string* why = nullptr);
+void SwordManStartAudioPlacement();
 #endif
 
 class MgrApp : public rex::ReXApp {
@@ -108,6 +109,7 @@ class MgrApp : public rex::ReXApp {
   // num slot nao registado (-1: falha de memoria do guest em sub_827E2C00 ~27 s apos o arranque). Como no
   // mgr_main.cpp do mgr-nx-deko: a thread principal arranca na CPU logica 0.
   void OnPostLaunchModule(rex::system::XThread* thread) override {
+    SwordManStartAudioPlacement();  // src/renut_glue.cpp: swordman_audio_little_cores
     if (thread && banjo::renut_gpu::Active()) {
       thread->SetAffinity(1u);
       REXLOG_INFO("Renut: thread principal do guest na CPU logica 0");

@@ -3,6 +3,8 @@ SwordMan (Android): Renut no RP5 (Adreno 650), 26/10.
 - swordman_renut_resolve_mips (padrao on): os niveis de mip do host nos resolves de cor com escala.
 - swordman_renut_resolve_mips_lazy (padrao off): os niveis de mip de um resolve so sao feitos quando um draw o le num alvo menor.
 - renut_shadow_resolution (1x..4x) passa a valer no MGR: escala so os alvos das sombras (quadrados >= 512 e o atlas 1024x2048).
+- FSR: EASU em meia precisao (min16float/RelaxedPrecision, sem shaderFloat16) e indice uniforme no EASU e no RCAS.
+- shaders do host: sem NonUniformResourceIndex (indices de push constants, uniformes).
 --- a/app/src/renut_engine/perf/frame_stats.h
 +++ b/app/src/renut_engine/perf/frame_stats.h
 @@ -1,4 +1,5 @@
@@ -322,3 +324,201 @@ SwordMan (Android): Renut no RP5 (Adreno 650), 26/10.
    return resolution;
  }
  
+--- a/app/src/renut_engine/gpu/shaders/host/present_easu_ps.hlsl
++++ b/app/src/renut_engine/gpu/shaders/host/present_easu_ps.hlsl
+@@ -5,25 +5,27 @@
+ 
+ #define A_GPU 1
+ #define A_HLSL 1
++// SwordMan (Android, renut/0021): the half-precision EASU (FSR_EASU_H). Without -enable-16bit-types ffx_a.h's half
++// types are min16float, which DXC emits as 32-bit floats with RelaxedPrecision: Turnip (ir3) and Mali do those in
++// 16 bits, and the device needs no shaderFloat16. The index is the push constant's, uniform: no
++// NonUniformResourceIndex. RP5 at 305 MHz (SD480+ profile), 540p to 1080p: EASU ~13 ms a frame in 32 bits.
++#define A_HALF 1
+ #include "ffx_a.h"
+ 
+-AF4 FsrEasuRF(AF2 p)
++AH4 FsrEasuRH(AF2 p)
+ {
+-    return g_Textures[NonUniformResourceIndex(g_Push.textureIndex)].GatherRed(
+-        g_Samplers[NonUniformResourceIndex(g_Push.samplerIndex)], p);
++    return AH4(g_Textures[g_Push.textureIndex].GatherRed(g_Samplers[g_Push.samplerIndex], p));
+ }
+-AF4 FsrEasuGF(AF2 p)
++AH4 FsrEasuGH(AF2 p)
+ {
+-    return g_Textures[NonUniformResourceIndex(g_Push.textureIndex)].GatherGreen(
+-        g_Samplers[NonUniformResourceIndex(g_Push.samplerIndex)], p);
++    return AH4(g_Textures[g_Push.textureIndex].GatherGreen(g_Samplers[g_Push.samplerIndex], p));
+ }
+-AF4 FsrEasuBF(AF2 p)
++AH4 FsrEasuBH(AF2 p)
+ {
+-    return g_Textures[NonUniformResourceIndex(g_Push.textureIndex)].GatherBlue(
+-        g_Samplers[NonUniformResourceIndex(g_Push.samplerIndex)], p);
++    return AH4(g_Textures[g_Push.textureIndex].GatherBlue(g_Samplers[g_Push.samplerIndex], p));
+ }
+ 
+-#define FSR_EASU_F 1
++#define FSR_EASU_H 1
+ #include "ffx_fsr1.h"
+ 
+ struct PSInput
+@@ -35,14 +37,14 @@
+ float4 main(PSInput input) : SV_Target0
+ {
+     uint w, h;
+-    g_Textures[NonUniformResourceIndex(g_Push.textureIndex)].GetDimensions(w, h);
++    g_Textures[g_Push.textureIndex].GetDimensions(w, h);
+     const float2 size = float2(w, h);
+     const float2 view = g_Push.scale * size;  // the frame, in source texels
+     AU4 con0, con1, con2, con3;
+     FsrEasuCon(con0, con1, con2, con3, view.x, view.y, size.x, size.y, g_Push.param0, g_Push.param1);
+     // The frame starts at translate (the fit's trim): moved in source texels.
+     con0.zw = asuint(asfloat(con0.zw) + g_Push.translate * size);
+-    AF3 color;
+-    FsrEasuF(color, AU2(input.position.xy), con0, con1, con2, con3);
+-    return float4(color, 1.0);
++    AH3 color;
++    FsrEasuH(color, AU2(input.position.xy), con0, con1, con2, con3);
++    return float4(AF3(color), 1.0);
+ }
+--- a/app/src/renut_engine/gpu/shaders/host/present_rcas_ps.hlsl
++++ b/app/src/renut_engine/gpu/shaders/host/present_rcas_ps.hlsl
+@@ -11,7 +11,7 @@
+ 
+ AF4 FsrRcasLoadF(ASU2 p)
+ {
+-    return g_Textures[NonUniformResourceIndex(g_Push.textureIndex)].Load(int3(p, 0));
++    return g_Textures[g_Push.textureIndex].Load(int3(p, 0));  // SwordMan (renut/0021): uniform index
+ }
+ void FsrRcasInputF(inout AF1 r, inout AF1 g, inout AF1 b) {}
+ 
+--- a/app/src/renut_engine/gpu/shaders/host/depth_resolve.hlsli
++++ b/app/src/renut_engine/gpu/shaders/host/depth_resolve.hlsli
+@@ -55,16 +55,16 @@
+ PSOutput main(PSInput input)
+ {
+     const int2 texel = int2(input.position.xy) + int2(g_Push.translate);
+-    const uint index = NonUniformResourceIndex(g_Push.textureIndex);
++    const uint index = g_Push.textureIndex;
+     uint stencil = 0;
+ #if DEPTH_RESOLVE_MS
+     const float depth = g_Depth[index].Load(texel, 0);
+     if (g_Push.param1 != 0.0)
+-        stencil = g_Stencil[NonUniformResourceIndex(g_Push.samplerIndex)].Load(texel, 0) & 0xFF;
++        stencil = g_Stencil[g_Push.samplerIndex].Load(texel, 0) & 0xFF;
+ #else
+     const float depth = g_Depth[index].Load(int3(texel, 0));
+     if (g_Push.param1 != 0.0)
+-        stencil = g_Stencil[NonUniformResourceIndex(g_Push.samplerIndex)].Load(int3(texel, 0)) & 0xFF;
++        stencil = g_Stencil[g_Push.samplerIndex].Load(int3(texel, 0)) & 0xFF;
+ #endif
+     const uint word = ((g_Push.param0 != 0.0 ? EncodeFloat20e4(depth) : EncodeUnorm24(depth)) << 8) | stencil;
+ 
+--- a/app/src/renut_engine/gpu/shaders/host/present_cas_ps.hlsl
++++ b/app/src/renut_engine/gpu/shaders/host/present_cas_ps.hlsl
+@@ -11,7 +11,7 @@
+ 
+ AF3 CasLoad(ASU2 p)
+ {
+-    return g_Textures[NonUniformResourceIndex(g_Push.textureIndex)].Load(int3(p, 0)).rgb;
++    return g_Textures[g_Push.textureIndex].Load(int3(p, 0)).rgb;
+ }
+ void CasInput(inout AF1 r, inout AF1 g, inout AF1 b) {}
+ 
+@@ -26,7 +26,7 @@
+ float4 main(PSInput input) : SV_Target0
+ {
+     uint w, h;
+-    g_Textures[NonUniformResourceIndex(g_Push.textureIndex)].GetDimensions(w, h);
++    g_Textures[g_Push.textureIndex].GetDimensions(w, h);
+     AU4 const0, const1;
+     CasSetup(const0, const1, asfloat(g_Push.samplerIndex), AF1(w), AF1(h), AF1(w), AF1(h));
+     AF3 color;
+--- a/app/src/renut_engine/gpu/shaders/host/present_output.hlsli
++++ b/app/src/renut_engine/gpu/shaders/host/present_output.hlsli
+@@ -10,9 +10,9 @@
+     if (ramp != 0u)
+     {
+         const uint3 i = uint3(saturate(color) * 255.0 + 0.5);
+-        color = float3(g_Textures[NonUniformResourceIndex(ramp)].Load(int3(i.x, 0, 0)).x,
+-                       g_Textures[NonUniformResourceIndex(ramp)].Load(int3(i.y, 0, 0)).y,
+-                       g_Textures[NonUniformResourceIndex(ramp)].Load(int3(i.z, 0, 0)).z);
++        color = float3(g_Textures[ramp].Load(int3(i.x, 0, 0)).x,
++                       g_Textures[ramp].Load(int3(i.y, 0, 0)).y,
++                       g_Textures[ramp].Load(int3(i.z, 0, 0)).z);
+     }
+     if (g_Push.param0 != 1.0)
+         color = pow(saturate(color), g_Push.param0);
+@@ -23,7 +23,7 @@
+ int2 PresentPixel(float2 uv)
+ {
+     uint w, h;
+-    g_Textures[NonUniformResourceIndex(g_Push.textureIndex)].GetDimensions(w, h);
++    g_Textures[g_Push.textureIndex].GetDimensions(w, h);
+     return int2(uv * float2(w, h));
+ }
+ 
+--- a/app/src/renut_engine/gpu/shaders/host/present_ps.hlsl
++++ b/app/src/renut_engine/gpu/shaders/host/present_ps.hlsl
+@@ -18,9 +18,9 @@
+     if (ramp != 0u)
+     {
+         const uint3 i = uint3(saturate(color.rgb) * 255.0 + 0.5);
+-        color.rgb = float3(g_Textures[NonUniformResourceIndex(ramp)].Load(int3(i.x, 0, 0)).x,
+-                           g_Textures[NonUniformResourceIndex(ramp)].Load(int3(i.y, 0, 0)).y,
+-                           g_Textures[NonUniformResourceIndex(ramp)].Load(int3(i.z, 0, 0)).z);
++        color.rgb = float3(g_Textures[ramp].Load(int3(i.x, 0, 0)).x,
++                           g_Textures[ramp].Load(int3(i.y, 0, 0)).y,
++                           g_Textures[ramp].Load(int3(i.z, 0, 0)).z);
+     }
+     // param0 = output gamma exponent (1 = passthrough). sa2-nx: skipped at 1, where pow's exp2(log2) could move a
+     // value by an ulp.
+--- a/app/src/renut_engine/gpu/shaders/host/resolve_copy_ps.hlsl
++++ b/app/src/renut_engine/gpu/shaders/host/resolve_copy_ps.hlsl
+@@ -8,5 +8,5 @@
+ float4 main(float4 position : SV_Position) : SV_Target0
+ {
+     const int2 texel = int2(position.xy) + int2(g_Push.translate);
+-    return g_Textures[NonUniformResourceIndex(g_Push.textureIndex)].Load(int3(texel, 0));
++    return g_Textures[g_Push.textureIndex].Load(int3(texel, 0));
+ }
+--- a/app/src/renut_engine/gpu/shaders/host/target_readback_cs.hlsl
++++ b/app/src/renut_engine/gpu/shaders/host/target_readback_cs.hlsl
+@@ -45,7 +45,7 @@
+ {
+     if (id.x >= g_Push.width || id.y >= g_Push.height)
+         return;
+-    Texture2D<float4> source = g_Textures[NonUniformResourceIndex(g_Push.textureIndex)];
++    Texture2D<float4> source = g_Textures[g_Push.textureIndex];
+     uint textureWidth, textureHeight;
+     source.GetDimensions(textureWidth, textureHeight);
+     const uint2 last = uint2(textureWidth, textureHeight) - 1u;
+--- a/app/src/renut_engine/gpu/shaders/host/texture_mip_ps.hlsl
++++ b/app/src/renut_engine/gpu/shaders/host/texture_mip_ps.hlsl
+@@ -8,7 +8,7 @@
+ 
+ float4 main(float4 position : SV_Position) : SV_Target0
+ {
+-    Texture2D<float4> source = g_Textures[NonUniformResourceIndex(g_Push.textureIndex)];
++    Texture2D<float4> source = g_Textures[g_Push.textureIndex];
+     uint width, height;
+     source.GetDimensions(width, height);
+     const int box = int(g_Push.param0);
+--- a/app/src/renut_engine/gpu/shaders/host/utility.hlsli
++++ b/app/src/renut_engine/gpu/shaders/host/utility.hlsli
+@@ -26,9 +26,11 @@
+ Texture2D<float4> g_Textures[] : register(t0, space0);
+ SamplerState g_Samplers[] : register(s0, space1);
+ 
++// SwordMan (Android, renut/0021): the host shaders' indices are push constants, uniform in a draw: no
++// NonUniformResourceIndex. With it Turnip loops over the lanes (RP5 at 305 MHz: FSR RCAS 6.5 -> 1.5 ms a frame).
+ float4 SampleBindless(uint textureIndex, uint samplerIndex, float2 uv)
+ {
+-    return g_Textures[NonUniformResourceIndex(textureIndex)].Sample(
+-        g_Samplers[NonUniformResourceIndex(samplerIndex)], uv);
++    return g_Textures[textureIndex].Sample(
++        g_Samplers[samplerIndex], uv);
+ }
+ #endif

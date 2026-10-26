@@ -539,12 +539,18 @@ object RenutSupport {
         else -> !systemDriverOn6xx()
     }
 
-    /** GPU onde o Renut foi validado (Adreno): so ai o "auto" o escolhe. Nas outras e experimental. */
-    fun validatedGpu(): Boolean = com.dfdx047.zandatsu.drivers.DriverRepository.isAdreno()
+    /**
+     * GPU onde o Renut foi validado: Adreno e, desde 26/10, Mali Valhall (regressao completa na G57 do RG Cube, mais
+     * rapido que o Xenia). So ai o "auto" o escolhe; nas outras e experimental.
+     */
+    fun validatedGpu(): Boolean = com.dfdx047.zandatsu.drivers.DriverRepository.let {
+        it.isAdreno() || it.isMaliValhall(probe = false)
+    }
 
     /** Linha para o AppLog: a decisao do Renut neste aparelho e porque. */
     fun describe(renderer: String): String {
         val dr = com.dfdx047.zandatsu.drivers.DriverRepository
+        val gpuName = dr.gpuName()  // antes do validatedGpu (sem probe): a 1a vez guarda o nome da GPU
         val st = status()
         val raw = try {
             File(dir, "renut_support.txt").takeIf { it.isFile }?.readLines()?.joinToString(" | ") { it.trim() }
@@ -566,11 +572,12 @@ object RenutSupport {
             !validatedGpu() -> "ainda nao testado, GPU nao validada (experimental)"
             else -> "ainda nao testado"
         }
-        val gpu = if (validatedGpu()) "Adreno" else if (dr.isXclipse()) "Xclipse" else "outra"
+        val gpu = if (dr.isAdreno()) "Adreno" else if (dr.isMaliValhall(probe = false)) "Mali Valhall"
+            else if (dr.isXclipse()) "Xclipse" else "outra"
         return "renut: ${if (offered) "oferecido" else "nao oferecido"} ($why); escolha $renderer -> " +
             (if (use) "renut" else "xenos") +
             (if (renderer == "auto" && offered && !validatedGpu()) " (auto fica no Xenia: GPU nao validada)" else "") +
-            "; GPU $gpu '${dr.gpuName().ifEmpty { "?" }}' SoC ${dr.socName()}; driver ${driver()}" +
+            "; GPU $gpu '${gpuName.ifEmpty { "?" }}' SoC ${dr.socName()}; driver ${driver()}" +
             "; renut_support.txt=${raw ?: "-"} (testado com ${tested ?: "-"})"
     }
 

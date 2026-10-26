@@ -114,6 +114,17 @@ object DriverRepository {
         return XCLIPSE_SOCS.any { soc.startsWith(it) }
     }
 
+    /**
+     * Mali Valhall ou mais nova (G57/G68/G77/G78 e as de tres digitos, G310 a G925), pelo GL_RENDERER. 26/10: o Renut
+     * passou a regressao completa na G57 do RG Cube e e mais rapido que o Xenia; as Bifrost (G52/G72/G76) ficam de fora.
+     */
+    fun isMaliValhall(probe: Boolean = true): Boolean {
+        if (isAdreno()) return false
+        val m = Regex("Mali-G(\\d+)", RegexOption.IGNORE_CASE).find(gpuName(probe)) ?: return false
+        val n = m.groupValues[1].toIntOrNull() ?: return false
+        return n >= 100 || n == 57 || n == 68 || n == 77 || n == 78
+    }
+
     /** Exynos 2200/2400/2500/2600 e 1480/1580 (Xclipse 920/940/950/960, 530/540). */
     private val XCLIPSE_SOCS = listOf("S5E9925", "S5E9945", "S5E9955", "S5E9965", "S5E8845", "S5E8855")
 
