@@ -1,0 +1,482 @@
+SwordMan 0182: audio_trace (desligada por defeito) para os sons que faltam (#3, #5: os dos inimigos nunca tocam).
+Cada open/atributos/leitura de um ficheiro de som (caminho com "sound", .bnk/.wem/.pck/.wsp/.wai e os .cpk) vai
+para o log com o caminho pedido, o real, o resultado (NAO ENCONTRADO em destaque) e as maiusculas/minusculas; nos
+.cpk, o ficheiro de dentro que foi lido (TOC lido no primeiro open). O resumo de 1 s do audio ganha os contadores
+do trace, que os hooks do jogo (src/mgr_audio_trace.cpp: bancos, eventos do Wwise) tambem enchem.
+
+--- a/include/rex/audio/audio_stats.h
+--- a/include/rex/audio/audio_stats.h
++++ b/include/rex/audio/audio_stats.h
+@@ -60,6 +60,15 @@
+   std::atomic<uint32_t> xma_no_output_invalid{0};  // saida marcada invalida pelo jogo
+   std::atomic<uint32_t> xma_no_output_full{0};     // sem espaco na saida (o Wwise nao leu)
+   std::atomic<uint32_t> xma_no_output_other{0};    // com entrada valida, mas nada escrito
++  // SwordMan (0182, audio_trace): ficheiros de som (kernel) e o que o jogo pede ao Wwise (hooks do jogo,
++  // src/mgr_audio_trace.cpp). So contam com a cvar ligada.
++  std::atomic<uint32_t> trace_opens{0}, trace_not_found{0}, trace_case_diff{0};
++  std::atomic<uint32_t> trace_reads{0}, trace_read_errors{0}, trace_reads_async{0};
++  std::atomic<uint64_t> trace_read_bytes{0};
++  std::atomic<uint32_t> trace_bank_cmds{0}, trace_bank_ok{0}, trace_bank_fail{0};
++  std::atomic<int32_t> trace_bank_pending{0};
++  std::atomic<uint32_t> trace_events{0}, trace_events_failed{0};
++  std::atomic<uint32_t> trace_gameobj_reg{0}, trace_gameobj_unreg{0};
+ };
+ 
+ inline Counters& Get() {
+--- a/src/audio/sdl/sdl_audio_driver.cpp
++++ b/src/audio/sdl/sdl_audio_driver.cpp
+@@ -42,6 +42,10 @@
+ REXCVAR_DEFINE_INT32(audio_dump_s, 0, "Audio",
+                      "Diagnostico (SwordMan 0181): grava os primeiros N s do som do cliente 0, como sai para o "
+                      "stream, em logs/audio_dump.wav (0 = desligado)");
++REXCVAR_DEFINE_BOOL(audio_trace, false, "Audio",
++                    "Diagnostico (SwordMan 0182): no log, cada ficheiro de som aberto/lido, cada banco e evento "
++                    "pedido ao Wwise e o resumo por segundo (desligado por defeito)")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ REXCVAR_DEFINE_INT32(audio_test_stall_s, 0, "Audio",
+                      "Teste do watchdog (SwordMan 0181): N s depois de abrir o audio, pausa uma vez o stream do "
+                      "cliente 0 (0 = desligado)");
+@@ -528,6 +532,24 @@
+                  kicks = c.xma_kicks.exchange(0), disables = c.xma_disables.exchange(0),
+                  no_out_invalid = c.xma_no_output_invalid.exchange(0), no_out_full = c.xma_no_output_full.exchange(0),
+                  no_out_other = c.xma_no_output_other.exchange(0);
++  std::string trace;
++  if (REXCVAR_GET(audio_trace)) {
++    const uint32_t opens = c.trace_opens.exchange(0), not_found = c.trace_not_found.exchange(0),
++                   case_diff = c.trace_case_diff.exchange(0), reads = c.trace_reads.exchange(0),
++                   read_errors = c.trace_read_errors.exchange(0), reads_async = c.trace_reads_async.exchange(0),
++                   bank_cmds = c.trace_bank_cmds.exchange(0), bank_ok = c.trace_bank_ok.exchange(0),
++                   bank_fail = c.trace_bank_fail.exchange(0), events = c.trace_events.exchange(0),
++                   events_failed = c.trace_events_failed.exchange(0), reg = c.trace_gameobj_reg.exchange(0),
++                   unreg = c.trace_gameobj_unreg.exchange(0);
++    const uint64_t read_bytes = c.trace_read_bytes.exchange(0);
++    trace = fmt::format(" | trace: ficheiros de som {} abertos, {} NAO ENCONTRADOS, {} com maiusculas diferentes, "
++                        "{} leituras ({} assincronas, {:.2f} MB), {} com erro | bancos: {} pedidos, {} carregados, "
++                        "{} falhas, {} pendentes | eventos: {} pedidos, {} sem evento carregado | objetos de som: "
++                        "+{} -{}",
++                        opens, not_found, case_diff, reads, reads_async, read_bytes / 1048576.0, read_errors,
++                        bank_cmds, bank_ok, bank_fail, c.trace_bank_pending.load(std::memory_order_relaxed), events,
++                        events_failed, reg, unreg);
++  }
+   std::string disc;
+   if (disc_reads) {
+     disc = fmt::format(" | disco: {} leituras, {:.1f} MB, {} > 20 ms, max {:.1f} ms", disc_reads,
+@@ -537,12 +559,12 @@
+               "alocacao, {} com erro, {} erros de decodificacao, {} frames partidos, {} cabecalhos invalidos | "
+               "jogo: {} criados, {} libertados, {} iniciados, {} buffers validos, {} kicks, {} desligados | sem som: "
+               "{} saida invalida, {} saida cheia, {} outros | stream: {} erros, {} eventos de dispositivo, "
+-              "{} reaberturas{}",
++              "{} reaberturas{}{}",
+               std::chrono::duration<float>(elapsed).count(), clients.empty() ? " | sem clientes" : "", clients,
+               voices_active, voices_new, allocated, stats::kXmaContexts,
+               std::max<uint32_t>(max_allocated, uint32_t(std::max(allocated, 0))), alloc_failures, error_status,
+               errors, split, header, created, released, initialized, input_valid, kicks, disables, no_out_invalid,
+-              no_out_full, no_out_other, stream_errors, device_events, reopens, disc);
++              no_out_full, no_out_other, stream_errors, device_events, reopens, disc, trace);
+ }
+ 
+ }  // namespace rex::audio::sdl
+--- a/src/audio/xma_context.cpp
++++ b/src/audio/xma_context.cpp
+@@ -10,6 +10,7 @@
+ */
+ 
+ #include <algorithm>
++#include <cmath>
+ #include <cstring>
+ 
+ #include <rex/audio/xma/context.h>
+@@ -47,10 +48,37 @@
+                     "On ARM64, convert decoded XMA frames to 16-bit big endian and fold 5.1 to "
+                     "stereo with NEON (the same results as the scalar code, faster).");
+ 
++// SwordMan (0182): audio_trace (src/audio/sdl/sdl_audio_driver.cpp).
++REXCVAR_DECLARE(bool, audio_trace);
++
+ namespace rex::audio {
+ 
+ using stream::BitStream;
+ 
++namespace {
++// SwordMan (0182, audio_trace): por contexto, o buffer de entrada que esta a tocar (endereco fisico) e se ja deu som.
++// O Work de um contexto corre sob o lock_ dele, por isso o estado por id nao precisa de mais nada.
++struct TraceVoice {
++  uint32_t ptr = 0, packets = 0, passes = 0, blocks = 0;
++  int32_t peak = 0;  // maior amostra (16 bits) que o decodificador escreveu para este buffer
++  bool sounded = false;
++};
++TraceVoice g_trace_voices[stats::kXmaContexts];
++
++void TraceVoiceEnd(uint32_t id, TraceVoice& v, const char* why) {
++  if (!v.ptr) return;
++  if (v.sounded) {
++    REXAPU_INFO("[audio-trace] XMA c{} buffer {:#010x} ({} pacotes) acabou ({}): {} blocos de som em {} passadas, "
++                "pico {:.1f} dB", id, v.ptr, v.packets, why, v.blocks, v.passes,
++                v.peak ? 20.0 * std::log10(v.peak / 32768.0) : -120.0);
++  } else {
++    REXAPU_WARN("[audio-trace] XMA c{} buffer {:#010x} ({} pacotes) acabou ({}) SEM SOM em {} passadas", id, v.ptr,
++                v.packets, why, v.passes);
++  }
++  v = TraceVoice{};
++}
++}  // namespace
++
+ const uint32_t XmaContext::kBitsPerPacketHeader;
+ const uint32_t XmaContext::kOutputMaxSizeBytes;
+ 
+@@ -115,6 +143,22 @@
+   XMA_CONTEXT_DATA data(context_ptr);
+   const XMA_CONTEXT_DATA initial_data = data;
+ 
++  // SwordMan (0182): buffer de entrada novo neste contexto = um som que o Wwise mandou decodificar.
++  const bool trace = REXCVAR_GET(audio_trace) && id() < stats::kXmaContexts;
++  if (trace) {
++    auto& v = g_trace_voices[id()];
++    const uint32_t cur = data.current_buffer;
++    const bool valid = data.IsInputBufferValid(cur);
++    const uint32_t ptr = valid ? data.GetInputBufferAddress(cur) : 0;
++    if (ptr && ptr != v.ptr) {
++      TraceVoiceEnd(id(), v, "trocado");
++      v.ptr = ptr;
++      v.packets = data.GetInputBufferPacketCount(cur);
++      REXAPU_INFO("[audio-trace] XMA c{} buffer {} novo: {:#010x}, {} pacotes, saida {}", id(), cur, ptr, v.packets,
++                  data.output_buffer_valid ? "valida" : "INVALIDA");
++    }
++  }
++
+   if (!data.output_buffer_valid) {
+     stats::Get().xma_no_output_invalid.fetch_add(1, std::memory_order_relaxed);  // SwordMan (0181)
+     return true;
+@@ -156,6 +200,33 @@
+ 
+   data.output_buffer_write_offset = output_rb.write_offset() / kOutputBytesPerBlock;
+ 
++  if (trace) {
++    auto& v = g_trace_voices[id()];
++    if (v.ptr) {
++      v.passes++;
++      const uint32_t written = (data.output_buffer_write_offset - initial_data.output_buffer_write_offset) & 31;
++      if (written && data.output_buffer_block_count) {
++        v.blocks += written;
++        v.sounded = true;
++        // Pico do PCM escrito (16 bits big-endian) nos blocos novos do anel de saida.
++        const uint8_t* out = memory()->TranslatePhysical(data.output_buffer_ptr);
++        for (uint32_t b = 0; b < written; ++b) {
++          const uint32_t block = (initial_data.output_buffer_write_offset + b) % data.output_buffer_block_count;
++          const uint8_t* q = out + block * kOutputBytesPerBlock;
++          for (uint32_t i = 0; i < kOutputBytesPerBlock; i += 2) {
++            const int32_t sample = int16_t(uint16_t(q[i] << 8 | q[i + 1]));
++            v.peak = std::max(v.peak, sample < 0 ? -sample : sample);
++          }
++        }
++      }
++      if (data.error_status) {
++        TraceVoiceEnd(id(), v, fmt::format("erro {}", uint32_t(data.error_status)).c_str());
++      } else if (!data.IsAnyInputBufferValid()) {
++        TraceVoiceEnd(id(), v, "entrada consumida");
++      }
++    }
++  }
++
+   // SwordMan (0181): voz XMA que escreveu som nesta passada, e as que acabaram em erro.
+   if (data.output_buffer_write_offset != initial_data.output_buffer_write_offset) {
+     stats::VoiceOutput(id());
+--- a/src/kernel/xboxkrnl/xboxkrnl_io.cpp
++++ b/src/kernel/xboxkrnl/xboxkrnl_io.cpp
+@@ -14,7 +14,14 @@
+ 
+ #include <algorithm>
+ #include <cctype>
++#include <cstring>
++#include <memory>
++#include <mutex>
+ #include <string>
++#include <unordered_map>
++#include <vector>
++
++#include <rex/audio/audio_stats.h>
+ 
+ #include <rex/cvar.h>
+ #include <rex/filesystem/device.h>
+@@ -36,6 +43,8 @@
+ 
+ // 0168 (src/system/runtime.cpp)
+ REXCVAR_DECLARE(std::string, swordman_boot_fast_forward_until);
++// 0182 (src/audio/sdl/sdl_audio_driver.cpp)
++REXCVAR_DECLARE(bool, audio_trace);
+ 
+ namespace rex::kernel::xboxkrnl {
+ using namespace rex::system;
+@@ -108,6 +117,224 @@
+   return skipped;
+ }
+ 
++// Project SwordMan (0182): audio_trace (desligada por defeito). Cada open/atributos/leitura de um ficheiro de som
++// (caminho com "sound", .bnk/.wem/.pck/.wsp/.wai, e os .cpk) vai para o log: caminho pedido, caminho real, resultado
++// (NAO ENCONTRADO em destaque) e se as maiusculas/minusculas do pedido diferem das do disco (a procura ignora-as).
++// Nos .cpk a leitura diz que ficheiro de dentro foi lido (o TOC do CPK e lido no primeiro open).
++namespace {
++
++struct TraceCpkEntry {
++  uint64_t offset = 0, size = 0;
++  std::string name;
++};
++
++struct TraceFile {
++  std::string path;
++  std::shared_ptr<const std::vector<TraceCpkEntry>> toc;  // por offset; vazio se nao for CPK
++};
++
++std::mutex g_trace_mutex;
++std::unordered_map<uint32_t, TraceFile> g_trace_files;  // por handle
++std::unordered_map<std::string, std::shared_ptr<const std::vector<TraceCpkEntry>>> g_trace_tocs;
++
++bool TraceSoundPath(std::string_view path) {
++  const std::string lower = SwordmanLower(path);
++  auto ends = [&](const char* ext) {
++    const size_t n = std::strlen(ext);
++    return lower.size() >= n && lower.compare(lower.size() - n, n, ext) == 0;
++  };
++  return lower.find("sound") != std::string::npos || ends(".bnk") || ends(".wem") || ends(".pck") ||
++         ends(".wsp") || ends(".wai") || ends(".cpk");
++}
++
++// Tabela @UTF da CRI (big-endian; encriptada por XOR em alguns CPK). Devolve as linhas como texto/numeros.
++struct UtfRow {
++  std::unordered_map<std::string, uint64_t> num;
++  std::unordered_map<std::string, std::string> str;
++};
++
++bool ParseUtf(std::vector<uint8_t> b, std::vector<UtfRow>& rows) {
++  if (b.size() < 0x20) return false;
++  if (std::memcmp(b.data(), "@UTF", 4) != 0) {
++    uint32_t m = 0x655f;
++    for (auto& c : b) {
++      c ^= uint8_t(m);
++      m = (m * 0x4115) & 0xffff;
++    }
++    if (std::memcmp(b.data(), "@UTF", 4) != 0) return false;
++  }
++  auto u16 = [&](size_t o) { return o + 2 <= b.size() ? uint32_t(b[o] << 8 | b[o + 1]) : 0u; };
++  auto u32 = [&](size_t o) { return o + 4 <= b.size() ? (u16(o) << 16) | u16(o + 2) : 0u; };
++  auto u64 = [&](size_t o) { return (uint64_t(u32(o)) << 32) | u32(o + 4); };
++  const size_t rows_off = u16(0xa) + 8, str_off = u32(0xc) + 8;
++  const uint32_t ncol = u16(0x18), rowlen = u16(0x1a), nrows = u32(0x1c);
++  auto str = [&](uint32_t o) {
++    std::string out;
++    for (size_t i = str_off + o; i < b.size() && b[i]; ++i) out += char(b[i]);
++    return out;
++  };
++  struct Col {
++    std::string name;
++    uint8_t storage, type;
++    size_t const_pos;
++  };
++  std::vector<Col> cols;
++  size_t p = 0x20;
++  static const uint8_t kSize[] = {1, 1, 2, 2, 4, 4, 8, 8, 4, 8, 4, 8};
++  for (uint32_t i = 0; i < ncol; ++i) {
++    if (p + 5 > b.size()) return false;
++    Col c{str(u32(p + 1)), uint8_t(b[p] & 0xf0), uint8_t(b[p] & 0x0f), 0};
++    p += 5;
++    if (c.type > 0xb) return false;
++    if (c.storage == 0x30) {
++      c.const_pos = p;
++      p += kSize[c.type];
++    }
++    cols.push_back(c);
++  }
++  auto value = [&](const Col& c, size_t at, UtfRow& row) {
++    switch (c.type) {
++      case 0: case 1: row.num[c.name] = at < b.size() ? b[at] : 0; break;
++      case 2: case 3: row.num[c.name] = u16(at); break;
++      case 4: case 5: case 8: row.num[c.name] = u32(at); break;
++      case 6: case 7: case 9: row.num[c.name] = u64(at); break;
++      case 0xa: row.str[c.name] = str(u32(at)); break;
++      default: break;
++    }
++  };
++  for (uint32_t r = 0; r < nrows; ++r) {
++    UtfRow row;
++    size_t q = rows_off + size_t(r) * rowlen;
++    for (const auto& c : cols) {
++      if (c.storage == 0x50) {
++        value(c, q, row);
++        q += kSize[c.type];
++      } else if (c.storage == 0x30) {
++        value(c, c.const_pos, row);
++      }
++    }
++    rows.push_back(std::move(row));
++  }
++  return true;
++}
++
++std::shared_ptr<const std::vector<TraceCpkEntry>> ReadCpkToc(rex::filesystem::File* file) {
++  auto read = [&](uint64_t off, size_t n, std::vector<uint8_t>& out) {
++    out.resize(n);
++    size_t got = 0;
++    return file->ReadSync(std::span<uint8_t>(out.data(), n), size_t(off), &got) == X_STATUS_SUCCESS && got == n;
++  };
++  auto out = std::make_shared<std::vector<TraceCpkEntry>>();
++  std::vector<uint8_t> h, t;
++  auto le64 = [](const uint8_t* d) {
++    uint64_t v = 0;
++    for (int i = 7; i >= 0; --i) v = (v << 8) | d[i];
++    return v;
++  };
++  if (!read(0, 16, h) || std::memcmp(h.data(), "CPK ", 4) != 0) return out;
++  const uint64_t hsize = le64(h.data() + 8);
++  std::vector<UtfRow> hdr;
++  if (hsize > (1u << 20) || !read(16, size_t(hsize), t) || !ParseUtf(t, hdr) || hdr.empty()) return out;
++  const uint64_t toc = hdr[0].num["TocOffset"], content = hdr[0].num["ContentOffset"];
++  if (!toc || !read(toc, 16, h) || std::memcmp(h.data(), "TOC ", 4) != 0) return out;
++  const uint64_t tsize = le64(h.data() + 8);
++  std::vector<UtfRow> rows;
++  if (tsize > (64u << 20) || !read(toc + 16, size_t(tsize), t) || !ParseUtf(t, rows)) return out;
++  const uint64_t base = content ? std::min(toc, content) : toc;
++  for (auto& r : rows) {
++    std::string dir = r.str["DirName"];
++    out->push_back({base + r.num["FileOffset"], r.num["FileSize"], (dir.empty() ? "" : dir + "/") + r.str["FileName"]});
++  }
++  std::sort(out->begin(), out->end(), [](const auto& a, const auto& b) { return a.offset < b.offset; });
++  return out;
++}
++
++const char* TraceStatus(uint32_t status) {
++  switch (status) {
++    case X_STATUS_SUCCESS: return "ok";
++    case X_STATUS_OBJECT_NAME_NOT_FOUND: return "NAO ENCONTRADO (nome)";
++    case 0xC000003Au: return "NAO ENCONTRADO (pasta)";  // STATUS_OBJECT_PATH_NOT_FOUND
++    case X_STATUS_NO_SUCH_FILE: return "NAO ENCONTRADO";
++    case X_STATUS_END_OF_FILE: return "fim do ficheiro";
++    case X_STATUS_PENDING: return "pendente";
++    default: return "erro";
++  }
++}
++
++// O nome do pedido difere do do disco so nas maiusculas/minusculas?
++bool TraceCaseDiffers(std::string_view requested, const std::string& real) {
++  const size_t a = requested.find_last_of("\\/"), b = real.find_last_of("\\/");
++  const std::string_view rq = a == std::string_view::npos ? requested : requested.substr(a + 1);
++  const std::string_view rl = b == std::string::npos ? std::string_view(real) : std::string_view(real).substr(b + 1);
++  return rq != rl && SwordmanLower(rq) == SwordmanLower(rl);
++}
++
++void TraceOpen(const char* call, const std::string& requested, X_STATUS result, rex::filesystem::File* vfs_file,
++               uint32_t handle) {
++  if (!REXCVAR_GET(audio_trace)) return;
++  std::lock_guard<std::mutex> lock(g_trace_mutex);
++  if (!TraceSoundPath(requested)) {
++    if (XSUCCEEDED(result)) g_trace_files.erase(handle);  // o handle pode ter sido de um ficheiro de som
++    return;
++  }
++  auto& c = rex::audio::stats::Get();
++  c.trace_opens++;
++  if (XFAILED(result)) {
++    c.trace_not_found++;
++    REXKRNL_WARN("[audio-trace] {} '{}' -> {} ({:#x})", call, requested, TraceStatus(result), uint32_t(result));
++    return;
++  }
++  const std::string real = vfs_file && vfs_file->entry() ? vfs_file->entry()->absolute_path() : std::string();
++  const bool case_diff = vfs_file && vfs_file->entry() && TraceCaseDiffers(requested, vfs_file->entry()->name());
++  if (case_diff) c.trace_case_diff++;
++  TraceFile tf{requested, nullptr};
++  if (SwordmanLower(requested).ends_with(".cpk") && vfs_file) {
++    auto& toc = g_trace_tocs[real];
++    if (!toc) toc = ReadCpkToc(vfs_file);
++    tf.toc = toc;
++  }
++  REXKRNL_INFO("[audio-trace] {} '{}' -> ok, real '{}'{}{}", call, requested, real,
++               case_diff ? ", MAIUSCULAS/MINUSCULAS DIFERENTES" : "",
++               tf.toc ? fmt::format(", CPK com {} ficheiros", tf.toc->size()) : std::string());
++  if (handle) g_trace_files[handle] = std::move(tf);
++}
++
++void TraceRead(uint32_t handle, uint64_t offset, uint32_t length, X_STATUS result, uint32_t bytes, bool async) {
++  if (!REXCVAR_GET(audio_trace)) return;
++  std::string path, inner;
++  {
++    std::lock_guard<std::mutex> lock(g_trace_mutex);
++    auto it = g_trace_files.find(handle);
++    if (it == g_trace_files.end()) return;
++    path = it->second.path;
++    if (const auto& toc = it->second.toc) {
++      auto e = std::upper_bound(toc->begin(), toc->end(), offset,
++                                [](uint64_t o, const TraceCpkEntry& x) { return o < x.offset; });
++      if (e != toc->begin() && offset < std::prev(e)->offset + std::prev(e)->size) {
++        --e;
++        inner = fmt::format(" [{} +{}]", e->name, offset - e->offset);
++      } else {
++        inner = " [fora dos ficheiros do CPK]";
++      }
++    }
++  }
++  auto& c = rex::audio::stats::Get();
++  c.trace_reads++;
++  c.trace_read_bytes += bytes;
++  if (async) c.trace_reads_async++;
++  const bool failed = XFAILED(result) && result != X_STATUS_END_OF_FILE;
++  if (failed || bytes < length) c.trace_read_errors += failed ? 1 : 0;
++  if (failed || (bytes < length && result != X_STATUS_PENDING)) {
++    REXKRNL_WARN("[audio-trace] leitura '{}'{} offset {} pediu {} B -> {} ({:#x}), {} B lidos", path, inner, offset,
++                 length, TraceStatus(result), uint32_t(result), bytes);
++  } else {
++    REXKRNL_INFO("[audio-trace] leitura '{}'{} offset {} {} B -> {} B{}", path, inner, offset, length, bytes,
++                 async ? " (assincrona: concluida na hora, evento/APC sinalizados)" : "");
++  }
++}
++
++}  // namespace
++
+ static bool IsValidPath(const std::string_view s, bool is_pattern) {
+   // TODO(gibbed): validate path components individually
+   bool got_asterisk = false;
+@@ -247,6 +474,8 @@
+   }
+ 
+   *handle_out = handle;
++  TraceOpen("open", skip_path, result, XSUCCEEDED(result) ? vfs_file : nullptr,
++            XSUCCEEDED(result) ? uint32_t(handle) : 0);
+   if (XFAILED(result)) {
+     REXKRNL_IMPORT_FAIL("NtCreateFile", "path='{}' -> {:#x}", target_path, result);
+   } else {
+@@ -292,9 +521,11 @@
+     if (true || file->is_synchronous()) {
+       // Synchronous.
+       uint32_t bytes_read = 0;
++      const uint64_t trace_offset = byte_offset_ptr ? static_cast<uint64_t>(*byte_offset_ptr) : file->position();
+       result = file->Read(buffer.guest_address(), buffer_length,
+                           byte_offset_ptr ? static_cast<uint64_t>(*byte_offset_ptr) : -1,
+                           &bytes_read, apc_context.guest_address());
++      TraceRead(file_handle, trace_offset, buffer_length, result, bytes_read, !file->is_synchronous());
+       if (io_status_block) {
+         io_status_block->status = result;
+         io_status_block->information = bytes_read;
+@@ -395,9 +626,11 @@
+     if (true || file->is_synchronous()) {
+       // Synchronous.
+       uint32_t bytes_read = 0;
++      const uint64_t trace_offset = byte_offset_ptr ? static_cast<uint64_t>(*byte_offset_ptr) : file->position();
+       result = file->ReadScatter(segment_array.guest_address(), length,
+                                  byte_offset_ptr ? static_cast<uint64_t>(*byte_offset_ptr) : -1,
+                                  &bytes_read, apc_context.guest_address());
++      TraceRead(file_handle, trace_offset, length, result, bytes_read, !file->is_synchronous());
+       if (io_status_block) {
+         io_status_block->status = result;
+         io_status_block->information = bytes_read;
+@@ -629,8 +862,14 @@
+     file_info->attributes = entry->attributes();
+ 
+     REXKRNL_IMPORT_RESULT("NtQueryFullAttributesFile", "0x0 size={}", (uint64_t)entry->size());
++    if (REXCVAR_GET(audio_trace) && TraceSoundPath(target_path)) {
++      REXKRNL_INFO("[audio-trace] atributos '{}' -> ok, real '{}' ({} B){}", target_path, entry->absolute_path(),
++                   uint64_t(entry->size()),
++                   TraceCaseDiffers(target_path, entry->name()) ? ", MAIUSCULAS/MINUSCULAS DIFERENTES" : "");
++    }
+     return X_STATUS_SUCCESS;
+   }
++  TraceOpen("atributos", std::string(target_path), X_STATUS_NO_SUCH_FILE, nullptr, 0);
+ 
+   REXKRNL_IMPORT_RESULT("NtQueryFullAttributesFile", "X_STATUS_NO_SUCH_FILE");
+   return X_STATUS_NO_SUCH_FILE;

@@ -1,0 +1,103 @@
+SwordMan 0183: XMA waves came out one frame short; Wwise voices never ended
+
+The start-padding realignment (upstream f24299f) holds each decoded frame's tail until the next frame is decoded.
+The last frame of a wave stayed in the carry, so every wave produced 512 samples less than its SamplesEncoded.
+Wwise (CAkSrcXMA::GetBuffer, 0x825B0C60 in MGR) only ends an XMA voice when it has read the wave's full length:
+the voice sat at "no data ready" forever, kept its XMA context and kept being kicked. Once ~165 contexts were held,
+new sound effects no longer got a voice (enemy sounds, hits in fast combos). Flush the carry as the final frame
+(tail + silent head) when the input runs dry. Counter "ondas terminadas" in the 1 s audio line.
+
+--- a/include/rex/audio/audio_stats.h
++++ b/include/rex/audio/audio_stats.h
+@@ -69,6 +69,8 @@
+   std::atomic<int32_t> trace_bank_pending{0};
+   std::atomic<uint32_t> trace_events{0}, trace_events_failed{0};
+   std::atomic<uint32_t> trace_gameobj_reg{0}, trace_gameobj_unreg{0};
++  // SwordMan (0183): ondas XMA cuja cauda (o ultimo frame) saiu quando a entrada acabou.
++  std::atomic<uint32_t> xma_carry_flushes{0};
+ };
+ 
+ inline Counters& Get() {
+--- a/include/rex/audio/xma/context.h
++++ b/include/rex/audio/xma/context.h
+@@ -269,6 +269,8 @@
+   void UpdateLoopStatus(XMA_CONTEXT_DATA* data);
+   void ClearLocked(XMA_CONTEXT_DATA* data);
+   void ResetDecoderState();
++  // SwordMan (0183): the input ran out; emit the carried tail of the last decoded frame.
++  void FlushCarry(const XMA_CONTEXT_DATA* data);
+ 
+   memory::RingBuffer PrepareOutputRingBuffer(XMA_CONTEXT_DATA* data);
+   int PrepareDecoder(int sample_rate, bool is_two_channel);
+--- a/src/audio/sdl/sdl_audio_driver.cpp
++++ b/src/audio/sdl/sdl_audio_driver.cpp
+@@ -532,6 +532,7 @@
+                  kicks = c.xma_kicks.exchange(0), disables = c.xma_disables.exchange(0),
+                  no_out_invalid = c.xma_no_output_invalid.exchange(0), no_out_full = c.xma_no_output_full.exchange(0),
+                  no_out_other = c.xma_no_output_other.exchange(0);
++  const uint32_t carry_flushes = c.xma_carry_flushes.exchange(0);  // SwordMan (0183)
+   std::string trace;
+   if (REXCVAR_GET(audio_trace)) {
+     const uint32_t opens = c.trace_opens.exchange(0), not_found = c.trace_not_found.exchange(0),
+@@ -556,14 +557,15 @@
+                        disc_bytes / 1048576.0, disc_slow, disc_max_us / 1000.0f);
+   }
+   REXAPU_INFO("audio {:.2f}s{}{} | vozes XMA: {} ativas, {} novas, {} alocadas de {} (max {}), {} falhas de "
+-              "alocacao, {} com erro, {} erros de decodificacao, {} frames partidos, {} cabecalhos invalidos | "
++              "alocacao, {} com erro, {} erros de decodificacao, {} frames partidos, {} cabecalhos invalidos, {} ondas "
++              "terminadas | "
+               "jogo: {} criados, {} libertados, {} iniciados, {} buffers validos, {} kicks, {} desligados | sem som: "
+               "{} saida invalida, {} saida cheia, {} outros | stream: {} erros, {} eventos de dispositivo, "
+               "{} reaberturas{}{}",
+               std::chrono::duration<float>(elapsed).count(), clients.empty() ? " | sem clientes" : "", clients,
+               voices_active, voices_new, allocated, stats::kXmaContexts,
+               std::max<uint32_t>(max_allocated, uint32_t(std::max(allocated, 0))), alloc_failures, error_status,
+-              errors, split, header, created, released, initialized, input_valid, kicks, disables, no_out_invalid,
++              errors, split, header, carry_flushes, created, released, initialized, input_valid, kicks, disables, no_out_invalid,
+               no_out_full, no_out_other, stream_errors, device_events, reopens, disc, trace);
+ }
+ 
+--- a/src/audio/xma_context.cpp
++++ b/src/audio/xma_context.cpp
+@@ -168,6 +168,7 @@
+ 
+   // Consume-only context: no input, just drain remaining subframes.
+   if (data.IsConsumeOnlyContext()) {
++    FlushCarry(&data);  // SwordMan (0183)
+     if (current_frame_remaining_subframes_ == 0) {
+       return true;
+     }
+@@ -621,10 +622,33 @@
+   return true;
+ }
+ 
++// SwordMan (0183): the start-padding realignment holds each decoded frame's tail until the next frame arrives, so
++// the last frame of a wave never left the carry and every wave came out one frame (512 samples) short. Wwise counts
++// the samples of each XMA voice and only ends the voice at the wave's full length: short by a frame, the voice waited
++// forever for data, kept its XMA context, and once ~165 contexts were held no new sound effect could play (enemy
++// sounds, combo hits). When the input runs dry, emit the tail as the final frame with the missing head silent.
++void XmaContext::FlushCarry(const XMA_CONTEXT_DATA* data) {
++  if (!carry_valid_ || current_frame_remaining_subframes_ > 0) {
++    return;
++  }
++  const size_t pad_bytes = kDecoderStartPadding * kBytesPerSample << data->is_stereo;
++  const size_t carry_bytes = (kBytesPerFrameChannel << data->is_stereo) - pad_bytes;
++  std::memcpy(raw_frame_.data(), carry_frame_.data(), carry_bytes);
++  std::memset(raw_frame_.data() + carry_bytes, 0, pad_bytes);
++  current_frame_remaining_subframes_ = 4 << data->is_stereo;
++  loop_frame_output_limit_ = pending_output_limit_;
++  current_frame_remaining_subframes_ -= std::min(pending_start_skip_, current_frame_remaining_subframes_);
++  carry_valid_ = false;
++  pending_output_limit_ = 0;
++  pending_start_skip_ = 0;
++  stats::Get().xma_carry_flushes.fetch_add(1, std::memory_order_relaxed);
++}
++
+ void XmaContext::Decode(XMA_CONTEXT_DATA* data) {
+   SCOPE_profile_cpu_f("apu");
+ 
+   if (!data->IsAnyInputBufferValid()) {
++    FlushCarry(data);  // SwordMan (0183)
+     return;
+   }
+ 
