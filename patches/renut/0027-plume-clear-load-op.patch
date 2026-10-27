@@ -1,0 +1,555 @@
+Zandatsu (27/10, branch perf/tiler): clears do alvo inteiro viram loadOp CLEAR (GPUs por blocos) + contadores dos passes.
+- O plume abre todos os passes com loadOp LOAD: a Mali e o Adreno em GMEM leem o alvo inteiro da memoria no inicio de
+  cada passe. Quando o primeiro comando do passe e um clear do alvo inteiro, essa leitura nao serve: o passe abre com uma
+  variante do render pass (mesmos formatos, compativel com o framebuffer) com loadOp CLEAR e o valor do clear, sem o
+  vkCmdClearAttachments. Clears parciais e clears depois de draws ficam como antes. swordman_renut_clear_fold = false
+  desliga (src/renut_glue.cpp).
+- Linhas "[renut] passes:" e "[renut] texturas:" a cada 10 s: passes por frame, partidos (o mesmo framebuffer reaberto
+  logo a seguir) e o que os fechou, abertos com CLEAR; uploads de textura e blocos BC descomprimidos no bc_decode_cs.
+- env ZANDATSU_SPLIT_TRACE=1: os passes partidos por tipo de barreira no logcat (tag zandatsu_split). So no Android.
+
+--- a/app/thirdparty/plume/plume_vulkan.h
++++ b/app/thirdparty/plume/plume_vulkan.h
+@@ -288,6 +288,15 @@
+ #endif
+     };
+ 
++#if defined(__ANDROID__)
++    // Zandatsu (renut/0027): passes de render desde o arranque: [0] abertos, [1] reabertos no mesmo framebuffer
++    // logo depois de fechados (passe partido), [2] abertos com loadOp CLEAR, [3] anexos limpos pelo loadOp, [4 + r] partidos
++    // pelo que fechou o passe (r: 1 barreira, 2 setFramebuffer, 3 copyBufferRegion, 4 copyTextureRegion, 5 copyBuffer,
++    // 6 copyTexture, 7 fim da lista).
++    void GetAndroidPassStats(uint64_t out[12]);
++    void SetAndroidClearFold(bool enabled);
++#endif
++
+     struct VulkanFramebuffer : RenderFramebuffer {
+         VulkanDevice *device = nullptr;
+         VkFramebuffer vk = VK_NULL_HANDLE;
+@@ -298,6 +307,17 @@
+         bool depthAttachmentReadOnly = false;
+         uint32_t width = 0;
+         uint32_t height = 0;
++#if defined(__ANDROID__)
++        // Zandatsu (renut/0027): o mesmo passe com loadOp CLEAR (bit i = cor i, bit 8 = profundidade, bit 9 = stencil),
++        // criado no primeiro uso; compativel com este framebuffer (mesmos formatos).
++        std::vector<VkAttachmentDescription> attachmentDescs;
++        std::vector<VkAttachmentReference> colorRefs;
++        VkAttachmentReference depthRef = {};
++        bool hasDepth = false;
++        mutable std::mutex clearPassMutex;
++        mutable std::vector<std::pair<uint32_t, VkRenderPass>> clearPasses;
++        VkRenderPass clearPass(uint32_t mask) const;
++#endif
+ 
+         VulkanFramebuffer(VulkanDevice *device, const RenderFramebufferDesc &desc);
+         ~VulkanFramebuffer() override;
+@@ -329,6 +349,16 @@
+         const VulkanPipelineLayout *activeGraphicsPipelineLayout = nullptr;
+         const VulkanPipelineLayout *activeRaytracingPipelineLayout = nullptr;
+         VkRenderPass activeRenderPass = VK_NULL_HANDLE;
++#if defined(__ANDROID__)
++        // Zandatsu (renut/0027): clears do alvo inteiro antes do primeiro draw do passe, feitos pelo loadOp CLEAR.
++        uint32_t pendingClearMask = 0;
++        VkClearValue pendingClearValues[9] = {};
++        const VulkanFramebuffer *lastEndedFramebuffer = nullptr;
++        uint8_t endReason = 0, lastEndedReason = 0;
++        char splitWhat[120] = {};  // a ultima barreira que fechou um passe (ZANDATSU_SPLIT_TRACE)  // 1 barreira, 2 setFramebuffer, 3-6 copias, 7 fim da lista
++        bool foldClear(uint32_t bit, uint32_t attachment, const VkClearValue &value, const RenderRect *rects,
++                       uint32_t rectCount);
++#endif
+ 
+         // Redundant state filtering. Vulkan state lives until the command buffer is reset, so a
+         // bind that repeats what is already bound only costs driver time (on NVK, binding the same
+--- a/app/thirdparty/plume/plume_vulkan.cpp
++++ b/app/thirdparty/plume/plume_vulkan.cpp
+@@ -21,6 +21,7 @@
+ 
+ #if defined(__ANDROID__)
+ #include <dlfcn.h>
++#include <android/log.h>
+ // SwordMan (Android): defined by the app (weak here): a dlopen handle of the Vulkan driver to use, or null.
+ extern "C" __attribute__((weak)) void *plume_android_vulkan_library();
+ #endif
+@@ -179,6 +180,78 @@
+     }
+ 
+ #if defined(__ANDROID__)
++    // Zandatsu (renut/0027): GPUs por blocos (Mali, Adreno em GMEM) leem o alvo inteiro da memoria no inicio de cada
++    // passe com loadOp LOAD. Um clear do alvo inteiro antes do primeiro draw torna essa leitura inutil: o passe abre
++    // com loadOp CLEAR e o valor do clear, sem o vkCmdClearAttachments.
++    static std::atomic<uint64_t> AndroidPassStats[12];
++    static std::atomic<bool> AndroidClearFold{ true };
++
++    void GetAndroidPassStats(uint64_t out[12]) {
++        for (int i = 0; i < 12; i++) {
++            out[i] = AndroidPassStats[i].load(std::memory_order_relaxed);
++        }
++    }
++
++    void SetAndroidClearFold(bool enabled) {
++        AndroidClearFold.store(enabled, std::memory_order_relaxed);
++    }
++
++    // Zandatsu (renut/0027): env ZANDATSU_SPLIT_TRACE=1 (cvars.txt "env:ZANDATSU_SPLIT_TRACE = 1") conta as barreiras
++    // que fecham um passe aberto, por tipo (estagios, texturas, tamanho, formato e layout da primeira), e escreve a
++    // contagem no logcat (tag zandatsu_split) a cada 6000.
++    static bool SplitTraceOn() {
++        static const bool enabled = [] {
++            const char *v = getenv("ZANDATSU_SPLIT_TRACE");
++            return v != nullptr && v[0] == '1';
++        }();
++        return enabled;
++    }
++
++    static void DescribeSplitBarrier(char *what, size_t size, RenderBarrierStages stages, uint32_t bufferCount,
++                                     const RenderTextureBarrier *textures, uint32_t textureCount) {
++        const VulkanTexture *t = textureCount ? static_cast<const VulkanTexture *>(textures[0].texture) : nullptr;
++        snprintf(what, size, "stages %u, %u buffers, %u texturas (1a: %ux%u fmt %u -> layout %u)", unsigned(stages),
++                 bufferCount, textureCount, t ? t->desc.width : 0, t ? t->desc.height : 0,
++                 t ? unsigned(t->desc.format) : 0, textureCount ? unsigned(textures[0].layout) : 0);
++    }
++
++    // Um passe partido: 'what' e a barreira que o fechou (ou o nome do que o fechou).
++    static void TraceAndroidSplit(const char *what) {
++        struct Site {
++            uint64_t count;
++            char what[120];
++        };
++        static std::mutex mutex;
++        static Site sites[48];
++        static int siteCount = 0;
++        static uint64_t total = 0;
++        const std::scoped_lock lock(mutex);
++        Site *site = nullptr;
++        for (int i = 0; i < siteCount && site == nullptr; i++) {
++            if (strcmp(sites[i].what, what) == 0) {
++                site = &sites[i];
++            }
++        }
++        if (site == nullptr && siteCount < 48) {
++            site = &sites[siteCount++];
++            snprintf(site->what, sizeof(site->what), "%s", what);
++        }
++        if (site != nullptr) {
++            site->count++;
++        }
++        if (++total % 6000 != 0) {
++            return;
++        }
++        __android_log_print(ANDROID_LOG_INFO, "zandatsu_split", "--- %llu passes partidos, %d tipos",
++                            (unsigned long long)total, siteCount);
++        for (int i = 0; i < siteCount; i++) {
++            __android_log_print(ANDROID_LOG_INFO, "zandatsu_split", "%llu x %s", (unsigned long long)sites[i].count,
++                                sites[i].what);
++        }
++    }
++#endif
++
++#if defined(__ANDROID__)
+     // Zandatsu (renut/0026, app/src/main/cpp/gpu_reset.cpp): depois de um hang da GPU o kgsl deixa o contexto
+     // invalido e o submit seguinte pode cair dentro do driver (Turnip MrPurple T19, SIGSEGV em kgsl_queue_submit).
+     // O gate para a thread antes de cada submit/present quando o app ja sabe do hang; o lost avisa o app de um
+@@ -3195,6 +3268,12 @@
+         passInfo.attachmentCount = uint32_t(attachments.size());
+         passInfo.pSubpasses = &subpass;
+         passInfo.subpassCount = 1;
++#if defined(__ANDROID__)
++        attachmentDescs.assign(attachments.begin(), attachments.end());
++        colorRefs.assign(colorReferences.begin(), colorReferences.end());
++        hasDepth = subpass.pDepthStencilAttachment != nullptr;
++        depthRef = depthReference;
++#endif
+ 
+         res = vkCreateRenderPass(device->vk, &passInfo, nullptr, &renderPass);
+         if (res != VK_SUCCESS) {
+@@ -3222,12 +3301,60 @@
+         if (vk != VK_NULL_HANDLE) {
+             vkDestroyFramebuffer(device->vk, vk, nullptr);
+         }
++#if defined(__ANDROID__)
++        for (auto &p : clearPasses) {
++            vkDestroyRenderPass(device->vk, p.second, nullptr);
++        }
++#endif
+ 
+         if (renderPass != VK_NULL_HANDLE) {
+             vkDestroyRenderPass(device->vk, renderPass, nullptr);
+         }
+     }
+ 
++#if defined(__ANDROID__)
++    VkRenderPass VulkanFramebuffer::clearPass(uint32_t mask) const {
++        const std::scoped_lock lock(clearPassMutex);
++        for (const auto &p : clearPasses) {
++            if (p.first == mask) {
++                return p.second;
++            }
++        }
++        std::vector<VkAttachmentDescription> attachments = attachmentDescs;
++        for (uint32_t i = 0; i < uint32_t(colorRefs.size()); i++) {
++            if (mask & (1u << i)) {
++                attachments[i].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
++            }
++        }
++        if (hasDepth) {
++            VkAttachmentDescription &d = attachments[colorRefs.size()];
++            if (mask & (1u << 8)) {
++                d.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
++            }
++            if (mask & (1u << 9)) {
++                d.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
++            }
++        }
++        VkSubpassDescription subpass = {};
++        subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
++        subpass.pColorAttachments = !colorRefs.empty() ? colorRefs.data() : nullptr;
++        subpass.colorAttachmentCount = uint32_t(colorRefs.size());
++        subpass.pDepthStencilAttachment = hasDepth ? &depthRef : nullptr;
++        VkRenderPassCreateInfo passInfo = {};
++        passInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
++        passInfo.pAttachments = attachments.data();
++        passInfo.attachmentCount = uint32_t(attachments.size());
++        passInfo.pSubpasses = &subpass;
++        passInfo.subpassCount = 1;
++        VkRenderPass pass = VK_NULL_HANDLE;
++        if (vkCreateRenderPass(device->vk, &passInfo, nullptr, &pass) != VK_SUCCESS) {
++            pass = VK_NULL_HANDLE;
++        }
++        clearPasses.emplace_back(mask, pass);
++        return pass;
++    }
++#endif
++
+     uint32_t VulkanFramebuffer::getWidth() const {
+         return width;
+     }
+@@ -3395,6 +3522,10 @@
+ 
+     void VulkanCommandList::begin() {
+         resetStateCache();
++#if defined(__ANDROID__)
++        pendingClearMask = 0;
++        lastEndedFramebuffer = nullptr;
++#endif
+         vkResetCommandBuffer(vk, 0);
+ 
+         VkCommandBufferBeginInfo beginInfo = {};
+@@ -3409,6 +3540,9 @@
+     }
+ 
+     void VulkanCommandList::end() {
++#if defined(__ANDROID__)
++        endReason = 7;  // Zandatsu (renut/0027): o que fechou o passe
++#endif
+         endActiveRenderPass();
+ 
+         VkResult res = vkEndCommandBuffer(vk);
+@@ -3431,6 +3565,13 @@
+             return;
+         }
+ 
++#if defined(__ANDROID__)
++        if (activeRenderPass != VK_NULL_HANDLE && SplitTraceOn()) {
++            DescribeSplitBarrier(splitWhat, sizeof(splitWhat), stages, bufferBarriersCount, textureBarriers,
++                                 textureBarriersCount);
++        }
++        endReason = 1;  // Zandatsu (renut/0027): o que fechou o passe
++#endif
+         endActiveRenderPass();
+ 
+         const bool geometryEnabled = queue->device->capabilities.geometryShader;
+@@ -3790,6 +3931,9 @@
+     }
+ 
+     void VulkanCommandList::setFramebuffer(const RenderFramebuffer *framebuffer) {
++#if defined(__ANDROID__)
++        endReason = 2;  // Zandatsu (renut/0027): o que fechou o passe
++#endif
+         endActiveRenderPass();
+ 
+         if (framebuffer != nullptr) {
+@@ -3848,6 +3992,18 @@
+         assert(attachmentIndex < targetFramebuffer->colorAttachments.size());
+         assert((clearRectsCount == 0) || (clearRects != nullptr));
+ 
++#if defined(__ANDROID__)
++        {
++            VkClearValue value = {};
++            value.color.float32[0] = colorValue.r;
++            value.color.float32[1] = colorValue.g;
++            value.color.float32[2] = colorValue.b;
++            value.color.float32[3] = colorValue.a;
++            if (foldClear(1u << attachmentIndex, attachmentIndex, value, clearRects, clearRectsCount)) {
++                return;
++            }
++        }
++#endif
+         checkActiveRenderPass();
+ 
+         thread_local std::vector<VkClearRect> rectVector;
+@@ -3868,6 +4024,23 @@
+         assert(targetFramebuffer != nullptr);
+         assert((clearRectsCount == 0) || (clearRects != nullptr));
+ 
++#if defined(__ANDROID__)
++        if (!targetFramebuffer->depthAttachmentReadOnly && targetFramebuffer->hasDepth) {
++            const uint32_t depthIndex = uint32_t(targetFramebuffer->colorRefs.size());
++            const VkFormat format = targetFramebuffer->attachmentDescs[depthIndex].format;
++            const bool hasStencil = format == VK_FORMAT_D24_UNORM_S8_UINT || format == VK_FORMAT_D32_SFLOAT_S8_UINT ||
++                                    format == VK_FORMAT_D16_UNORM_S8_UINT || format == VK_FORMAT_S8_UINT;
++            const uint32_t bits = (clearDepth ? (1u << 8) : 0u) | ((clearStencil && hasStencil) ? (1u << 9) : 0u);
++            if (bits != 0) {
++                VkClearValue value = pendingClearValues[depthIndex];
++                if (clearDepth) value.depthStencil.depth = depthValue;
++                if (clearStencil) value.depthStencil.stencil = stencilValue;
++                if (foldClear(bits, depthIndex, value, clearRects, clearRectsCount)) {
++                    return;
++                }
++            }
++        }
++#endif
+         checkActiveRenderPass();
+ 
+         thread_local std::vector<VkClearRect> rectVector;
+@@ -3888,6 +4061,9 @@
+     }
+ 
+     void VulkanCommandList::copyBufferRegion(RenderBufferReference dstBuffer, RenderBufferReference srcBuffer, uint64_t size) {
++#if defined(__ANDROID__)
++        endReason = 3;  // Zandatsu (renut/0027): o que fechou o passe
++#endif
+         endActiveRenderPass();
+ 
+         assert(dstBuffer.ref != nullptr);
+@@ -3903,6 +4079,9 @@
+     }
+ 
+     void VulkanCommandList::copyTextureRegion(const RenderTextureCopyLocation &dstLocation, const RenderTextureCopyLocation &srcLocation, uint32_t dstX, uint32_t dstY, uint32_t dstZ, const RenderBox *srcBox) {
++#if defined(__ANDROID__)
++        endReason = 4;  // Zandatsu (renut/0027): o que fechou o passe
++#endif
+         endActiveRenderPass();
+         
+         assert(dstLocation.type != RenderTextureCopyType::UNKNOWN);
+@@ -4004,6 +4183,9 @@
+     }
+ 
+     void VulkanCommandList::copyBuffer(const RenderBuffer *dstBuffer, const RenderBuffer *srcBuffer) {
++#if defined(__ANDROID__)
++        endReason = 5;  // Zandatsu (renut/0027): o que fechou o passe
++#endif
+         endActiveRenderPass();
+ 
+         assert(dstBuffer != nullptr);
+@@ -4019,6 +4201,9 @@
+     }
+ 
+     void VulkanCommandList::copyTexture(const RenderTexture *dstTexture, const RenderTexture *srcTexture) {
++#if defined(__ANDROID__)
++        endReason = 6;  // Zandatsu (renut/0027): o que fechou o passe
++#endif
+         endActiveRenderPass();
+ 
+         assert(dstTexture != nullptr);
+@@ -4215,18 +4400,97 @@
+             beginInfo.framebuffer = targetFramebuffer->vk;
+             beginInfo.renderArea.extent.width = targetFramebuffer->width;
+             beginInfo.renderArea.extent.height = targetFramebuffer->height;
++#if defined(__ANDROID__)
++            const uint32_t mask = pendingClearMask;
++            pendingClearMask = 0;
++            VkRenderPass clearPass = mask ? targetFramebuffer->clearPass(mask) : VK_NULL_HANDLE;
++            if (clearPass != VK_NULL_HANDLE) {
++                beginInfo.renderPass = clearPass;
++                beginInfo.clearValueCount = uint32_t(targetFramebuffer->attachmentDescs.size());
++                beginInfo.pClearValues = pendingClearValues;
++                AndroidPassStats[2].fetch_add(1, std::memory_order_relaxed);
++                AndroidPassStats[3].fetch_add(uint64_t(__builtin_popcount(mask & 0xFF) + ((mask & 0x300) ? 1 : 0)),
++                                              std::memory_order_relaxed);
++            }
++            AndroidPassStats[0].fetch_add(1, std::memory_order_relaxed);
++            if (targetFramebuffer == lastEndedFramebuffer) {
++                AndroidPassStats[1].fetch_add(1, std::memory_order_relaxed);
++                AndroidPassStats[4 + (lastEndedReason & 7)].fetch_add(1, std::memory_order_relaxed);
++                if (SplitTraceOn()) {
++                    static const char *const kReasons[8] = { "?", "", "setFramebuffer", "copyBufferRegion",
++                                                             "copyTextureRegion", "copyBuffer", "copyTexture", "fim" };
++                    TraceAndroidSplit(lastEndedReason == 1 ? splitWhat : kReasons[lastEndedReason & 7]);
++                }
++            }
++            vkCmdBeginRenderPass(vk, &beginInfo, VkSubpassContents::VK_SUBPASS_CONTENTS_INLINE);
++            activeRenderPass = beginInfo.renderPass;
++            if (mask != 0 && clearPass == VK_NULL_HANDLE) {
++                // Sem a variante do passe: os clears como antes, ja dentro do passe.
++                const VkClearRect rect = { { { 0, 0 }, { targetFramebuffer->width, targetFramebuffer->height } }, 0, 1 };
++                const uint32_t depthIndex = uint32_t(targetFramebuffer->colorRefs.size());
++                for (uint32_t i = 0; i < 8; i++) {
++                    if (mask & (1u << i)) {
++                        VkClearAttachment a = {};
++                        a.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
++                        a.colorAttachment = i;
++                        a.clearValue = pendingClearValues[i];
++                        vkCmdClearAttachments(vk, 1, &a, 1, &rect);
++                    }
++                }
++                if (mask & 0x300) {
++                    VkClearAttachment a = {};
++                    a.aspectMask = ((mask & (1u << 8)) ? VK_IMAGE_ASPECT_DEPTH_BIT : 0) |
++                                   ((mask & (1u << 9)) ? VK_IMAGE_ASPECT_STENCIL_BIT : 0);
++                    a.clearValue = pendingClearValues[depthIndex];
++                    vkCmdClearAttachments(vk, 1, &a, 1, &rect);
++                }
++            }
++#else
+             vkCmdBeginRenderPass(vk, &beginInfo, VkSubpassContents::VK_SUBPASS_CONTENTS_INLINE);
+             activeRenderPass = targetFramebuffer->renderPass;
++#endif
+         }
+     }
+ 
+     void VulkanCommandList::endActiveRenderPass() {
++#if defined(__ANDROID__)
++        // Clears pendentes sem nenhum draw a seguir: o passe abre e fecha so com o loadOp CLEAR.
++        if (activeRenderPass == VK_NULL_HANDLE && pendingClearMask != 0 && targetFramebuffer != nullptr) {
++            checkActiveRenderPass();
++        }
++        if (activeRenderPass != VK_NULL_HANDLE) {
++            lastEndedFramebuffer = targetFramebuffer;
++            lastEndedReason = endReason;
++        }
++        endReason = 0;
++#endif
+         if (activeRenderPass != VK_NULL_HANDLE) {
+             vkCmdEndRenderPass(vk);
+             activeRenderPass = VK_NULL_HANDLE;
+         }
+     }
+ 
++#if defined(__ANDROID__)
++    bool VulkanCommandList::foldClear(uint32_t bit, uint32_t attachment, const VkClearValue &value, const RenderRect *rects,
++                                      uint32_t rectCount) {
++        if (activeRenderPass != VK_NULL_HANDLE || targetFramebuffer == nullptr ||
++            !AndroidClearFold.load(std::memory_order_relaxed)) {
++            return false;
++        }
++        // So o alvo inteiro: um retangulo parcial precisa do resto do conteudo (loadOp LOAD).
++        if (rectCount > 1) {
++            return false;
++        }
++        if (rectCount == 1 && (rects[0].left > 0 || rects[0].top > 0 || rects[0].right < int32_t(targetFramebuffer->width) ||
++                               rects[0].bottom < int32_t(targetFramebuffer->height))) {
++            return false;
++        }
++        pendingClearMask |= bit;
++        pendingClearValues[attachment] = value;
++        return true;
++    }
++#endif
++
+     void VulkanCommandList::setGraphicsDescriptorSetDynamic(RenderDescriptorSet *descriptorSet, uint32_t setIndex, const uint32_t *dynamicOffsets, uint32_t dynamicOffsetsCount) {
+         assert(activeGraphicsPipelineLayout != nullptr);
+         assert(descriptorSet != nullptr);
+--- a/app/src/renut_engine/gpu/banjo_renut_tuning.cpp
++++ b/app/src/renut_engine/gpu/banjo_renut_tuning.cpp
+@@ -13,12 +13,21 @@
+ #include <atomic>
+ #include <bit>
+ #include <chrono>
++#include <cstring>
+ #include <condition_variable>
+ #include <filesystem>
+ #include <mutex>
+ #include <string>
+ #include <thread>
+ 
++#if defined(__ANDROID__)
++namespace plume {
++void GetAndroidPassStats(uint64_t out[12]);  // Zandatsu (renut/0027), plume_vulkan.cpp
++}
++extern std::atomic<uint64_t> g_zandatsu_texture_uploads;  // renut/0027, render/textures.cpp
++extern std::atomic<uint64_t> g_zandatsu_bc_blocks;
++#endif
++
+ #include <rex/platform.h>
+ 
+ #if REX_PLATFORM_SWITCH
+@@ -705,6 +714,34 @@
+               kicks, fence_queries, exact_stale, late_stale, evicted,
+               bool_draws,
+               bool_generic, bool_built, tess_vertices, tess_corners);
++#if defined(__ANDROID__)
++  {
++    // Zandatsu (renut/0027): passes de render no intervalo (plume, GPUs por blocos; a funcao esta declarada no topo
++    // porque o plume_vulkan.h so entra no build do Switch).
++    static uint64_t last[12] = {};
++    uint64_t now4[12];
++    plume::GetAndroidPassStats(now4);
++    const double frames = t.render_frames ? double(t.render_frames) : 1.0;
++    REXLOG_INFO("[renut] passes: {:.1f} por frame, {:.1f} partidos (o mesmo framebuffer reaberto logo a seguir), {:.1f} "
++                "abertos com loadOp CLEAR ({:.1f} anexos que nao se leem da memoria)",
++                double(now4[0] - last[0]) / frames, double(now4[1] - last[1]) / frames, double(now4[2] - last[2]) / frames,
++                double(now4[3] - last[3]) / frames);
++    REXLOG_INFO("[renut] passes partidos por: barreira {:.1f}, setFramebuffer {:.1f}, copias {:.1f} / {:.1f} / {:.1f} / "
++                "{:.1f}, fim da lista {:.1f} (por frame)",
++                double(now4[5] - last[5]) / frames, double(now4[6] - last[6]) / frames,
++                double(now4[7] - last[7]) / frames, double(now4[8] - last[8]) / frames,
++                double(now4[9] - last[9]) / frames, double(now4[10] - last[10]) / frames,
++                double(now4[11] - last[11]) / frames);
++    static uint64_t last_uploads = 0, last_bc = 0;
++    const uint64_t uploads = g_zandatsu_texture_uploads.load(std::memory_order_relaxed);
++    const uint64_t bc = g_zandatsu_bc_blocks.load(std::memory_order_relaxed);
++    REXLOG_INFO("[renut] texturas: {} uploads no intervalo, {:.1f} mil blocos BC descomprimidos no bc_decode_cs",
++                uploads - last_uploads, double(bc - last_bc) / 1000.0);
++    last_uploads = uploads;
++    last_bc = bc;
++    std::memcpy(last, now4, sizeof(last));
++  }
++#endif
+   if (g_latched_ready.load(std::memory_order_acquire) && g_latched.store_cards) {
+     const uint64_t clean = g_cards_clean.exchange(0, std::memory_order_relaxed);
+     const uint64_t clean_bytes = g_cards_clean_bytes.exchange(0, std::memory_order_relaxed);
+--- a/app/src/renut_engine/gpu/render/textures.cpp
++++ b/app/src/renut_engine/gpu/render/textures.cpp
+@@ -4,6 +4,7 @@
+ #include "renut_engine/gpu/render/textures.h"
+ 
+ #include <algorithm>
++#include <atomic>
+ #include <bit>
+ #include <cmath>
+ #include <cstring>
+@@ -36,6 +37,13 @@
+ REXCVAR_DEFINE_BOOL(swordman_renut_resolve_mips_lazy, false, "SwordMan",
+                     "Renut: niveis de mip dos resolves feitos so quando um draw le o resolve num alvo menor");
+ 
++#if defined(__ANDROID__)
++// Zandatsu (renut/0027): uploads de textura e blocos BC descomprimidos no bc_decode_cs, desde o arranque (linha
++// "[renut] passes:" a cada 10 s).
++std::atomic<uint64_t> g_zandatsu_texture_uploads{0};
++std::atomic<uint64_t> g_zandatsu_bc_blocks{0};
++#endif
++
+ namespace renut::gpu {
+ 
+ namespace {
+@@ -425,6 +433,9 @@
+   u32 block_width, block_height;
+   FormatBlockSize(fetch.Format(), block_width, block_height);
+ 
++#if defined(__ANDROID__)
++  g_zandatsu_texture_uploads.fetch_add(1, std::memory_order_relaxed);
++#endif
+   auto &s = State();
+   plume::RenderCommandList *cmd = s.command_list;
+   static const uint32_t kProfileLabel = gpu_profile::Label("texture uploads");
+@@ -571,6 +582,9 @@
+     cmd->setComputePipelineLayout(s.bc_decode_layout.get());
+     cmd->setPipeline(s.bc_decode_pipeline.get());
+     for (const BcDecodePush &push : bc_dispatches) {
++#if defined(__ANDROID__)
++      g_zandatsu_bc_blocks.fetch_add(push.block_count, std::memory_order_relaxed);
++#endif
+       cmd->setComputePushConstants(0, &push, 0, sizeof(push));
+       cmd->dispatch((push.block_count + 63) / 64, 1, 1);
+     }

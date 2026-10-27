@@ -202,7 +202,16 @@ void SwordManRenutShotOnSwap() {
 #define VK_NO_PROTOTYPES
 #include <vulkan/vulkan.h>
 
+namespace plume {
+void SetAndroidClearFold(bool enabled);  // renut/0027
+}
+REXCVAR_DEFINE_BOOL(swordman_renut_clear_fold, true, "SwordMan",
+                    "Renut: um clear do alvo inteiro antes do primeiro draw do passe abre o passe com loadOp CLEAR (a GPU "
+                    "por blocos nao le o alvo da memoria); false = clear dentro do passe, como antes")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+
 bool SwordManRenutDeviceSupported(std::string* why) {
+  plume::SetAndroidClearFold(REXCVAR_GET(swordman_renut_clear_fold));
   void* library = plume_android_vulkan_library();
   if (!library) library = dlopen("libvulkan.so", RTLD_NOW | RTLD_LOCAL);
   auto get_instance_proc = library ? reinterpret_cast<PFN_vkGetInstanceProcAddr>(
