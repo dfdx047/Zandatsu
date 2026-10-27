@@ -1,0 +1,865 @@
+SwordMan (Android): 120 FPS interpolado no passe final do Renut, 27/10.
+- A interpolacao do Xenia (patch 0092, dbz3_frame_interpolation e dbz3_frame_interpolation_quality, as mesmas
+  contas) agora no Renut: shaders/host/frame_interp_ps.hlsl, passes de pixel em vez de compute. Cada frame novo do
+  jogo (60/s) e apresentado duas vezes: primeiro um gerado a meio entre o anterior e ele, depois ele (FIFO a 120 Hz).
+- O gerado vai na lista do proprio frame (draws do jogo, passes, scan-out); o real numa lista pequena propria a seguir,
+  para o anel de frames continuar com dois em voo. So com tela de 100 Hz ou mais e sem o hack de 30 FPS.
+- As capturas de teste continuam a ser os frames do proprio jogo. "Tela" no medidor conta os gerados.
+--- a/app/src/renut_engine/gpu/backend/present.cpp
++++ b/app/src/renut_engine/gpu/backend/present.cpp
+@@ -11,12 +11,14 @@
+ #include <condition_variable>
+ #include <cstdlib>
+ #include <cstring>
++#include <initializer_list>
+ #include <mutex>
+ #include <string>
+ 
+ #include <plume_render_interface.h>
+ 
+ #include <rex/cvar.h>
++#include <rex/perf/frame_rate.h>  // Zandatsu (renut/0025): the display's refresh, the presents
+ 
+ #include "renut_engine/gpu/backend/backend.h"
+ #include "renut_engine/gpu/backend/gpu_profile.h"
+@@ -80,6 +82,7 @@
+ #include "host_shaders/present_cas_ps.spirv.h"
+ #include "host_shaders/present_easu_ps.spirv.h"
+ #include "host_shaders/present_rcas_ps.spirv.h"
++#include "host_shaders/frame_interp_ps.spirv.h"  // Zandatsu (renut/0025)
+ #endif
+ 
+ namespace renut::gpu {
+@@ -98,11 +101,15 @@
+   RGPU_INFO("Vsync {}", vsync ? "on" : "off");
+ }
+ 
++// Zandatsu (renut/0025): the real frame's lists after a generated one (dbz3_frame_interpolation, below).
++void WaitInterpListsLocked(VideoState &s);
++
+ void RebuildSwapChain(VideoState &s) {
+   // Submit rather than abandon an open list: plume tracks layouts on record.
+   if (s.list_open)
+     detail::SubmitAndAdvance(s, nullptr, nullptr);
+   detail::WaitAllSubmitted(s);
++  WaitInterpListsLocked(s);
+   s.swap_framebuffers.clear();
+   if (!s.swap_chain->resize() || !detail::BuildSwapChainTargets(s)) {
+     if (s.swap_chain->getWidth() && s.swap_chain->getHeight())
+@@ -340,8 +347,10 @@
+   PresentEffect &e = g_effect;
+   if (e.target && e.width == w && e.height == h)
+     return true;
+-  if (e.target)
++  if (e.target) {
+     detail::WaitAllSubmitted(s);  // the frames in flight still read the old one (only on a resize)
++    WaitInterpListsLocked(s);
++  }
+   e.framebuffer.reset();
+   e.view.reset();
+   e.target.reset();
+@@ -457,6 +466,301 @@
+ }
+ #endif
+ 
++#if defined(__ANDROID__)
++// Zandatsu (renut/0025): "120 FPS (interpolated)" in Renut's final pass, the emulated GPU's dbz3_frame_interpolation
++// (patch 0092, same cvars and the same maths: shaders/host/frame_interp_ps.hlsl). Each new frame of the game (60 a
++// second) is presented twice: first a frame generated halfway between the previous one and it, then itself; FIFO at
++// 120 Hz shows them one vblank apart. The generated frame goes with the frame's own command list (the game's draws,
++// the interpolation passes, its scan-out); the real one with a small list of its own after it (g_interp.lists), so
++// the frame ring keeps its two frames in flight. Only with a display at 100 Hz or more and without the 30 FPS
++// frame skip; anything else (first frame, a size change) presents the frame alone.
++struct InterpPush {
++  float scale[2];  // present_vs
++  float translate[2];
++  uint32_t pass, cur, prev, q_prev, q_cur, s_prev, s_cur, vs, v8, rows, cut, k, quality, mode, full_w, full_h;
++};
++static_assert(sizeof(InterpPush) == 80);
++
++struct InterpTarget {
++  std::unique_ptr<plume::RenderTexture> texture;
++  std::unique_ptr<plume::RenderTextureView> view;
++  std::unique_ptr<plume::RenderFramebuffer> framebuffer;
++  plume::RenderTextureLayout layout = plume::RenderTextureLayout::UNKNOWN;
++  uint32_t slot = kInvalidDescriptor, width = 0, height = 0;
++};
++
++struct FrameInterp {
++  bool built = false, failed = false;
++  std::unique_ptr<plume::RenderPipelineLayout> layout;
++  std::unique_ptr<plume::RenderShader> ps;
++  std::unique_ptr<plume::RenderPipeline> rgba8, rgba16f, r32f, gen;
++  InterpTarget q[2], s[2], hist[2], vs, v8, rows, cut, image;
++  std::unique_ptr<plume::RenderFramebuffer> gen_fb[2];  // image + hist[i]
++  uint32_t width = 0, height = 0, k = 1, index = 0;
++  bool history = false;
++  // The real frame's present after the generated one.
++  std::unique_ptr<plume::RenderCommandList> lists[kFramesInFlight];
++  std::unique_ptr<plume::RenderCommandFence> fences[kFramesInFlight];
++  std::unique_ptr<plume::RenderCommandSemaphore> acquire[kFramesInFlight];
++  bool submitted[kFramesInFlight] = {};
++  uint32_t extra = 0;
++  bool logged = false;
++};
++FrameInterp g_interp;
++
++void WaitInterpListsLocked(VideoState &s) {
++  for (uint32_t i = 0; i < kFramesInFlight; ++i) {
++    if (g_interp.submitted[i]) {
++      render_thread::WaitScope wait;
++      s.queue->waitForCommandFence(g_interp.fences[i].get());
++      g_interp.submitted[i] = false;
++    }
++  }
++}
++
++bool InterpOn() {
++  if (!rex::cvar::Query<bool>("dbz3_frame_interpolation"))
++    return false;
++  const std::string skip = rex::cvar::GetFlagByName("dbz3_frameskip");
++  if (!skip.empty() && std::atoi(skip.c_str()) > 0)
++    return false;
++  return rex::perf::GetDisplayRefreshRate() >= 100.0f;
++}
++
++std::unique_ptr<plume::RenderPipeline> InterpPipeline(VideoState &s, plume::RenderFormat format, uint32_t targets,
++                                                      const char *name) {
++  plume::RenderGraphicsPipelineDesc desc;
++  desc.pipelineLayout = g_interp.layout.get();
++  desc.vertexShader = s.present_vs.get();
++  desc.pixelShader = g_interp.ps.get();
++  desc.primitiveTopology = plume::RenderPrimitiveTopology::TRIANGLE_LIST;
++  desc.cullMode = plume::RenderCullMode::NONE;
++  desc.renderTargetCount = targets;
++  for (uint32_t i = 0; i < targets; ++i) {
++    desc.renderTargetFormat[i] = format;
++    desc.renderTargetBlend[i] = plume::RenderBlendDesc::Copy();
++  }
++  desc.depthTargetFormat = plume::RenderFormat::UNKNOWN;
++  std::unique_ptr<plume::RenderPipeline> pipeline = s.device->createGraphicsPipeline(desc);
++  if (pipeline)
++    pipeline->setName(name);
++  return pipeline;
++}
++
++bool BuildInterp(VideoState &s) {
++  FrameInterp &f = g_interp;
++  if (f.built || f.failed)
++    return f.built;
++  plume::RenderDescriptorSetBuilder textures;  // the bindless tables, as BuildUtilityLayout's
++  textures.begin();
++  textures.addTexture(0, kTextureDescriptorCount);
++  textures.end(true, kTextureDescriptorCount);
++  plume::RenderDescriptorSetBuilder samplers;
++  samplers.begin();
++  samplers.addSampler(0, kSamplerDescriptorCount);
++  samplers.end(true, kSamplerDescriptorCount);
++  plume::RenderPipelineLayoutBuilder layout;
++  layout.begin(false, true);
++  layout.addDescriptorSet(textures);  // set 0 -> t0, space0
++  layout.addDescriptorSet(samplers);  // set 1 -> s0, space1
++  layout.addPushConstant(0, 2, sizeof(InterpPush),
++                         plume::RenderShaderStageFlag::VERTEX | plume::RenderShaderStageFlag::PIXEL);
++  layout.end();
++  f.layout = layout.create(s.device.get());
++  f.ps = CreateHostShader(s.device.get(), RENUT_HOST_SHADER(frame_interp_ps), "frame_interp_ps");
++  if (f.layout && f.ps && s.present_vs) {
++    f.rgba8 = InterpPipeline(s, plume::RenderFormat::R8G8B8A8_UNORM, 1, "renut frame interpolation (rgba8)");
++    f.rgba16f = InterpPipeline(s, plume::RenderFormat::R16G16B16A16_FLOAT, 1, "renut frame interpolation (rgba16f)");
++    f.r32f = InterpPipeline(s, plume::RenderFormat::R32_FLOAT, 1, "renut frame interpolation (r32f)");
++    f.gen = InterpPipeline(s, plume::RenderFormat::R8G8B8A8_UNORM, 2, "renut frame interpolation (generated)");
++  }
++  bool lists = true;
++  for (uint32_t i = 0; i < kFramesInFlight && lists; ++i) {
++    f.lists[i] = s.queue->createCommandList();
++    f.fences[i] = s.device->createCommandFence();
++    f.acquire[i] = s.device->createCommandSemaphore();
++    lists = f.lists[i] && f.fences[i] && f.acquire[i];
++  }
++  f.built = f.rgba8 && f.rgba16f && f.r32f && f.gen && lists;
++  f.failed = !f.built;
++  if (f.failed)
++    RGPU_ERROR("dbz3_frame_interpolation: the pipelines failed to build; 60 FPS");
++  else
++    RGPU_INFO("dbz3_frame_interpolation: pipelines ready");
++  return f.built;
++}
++
++bool MakeInterpTarget(VideoState &s, InterpTarget &t, uint32_t w, uint32_t h, plume::RenderFormat format,
++                      const char *name) {
++  t.framebuffer.reset();
++  t.view.reset();
++  t.texture.reset();
++  t.layout = plume::RenderTextureLayout::UNKNOWN;
++  plume::RenderTextureDesc desc = plume::RenderTextureDesc::Texture2D(w, h, 1, format);
++  desc.flags |= plume::RenderTextureFlag::RENDER_TARGET;
++  t.texture = s.device->createTexture(desc);
++  if (!t.texture)
++    return false;
++  t.texture->setName(name);
++  t.view = t.texture->createTextureView(plume::RenderTextureViewDesc::Texture2D(format));
++  const plume::RenderTexture *attachment = t.texture.get();
++  t.framebuffer = s.device->createFramebuffer(plume::RenderFramebufferDesc(&attachment, 1));
++  if (t.slot == kInvalidDescriptor)
++    t.slot = Video::AllocateTextureSlotLocked();
++  if (!t.view || !t.framebuffer || t.slot == kInvalidDescriptor)
++    return false;
++  Video::SetTextureSlotLocked(t.slot, t.texture.get(), t.view.get());
++  t.width = w;
++  t.height = h;
++  return true;
++}
++
++// The images of a frame size (k = round(width / 1280), as patch 0092's).
++bool EnsureInterpTargets(VideoState &s, uint32_t w, uint32_t h) {
++  FrameInterp &f = g_interp;
++  if (f.width == w && f.height == h)
++    return true;
++  if (f.width) {
++    detail::WaitAllSubmitted(s);  // the frames in flight still read the old ones (a size change)
++    WaitInterpListsLocked(s);
++  }
++  f.width = f.height = 0;
++  f.history = false;
++  const uint32_t k = std::max(1u, uint32_t(std::lround(float(w) / 1280.0f)));
++  const uint32_t qw = (w + 4 * k - 1) / (4 * k), qh = (h + 4 * k - 1) / (4 * k);
++  const uint32_t sw = (qw + 3) / 4, sh = (qh + 3) / 4;
++  const uint32_t bw = (qw + 1) / 2, bh = (qh + 1) / 2;
++  constexpr plume::RenderFormat rgba8 = plume::RenderFormat::R8G8B8A8_UNORM;
++  constexpr plume::RenderFormat rgba16f = plume::RenderFormat::R16G16B16A16_FLOAT;
++  bool ok = MakeInterpTarget(s, f.image, w, h, rgba8, "renut interpolation: generated frame") &&
++            MakeInterpTarget(s, f.vs, sw, sh, rgba16f, "renut interpolation: coarse motion") &&
++            MakeInterpTarget(s, f.v8, bw, bh, rgba16f, "renut interpolation: block motion") &&
++            MakeInterpTarget(s, f.rows, 1, bh, plume::RenderFormat::R32_FLOAT, "renut interpolation: cut rows") &&
++            MakeInterpTarget(s, f.cut, 1, 1, plume::RenderFormat::R32_FLOAT, "renut interpolation: cut");
++  for (uint32_t i = 0; i < 2 && ok; ++i) {
++    ok = MakeInterpTarget(s, f.q[i], qw, qh, rgba8, "renut interpolation: Q") &&
++         MakeInterpTarget(s, f.s[i], sw, sh, rgba8, "renut interpolation: S") &&
++         MakeInterpTarget(s, f.hist[i], w, h, rgba8, "renut interpolation: history");
++    if (ok) {
++      const plume::RenderTexture *attachments[] = {f.image.texture.get(), f.hist[i].texture.get()};
++      f.gen_fb[i] = s.device->createFramebuffer(plume::RenderFramebufferDesc(attachments, 2));
++      ok = f.gen_fb[i] != nullptr;
++    }
++  }
++  if (!ok) {
++    RGPU_ERROR("dbz3_frame_interpolation: images for {}x{} failed; 60 FPS", w, h);
++    f.failed = true;
++    return false;
++  }
++  f.width = w;
++  f.height = h;
++  f.k = k;
++  RGPU_INFO("dbz3_frame_interpolation: {}x{} (k {}, motion blocks {}x{})", w, h, k, bw, bh);
++  return true;
++}
++
++void InterpToLayout(plume::RenderCommandList *cmd, InterpTarget &t, plume::RenderTextureLayout layout) {
++  if (t.layout == layout)
++    return;
++  cmd->barriers(plume::RenderBarrierStage::GRAPHICS, plume::RenderTextureBarrier(t.texture.get(), layout));
++  t.layout = layout;
++}
++
++void InterpPass(VideoState &s, plume::RenderPipeline *pipeline, plume::RenderFramebuffer *framebuffer,
++                std::initializer_list<InterpTarget *> targets, InterpPush push) {
++  plume::RenderCommandList *cmd = s.command_list;
++  for (InterpTarget *t : targets)
++    InterpToLayout(cmd, *t, plume::RenderTextureLayout::COLOR_WRITE);
++  const InterpTarget &first = **targets.begin();
++  cmd->setFramebuffer(framebuffer);
++  cmd->setViewports(plume::RenderViewport(0.0f, 0.0f, float(first.width), float(first.height)));
++  cmd->setScissors(plume::RenderRect(0, 0, int32_t(first.width), int32_t(first.height)));
++  cmd->setGraphicsPipelineLayout(g_interp.layout.get());
++  cmd->setPipeline(pipeline);
++  cmd->setGraphicsDescriptorSet(s.texture_set.get(), 0);
++  cmd->setGraphicsDescriptorSet(s.sampler_set.get(), 1);
++  cmd->setGraphicsPushConstants(0, &push, 0, sizeof(push));
++  cmd->drawInstanced(3, 1, 0, 0);
++  cmd->setFramebuffer(nullptr);
++  for (InterpTarget *t : targets)
++    InterpToLayout(cmd, *t, plume::RenderTextureLayout::SHADER_READ);
++}
++
++// Records the passes for the guest frame into the frame's list; true with the generated frame in out (none for the
++// first frame after a start or a size change: the history is recorded, nothing to present yet).
++bool InterpolateLocked(VideoState &s, const PresentImage &image, PresentImage &out) {
++  FrameInterp &f = g_interp;
++  if (f.failed)
++    return false;
++  if (!image.texture || image.descriptor == kInvalidDescriptor || image.gamma > 0.0f || !InterpOn()) {
++    f.history = false;
++    return false;
++  }
++  const uint32_t w = image.source_width ? image.source_width : image.width;
++  const uint32_t h = image.source_height ? image.source_height : image.height;
++  if (!w || !h || !BuildInterp(s) || !EnsureInterpTargets(s, w, h) || !Video::EnsureCommandListLocked())
++    return false;
++  if (!f.logged) {
++    f.logged = true;
++    RGPU_INFO("dbz3_frame_interpolation: on ({:.0f} Hz display)", rex::perf::GetDisplayRefreshRate());
++  }
++  plume::RenderCommandList *cmd = s.command_list;
++  if (image.layout && *image.layout != plume::RenderTextureLayout::SHADER_READ) {
++    cmd->barriers(plume::RenderBarrierStage::GRAPHICS,
++                  plume::RenderTextureBarrier(image.texture, plume::RenderTextureLayout::SHADER_READ));
++    *image.layout = plume::RenderTextureLayout::SHADER_READ;
++  }
++  const uint32_t i = f.index, p = i ^ 1u;
++  InterpPush push{};
++  push.scale[0] = push.scale[1] = 1.0f;
++  push.cur = image.descriptor;
++  push.prev = f.hist[p].slot;
++  push.q_prev = f.q[p].slot;
++  push.q_cur = f.q[i].slot;
++  push.s_prev = f.s[p].slot;
++  push.s_cur = f.s[i].slot;
++  push.vs = f.vs.slot;
++  push.v8 = f.v8.slot;
++  push.rows = f.rows.slot;
++  push.cut = f.cut.slot;
++  push.k = f.k;
++  push.quality = uint32_t(std::clamp(rex::cvar::Query<int32_t>("dbz3_frame_interpolation_quality"), 0, 2));
++  push.full_w = w;
++  push.full_h = h;
++  const bool generate = f.history;
++  push.mode = generate ? 0u : 1u;
++  push.pass = 0;
++  InterpPass(s, f.rgba8.get(), f.q[i].framebuffer.get(), {&f.q[i]}, push);
++  push.pass = 1;
++  InterpPass(s, f.rgba8.get(), f.s[i].framebuffer.get(), {&f.s[i]}, push);
++  if (generate) {
++    push.pass = 2;
++    InterpPass(s, f.rgba16f.get(), f.vs.framebuffer.get(), {&f.vs}, push);
++    push.pass = 3;
++    InterpPass(s, f.rgba16f.get(), f.v8.framebuffer.get(), {&f.v8}, push);
++    push.pass = 4;
++    InterpPass(s, f.r32f.get(), f.rows.framebuffer.get(), {&f.rows}, push);
++    push.pass = 5;
++    InterpPass(s, f.r32f.get(), f.cut.framebuffer.get(), {&f.cut}, push);
++  }
++  push.pass = 6;
++  InterpPass(s, f.gen.get(), f.gen_fb[i].get(), {&f.image, &f.hist[i]}, push);
++  f.index = p;
++  f.history = true;
++  if (!generate)
++    return false;
++  out = PresentImage{};
++  out.texture = f.image.texture.get();
++  out.layout = &f.image.layout;
++  out.descriptor = f.image.slot;
++  out.width = w;
++  out.height = h;
++  return true;
++}
++#else
++void WaitInterpListsLocked(VideoState &) {}
++#endif
++
+ // banjo-nx: the test captures (banjo_renut_capture.h). CaptureFrame asks; the next Present, minimized or not, scans
+ // the guest image out once more into an offscreen target of the frame's size and reads it back.
+ struct FrameCapture {
+@@ -622,12 +926,16 @@
+   return true;
+ }
+ 
++// Zandatsu (renut/0025): kGenerated = the frame dbz3_frame_interpolation generated (its capture served before),
++// kAfterGenerated = the real frame after it, from g_interp's own lists.
++enum class PresentRole { kFrame, kGenerated, kAfterGenerated };
++
+ // Records the back-buffer pass and presents. Caller holds s.mutex.
+-void PresentLocked(VideoState &s, const PresentImage *image) {
++void PresentLocked(VideoState &s, const PresentImage *image, PresentRole role = PresentRole::kFrame) {
+   // Logs, once, why the GPU stopped if an earlier submission faulted.
+   ReportDeviceLost(s.device.get());
+   PresentImage diag_image;
+-  if (image && DiagTextureImageLocked(diag_image))
++  if (role == PresentRole::kFrame && image && DiagTextureImageLocked(diag_image))
+     image = &diag_image;
+ #if defined(__ANDROID__)
+   // SwordMan (Android): a new window after the background (video_internal.h).
+@@ -640,8 +948,10 @@
+   ApplyVsync(s);
+   if (s.swap_chain->needsResize() || s.resize_requested.exchange(false, std::memory_order_acq_rel))
+     RebuildSwapChain(s);
+-  UpdateGammaRampLocked(s);  // sa2-nx (2026-10-20): before the capture and the scan-out, which both apply it
+-  ServeCaptureLocked(s, image);  // banjo-nx: test captures (banjo_renut_capture.h)
++  if (role != PresentRole::kAfterGenerated)  // Zandatsu (renut/0025): done before the generated frame
++    UpdateGammaRampLocked(s);  // sa2-nx (2026-10-20): before the capture and the scan-out, which both apply it
++  if (role == PresentRole::kFrame)
++    ServeCaptureLocked(s, image);  // banjo-nx: test captures (banjo_renut_capture.h)
+   if (s.swap_framebuffers.empty()) {
+     // Minimized or failed resize: keep the frame ring moving without a present.
+     if (s.list_open)
+@@ -649,7 +959,15 @@
+     return;
+   }
+ 
++#if defined(__ANDROID__)
++  const bool after = role == PresentRole::kAfterGenerated;
++  const uint32_t extra = g_interp.extra;
++  plume::RenderCommandSemaphore *acquire =
++      after ? g_interp.acquire[extra].get() : s.acquire_semaphores[s.frame].get();
++#else
++  constexpr bool after = false;
+   plume::RenderCommandSemaphore *acquire = s.acquire_semaphores[s.frame].get();
++#endif
+   uint32_t image_index = 0;
+   auto acquire_image = [&] {
+     render_thread::WaitScope wait;
+@@ -657,7 +975,8 @@
+   };
+   if (!acquire_image()) {
+     RebuildSwapChain(s);
+-    acquire = s.acquire_semaphores[s.frame].get();
++    if (!after)
++      acquire = s.acquire_semaphores[s.frame].get();
+     if (s.swap_framebuffers.empty() || !acquire_image()) {
+       if (s.list_open)
+         detail::SubmitAndAdvance(s, nullptr, nullptr);
+@@ -665,10 +984,27 @@
+     }
+   }
+ 
+-  if (!Video::EnsureCommandListLocked())
+-    return;
+-  static const uint32_t kProfileLabel = gpu_profile::Label("present and overlays");
+-  gpu_profile::Mark(s, kProfileLabel);
++#if defined(__ANDROID__)
++  // What s.command_list was (the frame's list when open, else none): uploads on the way (the overlay's textures) may
++  // open the frame's list meanwhile, which then stays open for the next frame's draws.
++  plume::RenderCommandList *outer = s.command_list;
++  if (after) {
++    // The previous use of this list: two real frames ago.
++    if (g_interp.submitted[extra]) {
++      render_thread::WaitScope wait;
++      s.queue->waitForCommandFence(g_interp.fences[extra].get());
++      g_interp.submitted[extra] = false;
++    }
++    s.command_list = g_interp.lists[extra].get();
++    s.command_list->begin();
++  } else
++#endif
++  {
++    if (!Video::EnsureCommandListLocked())
++      return;
++    static const uint32_t kProfileLabel = gpu_profile::Label("present and overlays");
++    gpu_profile::Mark(s, kProfileLabel);
++  }
+   plume::RenderCommandList *cmd = s.command_list;
+   plume::RenderTexture *back = s.swap_chain->getTexture(image_index);
+   plume::RenderFramebuffer *back_fb = s.swap_framebuffers[image_index].get();
+@@ -715,6 +1051,19 @@
+                 plume::RenderTextureBarrier(back, plume::RenderTextureLayout::PRESENT));
+ 
+   plume::RenderCommandSemaphore *present_semaphore = s.present_semaphores[image_index].get();
++#if defined(__ANDROID__)
++  if (after) {
++    cmd->end();
++    if (s.command_list == cmd)
++      s.command_list = outer;
++    const plume::RenderCommandList *lists[] = {g_interp.lists[extra].get()};
++    plume::RenderCommandSemaphore *acquires[] = {acquire};
++    plume::RenderCommandSemaphore *signals[] = {present_semaphore};
++    s.queue->executeCommandLists(lists, 1, acquires, 1, signals, 1, g_interp.fences[extra].get());
++    g_interp.submitted[extra] = true;
++    g_interp.extra = (extra + 1) % kFramesInFlight;
++  } else
++#endif
+   detail::SubmitAndAdvance(s, acquire, present_semaphore);
+   plume::RenderCommandSemaphore *waits[] = {present_semaphore};
+   bool presented;
+@@ -809,6 +1158,19 @@
+   std::lock_guard lock(s.mutex);
+   if (!s.host_ready || s.shutting_down.load(std::memory_order_acquire))
+     return;
++#if defined(__ANDROID__)
++  // Zandatsu (renut/0025): dbz3_frame_interpolation, the generated frame first (g_interp above).
++  PresentImage generated;
++  if (image && InterpolateLocked(s, *image, generated)) {
++    UpdateGammaRampLocked(s);
++    ServeCaptureLocked(s, image);  // the captures stay the game's own frames
++    PresentLocked(s, &generated, PresentRole::kGenerated);
++    PresentLocked(s, image, PresentRole::kAfterGenerated);
++    auto &stats = rex::perf::GetPresentStats();
++    stats.generated.fetch_add(1, std::memory_order_relaxed);
++    stats.shown.fetch_add(1, std::memory_order_relaxed);
++  } else
++#endif
+   PresentLocked(s, image);
+   s.last_guest_present_ms.store(NowMs(), std::memory_order_release);
+   detail::LatencyTrimLocked(s);  // banjo-nx (2026-10-20, input latency, banjo_deko3d_latency_trim)
+--- a/app/src/renut_engine/gpu/gpu.cmake
++++ b/app/src/renut_engine/gpu/gpu.cmake
+@@ -291,6 +291,7 @@
+     renut_host_shader(${TARGET} point_sprite_gs gs_6_0)
+     renut_host_shader(${TARGET} stream_convert_cs cs_6_0)
+     renut_host_shader(${TARGET} target_readback_cs cs_6_0)
++    renut_host_shader(${TARGET} frame_interp_ps ps_6_0)  # Zandatsu (renut/0025)
+ 
+     renut_xenos_shader_cache(${TARGET})
+ 
+--- /dev/null
++++ b/app/src/renut_engine/gpu/shaders/host/frame_interp_ps.hlsl
+@@ -0,0 +1,360 @@
++// Zandatsu (renut/0025): "120 FPS (interpolated)" in Renut's final pass. The game renders 60 frames a second; for
++// each new frame the present first shows one generated halfway between the previous frame and the new one, then
++// the new one (FIFO at 120 Hz spaces them by one vblank). Same maths as the emulated GPU's presenter
++// (rexglue-sdk src/ui/shaders/dbz3_frame_interp.comp, patch 0092), as pixel passes over present_vs's triangle
++// instead of compute: one shader, the pass in the push constants (FrameInterp in present.cpp).
++//   0 Q    luma+chroma of the new frame at 1/4k (k = round(width / 1280)), as (Y, U + 0.5, V + 0.5)
++//   1 S    Q at 1/4 (1/16k)
++//   2 VS   coarse motion on S: symmetric search +-3 texels, 3x3 window, then half a texel
++//   3 V8   motion per 8k x 8k block on Q (candidates: the S vector and its 4 neighbours, zero, then +-1 and +-0.5);
++//          .w = 1 for a block without a match (scene cut test)
++//   4 ROWS the unmatched blocks of each row of V8 (1 x rows)
++//   5 CUT  1 when more than half of the blocks are unmatched (1 x 1)
++//   6 GEN  per pixel: unchanged -> the new frame (HUD, still background); scene cut -> the new frame; else the best
++//          of {interpolated vector, block vector, 4 neighbours} by colour error plus a coherence penalty, and on a
++//          mismatch the coherent side or a plain blend. Target 1 = the new frame (the next frame's history).
++//          mode 1: no history (first frame, size change): the new frame in both.
++// Must match InterpPush in present.cpp.
++
++struct InterpPush
++{
++    float2 scale;  // present_vs
++    float2 translate;
++    uint pass;
++    uint cur;      // bindless slots
++    uint prev;
++    uint qPrev;
++    uint qCur;
++    uint sPrev;
++    uint sCur;
++    uint vs;
++    uint v8;
++    uint rows;
++    uint cut;
++    uint k;
++    uint quality;
++    uint mode;
++    uint fullW;    // the frame (the guest texture can be larger)
++    uint fullH;
++};
++
++#ifdef __spirv__
++[[vk::push_constant]] ConstantBuffer<InterpPush> g_Push;
++#else
++ConstantBuffer<InterpPush> g_Push : register(b0, space2);
++#endif
++
++Texture2D<float4> g_Textures[] : register(t0, space0);
++SamplerState g_Samplers[] : register(s0, space1);
++#define LINEAR_CLAMP 0  // kLinearClampSamplerSlot
++
++static const int R_COARSE = 3;
++static const float3 YUV_OFFSET = float3(0.0, 0.5, 0.5);
++static const float LAMBDA_COARSE = 0.002;
++static const float LAMBDA_REFINE = 0.0005;
++static const float T_CUT_BLOCK = 0.15;
++static const float EPS_STATIC = 1.5 / 255.0;
++static const float T_LO = 0.03;
++static const float T_HI = 0.10;
++static const float K_COHERENCE = 0.004;
++static const float COHERENCE_CAP = 32.0;
++static const float COHERENT_PX = 4.0;
++
++struct Sizes
++{
++    int2 full, q, s, b;
++};
++
++Sizes GetSizes()
++{
++    Sizes z;
++    const int k = int(g_Push.k);
++    z.full = int2(g_Push.fullW, g_Push.fullH);
++    z.q = (z.full + 4 * k - 1) / (4 * k);
++    z.s = (z.q + 3) / 4;
++    z.b = (z.q + 1) / 2;
++    return z;
++}
++
++float3 Yuv(float3 rgb)
++{
++    const float y = dot(rgb, float3(0.299, 0.587, 0.114));
++    return float3(y, (rgb.b - y) * 0.5, (rgb.r - y) * 0.5);
++}
++
++float YuvDiff(float3 a, float3 b)
++{
++    const float3 d = abs(a - b);
++    return d.x + d.y + d.z;
++}
++
++// Pixel coordinates (texel centres at i + 0.5) -> linear sample with the clamp sampler. The texture's own size
++// (the guest's can be larger than the frame).
++float3 At(uint slot, float2 p)
++{
++    uint w, h;
++    g_Textures[slot].GetDimensions(w, h);
++    return g_Textures[slot].SampleLevel(g_Samplers[LINEAR_CLAMP], p / float2(w, h), 0.0).rgb;
++}
++
++float4 Fetch(uint slot, int2 i)
++{
++    return g_Textures[slot].Load(int3(i, 0));
++}
++
++// --- 0: Q -------------------------------------------------------------------------------------------------------
++float4 PassQ(int2 q)
++{
++    const int k = int(g_Push.k);
++    const int d = 4 * k;
++    float3 acc = 0.0;
++    for (int b = 0; b < 2 * k; ++b)
++        for (int a = 0; a < 2 * k; ++a)
++            acc += Yuv(At(g_Push.cur, float2(q.x * d + 1 + 2 * a, q.y * d + 1 + 2 * b)));
++    acc /= float(4 * k * k);
++    return float4(acc + YUV_OFFSET, 0.0);
++}
++
++// --- 1: S -------------------------------------------------------------------------------------------------------
++float4 PassS(int2 s, Sizes z)
++{
++    float3 sum = 0.0;
++    for (int y = 0; y < 4; ++y)
++        for (int x = 0; x < 4; ++x)
++            sum += Fetch(g_Push.qCur, min(s * 4 + int2(x, y), z.q - 1)).rgb;
++    return float4(sum / 16.0, 0.0);
++}
++
++// --- 2: VS ------------------------------------------------------------------------------------------------------
++float CoarseCost(float2 c, float2 v)
++{
++    float cost = 0.0;
++    for (int dy = -1; dy <= 1; ++dy)
++        for (int dx = -1; dx <= 1; ++dx)
++        {
++            const float2 o = c + float2(dx, dy);
++            cost += YuvDiff(At(g_Push.sPrev, o - v * 0.5), At(g_Push.sCur, o + v * 0.5));
++        }
++    return cost / 9.0 + LAMBDA_COARSE * (abs(v.x) + abs(v.y));
++}
++
++float4 PassVS(int2 s)
++{
++    const float2 c = float2(s) + 0.5;
++    float best = 1.0e30;
++    float2 bv = 0.0;
++    for (int vy = -R_COARSE; vy <= R_COARSE; ++vy)
++        for (int vx = -R_COARSE; vx <= R_COARSE; ++vx)
++        {
++            const float2 v = float2(vx, vy);
++            const float cost = CoarseCost(c, v);
++            if (cost < best)
++            {
++                best = cost;
++                bv = v;
++            }
++        }
++    const float2 cv = bv;
++    for (int dy = -1; dy <= 1; ++dy)
++        for (int dx = -1; dx <= 1; ++dx)
++        {
++            if (dx == 0 && dy == 0)
++                continue;
++            const float2 v = cv + float2(dx, dy) * 0.5;
++            const float cost = CoarseCost(c, v);
++            if (cost < best)
++            {
++                best = cost;
++                bv = v;
++            }
++        }
++    return float4(bv * float(16 * g_Push.k), best, 0.0);
++}
++
++// --- 3: V8 ------------------------------------------------------------------------------------------------------
++float RefineCost(float2 c, float2 v)
++{
++    float cost = 0.0;
++    for (int oy = 0; oy < 4; ++oy)
++        for (int ox = 0; ox < 4; ++ox)
++        {
++            const float2 o = c + float2(float(ox) - 1.5, float(oy) - 1.5);
++            cost += YuvDiff(At(g_Push.qPrev, o - v * 0.5), At(g_Push.qCur, o + v * 0.5));
++        }
++    return cost / 16.0;
++}
++
++float4 PassV8(int2 b, Sizes z)
++{
++    const float2 c = float2(b) * 2.0 + 1.0;
++    const float q2px = float(4 * g_Push.k);
++    float best = RefineCost(c, 0.0);
++    float best_raw = best;
++    float2 bv = 0.0;
++    const int2 s = b / 2;
++    for (int dy = -1; dy <= 1; ++dy)
++        for (int dx = -1; dx <= 1; ++dx)
++        {
++            if (dx != 0 && dy != 0)
++                continue;
++            const int2 n = clamp(s + int2(dx, dy), 0, z.s - 1);
++            const float2 v = Fetch(g_Push.vs, n).xy / q2px;
++            const float raw = RefineCost(c, v);
++            const float cost = raw + LAMBDA_REFINE * (abs(v.x) + abs(v.y));
++            if (cost < best)
++            {
++                best = cost;
++                best_raw = raw;
++                bv = v;
++            }
++        }
++    for (int step_i = 0; step_i < 2; ++step_i)
++    {
++        const float step = step_i == 0 ? 1.0 : 0.5;
++        const float2 cv = bv;
++        for (int dy = -1; dy <= 1; ++dy)
++            for (int dx = -1; dx <= 1; ++dx)
++            {
++                if (dx == 0 && dy == 0)
++                    continue;
++                const float2 v = cv + float2(dx, dy) * step;
++                const float raw = RefineCost(c, v);
++                const float cost = raw + LAMBDA_REFINE * (abs(v.x) + abs(v.y));
++                if (cost < best)
++                {
++                    best = cost;
++                    best_raw = raw;
++                    bv = v;
++                }
++            }
++    }
++    return float4(bv * q2px, best_raw, best_raw > T_CUT_BLOCK ? 1.0 : 0.0);
++}
++
++// --- 4: ROWS, 5: CUT --------------------------------------------------------------------------------------------
++float4 PassRows(int row, Sizes z)
++{
++    float bad = 0.0;
++    for (int x = 0; x < z.b.x; ++x)
++        bad += Fetch(g_Push.v8, int2(x, row)).w;
++    return float4(bad, 0.0, 0.0, 0.0);
++}
++
++float4 PassCut(Sizes z)
++{
++    float bad = 0.0;
++    for (int y = 0; y < z.b.y; ++y)
++        bad += Fetch(g_Push.rows, int2(0, y)).x;
++    return float4(bad * 2.0 > float(z.b.x * z.b.y) ? 1.0 : 0.0, bad, 0.0, 0.0);
++}
++
++// --- 6: GEN -----------------------------------------------------------------------------------------------------
++float2 BlockVec(float2 p, float bsz, Sizes z)
++{
++    const int2 i = clamp(int2(floor(p / bsz)), 0, z.b - 1);
++    return Fetch(g_Push.v8, i).xy;
++}
++
++float3 Generate(int2 px, float3 c0, Sizes z)
++{
++    const float3 p0 = Fetch(g_Push.prev, px).rgb;
++    const float3 d0 = abs(p0 - c0);
++    const float3 blend0 = 0.5 * (p0 + c0);
++    const bool cut = Fetch(g_Push.cut, int2(0, 0)).x > 0.5;
++    if (max(d0.r, max(d0.g, d0.b)) <= EPS_STATIC || cut)
++        return c0;
++    if (g_Push.quality == 0u)
++        return blend0;
++    const float2 p = float2(px) + 0.5;
++    const float bsz = float(8 * g_Push.k);
++    float2 cands[6];
++    int count = 2;
++    {
++        uint w, h;
++        g_Textures[g_Push.v8].GetDimensions(w, h);
++        cands[0] = g_Textures[g_Push.v8].SampleLevel(g_Samplers[LINEAR_CLAMP], p / bsz / float2(w, h), 0.0).xy;
++    }
++    const int2 ib = clamp(int2(floor(p / bsz)), 0, z.b - 1);
++    cands[1] = Fetch(g_Push.v8, ib).xy;
++    cands[2] = cands[3] = cands[4] = cands[5] = cands[1];
++    if (g_Push.quality >= 2u)
++    {
++        cands[2] = Fetch(g_Push.v8, clamp(ib + int2(-1, 0), 0, z.b - 1)).xy;
++        cands[3] = Fetch(g_Push.v8, clamp(ib + int2(1, 0), 0, z.b - 1)).xy;
++        cands[4] = Fetch(g_Push.v8, clamp(ib + int2(0, -1), 0, z.b - 1)).xy;
++        cands[5] = Fetch(g_Push.v8, clamp(ib + int2(0, 1), 0, z.b - 1)).xy;
++        count = 6;
++    }
++    // The zero vector first, without a coherence penalty.
++    float best_s = (d0.r + d0.g + d0.b) / 3.0;
++    float best_e = best_s;
++    float3 best_p = p0;
++    float3 best_c = c0;
++    bool ok_p = true;
++    bool ok_c = true;
++    for (int i = 0; i < count; ++i)
++    {
++        const float2 v = cands[i];
++        const float2 sp = p - v * 0.5;
++        const float2 sc = p + v * 0.5;
++        const float3 pw = At(g_Push.prev, sp);
++        const float3 cw = At(g_Push.cur, sc);
++        const float3 d = abs(pw - cw);
++        const float e = (d.r + d.g + d.b) / 3.0;
++        const float2 vp = BlockVec(sp, bsz, z) - v;
++        const float2 vc = BlockVec(sc, bsz, z) - v;
++        const float dp = abs(vp.x) + abs(vp.y);
++        const float dc = abs(vc.x) + abs(vc.y);
++        const float score = e + K_COHERENCE * min(dp + dc, COHERENCE_CAP);
++        if (score < best_s)
++        {
++            best_s = score;
++            best_e = e;
++            best_p = pw;
++            best_c = cw;
++            ok_p = dp <= COHERENT_PX;
++            ok_c = dc <= COHERENT_PX;
++        }
++    }
++    const float3 avg = 0.5 * (best_p + best_c);
++    const float3 fallback = ok_p != ok_c ? (ok_c ? best_c : best_p) : blend0;
++    const float w = saturate((best_e - T_LO) / (T_HI - T_LO));
++    return lerp(avg, fallback, w);
++}
++
++struct PSInput
++{
++    float4 position : SV_Position;
++    float2 uv : TEXCOORD0;
++};
++
++struct GenOutput
++{
++    float4 gen : SV_Target0;
++    float4 hist : SV_Target1;
++};
++
++GenOutput main(PSInput input)
++{
++    const int2 px = int2(input.position.xy);
++    const Sizes z = GetSizes();
++    GenOutput o;
++    o.hist = 0.0;
++    switch (g_Push.pass)
++    {
++    case 0: o.gen = PassQ(px); break;
++    case 1: o.gen = PassS(px, z); break;
++    case 2: o.gen = PassVS(px); break;
++    case 3: o.gen = PassV8(px, z); break;
++    case 4: o.gen = PassRows(px.y, z); break;
++    case 5: o.gen = PassCut(z); break;
++    default:
++    {
++        const float3 c0 = Fetch(g_Push.cur, px).rgb;
++        o.hist = float4(c0, 1.0);
++        o.gen = float4(g_Push.mode == 0u ? Generate(px, c0, z) : c0, 1.0);
++        break;
++    }
++    }
++    return o;
++}

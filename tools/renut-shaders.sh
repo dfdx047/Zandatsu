@@ -97,7 +97,7 @@ mkdir -p "$OUT/host_shaders"
 for SP in overlay_vs:vs_6_0 overlay_ps:ps_6_0 present_vs:vs_6_0 present_ps:ps_6_0 \
           depth_resolve_ps:ps_6_0 depth_resolve_ms_ps:ps_6_0 texture_mip_ps:ps_6_0 resolve_copy_ps:ps_6_0 \
           rectangle_list_gs:gs_6_0 point_sprite_gs:gs_6_0 stream_convert_cs:cs_6_0 target_readback_cs:cs_6_0 bc_decode_cs:cs_6_0 \
-          present_easu_ps:ps_6_0 present_rcas_ps:ps_6_0 present_cas_ps:ps_6_0; do
+          present_easu_ps:ps_6_0 present_rcas_ps:ps_6_0 present_cas_ps:ps_6_0 frame_interp_ps:ps_6_0; do
   S="${SP%%:*}"; P="${SP##*:}"
   EXTRA=()
   HV=2021
