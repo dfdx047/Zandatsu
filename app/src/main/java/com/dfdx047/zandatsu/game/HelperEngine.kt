@@ -88,6 +88,10 @@ class HelperEngine {
     @Volatile var inBattle = false
         private set
     private var zeroTicks = 0
+    private var oneTicks = 0
+    private val pressedAt = HashMap<String, Long>()
+    private val releaseToken = HashMap<String, Int>()
+    private var battleKnown = false
     private val mainHandler = Handler(android.os.Looper.getMainLooper())
 
     /** Se o jogo esta pausado agora (pelo menu dos controles ou pelo menu rapido). */
@@ -131,6 +135,8 @@ class HelperEngine {
 
     fun press(id: String, action: ControlAction) {
         synchronized(lock) {
+            pressedAt[id] = SystemClock.uptimeMillis()
+            releaseToken[id] = (releaseToken[id] ?: 0) + 1  // um soltar ainda pendente deste botao ja nao vale
             when (action) {
                 is ControlAction.Press -> held[id] = action.inputs
                 is ControlAction.Sequence -> if (action.steps.isNotEmpty()) sequences[id] = Running(action.steps, action.holdLast)
@@ -141,6 +147,22 @@ class HelperEngine {
     }
 
     fun releaseElement(id: String) {
+        // 27/10: o jogo le o comando uma vez por frame (33 ms nos menus a 30 fps). Um toque rapido entrava e saia entre
+        // duas leituras e o jogo nunca o via ("o botao nao funciona"). Cada toque fica premido pelo menos MIN_PRESS_MS.
+        val token: Int
+        val wait: Long
+        synchronized(lock) {
+            token = releaseToken[id] ?: 0
+            wait = MIN_PRESS_MS - (SystemClock.uptimeMillis() - (pressedAt[id] ?: 0L))
+        }
+        if (wait > 0) {
+            handler.postDelayed({ if (synchronized(lock) { releaseToken[id] == token }) releaseNow(id) }, wait)
+            return
+        }
+        releaseNow(id)
+    }
+
+    private fun releaseNow(id: String) {
         synchronized(lock) {
             held.remove(id)
             sequences[id]?.let { seq ->
@@ -234,14 +256,25 @@ class HelperEngine {
 
     private fun trackBattle(flag: Int) {
         if (flag < 0) return
+        if (!battleKnown) {
+            // Primeira bandeira conhecida: o overlay comeca no layout de combate, e no titulo a bandeira e 0.
+            battleKnown = true
+            inBattle = flag == 1
+            diag?.invoke("estado inicial -> " + if (inBattle) "luta" else "menus")
+            val now = inBattle
+            mainHandler.post { onBattleChanged?.invoke(now) }
+            return
+        }
         val next = when {
             flag == 1 -> {
                 zeroTicks = 0
-                true
+                // MGR (27/10): a luta so conta com a bandeira estavel (nos menus pisca por um frame ou outro).
+                inBattle || ++oneTicks >= BATTLE_DELAY_TICKS
             }
             inBattle && ++zeroTicks < MENU_DELAY_TICKS -> true
             else -> false
         }
+        if (flag != 1) oneTicks = 0
         if (next != inBattle) {
             inBattle = next
             com.dfdx047.zandatsu.data.AppLog.i("controls", "estado: " + if (next) "jogo" else "menus")
@@ -314,6 +347,9 @@ class HelperEngine {
     companion object {
         /** 1,5 s a 60 Hz (pedido do usuario: no maximo ~2 s). */
         const val MENU_DELAY_TICKS = 90
+        const val BATTLE_DELAY_TICKS = 15
+        /** Duracao minima de um toque num botao (2 frames a 30 fps + folga). */
+        const val MIN_PRESS_MS = 80L
         /** ~1,5 s fora do estado de voo antes de sair do layout do mapa. */
         const val MAP_DELAY_TICKS = 90
     }

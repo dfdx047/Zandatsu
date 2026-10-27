@@ -23,6 +23,7 @@
 #include <rex/cvar.h>
 #include <rex/filesystem.h>
 #include <rex/logging.h>
+#include <rex/memory.h>
 #include <rex/perf/frame_rate.h>
 #include <rex/runtime.h>
 #include <rex/ui/overlay/quick_menu.h>
@@ -96,9 +97,26 @@ Java_com_dfdx047_zandatsu_game_NativeGameState_nativeForceResume(JNIEnv*, jclass
 // Jogo ou menus (troca do layout dos controles). 1 = jogo, 0 = menus, -1 = desconhecido.
 // No MGR ainda nao se sabe: -1 sempre que o jogo corre (o layout fica o escolhido).
 // ---------------------------------------------------------------------------
+// 27/10: achado comparando a secao de dados do XEX em titulo, slots, menu principal, luta e pausa (AutoPilot
+// "memdump", celular): 0x83931FE0 = 0x01000000 nos menus e na pausa, 0x01000111 com o Raiden a controlar (os 3 bits
+// baixos: ligados so na luta). 0x836D2860 (0 menus, 1 luta, 3 pausa) vai no diagnostico.
+namespace {
+constexpr uint32_t kPlayStateFlags = 0x83931FE0u;
+constexpr uint32_t kPlayStateMode = 0x836D2860u;
+
+uint32_t LoadGuestU32(uint32_t address) {
+  auto* rt = rex::Runtime::instance();
+  if (!rt || !rt->memory()) return 0xFFFFFFFFu;
+  const auto* p = rt->memory()->TranslateVirtual<const uint8_t*>(address);
+  return (uint32_t(p[0]) << 24) | (uint32_t(p[1]) << 16) | (uint32_t(p[2]) << 8) | uint32_t(p[3]);
+}
+}  // namespace
+
 extern "C" JNIEXPORT jint JNICALL
 Java_com_dfdx047_zandatsu_game_NativeGameState_nativeFightFlag(JNIEnv*, jclass) {
-  return -1;
+  if (!rex::Runtime::instance() || g_swordman_ticks.load(std::memory_order_relaxed) == 0) return -1;
+  // As duas juntas: nos ecras de slots os bits piscavam por um frame (troca falsa de 1,4 s no celular).
+  return (LoadGuestU32(kPlayStateFlags) & 0x111u) == 0x111u && LoadGuestU32(kPlayStateMode) == 1 ? 1 : 0;
 }
 
 // Camara livre / modo foto (Dragon Burst). Nao existe no MGR.
@@ -112,8 +130,8 @@ extern "C" JNIEXPORT jstring JNICALL
 Java_com_dfdx047_zandatsu_game_NativeGameState_nativeBattleDebug(JNIEnv* env, jclass) {
   if (!rex::Runtime::instance()) return env->NewStringUTF("sem jogo");
   char text[160];
-  std::snprintf(text, sizeof(text), "frames=%llu pausa=%d",
-                static_cast<unsigned long long>(g_swordman_ticks.load(std::memory_order_relaxed)),
+  std::snprintf(text, sizeof(text), "estado=%08X modo=%u pausa=%d",
+                LoadGuestU32(kPlayStateFlags), LoadGuestU32(kPlayStateMode),
                 g_swordman_pause.load(std::memory_order_relaxed) ? 1 : 0);
   return env->NewStringUTF(text);
 }
@@ -157,8 +175,20 @@ Java_com_dfdx047_zandatsu_game_NativeGameState_nativePsCensus(JNIEnv* env, jclas
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_dfdx047_zandatsu_game_NativeGameState_nativeDumpFight(JNIEnv*, jclass, jstring, jint, jlong) {
-  return JNI_FALSE;
+Java_com_dfdx047_zandatsu_game_NativeGameState_nativeDumpFight(JNIEnv* env, jclass, jstring path, jint, jlong) {
+  // 27/10: diagnostico para achar o estado "jogo/menus" do MGR (AutoPilot "memdump"): grava a secao de dados do XEX
+  // (depois do codigo, ate ao fim da imagem) tal como esta na memoria do jogo, para comparar estados.
+  constexpr uint32_t kBegin = 0x83200000u, kEnd = 0x83A40000u;
+  auto* rt = rex::Runtime::instance();
+  if (!rt || !rt->memory()) return JNI_FALSE;
+  const char* p = env->GetStringUTFChars(path, nullptr);
+  FILE* f = std::fopen(p, "wb");
+  env->ReleaseStringUTFChars(path, p);
+  if (!f) return JNI_FALSE;
+  const auto* data = rt->memory()->TranslateVirtual<const uint8_t*>(kBegin);
+  const bool ok = std::fwrite(data, 1, kEnd - kBegin, f) == kEnd - kBegin;
+  std::fclose(f);
+  return ok ? JNI_TRUE : JNI_FALSE;
 }
 
 // ---------------------------------------------------------------------------

@@ -36,6 +36,19 @@ object DisplayRates {
     @JvmStatic
     fun supports120(context: Context): Boolean = maxRefreshHz(context) >= MIN_120_HZ
 
+    /** Tela mais larga que 16:9 (o widescreen do MGR so muda alguma coisa ai). Medida na tela inteira, deitada. */
+    fun isWiderThan16x9(context: Context): Boolean {
+        val m = context.resources.displayMetrics
+        val bounds = runCatching {
+            context.getSystemService(android.view.WindowManager::class.java).maximumWindowMetrics.bounds
+        }.getOrNull()
+        val w = bounds?.width() ?: m.widthPixels
+        val h = bounds?.height() ?: m.heightPixels
+        val long = maxOf(w, h).toFloat()
+        val short = minOf(w, h).toFloat().coerceAtLeast(1f)
+        return long / short > 16f / 9f + 0.02f
+    }
+
     /**
      * O modo da tela (mesma resolucao) mais perto de [hz]: o exato (+-1 Hz) se existir; senao, para
      * 120, o mais alto ate 125 Hz e acima de 110; para 60, o de 60 Hz. null se nao houver.

@@ -388,27 +388,8 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
                 ),
             )
         }
-        // 30 = hack (jogo a 60, 1 frame desenhado em 2); 120 interpolado so com tela de 120 Hz.
-        val has120 = DisplayRates.supports120(context)
-        val modes = buildList {
-            add(FrameMode.FPS30 to s(R.string.perf_fps_30_hack))
-            add(FrameMode.FPS60 to "60 FPS")
-            if (has120) add(FrameMode.FPS120_INTERP to s(R.string.perf_fps_120_interp))
-        }
-        list += choice(
-            s(R.string.perf_frame_rate), s(R.string.perf_frame_rate_sub), modes, c.frameMode,
-        ) { v ->
-            set(c.withFrameMode(v), v.cvars())
-            actions.setDisplayRate(v.outputHz)
-        }
-        when (c.frameMode) {
-            FrameMode.FPS30 -> list += MInfo(s(R.string.perf_fps_30_note))
-            FrameMode.FPS120_INTERP -> list += MInfo(s(R.string.perf_fps_120_interp_note))
-            else -> Unit
-        }
-        list += MToggle(s(R.string.settings_show_fps), null, c.showFps) { v ->
-            set(c.copy(showFps = v), mapOf("debug_overlay" to v.toString()))
-        }
+        list += frameRateItems(c)
+        list += fpsMeterItem(c)
         if (c.showFps) {
             list += choice(
                 s(R.string.menu_fps_position), null,
@@ -470,17 +451,65 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
         return list
     }
 
+    /** Medidor de FPS (SDK 0185): desligado / simples (so o FPS do jogo) / completo. */
+    private fun fpsMeterItem(c: GameConfig): MenuItem = choice(
+        s(R.string.settings_show_fps), s(R.string.fps_meter_sub),
+        listOf(0 to s(R.string.fps_meter_off), 1 to s(R.string.fps_meter_simple), 2 to s(R.string.fps_meter_full)),
+        c.fpsLevel,
+    ) { v ->
+        val next = c.withFpsLevel(v)
+        set(next, mapOf("debug_overlay" to next.showFps.toString(), "debug_overlay_detail" to next.fpsDetail))
+    }
+
+    /**
+     * Limite de FPS. 30 = hack (jogo a 60, 1 frame desenhado em 2: dbz3_frameskip, no Xenia e no Renut, patch
+     * renut/0023); 120 interpolado (patch 0092 / renut/0025, experimental) so com tela de 120 Hz.
+     */
+    private fun frameRateItems(c: GameConfig): List<MenuItem> {
+        val list = ArrayList<MenuItem>()
+        val has120 = DisplayRates.supports120(context)
+        val modes = buildList {
+            add(FrameMode.FPS30 to s(R.string.perf_fps_30_hack))
+            add(FrameMode.FPS60 to "60 FPS")
+            if (has120) add(FrameMode.FPS120_INTERP to s(R.string.perf_fps_120_interp))
+        }
+        val current = if (c.frameMode == FrameMode.FPS120_INTERP && !has120) FrameMode.FPS60 else c.frameMode
+        list += choice(
+            s(R.string.perf_frame_rate), s(R.string.perf_frame_rate_sub), modes, current,
+        ) { v ->
+            set(c.withFrameMode(v), v.cvars())
+            actions.setDisplayRate(v.outputHz)
+        }
+        when (current) {
+            FrameMode.FPS30 -> list += MInfo(s(R.string.perf_fps_30_note))
+            FrameMode.FPS120_INTERP -> list += MInfo(s(R.string.perf_fps_120_interp_note))
+            else -> Unit
+        }
+        return list
+    }
+
     /** Renut: resolucao (540p a 4K), FPS na tela, filtro (FSR/CAS) e anisotropico; o resto e do Xenia. */
     /** Proporcao: original / esticar ao vivo; widescreen (so no Renut) vale no proximo arranque. */
-    private fun aspectItem(c: GameConfig): MChoice = choice(
-        s(R.string.settings_aspect_mode), if (c.useRenut) s(R.string.aspect_widescreen_sub) else null,
-        listOfNotNull(
+    private fun aspectItem(c: GameConfig): MChoice {
+        // Widescreen sempre na lista; quando nao se aplica a ajuda diz porque e a escolha nao muda nada.
+        val reason = when {
+            !c.useRenut -> s(R.string.aspect_ws_needs_renut)
+            !DisplayRates.isWiderThan16x9(context) -> s(R.string.aspect_ws_screen_169)
+            else -> null
+        }
+        return aspectChoice(c, reason)
+    }
+
+    private fun aspectChoice(c: GameConfig, reason: String?): MChoice = choice(
+        s(R.string.settings_aspect_mode), reason ?: s(R.string.aspect_widescreen_sub),
+        listOf(
             "original" to s(R.string.aspect_original),
             "stretch" to s(R.string.aspect_stretch),
-            if (c.useRenut) "widescreen" to s(R.string.aspect_widescreen) else null,
+            "widescreen" to s(R.string.aspect_widescreen),
         ),
-        if (c.aspect == "widescreen" && !c.useRenut) "original" else c.aspect,
+        if (c.aspect == "widescreen" && reason != null) "original" else c.aspect,
     ) { v ->
+        if (v == "widescreen" && reason != null) return@choice
         set(c.copy(aspect = v), mapOf("present_letterbox" to (v != "stretch").toString(), "swordman_aspect" to v))
     }
 
@@ -495,10 +524,8 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
             set(next, mapOf("sa2_render_height_handheld" to "${next.renutHeight}"))
         }
         list += MInfo(s(R.string.renut_res_experimental))
-        list += MInfo(s(R.string.renut_fps_note))
-        list += MToggle(s(R.string.settings_show_fps), null, c.showFps) { v ->
-            set(c.copy(showFps = v), mapOf("debug_overlay" to v.toString()))
-        }
+        list += frameRateItems(c)
+        list += fpsMeterItem(c)
         list += aspectItem(c)
         list += MHeader(s(R.string.settings_filter))
         list += filterItems(c, quality = false)
@@ -581,7 +608,8 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
         list += choice(
             s(R.string.settings_touch_style), null,
             listOf(
-                ControlStyle.GAME to "MGR",
+                ControlStyle.GAME to s(R.string.ctl_style_classic),
+                ControlStyle.SCIFI to s(R.string.ctl_style_scifi),
                 ControlStyle.XBOX to "Xbox",
                 ControlStyle.PLAYSTATION to "PlayStation",
                 ControlStyle.NINTENDO to "Nintendo",
@@ -592,7 +620,7 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
             prefs.controlStyle = v
             appearance()
         }
-        if (style == ControlStyle.GAME) {
+        if (style.iconic) {
             list += choice(
                 s(R.string.ingame_badge), null,
                 listOf(

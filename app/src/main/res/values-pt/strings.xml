@@ -82,7 +82,7 @@
     <string name="settings_api_note">No Android só há Vulkan (o Direct3D 12 é só no PC).</string>
     <string name="settings_resolution">Resolução interna</string>
     <string name="settings_resolution_warn">4K desenha 9x os pixels de 720p: espere calor e gasto de bateria.</string>
-    <string name="settings_show_fps">Mostrar contador de FPS</string>
+    <string name="settings_show_fps">Medidor de FPS</string>
     <string name="settings_image">Imagem</string>
     <string name="settings_filter">Filtro de escala</string>
     <string name="settings_filter_sub">Como a imagem é ampliada para a tela.</string>
@@ -102,8 +102,8 @@
     <string name="settings_aspect_mode">Imagem</string>
     <string name="aspect_original">Original 16:9</string>
     <string name="aspect_stretch">Esticar</string>
-    <string name="aspect_widescreen">Widescreen (experimental)</string>
-    <string name="aspect_widescreen_sub">Widescreen: o jogo desenha na proporção da tela (mais visão dos lados; o HUD fica no layout 16:9). Vale no próximo arranque do jogo.</string>
+    <string name="aspect_widescreen">Widescreen</string>
+    <string name="aspect_widescreen_sub">Widescreen (experimental): o jogo desenha na proporção da tela (mais visão dos lados; o HUD fica no layout 16:9). Vale no próximo arranque do jogo.</string>
     <string name="settings_controls">Controles</string>
     <string name="settings_touch">Controles na tela</string>
     <string name="settings_touch_sub">Botões por cima do jogo.</string>
@@ -249,8 +249,8 @@
     <string name="debug_logs_sub">O que mandar ao reportar um problema</string>
     <string name="debug_capture_title">Captura de frames</string>
     <string name="debug_capture_text">No jogo, abra o menu (Back ou o botão de pausa) → Depuração → Capturar frames. Os próximos frames são salvos e vão no Exportar logs.</string>
-    <string name="perf_fps_120_interp">120 (interpolado)</string>
-    <string name="perf_fps_120_interp_note">O jogo roda a 60 e um frame gerado aparece entre cada dois reais (estimativa de movimento na GPU, cerca de 1-3 ms por frame). Soma um frame de latência (cerca de 8 ms). Movimentos rápidos podem mostrar pequenos artefatos.</string>
+    <string name="perf_fps_120_interp">120 (interpolado, experimental)</string>
+    <string name="perf_fps_120_interp_note">Experimental: aquece mais o aparelho. O jogo roda a 60 e um frame gerado aparece entre cada dois reais (estimativa de movimento na GPU, cerca de 1-3 ms por frame). Soma um frame de latência (cerca de 8 ms). Movimentos rápidos podem mostrar pequenos artefatos.</string>
     <string name="perf_fps_120_unavailable">120 FPS precisa de uma tela de 120 Hz; esta vai até %1$d Hz.</string>
     <string name="perf_fps_120_fallback">Esta configuração pede 120 FPS, mas esta tela não mostra: o jogo vai apresentar a 60 Hz. Escolha 30 ou 60.</string>
     <string name="preset_title">Predefinição gráfica</string>
@@ -413,7 +413,6 @@
     <string name="renut_preset_medium_desc">720p (console), sombras e brilho, áudio nos núcleos pequenos</string>
     <string name="renut_preset_high_desc">1080p, sombras e brilho, mapas de sombra e mipmaps mais leves, áudio nos núcleos pequenos</string>
     <string name="renut_preset_ultra_desc">2K com AMD FSR, sombras, brilho, anisotrópico 16x</string>
-    <string name="renut_fps_note">O jogo corre a 60 FPS (o ritmo dele). O hack de 30 FPS e os 120 FPS são do renderizador emulado.</string>
     <string name="renut_resolution_sub">720p é a do console. 540p desenha 56% dos pixels; 1080p, 1440p e 4K desenham 2,25x, 4x e 9x e são reduzidas para a tela.</string>
     <string name="renut_shadows_sub">As sombras do sol (mapa de sombra e passe de sombra em tela). Desligadas: a cena fica toda iluminada.</string>
     <string name="renut_bloom">Brilho</string>
@@ -447,4 +446,12 @@
     <string name="turnip_recommended">Driver recomendado para %1$s: %2$s</string>
     <string name="turnip_open_drivers">Abrir Drivers</string>
     <string name="turnip_drivers_later">Você pode instalá-lo na aba Drivers depois de escolher o perfil. O driver nunca é trocado sozinho.</string>
+    <string name="fps_meter_off">Desligado</string>
+    <string name="fps_meter_simple">Simples</string>
+    <string name="fps_meter_full">Completo</string>
+    <string name="fps_meter_sub">Simples: só o FPS do jogo. Completo: FPS do jogo e da tela, tempo de frame, GPU e CPU em ms, 1% low e gráfico.</string>
+    <string name="aspect_ws_needs_renut">Widescreen só no renderizador nativo (Renut).</string>
+    <string name="aspect_ws_screen_169">Widescreen: esta tela é 16:9 (ou mais estreita), fica igual ao Original.</string>
+    <string name="ctl_style_classic">Clássico</string>
+    <string name="ctl_style_scifi">Sci-fi</string>
 </resources>

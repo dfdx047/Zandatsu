@@ -178,34 +178,7 @@ fun PerformanceScreen(vm: LauncherViewModel) {
             }
             Text(stringResource(R.string.settings_api_note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             HorizontalDivider()
-            // O MGR corre a 60. 30 FPS = hack (o jogo continua a 60, so metade dos frames e
-            // desenhada: mesma velocidade). 120 interpolado (patch 0092) so com tela de 120 Hz.
-            val context = LocalContext.current
-            val maxHz = remember { DisplayRates.maxRefreshHz(context) }
-            val has120 = maxHz >= DisplayRates.MIN_120_HZ
-            val modes = buildList {
-                add(FrameMode.FPS30 to stringResource(R.string.perf_fps_30_hack))
-                add(FrameMode.FPS60 to "60 FPS")
-                if (has120) add(FrameMode.FPS120_INTERP to stringResource(R.string.perf_fps_120_interp))
-            }
-            SettingSegmented(
-                title = stringResource(R.string.perf_frame_rate),
-                subtitle = stringResource(R.string.perf_frame_rate_sub),
-                options = modes,
-                selected = c.frameMode,
-                onSelect = { v -> vm.updateConfig { it.withFrameMode(v) } },
-            )
-            when {
-                c.frameMode == FrameMode.FPS30 ->
-                    StatusLine(stringResource(R.string.perf_fps_30_note), Level.INFO)
-                c.frameMode == FrameMode.FPS120_INTERP ->
-                    StatusLine(stringResource(R.string.perf_fps_120_interp_note), Level.INFO)
-            }
-            if (!has120 && c.frameRate >= 100) {
-                // Config de outro aparelho (ou de antes): nesta tela fica a 60 Hz.
-                StatusLine(stringResource(R.string.perf_fps_120_fallback), Level.WARN)
-            }
-            if (!has120) StatusLine(stringResource(R.string.perf_fps_120_unavailable, maxHz.roundToInt()), Level.INFO)
+            FrameRateSetting(vm, c)
             SettingSegmented(
                 title = stringResource(R.string.settings_resolution),
                 subtitle = stringResource(R.string.perf_resolution_sub),
@@ -229,7 +202,7 @@ fun PerformanceScreen(vm: LauncherViewModel) {
                 }
             }
             if (c.resolution.scale >= 3) StatusLine(stringResource(R.string.settings_resolution_warn), Level.WARN)
-            SettingSwitch(stringResource(R.string.settings_show_fps), checked = c.showFps) { on -> vm.updateConfig { it.copy(showFps = on) } }
+            FpsMeterSetting(vm, c)
         }
 
         // ---------------------------------------------------- efeitos e som
@@ -295,20 +268,7 @@ fun PerformanceScreen(vm: LauncherViewModel) {
             )
         }
 
-        // ------------------------------------------------------------- proporcao
-        SectionCard(stringResource(R.string.settings_aspect), Icons.Filled.PhotoSizeSelectLarge) {
-            SettingSegmented(
-                title = stringResource(R.string.settings_aspect_mode),
-                options = listOfNotNull(
-                    "original" to stringResource(R.string.aspect_original),
-                    "stretch" to stringResource(R.string.aspect_stretch),
-                    if (c.useRenut) "widescreen" to stringResource(R.string.aspect_widescreen) else null,
-                ),
-                selected = if (c.aspect == "widescreen" && !c.useRenut) "original" else c.aspect,
-                subtitle = if (c.useRenut) stringResource(R.string.aspect_widescreen_sub) else null,
-                onSelect = { v -> vm.updateConfig { it.copy(aspect = v) } },
-            )
-        }
+        AspectCard(vm, c)
 
     }
 }
@@ -393,7 +353,7 @@ private fun RenutOptions(vm: LauncherViewModel) {
     }
 
     SectionCard(stringResource(R.string.settings_performance), Icons.Filled.Speed) {
-        StatusLine(stringResource(R.string.renut_fps_note), Level.INFO)
+        FrameRateSetting(vm, c)
         SettingSegmented(
             title = stringResource(R.string.settings_resolution),
             subtitle = stringResource(R.string.renut_resolution_sub),
@@ -405,8 +365,10 @@ private fun RenutOptions(vm: LauncherViewModel) {
             stringResource(R.string.renut_res_experimental),
             if (c.resolution in RENUT_EXPERIMENTAL) Level.WARN else Level.INFO,
         )
-        SettingSwitch(stringResource(R.string.settings_show_fps), checked = c.showFps) { on -> vm.updateConfig { it.copy(showFps = on) } }
+        FpsMeterSetting(vm, c)
     }
+
+    AspectCard(vm, c)
 
     SectionCard(stringResource(R.string.settings_image), Icons.Filled.Wallpaper) {
         FilterSettings(vm, c, quality = false)
@@ -493,4 +455,85 @@ private fun FilterSettings(vm: LauncherViewModel, c: GameConfig, quality: Boolea
             label = { v -> "${(v * 100).roundToInt()}%" },
         ) { v -> vm.updateConfig { it.copy(casSharpness = v.toDouble()) } }
     }
+}
+
+/** Medidor de FPS (SDK 0185): desligado / simples (so o FPS do jogo) / completo. */
+@Composable
+private fun FpsMeterSetting(vm: LauncherViewModel, c: GameConfig) {
+    SettingSegmented(
+        title = stringResource(R.string.settings_show_fps),
+        subtitle = stringResource(R.string.fps_meter_sub),
+        options = listOf(
+            0 to stringResource(R.string.fps_meter_off),
+            1 to stringResource(R.string.fps_meter_simple),
+            2 to stringResource(R.string.fps_meter_full),
+        ),
+        selected = c.fpsLevel,
+        onSelect = { v -> vm.updateConfig { it.withFpsLevel(v) } },
+    )
+}
+
+/**
+ * Proporcao, nos dois renderizadores (27/10: com o Renut o cartao nao aparecia). Widescreen sempre na lista, desligado
+ * com o motivo quando nao se aplica (renderizador emulado, ou tela que nao e mais larga que 16:9).
+ */
+@Composable
+private fun AspectCard(vm: LauncherViewModel, c: GameConfig) {
+    val context = LocalContext.current
+    val wide = remember { DisplayRates.isWiderThan16x9(context) }
+    val reason = when {
+        !c.useRenut -> stringResource(R.string.aspect_ws_needs_renut)
+        !wide -> stringResource(R.string.aspect_ws_screen_169)
+        else -> null
+    }
+    SectionCard(stringResource(R.string.settings_aspect), Icons.Filled.PhotoSizeSelectLarge) {
+        SettingSegmented(
+            title = stringResource(R.string.settings_aspect_mode),
+            options = listOf(
+                "original" to stringResource(R.string.aspect_original),
+                "stretch" to stringResource(R.string.aspect_stretch),
+                "widescreen" to stringResource(R.string.aspect_widescreen),
+            ),
+            selected = if (c.aspect == "widescreen" && reason != null) "original" else c.aspect,
+            subtitle = stringResource(R.string.aspect_widescreen_sub),
+            disabled = if (reason != null) setOf("widescreen") else emptySet(),
+            onSelect = { v -> vm.updateConfig { it.copy(aspect = v) } },
+        )
+        if (reason != null) StatusLine(reason, Level.INFO)
+    }
+}
+
+/**
+ * Limite de FPS, nos dois renderizadores. O MGR corre a 60. 30 FPS = hack (o jogo continua a 60, so metade dos
+ * frames e desenhada: dbz3_frameskip; renut/0023). 120 interpolado (patch 0092 no Xenia, renut/0025 no Renut,
+ * experimental) so com tela de 120 Hz.
+ */
+@Composable
+private fun FrameRateSetting(vm: LauncherViewModel, c: GameConfig) {
+    val context = LocalContext.current
+    val maxHz = remember { DisplayRates.maxRefreshHz(context) }
+    val has120 = maxHz >= DisplayRates.MIN_120_HZ
+    val modes = buildList {
+        add(FrameMode.FPS30 to stringResource(R.string.perf_fps_30_hack))
+        add(FrameMode.FPS60 to "60 FPS")
+        if (has120) add(FrameMode.FPS120_INTERP to stringResource(R.string.perf_fps_120_interp))
+    }
+    SettingSegmented(
+        title = stringResource(R.string.perf_frame_rate),
+        subtitle = stringResource(R.string.perf_frame_rate_sub),
+        options = modes,
+        selected = c.frameMode,
+        onSelect = { v -> vm.updateConfig { it.withFrameMode(v) } },
+    )
+    when {
+        c.frameMode == FrameMode.FPS30 ->
+            StatusLine(stringResource(R.string.perf_fps_30_note), Level.INFO)
+        c.frameMode == FrameMode.FPS120_INTERP && has120 ->
+            StatusLine(stringResource(R.string.perf_fps_120_interp_note), Level.WARN)
+    }
+    if (!has120 && c.frameRate >= 100) {
+        // Config de outro aparelho (ou de antes): nesta tela fica a 60 Hz.
+        StatusLine(stringResource(R.string.perf_fps_120_fallback), Level.WARN)
+    }
+    if (!has120) StatusLine(stringResource(R.string.perf_fps_120_unavailable, maxHz.roundToInt()), Level.INFO)
 }

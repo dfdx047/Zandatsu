@@ -41,6 +41,7 @@ import com.dfdx047.zandatsu.data.TouchMode
 import com.dfdx047.zandatsu.ui.LauncherViewModel
 import com.dfdx047.zandatsu.ui.components.Level
 import com.dfdx047.zandatsu.ui.components.SectionCard
+import com.dfdx047.zandatsu.ui.components.SettingDropdown
 import com.dfdx047.zandatsu.ui.components.SettingSegmented
 import com.dfdx047.zandatsu.ui.components.SettingSlider
 import com.dfdx047.zandatsu.ui.components.SettingSwitch
@@ -84,10 +85,11 @@ fun ControlsScreen(vm: LauncherViewModel) {
                 selected = vm.directional,
                 onSelect = vm::setDirectional,
             )
-            SettingSegmented(
+            SettingDropdown(
                 title = stringResource(R.string.settings_touch_style),
                 options = listOf(
-                    ControlStyle.GAME to "MGR",
+                    ControlStyle.GAME to stringResource(R.string.ctl_style_classic),
+                    ControlStyle.SCIFI to stringResource(R.string.ctl_style_scifi),
                     ControlStyle.XBOX to "Xbox",
                     ControlStyle.PLAYSTATION to "PS",
                     ControlStyle.NINTENDO to "Nintendo",
@@ -95,7 +97,7 @@ fun ControlsScreen(vm: LauncherViewModel) {
                 selected = vm.controlStyle,
                 onSelect = vm::setControlStyle,
             )
-            if (vm.controlStyle == ControlStyle.GAME) {
+            if (vm.controlStyle.iconic) {
                 SettingSegmented(
                     title = stringResource(R.string.ingame_badge),
                     options = listOf(

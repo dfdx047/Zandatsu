@@ -139,7 +139,10 @@ fun SettingSlider(
 
 /** Escolha entre poucas opcoes (botoes segmentados). */
 @Composable
-fun <T> SettingSegmented(title: String, options: List<Pair<T, String>>, selected: T, subtitle: String? = null, onSelect: (T) -> Unit) {
+fun <T> SettingSegmented(
+    title: String, options: List<Pair<T, String>>, selected: T, subtitle: String? = null,
+    disabled: Set<T> = emptySet(), onSelect: (T) -> Unit,
+) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(title, style = MaterialTheme.typography.bodyLarge)
         if (subtitle != null) {
@@ -150,6 +153,7 @@ fun <T> SettingSegmented(title: String, options: List<Pair<T, String>>, selected
                 SegmentedButton(
                     selected = value == selected,
                     onClick = { onSelect(value) },
+                    enabled = value !in disabled,
                     shape = SegmentedButtonDefaults.itemShape(index = i, count = options.size),
                 ) {
                     Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis)

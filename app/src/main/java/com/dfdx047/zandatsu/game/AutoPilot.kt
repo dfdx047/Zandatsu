@@ -68,6 +68,10 @@ class AutoPilot(
                     org.libsdl.app.SwordManPad.axis(axis, v)
                     main.postDelayed({ org.libsdl.app.SwordManPad.axis(axis, rest) }, ms.toLong())
                 }
+                // "memdump NOME": a secao de dados do XEX em logs/NOME.bin (achar o estado jogo/menus).
+                cmd.startsWith("memdump ") -> NativeGameState.dumpFight(
+                    java.io.File(com.dfdx047.zandatsu.data.AppPaths.logsDir, cmd.substringAfter(' ').trim() + ".bin").absolutePath, 0,
+                )
                 // "cvar nome=valor": muda uma cvar ao vivo sem gravar no mgr.toml (medicoes A/B pelo PC).
                 cmd.startsWith("cvar ") -> cmd.substringAfter(' ').split('=', limit = 2).takeIf { it.size == 2 }?.let {
                     NativeGameState.setCvars(mapOf(it[0].trim() to it[1].trim()), persist = false)

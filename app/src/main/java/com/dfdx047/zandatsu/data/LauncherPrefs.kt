@@ -18,7 +18,17 @@ enum class GameOrientation(val key: String) { LANDSCAPE("landscape"), PORTRAIT("
  * do jogo; o nome fica pelas preferencias gravadas); XBOX / PLAYSTATION / NINTENDO = letras ou
  * simbolos do comando.
  */
-enum class ControlStyle(val key: String) { GAME("game"), XBOX("xbox"), PLAYSTATION("playstation"), NINTENDO("nintendo") }
+/**
+ * Visual dos controles na tela. GAME ("Classico"): vidro grafite com icones; SCIFI (27/10): hexagonos de linhas finas,
+ * cantos cortados, vermelho e branco sobre preto translucido (desenho original, nada tirado do jogo). Os outros: as
+ * letras/simbolos do comando.
+ */
+enum class ControlStyle(val key: String) {
+    GAME("game"), SCIFI("scifi"), XBOX("xbox"), PLAYSTATION("playstation"), NINTENDO("nintendo");
+
+    /** Botoes com o icone da acao (e o selo do comando no canto), nao a letra. */
+    val iconic: Boolean get() = this == GAME || this == SCIFI
+}
 
 /** Direcional na tela: analogico (padrao, o MGR e 3D) ou D-pad de 8 direcoes. */
 enum class Directional(val key: String) { DPAD("dpad"), STICK("stick") }

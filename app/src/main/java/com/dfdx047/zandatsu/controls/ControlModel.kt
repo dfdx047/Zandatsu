@@ -99,13 +99,13 @@ data class ControlLayout(
 enum class LayoutKind { GAMEPLAY, MENU, FULL }
 
 /**
- * Comandos do Metal Gear Rising: Revengeance (Xbox 360):
- *  analogico esquerdo andar; direito camara / Blade Mode livre; A saltar; B acao (portas,
- *  Ninja Kill, agarrar no Zandatsu); X ataque leve (+ analogico na direcao do golpe = aparar);
- *  Y ataque forte; LB (segurar) Blade Mode; RB (segurar) Ninja Run / disparar a arma
- *  secundaria; LT (segurar) equipar a arma secundaria; RT trancar a mira; cruz: cima
- *  Augment Mode, esquerda/direita armas e itens, baixo usar item; R3 centrar a camara;
- *  L3 + R3 Ripper Mode; Start pausa; Back Codec. Esquiva (Defensive Offense): direcao + X + A.
+ * Comandos do Metal Gear Rising: Revengeance (Xbox 360), tela Opcoes > Controles do jogo (tipo A, lida no
+ * aparelho em 27/10): LT Blade Mode; RT Ninja Run; LB usar a subarma; RB trocar o alvo travado; analogico esquerdo
+ * andar; direito camara / Blade Mode livre. A saltar; B acao (portas, agarrar, Zandatsu); X ataque leve (+ analogico
+ * na direcao do golpe = aparar); Y ataque forte; cruz: cima Augment Mode, esquerda/direita armas e itens, baixo usar
+ * item; R3 centrar a camara; L3 + R3 Ripper Mode; Start pausa; Back Codec. Esquiva (Defensive Offense, comprada no
+ * menu de personalizacao): direcao + X + A.
+ * (O layout 1 tinha os gatilhos e os ombros trocados: o botao "Blade Mode" carregava o LB, o "mira" o RT...)
  *
  * No toque: o minimo de botoes. Os ataques e o salto no losango, o Blade Mode, a corrida, a
  * mira e a esquiva em arco a volta, a camara arrastando o dedo no lado direito livre do
@@ -113,12 +113,16 @@ enum class LayoutKind { GAMEPLAY, MENU, FULL }
  */
 object GameActions {
     /** Versao dos layouts do MGR (os ficheiros do Dragon Burst nao se reaproveitam). */
-    const val LAYOUT_VERSION = 1
+    const val LAYOUT_VERSION = 2
 
     val LIGHT = setOf(PadInput.X)
     val HEAVY = setOf(PadInput.Y)
     val JUMP = setOf(PadInput.A)
     val ACTION = setOf(PadInput.B)
+    val BLADE = setOf(PadInput.LT)
+    val RUN = setOf(PadInput.RT)
+    val LOCK = setOf(PadInput.RB)
+    val SUBWEAPON = setOf(PadInput.LB)
     /** Esquiva (Defensive Offense): X + A juntos (a direcao vem do analogico). */
     val DODGE = ControlAction.Press(setOf(PadInput.X, PadInput.A))
     /** Ripper Mode: L3 + R3. */
@@ -134,7 +138,7 @@ object GameActions {
         Triple("item", ControlAction.Press(setOf(PadInput.DOWN)), ControlIcon.ITEM),
         Triple("weapon_l", ControlAction.Press(setOf(PadInput.LEFT)), ControlIcon.SWAP),
         Triple("weapon_r", ControlAction.Press(setOf(PadInput.RIGHT)), ControlIcon.SWAP),
-        Triple("subweapon", ControlAction.Press(setOf(PadInput.LT)), ControlIcon.SUBWEAPON),
+        Triple("subweapon", ControlAction.Press(SUBWEAPON), ControlIcon.SUBWEAPON),
         Triple("center_cam", ControlAction.Press(setOf(PadInput.R3)), ControlIcon.CAMERA),
         Triple("menu", ControlAction.Press(MENU_COMBO), ControlIcon.MACRO),
     )
@@ -163,11 +167,11 @@ object GameActions {
                 button("action", ACTION, ControlIcon.ACTION, "B", cx + 0.075f, cy, 58f),
                 button("jump", JUMP, ControlIcon.JUMP, "A", cx, cy + 0.18f, 62f),
                 // Arco a volta do losango: o polegar direito chega a todos.
-                button("blade", setOf(PadInput.LB), ControlIcon.BLADE, "LB", 0.705f, 0.66f, 56f),
+                button("blade", BLADE, ControlIcon.BLADE, "LT", 0.705f, 0.66f, 56f),
                 ControlElement("dodge", ElementKind.BUTTON, DODGE, ControlIcon.DODGE, "X+A", 0.715f, 0.88f, 48f),
-                button("run", setOf(PadInput.RB), ControlIcon.RUN, "RB", 0.735f, 0.43f, 52f),
-                button("lock", setOf(PadInput.RT), ControlIcon.LOCK, "RT", 0.81f, 0.28f, 48f),
-                button("subweapon", setOf(PadInput.LT), ControlIcon.SUBWEAPON, "LT", 0.945f, 0.30f, 44f),
+                button("run", RUN, ControlIcon.RUN, "RT", 0.735f, 0.43f, 52f),
+                button("lock", LOCK, ControlIcon.LOCK, "RB", 0.81f, 0.28f, 48f),
+                button("subweapon", SUBWEAPON, ControlIcon.SUBWEAPON, "LB", 0.945f, 0.30f, 44f),
                 // Cruz pequena das armas/itens/Augment e o Ripper, em cima a esquerda.
                 ControlElement("items", ElementKind.DPAD, ControlAction.Press(emptySet()), ControlIcon.MACRO, "", 0.075f, 0.30f, 92f),
                 ControlElement("ripper", ElementKind.BUTTON, RIPPER, ControlIcon.RIPPER, "L3+R3", 0.19f, 0.25f, 40f),
@@ -177,26 +181,19 @@ object GameActions {
         )
     }
 
-    /** Menus do jogo: A confirma, B volta, X/Y e os ombros mudam de pagina. */
+    /**
+     * Menus do jogo (27/10): so o direcional, confirmar (A) e voltar (B), e o Start (titulo, pausa, saltar cenas). O
+     * resto dos botoes esta no comando completo (botao de troca). A cruz tem id proprio: aparece mesmo com o
+     * analogico escolhido para andar.
+     */
     fun defaultMenuLayout(): ControlLayout {
-        fun pad(id: String, input: PadInput, x: Float, y: Float, size: Float) =
-            button(id, setOf(input), ControlIcon.MACRO, classicLabel(input, PadFamily.XBOX), x, y, size)
         val cx = 0.875f
-        val cy = 0.68f
+        val cy = 0.66f
         return ControlLayout(
             listOf(
-                look(),
-                stick(),
-                dpad(),
-                pad("m_x", PadInput.X, cx - 0.075f, cy, 56f),
-                pad("m_y", PadInput.Y, cx, cy - 0.18f, 56f),
-                pad("m_b", PadInput.B, cx + 0.075f, cy, 60f),
-                pad("m_a", PadInput.A, cx, cy + 0.18f, 66f),
-                pad("m_lb", PadInput.LB, 0.70f, 0.40f, 46f),
-                pad("m_rb", PadInput.RB, 0.95f, 0.40f, 46f),
-                pad("m_lt", PadInput.LT, 0.70f, 0.22f, 42f),
-                pad("m_rt", PadInput.RT, 0.95f, 0.22f, 42f),
-                button("m_back", setOf(PadInput.BACK), ControlIcon.CODEC, "BACK", 0.38f, 0.09f, 40f),
+                ControlElement("m_dpad", ElementKind.DPAD, ControlAction.Press(emptySet()), ControlIcon.MACRO, "", 0.15f, 0.66f, 170f),
+                button("m_a", JUMP, ControlIcon.MACRO, "A", cx - 0.03f, cy + 0.12f, 76f),
+                button("m_b", ACTION, ControlIcon.MACRO, "B", cx + 0.065f, cy - 0.06f, 64f),
                 button("m_start", setOf(PadInput.START), ControlIcon.START, "START", 0.62f, 0.09f, 40f),
             ),
             menu = true,
@@ -314,8 +311,11 @@ object ControlLayoutStore {
         return try {
             val saved = fromJson(JSONObject(f.readText()))
                 .copy(menu = kind != LayoutKind.GAMEPLAY, full = kind == LayoutKind.FULL)
-            // Layout de outra versao (ou sem nenhum elemento): o de omissao.
-            if (saved.version != GameActions.LAYOUT_VERSION || saved.elements.isEmpty()) {
+            // 27/10: o layout 1 de combate tinha gatilhos e ombros trocados; fica o do usuario (posicoes, tamanhos)
+            // com cada botao na entrada certa. Os menus do layout 1 dao lugar aos novos (so direcional + A/B).
+            if (saved.version == 1 && kind != LayoutKind.MENU && saved.elements.isNotEmpty()) {
+                migrateV1(saved)
+            } else if (saved.version != GameActions.LAYOUT_VERSION || saved.elements.isEmpty()) {
                 GameActions.defaultLayout(kind)
             } else {
                 saved
@@ -324,6 +324,23 @@ object ControlLayoutStore {
             com.dfdx047.zandatsu.data.AppLog.w("controls", "layout ${kind.name} invalido, uso o de omissao", e)
             GameActions.defaultLayout(kind)
         }
+    }
+
+    /** Layout 1 -> 2: os botoes de omissao do Blade Mode, Ninja Run, mira e subarma passam a entrada certa. */
+    private fun migrateV1(saved: ControlLayout): ControlLayout {
+        val fix = mapOf(
+            "blade" to (setOf(PadInput.LB) to GameActions.BLADE),
+            "run" to (setOf(PadInput.RB) to GameActions.RUN),
+            "lock" to (setOf(PadInput.RT) to GameActions.LOCK),
+            "subweapon" to (setOf(PadInput.LT) to GameActions.SUBWEAPON),
+        )
+        val elements = saved.elements.map { e ->
+            val (old, new) = fix[e.id] ?: return@map e
+            val press = e.action as? ControlAction.Press
+            if (press?.inputs == old) e.copy(action = ControlAction.Press(new), label = new.first().name) else e
+        }
+        com.dfdx047.zandatsu.data.AppLog.i("controls", "layout 1 -> 2 (gatilhos e ombros do MGR)")
+        return saved.copy(elements = elements, version = GameActions.LAYOUT_VERSION)
     }
 
     fun save(layout: ControlLayout) {

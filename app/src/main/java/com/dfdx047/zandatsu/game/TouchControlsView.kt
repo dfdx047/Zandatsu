@@ -111,7 +111,6 @@ class TouchControlsView(context: Context) : View(context) {
         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
     }
     private val icons = HashMap<ControlIcon, Drawable>()
-
     private val pressed = HashSet<String>()
     /** pointerId -> id do elemento */
     private val pointers = HashMap<Int, String>()
@@ -161,7 +160,7 @@ class TouchControlsView(context: Context) : View(context) {
         ControlStyle.PLAYSTATION -> PadFamily.PLAYSTATION
         ControlStyle.NINTENDO -> PadFamily.NINTENDO
         ControlStyle.XBOX -> PadFamily.XBOX
-        ControlStyle.GAME -> when (badge) {
+        ControlStyle.GAME, ControlStyle.SCIFI -> when (badge) {
             ButtonBadge.PLAYSTATION -> PadFamily.PLAYSTATION
             ButtonBadge.NINTENDO -> PadFamily.NINTENDO
             else -> PadFamily.XBOX
@@ -241,9 +240,9 @@ class TouchControlsView(context: Context) : View(context) {
         val down = e.id in pressed
         val fam = family()
         // Estilos classicos (e os menus): A/B/X/Y com a letra/simbolo do comando.
-        val classic = (style != ControlStyle.GAME || layout.menu) && isFaceButton(e)
+        val classic = (!style.iconic || layout.menu) && isFaceButton(e)
 
-        drawGlass(c, e, x, y, r, down)
+        if (style == ControlStyle.SCIFI) drawHex(c, e, x, y, r, down) else drawGlass(c, e, x, y, r, down)
 
         if (classic) {
             drawClassicGlyph(c, mainInput(e)!!, fam, x, y, r * 0.95f, alphaOf(e, 1f))
@@ -263,11 +262,59 @@ class TouchControlsView(context: Context) : View(context) {
             d.draw(c)
         }
         // Selo com o botao do comando (nos A/B/X/Y classicos ja e o proprio desenho).
-        val showBadge = when (style) {
-            ControlStyle.GAME -> badge != ButtonBadge.NONE
+        val showBadge = when {
+            style.iconic -> badge != ButtonBadge.NONE
             else -> true
         }
         if (showBadge && !classic && e.icon != ControlIcon.MACRO) drawBadge(c, e, fam, x, y, r)
+    }
+
+    /** Hexagono (pontas a esquerda e a direita) de raio r centrado em (x, y). */
+    private fun hexPath(x: Float, y: Float, r: Float): Path {
+        val p = Path()
+        for (k in 0 until 6) {
+            val a = Math.toRadians(60.0 * k)
+            val px = x + r * Math.cos(a).toFloat()
+            val py = y + r * Math.sin(a).toFloat()
+            if (k == 0) p.moveTo(px, py) else p.lineTo(px, py)
+        }
+        p.close()
+        return p
+    }
+
+    /**
+     * Sci-fi: hexagono preto translucido, contorno branco fino, hexagono interior tenue e dois tracos vermelhos em
+     * cantos opostos; premido acende em vermelho com um brilho suave por fora.
+     */
+    private fun drawHex(c: Canvas, e: ControlElement, x: Float, y: Float, r: Float, down: Boolean) {
+        val outer = hexPath(x, y, r)
+        fill.shader = null
+        fill.color = if (down) Color.argb(170, 120, 14, 26) else Color.argb(140, 6, 8, 10)
+        fill.alpha = alphaOf(e, 1f)
+        c.drawPath(outer, fill)
+        if (down) {
+            // Brilho: tracos largos e cada vez mais tenues a volta.
+            for (k in 3 downTo 1) {
+                ring.color = red
+                ring.alpha = alphaOf(e, 0.12f * (4 - k))
+                ring.strokeWidth = k * 3f * density
+                c.drawPath(outer, ring)
+            }
+        }
+        ring.color = if (down) Color.WHITE else cold
+        ring.alpha = alphaOf(e, if (down) 1f else 0.75f)
+        ring.strokeWidth = 1.2f * density
+        c.drawPath(outer, ring)
+        ring.alpha = alphaOf(e, 0.22f)
+        ring.strokeWidth = 1f * density
+        c.drawPath(hexPath(x, y, r * 0.8f), ring)
+        // Tracos vermelhos: na aresta de cima a esquerda e na de baixo a direita.
+        ring.color = red
+        ring.alpha = alphaOf(e, 0.95f)
+        ring.strokeWidth = 2.2f * density
+        val h = r * 0.866f
+        c.drawLine(x - r * 0.5f, y - h, x - r * 0.12f, y - h, ring)
+        c.drawLine(x + r * 0.12f, y + h, x + r * 0.5f, y + h, ring)
     }
 
     private fun badgeInputs(e: ControlElement): List<PadInput> = when (val a = e.action) {
@@ -295,7 +342,24 @@ class TouchControlsView(context: Context) : View(context) {
         fill.shader = null
         fill.color = Color.argb(200, 10, 11, 13)
         fill.alpha = alphaOf(e, 0.85f)
-        c.drawRoundRect(bx - w / 2, by - br * 0.78f, bx + w / 2, by + br * 0.78f, br * 0.4f, br * 0.4f, fill)
+        if (style == ControlStyle.SCIFI) {
+            // Etiqueta de cantos cortados com contorno vermelho.
+            val l = bx - w / 2
+            val rr = bx + w / 2
+            val t = by - br * 0.78f
+            val b = by + br * 0.78f
+            val cut = br * 0.45f
+            val tag = Path().apply {
+                moveTo(l + cut, t); lineTo(rr, t); lineTo(rr, b - cut); lineTo(rr - cut, b); lineTo(l, b); lineTo(l, t + cut); close()
+            }
+            c.drawPath(tag, fill)
+            ring.color = red
+            ring.alpha = alphaOf(e, 0.9f)
+            ring.strokeWidth = 1f * density
+            c.drawPath(tag, ring)
+        } else {
+            c.drawRoundRect(bx - w / 2, by - br * 0.78f, bx + w / 2, by + br * 0.78f, br * 0.4f, br * 0.4f, fill)
+        }
         text.color = cold
         text.alpha = alphaOf(e, 1f)
         c.drawText(label, bx, by + text.textSize / 3, text)
@@ -353,6 +417,10 @@ class TouchControlsView(context: Context) : View(context) {
         val x = cx(e)
         val y = cy(e)
         val r = radius(e)
+        if (style == ControlStyle.SCIFI) {
+            drawScifiStick(c, e, x, y, r)
+            return
+        }
         drawGlass(c, e, x, y, r, false)
         // Marcas finas nos 4 pontos cardeais.
         ring.color = steel
@@ -386,13 +454,56 @@ class TouchControlsView(context: Context) : View(context) {
         }
     }
 
+    /** Sci-fi: octogono com 8 marcas, circulo interior tracejado, pomo hexagonal com centro vermelho. */
+    private fun drawScifiStick(c: Canvas, e: ControlElement, x: Float, y: Float, r: Float) {
+        val oct = Path()
+        for (k in 0 until 8) {
+            val a = Math.toRadians(22.5 + 45.0 * k)
+            val px = x + r * Math.cos(a).toFloat()
+            val py = y + r * Math.sin(a).toFloat()
+            if (k == 0) oct.moveTo(px, py) else oct.lineTo(px, py)
+        }
+        oct.close()
+        fill.shader = null
+        fill.color = Color.argb(110, 6, 8, 10)
+        fill.alpha = alphaOf(e, 1f)
+        c.drawPath(oct, fill)
+        ring.color = cold
+        ring.alpha = alphaOf(e, 0.6f)
+        ring.strokeWidth = 1.2f * density
+        c.drawPath(oct, ring)
+        for (k in 0 until 8) {
+            val a = Math.toRadians(45.0 * k)
+            val cs = Math.cos(a).toFloat()
+            val sn = Math.sin(a).toFloat()
+            ring.color = if (k % 2 == 0) red else cold
+            ring.alpha = alphaOf(e, if (k % 2 == 0) 0.9f else 0.4f)
+            ring.strokeWidth = (if (k % 2 == 0) 2f else 1f) * density
+            c.drawLine(x + cs * r * 0.74f, y + sn * r * 0.74f, x + cs * r * 0.88f, y + sn * r * 0.88f, ring)
+        }
+        ring.color = cold
+        ring.alpha = alphaOf(e, 0.25f)
+        ring.strokeWidth = 1f * density
+        ring.pathEffect = DashPathEffect(floatArrayOf(4f * density, 4f * density), 0f)
+        c.drawCircle(x, y, r * 0.6f, ring)
+        ring.pathEffect = null
+        val st = sticks[e.id]
+        val active = st != null && !editMode
+        val kx = x + (st?.dx ?: 0f) * r * 0.55f
+        val ky = y + (st?.dy ?: 0f) * r * 0.55f
+        drawHex(c, e, kx, ky, r * 0.36f, active)
+        fill.color = red
+        fill.alpha = alphaOf(e, 0.9f)
+        c.drawCircle(kx, ky, 2.5f * density, fill)
+    }
+
     /** Cruz de 8 direcoes: as direcoes premidas (incluindo diagonais) acendem. */
     private fun drawDpad(c: Canvas, e: ControlElement) {
         val x = cx(e)
         val y = cy(e)
         val r = radius(e)
         val state = dpadState[e.id].orEmpty()
-        drawGlass(c, e, x, y, r, false)
+        if (style == ControlStyle.SCIFI) drawHex(c, e, x, y, r, false) else drawGlass(c, e, x, y, r, false)
         val arm = r * 0.28f
         fill.shader = null
         fill.color = Color.argb(70, 228, 231, 235)

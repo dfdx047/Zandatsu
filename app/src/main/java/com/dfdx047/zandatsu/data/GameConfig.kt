@@ -39,6 +39,7 @@ data class GameConfig(
     // 0114 (experimental): aritmetica dos pixel shaders em fp16 (RelaxedPrecision).
     val psFp16: Boolean = false,
     val showFps: Boolean = false,             // debug_overlay
+    val fpsDetail: String = "full",           // debug_overlay_detail: full / simple (SDK 0185)
     // Proporcao (26/10): original = 16:9 com barras, stretch = esticar ate a tela (present_letterbox no Xenia,
     // swordman_aspect no Renut), widescreen = o jogo desenha na proporcao da tela (hor+, so no Renut, experimental;
     // no Xenia fica como original).
@@ -95,6 +96,19 @@ data class GameConfig(
     /** Escala inteira do Xenia (1 abaixo de 720p e em 720p, 2 em 1080p/1440p, 3 em 2160p). */
     val resolutionScale: Int get() = resolution.scale
 
+    /** Medidor de FPS: 0 desligado, 1 simples (so o FPS do jogo), 2 completo. */
+    val fpsLevel: Int get() = if (!showFps) 0 else if (fpsDetail == "simple") 1 else 2
+
+    fun withFpsLevel(level: Int): GameConfig =
+        copy(showFps = level > 0, fpsDetail = if (level == 1) "simple" else "full")
+
+    /** Lingua dos rotulos do medidor de FPS (o do SDK): a do app, se for pt ou es. */
+    private fun overlayLanguage(): String {
+        val language = androidx.appcompat.app.AppCompatDelegate.getApplicationLocales()[0]?.language
+            ?: java.util.Locale.getDefault().language
+        return if (language == "pt" || language == "es") language else "en"
+    }
+
     fun toToml(): Map<String, Any> {
         val opt = !safeGpu
         val adreno = com.dfdx047.zandatsu.drivers.DriverRepository.isAdreno()
@@ -141,6 +155,8 @@ data class GameConfig(
             // 30 FPS: o jogo continua a 60 (mesma velocidade) e so metade dos frames e desenhada.
             "dbz3_frameskip" to if (frameMode == FrameMode.FPS30) 1 else 0,
             "debug_overlay" to showFps,
+            "debug_overlay_detail" to fpsDetail,
+            "debug_overlay_language" to overlayLanguage(),
             "present_letterbox" to (aspect != "stretch"),
             "swordman_aspect" to aspect,
             "vibration" to vibration,
@@ -312,6 +328,7 @@ data class GameConfig(
                 // no RP5); a opcao saiu do launcher e fica sempre desligada.
                 psFp16 = false,
                 showFps = bool("debug_overlay", d.showFps),
+                fpsDetail = str("debug_overlay_detail", d.fpsDetail).let { if (it == "simple") it else "full" },
                 aspect = str("swordman_aspect", if (bool("present_letterbox", true)) "original" else "stretch")
                     .let { if (it in ASPECTS) it else "original" },
                 volume = int("swordman_volume", d.volume).coerceIn(0, 100),
