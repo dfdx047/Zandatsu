@@ -16,8 +16,8 @@
 # ATTACK=0 deixa o Raiden parado (a luta vem ter com ele; a cena varia muito menos que com golpes: para comparar
 # mudanças pequenas). O resumo usa a mediana das janelas e descarta GPU ms impossíveis (> 1000; o Renut às vezes
 # reporta uma janela errada).
-# Resultado em out/bench/<nome>.log, <nome>_luta.png e uma linha de resumo. O cvars.txt do aparelho fica com as
-# cvars do teste: repor no fim.
+# Resultado em out/bench/<nome>.log, <nome>_luta.png e uma linha de resumo. O jogo fecha no fim (KEEP=1 deixa-o
+# aberto). O cvars.txt do aparelho fica com as cvars do teste: repor no fim.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 D="$1"; N="$2"; shift 2
@@ -56,6 +56,8 @@ for i in $(seq 1 "$ROUNDS"); do
 done
 T1=$(date +%T)
 adb -s "$D" pull "$A/logs/swordman_last.log" "$OUT/$N.log" > /dev/null
+# Fecha o jogo (o aparelho aquecia entre corridas com o jogo a correr no game over/título). KEEP=1 deixa-o aberto.
+[ "${KEEP:-0}" = 1 ] || adb -s "$D" shell am force-stop "$APP"
 python3 - "$OUT/$N.log" "$T0" "$T1" "$N" "$MAIN_CPU" <<'PY'
 import re, sys
 log, t0, t1, name, main_cpu = sys.argv[1:]

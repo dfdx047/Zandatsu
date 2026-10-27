@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# Validacao de uma variante de codegen/CPU no MGR (Renut), para comparar com a base. Duas fases:
+# Validacao de uma variante de codegen/CPU no MGR (Renut), para comparar com a base. Tres fases
+# (PHASES=AB, PHASES=G... corre so essas; padrao ABG):
 #   A: titulo e menus -> slot 1 dos saves de teste (tools/test-saves.sh; SLOT) -> Continue (save carregado na primeira luta) -> 3 min de luta com X/Y e Blade Mode
 #      (LT segurado, X/Y a cortar) -> parado ate ao game over -> Continue.
 #   B: abre de novo -> slot 1 dos saves de teste (tools/test-saves.sh; SLOT) -> Story -> New Game -> Normal -> sem tutorial: a cutscene do prologo do inicio ao fim
 #      (uma captura a cada ~2 s ate o gameplay voltar ou 6 min). No fim o slot 1 dos saves de teste (tools/test-saves.sh; SLOT) volta a ter o autosave da luta.
+#   G: abre de novo -> Continue -> luta sem input ate ao game over (G9x_*.png: Mission Failed e Continue).
 # Saida em out/validate/<nome>/: capturas (A_*.png, B_*.png com o segundo desde o inicio da cutscene), o log, e
 # "alive.txt" com o pid em cada passo (um pid diferente ou vazio = o jogo caiu).
 #
@@ -29,7 +31,11 @@ launch() {
   sleep 50
 }
 
+PHASES="${PHASES:-ABG}"
+on() { case "$PHASES" in *"$1"*) return 0 ;; *) return 1 ;; esac; }
+
 # --- A ---
+if on A; then
 launch "$@"
 shot A01_titulo
 press START 4; shot A02_slots
@@ -49,8 +55,10 @@ for i in $(seq 1 16); do sleep 15; shot "A10_parado_$(printf %02d "$i")"; done  
 press A 3; shot A11_gameover_a
 press A 20; shot A12_continue
 adb -s "$D" pull "$A/logs/swordman_last.log" "$OUT/A.log" > /dev/null
+fi
 
 # --- B ---
+if on B; then
 launch "$@"
 press START 4; slot; press A 4; press A 5
 press DOWN 1; press A 4; shot B00_story
@@ -66,4 +74,18 @@ for i in $(seq 1 180); do
 done
 echo "B fim $(adb -s "$D" shell pidof "$APP:game" | tr -d '\r')" >> "$OUT/alive.txt"
 adb -s "$D" pull "$A/logs/swordman_last.log" "$OUT/B.log" > /dev/null
+fi
+
+# --- G --- game over garantido: na fase A o Raiden as vezes afasta-se da luta e ninguem o mata. Aqui fica parado
+# desde o inicio da luta (sem input) ate ao game over, depois A (Continue).
+if on G; then
+  launch "$@"
+  press START 8; slot; press A 8; press A 10; press A 20
+  shot G00_luta
+  for i in $(seq 1 13); do sleep 20; shot "G$(printf %02d "$i")_parado"; done   # ate 4 min 20 s parado
+  press A 4; shot G90_apos_A
+  press A 25; shot G91_continue
+  sleep 10; shot G92_continue_10s
+  adb -s "$D" pull "$A/logs/swordman_last.log" "$OUT/G.log" > /dev/null
+fi
 echo "$N: $(wc -l < "$OUT/alive.txt") passos, pids $(awk '{print $2}' "$OUT/alive.txt" | sort -u | paste -sd' ')"
