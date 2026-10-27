@@ -2,6 +2,9 @@
 
 #include "renut_gpu_markers.h"
 
+#include <sys/stat.h>
+#include <unistd.h>
+
 #include <atomic>
 #include <cstdio>
 #include <cstring>
@@ -25,7 +28,9 @@ REXCVAR_DEFINE_BOOL(swordman_renut_gpu_markers, false, "SwordMan",
 REXCVAR_DEFINE_BOOL(swordman_renut_gpu_markers_cpu, false, "SwordMan",
                     "Renut (diagnóstico): com swordman_renut_gpu_markers, só o anel da CPU (nada é escrito na GPU, o "
                     "ritmo da GPU fica igual); no device lost escreve os últimos 16384 comandos para cruzar com o "
-                    "snapshot do kgsl (/sys/class/kgsl/kgsl-3d0/snapshot/dump)")
+                    "snapshot do kgsl (/sys/class/kgsl/kgsl-3d0/snapshot/dump). Também a pedido: criar "
+                    "logs/renut_gpu_ring.req escreve logs/renut_gpu_ring_<n>.txt com o anel inteiro (tools/kgsl/"
+                    "hangwatch.sh faz isso quando o dmesg mostra um hang que o kgsl recuperou, sem device lost)")
     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
 REXCVAR_DEFINE_BOOL(swordman_renut_gpu_markers_end, true, "SwordMan",
                     "Renut (diagnóstico): com swordman_renut_gpu_markers, também o marcador do fim de cada comando "
@@ -141,6 +146,44 @@ const char* KindName(uint32_t kind) {
   }
 }
 
+// Os comandos [from, to] do anel (no máximo limit) no formato do renut_gpu_hang.txt (tools/kgsl/hangmap.py).
+void WriteCommands(FILE* f, uint32_t from, uint32_t to, uint32_t limit, uint32_t started, uint32_t finished) {
+  State& s = S();
+  std::fprintf(f, "  índice    frame  tipo      PS                VS                cor (va wxh fmt)          "
+                  "profund. (va fmt)  prim  contagem inst\n");
+  for (uint32_t i = from; i <= to && i - from < limit; ++i) {
+    const Entry& e = s.ring[i & (kRing - 1)];
+    if (e.index != i) continue;
+    const Info& n = e.info;
+    const char* mark = (finished ? (i > finished && i <= started) : i == started) ? ">" : " ";
+    std::fprintf(f, "%s %8u %8llu  %-8s  %016llX  %016llX  %08X %4ux%-4u fmt %-3u  %08X fmt %-3u  %4u  %8u %4u\n", mark,
+                 i, (unsigned long long)e.frame, KindName(n.kind), (unsigned long long)n.ps,
+                 (unsigned long long)n.vs, n.color_va, n.color_width, n.color_height, n.color_format, n.depth_va,
+                 n.depth_format, n.primitive, n.count, n.instances);
+  }
+}
+
+// Só CPU: uma vez por frame do jogo, se existir logs/renut_gpu_ring.req, escreve o anel inteiro (os comandos até
+// este) em logs/renut_gpu_ring_<n>.txt e apaga o pedido. O hang que o kgsl recupera não chega a device lost.
+void CheckRingRequest(uint64_t frame, uint32_t index) {
+  static uint64_t last_frame = 0;
+  static uint32_t dumps = 0;
+  if (frame == last_frame) return;
+  last_frame = frame;
+  static const std::string req = (rex::GetAndroidAppDirectory() / "logs" / "renut_gpu_ring.req").string();
+  struct stat st;
+  if (::stat(req.c_str(), &st) != 0 || dumps >= 20) return;
+  ::unlink(req.c_str());
+  const auto path = rex::GetAndroidAppDirectory() / "logs" / ("renut_gpu_ring_" + std::to_string(++dumps) + ".txt");
+  FILE* f = std::fopen(path.c_str(), "w");
+  if (!f) return;
+  std::fprintf(f, "anel a pedido no frame %llu: gravados %u (só CPU, a GPU não escreveu nada)\n\n",
+               (unsigned long long)frame, index);
+  WriteCommands(f, index >= kRing ? index - kRing + 1 : 1, index, kRing, 0, 0);
+  std::fclose(f);
+  REXLOG_INFO("Renut: anel da GPU a pedido (frame {}, comando {}): {}", frame, index, path.string());
+}
+
 }  // namespace
 
 bool On() {
@@ -157,7 +200,10 @@ uint32_t Before(plume::RenderCommandList* cmd, const Info& info) {
   e.frame = g_sa2_game_frames.load(std::memory_order_relaxed);
   e.info = info;
   static const bool cpu_only = REXCVAR_GET(swordman_renut_gpu_markers_cpu);
-  if (cpu_only) return index;
+  if (cpu_only) {
+    CheckRingRequest(e.frame, index);
+    return index;
+  }
   banjo::renut_gpu::record::Marker(cmd, &Write, 0, index);  // o cmd pode ser o proxy do record worker
   return index;
 }
@@ -181,8 +227,6 @@ void OnDeviceLost() {
     std::fprintf(f, "GPU: o último comando que começou foi o %u e o último que acabou foi o %u; gravados %u\n",
                  started, finished, recorded);
     std::fprintf(f, "(o hang está entre 'acabou' e 'começou': os comandos marcados com > ainda não tinham acabado)\n\n");
-    std::fprintf(f, "  índice    frame  tipo      PS                VS                cor (va wxh fmt)          "
-                    "profund. (va fmt)  prim  contagem inst\n");
     // Sem o marcador do fim (swordman_renut_gpu_markers_end = false) "acabou" fica 0: a janela é à volta do início.
     const uint32_t base = finished ? finished : started;
     uint32_t from = base > 20 ? base - 20 : 1;
@@ -194,16 +238,7 @@ void OnDeviceLost() {
     }
     const uint32_t to = REXCVAR_GET(swordman_renut_gpu_markers_cpu) ? recorded
                         : (started + 20 < recorded ? started + 20 : recorded);
-    for (uint32_t i = from; i <= to && i - from < limit; ++i) {
-      const Entry& e = s.ring[i & (kRing - 1)];
-      if (e.index != i) continue;
-      const Info& n = e.info;
-      const char* mark = (finished ? (i > finished && i <= started) : i == started) ? ">" : " ";
-      std::fprintf(f, "%s %8u %8llu  %-8s  %016llX  %016llX  %08X %4ux%-4u fmt %-3u  %08X fmt %-3u  %4u  %8u %4u\n", mark,
-                   i, (unsigned long long)e.frame, KindName(n.kind), (unsigned long long)n.ps,
-                   (unsigned long long)n.vs, n.color_va, n.color_width, n.color_height, n.color_format, n.depth_va,
-                   n.depth_format, n.primitive, n.count, n.instances);
-    }
+    WriteCommands(f, from, to, limit, started, finished);
     std::fclose(f);
     REXLOG_ERROR("Renut: GPU parou entre os comandos {} (acabou) e {} (começou): {}", finished, started,
                  path.string());

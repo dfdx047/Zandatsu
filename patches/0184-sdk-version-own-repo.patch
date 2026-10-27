@@ -1,0 +1,20 @@
+SwordMan 0184: SDK version from the SDK repository
+
+rex_resolve_version ran git describe in CMAKE_SOURCE_DIR, the game project: once the game repository had a v1.0 tag
+the SDK floor (0.10) was "behind" it and configure failed. Describe the SDK's own repository instead.
+
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -188,9 +188,11 @@
+ include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/rex_pch.cmake)
+ 
+ include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/rex_version.cmake)
++# SwordMan 0184: the SDK's own repository (the default, CMAKE_SOURCE_DIR, is the game's: its v1.0 tag broke the floor).
+ rex_resolve_version(REXGLUE_FULL_VERSION
+     FLOOR_MAJOR ${PROJECT_VERSION_MAJOR}
+-    FLOOR_MINOR ${PROJECT_VERSION_MINOR})
++    FLOOR_MINOR ${PROJECT_VERSION_MINOR}
++    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
+ 
+ # Strip the -id trailer (if any) for the numeric-only version.
+ string(REGEX REPLACE "-.*$" "" REXGLUE_NUMERIC_VERSION "${REXGLUE_FULL_VERSION}")

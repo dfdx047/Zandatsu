@@ -1,0 +1,123 @@
+SwordMan (Android): limite de 30 FPS no Renut, 27/10.
+- O mesmo hack do Xenia (dbz3_frameskip = N, ao vivo): o jogo continua a 60 (a velocidade do MGR segue os frames),
+  mas so 1 em cada N+1 frames e desenhado. Nos outros, os draws, clears, resolves e command buffers nao vao para a
+  thread de render (backend/queued.cpp, guest/command_buffers.cpp) e o Swap nao apresenta (d3d/hooks/device.cpp).
+--- a/app/src/renut_engine/gpu/backend/queued.h
++++ b/app/src/renut_engine/gpu/backend/queued.h
+@@ -48,4 +48,11 @@
+                   i32 dest_x, i32 dest_y, u32 dest_level, u32 dest_slice,
+                   const float clear_color[4], float clear_depth, u32 clear_stencil);
+ 
++// SwordMan (2026-10-27): o "30 FPS" do Xenia (dbz3_frameskip = N) no Renut. O jogo continua a 60 (a velocidade do MGR
++// segue os frames), mas so 1 em cada N+1 e desenhado: nos outros os draws, clears, resolves e command buffers nao vao
++// para a thread de render e o Swap nao apresenta (fica a imagem anterior).
++bool FrameSkipped();
++// No Swap, depois de entregar o frame: decide o seguinte (a cvar pode mudar ao vivo).
++void AdvanceFrameSkip();
++
+ } // namespace renut::gpu
+--- a/app/src/renut_engine/gpu/backend/queued.cpp
++++ b/app/src/renut_engine/gpu/backend/queued.cpp
+@@ -7,6 +7,7 @@
+ #include <atomic>
+ #include <bit>
+ #include <cstddef>
++#include <cstdlib>
+ #include <cstring>
+ #include <initializer_list>
+ #include <memory>
+@@ -594,9 +595,25 @@
+   return line;
+ }
+ 
++namespace {
++std::atomic<bool> g_frame_skipped{false};
++uint32_t g_frame_skip_counter = 0;  // so a thread do jogo (o Swap)
++}  // namespace
++
++bool FrameSkipped() { return g_frame_skipped.load(std::memory_order_relaxed); }
++
++void AdvanceFrameSkip() {
++  const std::string text = rex::cvar::GetFlagByName("dbz3_frameskip");
++  const int skip = text.empty() ? 0 : std::clamp(std::atoi(text.c_str()), 0, 3);
++  ++g_frame_skip_counter;
++  g_frame_skipped.store(skip > 0 && g_frame_skip_counter % uint32_t(skip + 1) != 0, std::memory_order_relaxed);
++}
++
+ void QueueDraw(u32 device_va, const DrawCall &call, u32 up_vertex_bytes, u32 up_index_bytes) {
+   FlushDeferredVertices(device_va);
+   RunReadyCallbacks();
++  if (FrameSkipped())
++    return;
+   // sa2-nx (2026-10-20, sa2_renut_snapshot_deltas): made and queued under the chain's lock.
+   std::unique_lock<std::mutex> chain;
+   if (DeltasOn())
+@@ -614,6 +631,8 @@
+ void QueueDeferredDraw(u32 device_va, const DrawCall &call, const u8 *scratch, u32 bytes) {
+   FlushDeferredVertices(device_va);
+   RunReadyCallbacks();
++  if (FrameSkipped())
++    return;
+   // sa2-nx (2026-10-20, sa2_renut_deferred_chain, from futari-nx via peggle2-nx): a Begin*Vertices draw of the chain
+   // too. Made under the chain's lock and queued by FlushDeferredVertices under it as well, before any other draw of the
+   // device is made (every hook flushes its device's deferred draw first), so the render thread still applies the chain
+@@ -691,6 +710,8 @@
+                 u32 stencil) {
+   FlushDeferredVertices(device_va);
+   RunReadyCallbacks();
++  if (FrameSkipped())
++    return;
+   const auto *device = GuestPtr<const u8>(device_va);
+   if (!device)
+     return;
+@@ -714,6 +735,8 @@
+                   const float clear_color[4], float clear_depth, u32 clear_stencil) {
+   FlushDeferredVertices(device_va);
+   RunReadyCallbacks();
++  if (FrameSkipped())
++    return;
+   const auto *device = GuestPtr<const u8>(device_va);
+   if (!device)
+     return;
+--- a/app/src/renut_engine/gpu/guest/command_buffers.cpp
++++ b/app/src/renut_engine/gpu/guest/command_buffers.cpp
+@@ -630,6 +630,8 @@
+ 
+ void QueueRunCommandBuffer(u32 device_va, u32 command_buffer_va) {
+   FlushDeferredVertices(device_va);
++  if (FrameSkipped())  // SwordMan (2026-10-27): frame que o dbz3_frameskip nao desenha (backend/queued.h)
++    return;
+   const u8 *device = GuestPtr<const u8>(device_va);
+   if (!device)
+     return;
+--- a/app/src/renut_engine/gpu/d3d/hooks/device.cpp
++++ b/app/src/renut_engine/gpu/d3d/hooks/device.cpp
+@@ -939,7 +939,9 @@
+ 
+   // SwordMan (2026-10-26, widescreen): a frame with under 8 draws to a widened target is 2D (guest/widescreen.h).
+   const bool frame_2d = renut::gpu::GuestScreenWidth() > 1280 && renut::gpu::TakeWidenedDraws() < 8;
+-  render_thread::QueueFrame([front_buffer, swap_ordinal, device_va, completed_swap, frame_2d] {
++  // SwordMan (2026-10-27, dbz3_frameskip): um frame nao desenhado nao apresenta (fica a imagem anterior).
++  const bool skipped = FrameSkipped();
++  render_thread::QueueFrame([front_buffer, swap_ordinal, device_va, completed_swap, frame_2d, skipped] {
+     PresentImage image;
+     {
+       std::lock_guard lock(State().mutex);
+@@ -954,7 +956,8 @@
+     MaybeReportMemory();
+     // The front buffer is the texture the game resolved the frame into.
+     Video::NotePresentingSwap(swap_ordinal);  // banjo-nx (2026-10-20): the probe's "input -> GPU done"
+-    Video::Present(image.texture ? &image : nullptr);
++    if (!skipped)
++      Video::Present(image.texture ? &image : nullptr);
+     // MGR's engine polls sub_826B2FC0: submitted (+16968) - displayed (+16976).
+     // The Xbox vblank handler advanced the latter. With no GPU interrupt, publish
+     // completion here, after this frame has consumed its buffers and presented.
+@@ -970,6 +973,7 @@
+     banjo::display_sync::NotePresented(swap_ordinal);  // banjo-nx (2026-10-19, latency batch 3)
+   });
+   RunReadyCallbacks();
++  AdvanceFrameSkip();  // SwordMan (2026-10-27): o proximo frame (backend/queued.h)
+ 
+   if (capture_ticket) {
+     rex::ui::RawImage image;

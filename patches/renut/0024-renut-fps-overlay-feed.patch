@@ -1,0 +1,62 @@
+SwordMan (Android): o medidor de FPS do SDK (0185) no Renut, 27/10.
+- GPU ms (frame_stats OnGpuFrame), CPU ms da thread do jogo ("from Swap to Swap" do log, sa2_renut_pacing.cpp) e os
+  frames que chegam a tela (Swap que apresenta; com o dbz3_frameskip, metade).
+--- a/app/src/renut_engine/perf/frame_stats.cpp
++++ b/app/src/renut_engine/perf/frame_stats.cpp
+@@ -8,6 +8,7 @@
+ #include <algorithm>
+ #include <chrono>
+ #include <mutex>
++#include <rex/perf/frame_rate.h>
+ #include <rex/platform.h>
+ 
+ // Counter 0 of the console profiler: presented frames, which the Status Monitor overlay's FPS (SaltyNX) and the
+@@ -89,6 +90,7 @@
+ void OnGpuFrame(double ms) {
+   banjo::renut_gpu::StatsGpuFrame(ms);
+   banjo::profiler::SetGpuFrameMs(ms);  // the profiler window's "GPU Frame" (package 27: nobody fed it before)
++  rex::perf::RecordGpuFrame(ms);       // SwordMan (2026-10-27): the SDK's FPS overlay (GPU ms)
+   State& s = S();
+   std::lock_guard lock(s.mutex);
+   s.gpu_sum += ms;
+--- a/app/src/renut_engine/gpu/sa2_renut_pacing.cpp
++++ b/app/src/renut_engine/gpu/sa2_renut_pacing.cpp
+@@ -33,6 +33,7 @@
+ 
+ #include <rex/cvar.h>
+ #include <rex/logging.h>
++#include <rex/perf/frame_rate.h>
+ 
+ #include "renut_engine/gpu/backend/queued.h"
+ #include "renut_engine/display_sync.h"  // sa2-nx (2026-10-20): banjo_display_sync
+@@ -95,6 +96,7 @@
+     const double work = Ms(arrived - s.released);
+     s.work_ms += work;
+     s.work_max_ms = std::max(s.work_max_ms, work);
++    rex::perf::RecordMainThreadFrame(work);  // SwordMan (2026-10-27): the SDK's FPS overlay (CPU ms, main thread)
+     s.sleep_ms += Ms(released - arrived);
+     ++s.frames;
+     s.late += late ? 1 : 0;
+--- a/app/src/renut_engine/gpu/d3d/hooks/device.cpp
++++ b/app/src/renut_engine/gpu/d3d/hooks/device.cpp
+@@ -40,6 +40,7 @@
+ #include "me/sa2_render_mode.h"                     // sa2-nx (1.0.3.1): the PC's docked test toggles
+ 
+ #include <rex/cvar.h>
++#include <rex/perf/frame_rate.h>  // SwordMan (2026-10-27): the FPS overlay
+ #include <rex/kernel/xboxkrnl/video.h>
+ #include <rex/ppc.h>
+ #include <rex/system/xvideo.h>
+@@ -956,8 +957,11 @@
+     MaybeReportMemory();
+     // The front buffer is the texture the game resolved the frame into.
+     Video::NotePresentingSwap(swap_ordinal);  // banjo-nx (2026-10-20): the probe's "input -> GPU done"
+-    if (!skipped)
++    if (!skipped) {
+       Video::Present(image.texture ? &image : nullptr);
++      // SwordMan (2026-10-27): the SDK's FPS overlay ("Display": the frames that reach the screen).
++      rex::perf::GetPresentStats().shown.fetch_add(1, std::memory_order_relaxed);
++    }
+     // MGR's engine polls sub_826B2FC0: submitted (+16968) - displayed (+16976).
+     // The Xbox vblank handler advanced the latter. With no GPU interrupt, publish
+     // completion here, after this frame has consumed its buffers and presented.
