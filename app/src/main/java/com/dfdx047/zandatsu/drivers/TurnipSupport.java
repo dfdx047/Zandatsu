@@ -136,6 +136,24 @@ public final class TurnipSupport {
     }
 
     /**
+     * Driver para o Renut nesta GPU, pelo que foi testado (27/10): Adreno 650 = Turnip MrPurple T19 (o unico sem
+     * crash nem imagem errada no RP5; o driver do sistema nao tem shaderInt64); 710/720 = Turnip (o ARMSX2 correu no
+     * Galaxy A36, o driver do sistema fecha); 730-750 = driver do sistema (750 testado) ou Turnip; 8xx = driver do
+     * sistema ou Turnip Gen8 V38 (Odin 3), os dois ok.
+     */
+    public static String recommendedForRenut(Gpu gpu) {
+        if (gpu.adreno == 650) return "Turnip MrPurple T19";
+        if (gpu.adreno >= 800) return "Turnip Gen8 V38";
+        if (gpu.adreno >= 700 && gpu.adreno < 730) return "Turnip ARMSX2";
+        return gpu.builds;
+    }
+
+    /** Adreno em que o driver do sistema e o Turnip rodam o Renut (sem aviso nem sugestao de troca). */
+    public static boolean systemAndTurnipOk(Gpu gpu) {
+        return gpu.adreno >= 730;
+    }
+
+    /**
      * Variaveis do driver que se aplicam sozinhas com Turnip ativo (antes do vkCreateInstance;
      * o Turnip le o TU_DEBUG uma vez). Junta ao TU_DEBUG que o utilizador escolheu.
      */

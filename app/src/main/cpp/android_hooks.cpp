@@ -19,6 +19,8 @@
 #include <cstdint>
 #include <mutex>
 
+#include "gpu_reset.h"
+
 std::atomic<bool> g_swordman_pause{false};
 std::mutex g_swordman_pause_mu;
 std::condition_variable g_swordman_pause_cv;
@@ -41,6 +43,9 @@ void SwordManPausePoint() {
 namespace {
 // Liga o gancho quando a libgame.so e carregada (antes de o jogo arrancar).
 struct InstallHooks {
-  InstallHooks() { rex_vdswap_hook = &SwordManPausePoint; }
+  InstallHooks() {
+    rex_vdswap_hook = &SwordManPausePoint;
+    swordman::gpu_reset::Start();  // gpu_reset.cpp: hang da GPU sem fechar o jogo
+  }
 } g_install_hooks;
 }  // namespace

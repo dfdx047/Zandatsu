@@ -569,7 +569,7 @@ object RenutSupport {
     fun supported(): Boolean = when (status()?.firstOrNull()) {
         "ok" -> true
         "no" -> false
-        else -> !systemDriverOn6xx()
+        else -> knownSystemDriverGap() == null
     }
 
     /**
@@ -601,7 +601,7 @@ object RenutSupport {
             st?.firstOrNull() == "no" -> "falhou a verificacao: ${missing()}"
             st?.firstOrNull() == "ok" && !validatedGpu() -> "verificado ok, GPU nao validada (experimental)"
             st?.firstOrNull() == "ok" -> "verificado ok"
-            systemDriverOn6xx() -> "Adreno 6xx com o driver do sistema"
+            knownSystemDriverGap() != null -> "driver do sistema conhecido sem Renut: ${knownSystemDriverGap()}"
             !validatedGpu() -> "ainda nao testado, GPU nao validada (experimental)"
             else -> "ainda nao testado"
         }
@@ -614,14 +614,31 @@ object RenutSupport {
             "; renut_support.txt=${raw ?: "-"} (testado com ${tested ?: "-"})"
     }
 
+    /** Motivo do jogo para o driver Qualcomm do Adreno 710/720 (src/renut_glue.cpp): fecha ao abrir o Renut. */
+    const val CRASH_QUALCOMM_A7XX = "crash-qualcomm-a7xx"
+
     /**
-     * Adreno 6xx com o driver do sistema (Qualcomm): o Renut nao corre (RP5, 24/10). O launcher avisa nos drivers e
-     * no Desempenho em vez de o jogo passar calado para o Xenia.
+     * O driver do sistema (Qualcomm) que ja se sabe que nao roda o Renut, antes do jogo o testar: o que falta, ou null
+     * (roda, ou nao se sabe). 27/10: Adreno 6xx sem shaderInt64 (RP5); Adreno 710/720 fecha ao abrir (Galaxy A36,
+     * issue #9). O Adreno 750 (issue #11) e o 830 (Odin 3, Honor) rodam com o driver do sistema.
      */
-    fun systemDriverOn6xx(): Boolean =
-        com.dfdx047.zandatsu.drivers.DriverRepository.isAdreno() &&
-            com.dfdx047.zandatsu.drivers.TurnipSupport.detect().gen == "a6xx" &&
-            com.dfdx047.zandatsu.drivers.DriverRepository.activeDir() == null
+    fun knownSystemDriverGap(): String? {
+        val dr = com.dfdx047.zandatsu.drivers.DriverRepository
+        if (!dr.isAdreno() || dr.activeDir() != null) return null
+        val g = com.dfdx047.zandatsu.drivers.TurnipSupport.detect()
+        return when {
+            g.gen == "a6xx" || (g.adreno == 0 && com.dfdx047.zandatsu.drivers.TurnipSupport.kgslGeneration() == 6) ->
+                "shaderInt64"
+            g.adreno in 700..729 -> CRASH_QUALCOMM_A7XX
+            else -> null
+        }
+    }
+
+    /**
+     * O que impede o Renut com o driver ativo (null = roda ou ainda nao se sabe): a verificacao do jogo com este
+     * driver, ou, antes dela, o que se sabe do driver do sistema. Os avisos do launcher dependem so disto.
+     */
+    fun blocker(): String? = missing() ?: if (status() == null) knownSystemDriverGap() else null
 
     /** O que falta ao driver atual para o Renut (null = corre ou ainda nao foi testado). */
     fun missing(): String? {

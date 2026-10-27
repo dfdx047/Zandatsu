@@ -195,8 +195,10 @@ private fun TabContent(tab: LauncherTab, vm: LauncherViewModel, goTo: (LauncherT
 }
 
 /**
- * Aviso de primeiro arranque (e pelo Sobre): em que GPUs/drivers o jogo foi otimizado
- * e o que fazer nas Mali. Fechar marca-o como visto.
+ * Aviso de primeiro arranque (e pelo Sobre). 27/10: o texto do driver depende do que o driver ativo roda
+ * (RenutSupport.blocker), nao de ser Adreno: Adreno 650 com o driver do sistema -> precisa do Turnip MrPurple T19;
+ * Adreno 730+ -> sistema e Turnip, sem aviso. Depois o perfil sugerido (GpuSuggestion) pelo nome real. Fechar marca-o
+ * como visto.
  */
 @Composable
 private fun GpuNotice(vm: LauncherViewModel, openTab: (LauncherTab) -> Unit) {
@@ -206,7 +208,7 @@ private fun GpuNotice(vm: LauncherViewModel, openTab: (LauncherTab) -> Unit) {
         title = { Text(stringResource(R.string.gpu_notice_title)) },
         text = {
             Text(
-                stringResource(R.string.gpu_notice_text),
+                gpuNoticeText(vm),
                 modifier = Modifier
                     .heightIn(max = 360.dp)
                     .verticalScroll(rememberScrollState()),
@@ -228,6 +230,29 @@ private fun GpuNotice(vm: LauncherViewModel, openTab: (LauncherTab) -> Unit) {
             }
         },
     )
+}
+
+@Composable
+private fun gpuNoticeText(vm: LauncherViewModel): String {
+    val g = vm.turnipGpu
+    val block = remember(vm.activeDriver) { com.dfdx047.zandatsu.data.RenutSupport.blocker() }
+    val gpu = if (g.adreno != 0) "Adreno ${g.adreno}" else vm.gpuName.ifEmpty { vm.socName }
+    val recommended = com.dfdx047.zandatsu.drivers.TurnipSupport.recommendedForRenut(g)
+    val driver = when {
+        !vm.isAdreno && block == null -> stringResource(R.string.gpu_notice_other, gpu)
+        !vm.isAdreno -> com.dfdx047.zandatsu.ui.components.renutBlockedText(block!!)
+        block != null -> stringResource(R.string.gpu_notice_need_driver, gpu, recommended)
+        com.dfdx047.zandatsu.drivers.TurnipSupport.systemAndTurnipOk(g) ->
+            stringResource(R.string.gpu_notice_both_ok, gpu, recommended)
+        else -> stringResource(R.string.gpu_notice_driver_ok, gpu)
+    }
+    val tier = remember { com.dfdx047.zandatsu.data.GpuSuggestion.detect().tier }
+    val profile = stringResource(
+        listOf(R.string.preset_minimum, R.string.preset_light, R.string.preset_balanced, R.string.preset_high,
+            R.string.preset_ultra)[tier.coerceIn(0, 4)],
+    )
+    return driver + "\n\n" + stringResource(R.string.gpu_notice_profile, profile) + "\n\n" +
+        stringResource(R.string.gpu_notice_crash)
 }
 
 @Composable
@@ -294,6 +319,7 @@ private fun ErrorDialog(vm: LauncherViewModel, report: CrashReport, openTab: (La
         ErrorKind.DRIVER_INSTALL -> R.string.err_dialog_driver_title to R.string.err_dialog_driver_text
         ErrorKind.BAD_ISO -> R.string.err_dialog_iso_title to R.string.err_dialog_iso_text
         ErrorKind.IMPORT -> R.string.err_dialog_import_title to R.string.err_dialog_import_text
+        ErrorKind.GPU_RESET -> R.string.err_dialog_gpu_reset_title to R.string.err_dialog_gpu_reset_text
     }
     AlertDialog(
         onDismissRequest = { vm.dismissError() },
@@ -351,6 +377,11 @@ private fun ErrorDialog(vm: LauncherViewModel, report: CrashReport, openTab: (La
                     vm.dismissError()
                     openTab(LauncherTab.PERFORMANCE)
                 }) { Text(stringResource(R.string.tab_performance)) }
+                // 27/10: o jogo parou antes de fechar; jogar de novo continua do ultimo save.
+                ErrorKind.GPU_RESET -> TextButton(onClick = {
+                    vm.dismissError()
+                    vm.play(context)
+                }) { Text(stringResource(R.string.err_dialog_play_again)) }
                 else -> {}
             }
         },

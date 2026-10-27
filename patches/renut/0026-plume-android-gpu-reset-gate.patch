@@ -1,0 +1,92 @@
+Zandatsu (27/10): a GPU reinicia sem o jogo fechar.
+
+No RP5 com o Turnip MrPurple T19 o kgsl recupera de um hang da GPU e o submit seguinte cai dentro do driver
+(SIGSEGV em kgsl_queue_submit). O app (app/src/main/cpp/gpu_reset.cpp) vigia o faultcount do kgsl; aqui o plume
+chama zandatsu_gpu_gate() antes de cada vkQueueSubmit e vkQueuePresentKHR (a thread fica parada quando o app ja
+sabe do hang, ate o app voltar ao launcher) e zandatsu_gpu_lost() em cada VK_ERROR_DEVICE_LOST (submit, espera de
+fence, acquire, present). So no Android.
+
+--- a/app/thirdparty/plume/plume_vulkan.cpp
++++ b/app/thirdparty/plume/plume_vulkan.cpp
+@@ -178,6 +178,21 @@
+         PipelineCacheLegacyKey = key;
+     }
+ 
++#if defined(__ANDROID__)
++    // Zandatsu (renut/0026, app/src/main/cpp/gpu_reset.cpp): depois de um hang da GPU o kgsl deixa o contexto
++    // invalido e o submit seguinte pode cair dentro do driver (Turnip MrPurple T19, SIGSEGV em kgsl_queue_submit).
++    // O gate para a thread antes de cada submit/present quando o app ja sabe do hang; o lost avisa o app de um
++    // VK_ERROR_DEVICE_LOST.
++    extern "C" void zandatsu_gpu_gate();
++    extern "C" void zandatsu_gpu_lost(const char *call);
++
++    static void ReportAndroidDeviceLost(VkResult res, const char *call) {
++        if (res == VK_ERROR_DEVICE_LOST) {
++            zandatsu_gpu_lost(call);
++        }
++    }
++#endif
++
+ #if defined(__SWITCH__)
+     static std::atomic<uint32_t> SwitchSwapChainSize{ 0 }; // width << 16 | height; 0: the NWindow's own size.
+     static std::atomic<void (*)(const char *)> SwitchDeviceLostCallback{ nullptr };
+@@ -2698,6 +2713,9 @@
+             waitSemaphoresVector.emplace_back(interfaceSemaphore->vk);
+         }
+ 
++#if defined(__ANDROID__)
++        zandatsu_gpu_gate();  // Zandatsu (renut/0026)
++#endif
+         VkPresentInfoKHR presentInfo = {};
+         presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+         presentInfo.pSwapchains = &vk;
+@@ -2778,6 +2796,9 @@
+ #if defined(__SWITCH__)
+         ReportSwitchDeviceLost(res, "vkQueuePresentKHR");
+ #endif
++#if defined(__ANDROID__)
++        ReportAndroidDeviceLost(res, "vkQueuePresentKHR");
++#endif
+ #if defined(__APPLE__)
+         // Under MoltenVK, VK_SUBOPTIMAL_KHR does not result in a valid state for rendering. We intentionally
+         // only check for this error during present to avoid having to synchronize manually against the semaphore
+@@ -3014,6 +3035,9 @@
+ #   if defined(__SWITCH__)
+         ReportSwitchDeviceLost(res, "vkAcquireNextImageKHR");
+ #   endif
++#   if defined(__ANDROID__)
++        ReportAndroidDeviceLost(res, "vkAcquireNextImageKHR");
++#   endif
+         if ((res != VK_SUCCESS) && (res != VK_SUBOPTIMAL_KHR)) {
+             return false;
+         }
+@@ -4344,6 +4368,9 @@
+         }
+ 
+         VkResult res;
++#       if defined(__ANDROID__)
++        zandatsu_gpu_gate();  // Zandatsu (renut/0026)
++#       endif
+         {
+             const std::scoped_lock queueLock(*queue->mutex);
+             res = vkQueueSubmit(queue->vk, 1, &submitInfo, submitFence);
+@@ -4353,6 +4380,9 @@
+ #       if defined(__SWITCH__)
+             ReportSwitchDeviceLost(res, "vkQueueSubmit");
+ #       endif
++#       if defined(__ANDROID__)
++            ReportAndroidDeviceLost(res, "vkQueueSubmit");
++#       endif
+             fprintf(stderr, "vkQueueSubmit failed with error code 0x%X.\n", res);
+             return;
+         }
+@@ -4367,6 +4397,9 @@
+ #       if defined(__SWITCH__)
+             ReportSwitchDeviceLost(res, "vkWaitForFences");
+ #       endif
++#       if defined(__ANDROID__)
++            ReportAndroidDeviceLost(res, "vkWaitForFences");
++#       endif
+             fprintf(stderr, "vkWaitForFences failed with error code 0x%X.\n", res);
+             return;
+         }

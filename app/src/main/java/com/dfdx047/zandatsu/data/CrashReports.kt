@@ -19,6 +19,8 @@ enum class ErrorKind {
     BAD_ISO,
     /** Outra falha da importacao do jogo (sem espaco, pasta errada...). */
     IMPORT,
+    /** A GPU travou/falhou e o jogo voltou ao launcher em vez de fechar (logs/gpu_reset.txt, gpu_reset.cpp). */
+    GPU_RESET,
 }
 
 /**
@@ -46,6 +48,7 @@ object CrashReports {
      */
     @Synchronized
     fun lastGameExit(context: Context, prefs: LauncherPrefs): CrashReport? {
+        gpuReset(prefs)?.let { return it }
         val state = SessionState.read()
         if (state != SessionState.State.STARTING && state != SessionState.State.RUNNING) return null
         val started = SessionState.time()
@@ -80,6 +83,26 @@ object CrashReports {
         val report = CrashReport(kind, detail, tail(), exit.timestamp)
         AppLog.e("crash", "${report.kind}: ${report.detail}")
         return report
+    }
+
+    /**
+     * 27/10: a ultima sessao acabou com a GPU a reiniciar (o jogo parou de desenhar e voltou ao launcher, ou o driver
+     * caiu e o tratador de sinais deixou o motivo): logs/gpu_reset.txt = "<hora ms>\n<motivo>". Mostra-se uma vez.
+     */
+    private fun gpuReset(prefs: LauncherPrefs): CrashReport? {
+        val f = File(File(AppPaths.appDir, "logs"), "gpu_reset.txt")
+        val lines = try {
+            if (f.isFile) f.readLines() else return null
+        } catch (_: Exception) {
+            return null
+        }
+        val time = lines.firstOrNull()?.trim()?.toLongOrNull() ?: return null
+        if (time <= prefs.lastCrashShown || time < SessionState.time() - 2000) return null
+        prefs.lastCrashShown = time
+        SessionState.acknowledge()
+        val reason = lines.getOrNull(1)?.trim().orEmpty()
+        AppLog.e("crash", "GPU_RESET: $reason")
+        return CrashReport(ErrorKind.GPU_RESET, reason, tail(), time)
     }
 
     private fun isAbnormal(e: ApplicationExitInfo): Boolean = when (e.reason) {

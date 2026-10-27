@@ -132,6 +132,8 @@ target_sources(game PRIVATE
     "${CMAKE_CURRENT_LIST_DIR}/watchdog.cpp"
     # Esperas ativas do MGR na CPU (swordman_rwlock_wait).
     "${CMAKE_CURRENT_LIST_DIR}/mgr_cpu_hooks.cpp"
+    # A GPU reinicia (hang/falha) sem o jogo fechar: volta ao launcher com o aviso.
+    "${CMAKE_CURRENT_LIST_DIR}/gpu_reset.cpp"
 )
 
 # Rastreio das funcoes D3D candidatas (optxbox d3dmap + d3d_trace_gen.py do Dragon Burst).

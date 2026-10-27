@@ -50,6 +50,17 @@ object NativeGameState {
         }
     }
 
+    /** A GPU travou/falhou (gpu_reset.cpp): o motivo; "" enquanto ela estiver bem. */
+    @JvmStatic
+    fun gpuReset(): String {
+        if (!available) return ""
+        return try {
+            nativeGpuReset()
+        } catch (e: UnsatisfiedLinkError) {
+            ""
+        }
+    }
+
     /** 1 = camara livre (modo foto) ligada, 0 = nao, -1 = desconhecido. */
     fun mapFlag(): Int {
         if (!available) return -1
@@ -226,6 +237,7 @@ object NativeGameState {
     @JvmStatic private external fun nativePresentInfo(): String
     @JvmStatic private external fun nativeSetVolume(percent: Int)
     @JvmStatic private external fun nativeFrames(): Long
+    @JvmStatic private external fun nativeGpuReset(): String
     @JvmStatic private external fun nativeGpuStats(): LongArray
     @JvmStatic private external fun nativeSetSkipPs(hashes: String)
     @JvmStatic private external fun nativePsCensus(reset: Boolean): String

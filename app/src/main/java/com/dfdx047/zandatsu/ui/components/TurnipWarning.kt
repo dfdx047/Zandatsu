@@ -17,20 +17,21 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.dfdx047.zandatsu.R
+import com.dfdx047.zandatsu.data.RenutSupport
 import com.dfdx047.zandatsu.drivers.DriverRepository
 import com.dfdx047.zandatsu.drivers.TurnipSupport
 import com.dfdx047.zandatsu.ui.LauncherViewModel
 
 /**
- * Aviso do Turnip (26/10): numa Adreno com o driver do sistema o jogo corre no modo emulado (o Renut exige o
- * Turnip). Mostra o driver recomendado para a serie (TurnipSupport: 6xx
- * pelo teste de drivers no RP5, 7xx o do AYN Thor, 8xx o do AYN Odin 3) e, com [onOpenDrivers], um botao para a aba
- * Drivers. Nunca troca o driver.
+ * Aviso do driver (27/10): aparece so quando o driver ativo nao roda o Renut ([RenutSupport.blocker]: a verificacao
+ * de funcoes que o jogo faz com esse driver, ou, antes dela, o que ja se sabe do driver do sistema), nao por ser
+ * Adreno. Mostra o driver que roda o Renut nesta serie (TurnipSupport.recommendedForRenut) e, com [onOpenDrivers],
+ * um botao para a aba Drivers. Nunca troca o driver.
  */
 @Composable
 fun TurnipWarning(vm: LauncherViewModel, onOpenDrivers: (() -> Unit)? = null) {
-    val show = remember(vm.activeDriver) { DriverRepository.isAdreno() && DriverRepository.activeDir() == null }
-    if (!show) return
+    val block = remember(vm.activeDriver) { if (DriverRepository.isAdreno()) RenutSupport.blocker() else null }
+    if (block == null) return
     val gpu = vm.turnipGpu
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -40,13 +41,13 @@ fun TurnipWarning(vm: LauncherViewModel, onOpenDrivers: (() -> Unit)? = null) {
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
-                stringResource(R.string.turnip_required),
+                renutBlockedText(block),
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onErrorContainer,
             )
             if (gpu.adreno != 0 && gpu.level != TurnipSupport.Level.UNSUPPORTED) {
                 Text(
-                    stringResource(R.string.turnip_recommended, "Adreno ${gpu.adreno} (${gpu.gen})", gpu.builds),
+                    stringResource(R.string.turnip_recommended, "Adreno ${gpu.adreno} (${gpu.gen})", TurnipSupport.recommendedForRenut(gpu)),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onErrorContainer,
                 )
@@ -63,3 +64,11 @@ fun TurnipWarning(vm: LauncherViewModel, onOpenDrivers: (() -> Unit)? = null) {
         }
     }
 }
+
+/** O aviso de que o driver ativo nao roda o Renut, com o motivo de [RenutSupport.blocker]. */
+@Composable
+fun renutBlockedText(block: String): String = stringResource(
+    R.string.renut_blocked,
+    if (block.contains(RenutSupport.CRASH_QUALCOMM_A7XX)) stringResource(R.string.renut_block_crash)
+    else stringResource(R.string.renut_block_missing, block),
+)

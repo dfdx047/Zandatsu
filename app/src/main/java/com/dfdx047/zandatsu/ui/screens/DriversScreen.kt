@@ -91,26 +91,33 @@ fun DriversScreen(vm: LauncherViewModel) {
                     Text(stringResource(R.string.drivers_gpu_line, g.adreno, g.gen), style = MaterialTheme.typography.bodyMedium)
                 }
                 if (vm.isAdreno) {
-                    StatusLine(
-                        stringResource(
-                            when (g.level) {
-                                com.dfdx047.zandatsu.drivers.TurnipSupport.Level.STABLE -> R.string.drivers_turnip_stable
-                                com.dfdx047.zandatsu.drivers.TurnipSupport.Level.EXPERIMENTAL -> R.string.drivers_turnip_experimental
-                                else -> R.string.drivers_turnip_unsupported
-                            },
-                            g.builds,
-                        ),
-                        if (g.level == com.dfdx047.zandatsu.drivers.TurnipSupport.Level.STABLE) Level.INFO else Level.WARN,
-                    )
+                    // 27/10: 730+ (750 e 830 testados) roda o Renut com o driver do sistema e com o Turnip: sem aviso.
+                    if (com.dfdx047.zandatsu.drivers.TurnipSupport.systemAndTurnipOk(g)) {
+                        StatusLine(
+                            stringResource(R.string.drivers_both_ok, g.adreno,
+                                com.dfdx047.zandatsu.drivers.TurnipSupport.recommendedForRenut(g)),
+                            Level.INFO,
+                        )
+                    } else {
+                        StatusLine(
+                            stringResource(
+                                when (g.level) {
+                                    com.dfdx047.zandatsu.drivers.TurnipSupport.Level.STABLE -> R.string.drivers_turnip_stable
+                                    com.dfdx047.zandatsu.drivers.TurnipSupport.Level.EXPERIMENTAL -> R.string.drivers_turnip_experimental
+                                    else -> R.string.drivers_turnip_unsupported
+                                },
+                                g.builds,
+                            ),
+                            if (g.level == com.dfdx047.zandatsu.drivers.TurnipSupport.Level.STABLE) Level.INFO else Level.WARN,
+                        )
+                    }
                     if (g.tuDebug.isNotEmpty()) {
                         StatusLine(stringResource(R.string.drivers_turnip_auto, g.tuDebug), Level.INFO)
                     }
-                    // Renut: no Adreno 6xx o driver do sistema nao serve; outro driver pode ter falhado a verificacao.
-                    val renutMissing = remember(vm.activeDriver) { com.dfdx047.zandatsu.data.RenutSupport.missing() }
-                    if (vm.activeDriver == null && g.gen == "a6xx") {
-                        StatusLine(stringResource(R.string.drivers_renut_system_6xx), Level.ERROR)
-                    } else if (renutMissing != null) {
-                        StatusLine(stringResource(R.string.drivers_renut_missing, renutMissing), Level.ERROR)
+                    // O aviso depende do que o driver ativo roda (verificacao do jogo / driver do sistema conhecido).
+                    val block = remember(vm.activeDriver) { com.dfdx047.zandatsu.data.RenutSupport.blocker() }
+                    if (block != null) {
+                        StatusLine(com.dfdx047.zandatsu.ui.components.renutBlockedText(block), Level.ERROR)
                     }
                     if (vm.driverBootFailed.isNotEmpty()) {
                         StatusLine(stringResource(R.string.drivers_boot_failed, vm.driverBootFailed.substringBefore(':')), Level.WARN)
@@ -121,9 +128,9 @@ fun DriversScreen(vm: LauncherViewModel) {
                     if (radvOldAndroid) {
                         StatusLine(stringResource(R.string.drivers_radv_needs_android14, android.os.Build.VERSION.RELEASE), Level.WARN)
                     }
-                    val renutMissing = remember(vm.activeDriver) { com.dfdx047.zandatsu.data.RenutSupport.missing() }
-                    if (renutMissing != null) {
-                        StatusLine(stringResource(R.string.renderer_renut_missing_gpu, renutMissing), Level.ERROR)
+                    val block = remember(vm.activeDriver) { com.dfdx047.zandatsu.data.RenutSupport.blocker() }
+                    if (block != null) {
+                        StatusLine(com.dfdx047.zandatsu.ui.components.renutBlockedText(block), Level.ERROR)
                     }
                     if (vm.driverBootFailed.isNotEmpty()) {
                         StatusLine(stringResource(R.string.drivers_boot_failed, vm.driverBootFailed.substringBefore(':')), Level.WARN)

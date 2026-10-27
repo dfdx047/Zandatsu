@@ -482,7 +482,12 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
         }
         when (current) {
             FrameMode.FPS30 -> list += MInfo(s(R.string.perf_fps_30_note))
-            FrameMode.FPS120_INTERP -> list += MInfo(s(R.string.perf_fps_120_interp_note))
+            FrameMode.FPS120_INTERP -> {
+                list += MInfo(s(R.string.perf_fps_120_interp_note))
+                if (c.resolution >= InternalResolution.P1440) {
+                    list += MInfo(context.getString(R.string.perf_fps_120_heat_2k, c.resolution.label))
+                }
+            }
             else -> Unit
         }
         return list

@@ -276,6 +276,18 @@ bool SwordManRenutDeviceSupported(std::string* why) {
       REXLOG_WARN("Renut: o driver nao tem vertexPipelineStoresAndAtomics (memexport nos vertex shaders sem garantia)");
     }
     need(d32s8.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT, "D32S8");
+    // Driver Qualcomm no Adreno 710/720 (Galaxy A36, driver 0800.58, issue #9): SIGBUS com a pilha corrompida
+    // (pc = lr = 0x200000001) logo depois da swapchain, em todos os arranques do Renut; o Turnip (ARMSX2) roda. O 750
+    // (issue #11) e o 830 (Odin 3) rodam com o driver Qualcomm. O launcher le o motivo e sugere o Turnip.
+    if (p12.driverID == VK_DRIVER_ID_QUALCOMM_PROPRIETARY) {
+      const char* adreno = std::strstr(p.properties.deviceName, "Adreno");
+      const int model = adreno ? std::atoi(adreno + std::strcspn(adreno, "0123456789")) : 0;
+      if (model >= 700 && model < 730) {
+        REXLOG_ERROR("Renut: driver Qualcomm {} no {} fecha ao abrir o Renut (issue #9); a usar o Xenia",
+                     p12.driverInfo, p.properties.deviceName);
+        need(false, "crash-qualcomm-a7xx");
+      }
+    }
     // O layout dos draws do Renut usa 8 descriptor sets (texturas 2D/3D/cubo/array, samplers, 3 de constantes). A Mali-G57
     // (r40) so liga 7 e o driver corrompe a pilha em vez de falhar no vkCreatePipelineLayout: abaixo de 8 o Renut compacta
     // o layout em 5 (renut/0020, SetDrawSetsCompact). No Adreno nao: o Turnip diz 4 mas sempre ligou os 8.

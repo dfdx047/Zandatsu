@@ -86,15 +86,11 @@ fun PerformanceScreen(vm: LauncherViewModel) {
         // 24/10: o Renut (Direct3D nativo) onde o aparelho o corre. 26/10: fora do Adreno (Mali, Xclipse) a escolha
         // tambem aparece, marcada experimental; o auto continua no Xenia nessas GPUs.
         val renutOk = remember { RenutSupport.supported() }
-        val renutMissing = remember { RenutSupport.missing() }
+        val renutBlock = remember { RenutSupport.blocker() }
         // Sem Renut com este driver: dizer porque (em vez de so esconder a escolha).
-        if (!renutOk && (vm.isAdreno || renutMissing != null)) {
+        if (!renutOk && renutBlock != null) {
             StatusLine(
-                when {
-                    RenutSupport.systemDriverOn6xx() -> stringResource(R.string.drivers_renut_system_6xx)
-                    vm.isAdreno -> stringResource(R.string.drivers_renut_missing, renutMissing ?: "?")
-                    else -> stringResource(R.string.renderer_renut_missing_gpu, renutMissing ?: "?")
-                },
+                com.dfdx047.zandatsu.ui.components.renutBlockedText(renutBlock),
                 Level.ERROR,
             )
         }
@@ -530,6 +526,10 @@ private fun FrameRateSetting(vm: LauncherViewModel, c: GameConfig) {
             StatusLine(stringResource(R.string.perf_fps_30_note), Level.INFO)
         c.frameMode == FrameMode.FPS120_INTERP && has120 ->
             StatusLine(stringResource(R.string.perf_fps_120_interp_note), Level.WARN)
+    }
+    // 27/10: o 120 vale em qualquer resolucao; a partir de 2K aquece bem mais (Honor 8 Elite a 2K: o jogo caiu para 30).
+    if (c.frameMode == FrameMode.FPS120_INTERP && has120 && c.resolution >= InternalResolution.P1440) {
+        StatusLine(stringResource(R.string.perf_fps_120_heat_2k, c.resolution.label), Level.WARN)
     }
     if (!has120 && c.frameRate >= 100) {
         // Config de outro aparelho (ou de antes): nesta tela fica a 60 Hz.

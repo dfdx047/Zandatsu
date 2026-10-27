@@ -106,8 +106,39 @@ public class GameActivity extends SDLActivity {
         mOverlay = new GameOverlay(this);
         mOverlay.onCreate();
         watchFirstFrames(appDir);
+        watchGpuReset();
         TurnipSweep.arm(this, appDir);
         CpuSampler.start();
+    }
+
+    /**
+     * 27/10: a GPU travou (hang do kgsl) ou o Vulkan perdeu o dispositivo (gpu_reset.cpp). O jogo ja parou de
+     * submeter; volta ao launcher, que mostra "A GPU reiniciou" (logs/gpu_reset.txt) com o botao Jogar.
+     */
+    private void watchGpuReset() {
+        final android.os.Handler h = new android.os.Handler(android.os.Looper.getMainLooper());
+        h.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                String reason = NativeGameState.gpuReset();
+                if (reason.isEmpty()) {
+                    h.postDelayed(this, 250);
+                    return;
+                }
+                com.dfdx047.zandatsu.data.AppLog.INSTANCE.e("game", "a GPU reiniciou: " + reason, null);
+                if (mOverlay != null) {
+                    mOverlay.exitToLauncher();
+                } else {
+                    com.dfdx047.zandatsu.data.SessionState.INSTANCE.markEnded(
+                            com.dfdx047.zandatsu.data.AppPaths.INSTANCE.getAppDir());
+                    finishAndRemoveTask();
+                    android.os.Process.killProcess(android.os.Process.myPid());
+                }
+            }
+        }, 1000);
     }
 
     /**

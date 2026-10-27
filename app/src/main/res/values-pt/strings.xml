@@ -240,7 +240,6 @@
     <string name="perf_frame_rate_sub">O MGR roda a 60 FPS. O hack de 30 FPS mantém o jogo na velocidade normal e só desenha um frame em cada dois: metade do trabalho da GPU, para GPUs fracas (Mali).</string>
     <string name="aniso_game">Jogo</string>
     <string name="helper_menu">Menu do jogo (Back + Start)</string>
-    <string name="gpu_notice_text">Snapdragon 865 ou mais novo (ex.: Retroid Pocket 5) deve rodar o jogo com o driver do sistema; o Turnip é opcional, na aba Drivers.\n\nGPUs Mali (ex.: Mali-G57 do RG Cube) são mais lentas: use a predefinição Leve (540p, hack de 30 FPS) na aba Desempenho.\n\nSe o jogo fechar ou ficar com a imagem errada, o app mostra o que aconteceu e como mandar o log no Discord.</string>
     <string name="settings_touch_layout_map">Controle completo</string>
     <string name="community_sub">Novidades, ajuda e versões do port</string>
     <string name="tab_debug">Depuração</string>
@@ -425,10 +424,7 @@
     <string name="renut_preset_minimum_desc">540p com AMD FSR, sem sombras nem brilho, áudio nos núcleos pequenos</string>
     <string name="delete_old_extracted">Apagar arquivos extraídos antigos (%1$s)</string>
     <string name="busy_deleting_old">Apagando arquivos extraídos antigos…</string>
-    <string name="drivers_renut_system_6xx">O driver do sistema não suporta o Renut (renderizador nativo) no Adreno 6xx: baixe o Turnip na aba Drivers e ative-o. Até lá o jogo corre no modo emulado (Xenia), mais lento.</string>
-    <string name="drivers_renut_missing">Este driver não suporta o Renut (falta: %1$s): o jogo corre no modo emulado (Xenia). Experimente outro Turnip.</string>
     <string name="renderer_experimental">Experimental nesta GPU: o Renut é novo fora das Adreno. Se faltar à GPU algo de que ele precisa, o jogo volta ao Xenia e o launcher mostra o que faltou.</string>
-    <string name="renderer_renut_missing_gpu">Esta GPU/driver não suporta o Renut (falta: %1$s): o jogo corre no modo emulado (Xenia).</string>
     <string name="drivers_xclipse_warning">Samsung Xclipse: os drivers RADV (Mesa) são experimentais. Um travamento da GPU com o RADV pode reiniciar o telefone. O driver da Samsung continua disponível (Usar o do sistema).</string>
     <string name="drivers_radv_needs_android14">Os drivers RADV para Xclipse precisam do Android 14 ou mais recente (este aparelho tem Android %1$s). O jogo fica com o driver da Samsung.</string>
     <string name="err_driver_min_api">Este driver precisa do Android API %1$s ou mais recente (este aparelho: API %2$d).</string>
@@ -442,7 +438,6 @@
     <string name="profile_accept">Aceitar</string>
     <string name="profile_choose_myself">Escolher eu mesmo</string>
     <string name="profile_target">Alvo: %1$s</string>
-    <string name="turnip_required">No Adreno, o renderizador nativo (Renut) exige o Turnip. Com o driver do sistema o jogo usa o modo emulado e fica lento.</string>
     <string name="turnip_recommended">Driver recomendado para %1$s: %2$s</string>
     <string name="turnip_open_drivers">Abrir Drivers</string>
     <string name="turnip_drivers_later">Você pode instalá-lo na aba Drivers depois de escolher o perfil. O driver nunca é trocado sozinho.</string>
@@ -454,4 +449,18 @@
     <string name="aspect_ws_screen_169">Widescreen: esta tela é 16:9 (ou mais estreita), fica igual ao Original.</string>
     <string name="ctl_style_classic">Clássico</string>
     <string name="ctl_style_scifi">Sci-fi</string>
+    <string name="renut_blocked">O driver ativo não roda o renderizador nativo (Renut): %1$s. O jogo usa o modo emulado (Xenia), mais lento.</string>
+    <string name="renut_block_missing">falta %1$s</string>
+    <string name="renut_block_crash">o driver do sistema fecha o jogo ao abrir o Renut no Adreno 710/720</string>
+    <string name="drivers_both_ok">Adreno %1$d: o driver do sistema e o %2$s rodam o Renut. Não precisa trocar.</string>
+    <string name="gpu_notice_need_driver">Neste aparelho (%1$s) o renderizador nativo (Renut) precisa do %2$s: com o driver do sistema o jogo cai para o modo emulado (Xenia), bem mais lento. Instale-o na aba Drivers (o app nunca troca o driver sozinho).</string>
+    <string name="gpu_notice_both_ok">Neste aparelho (%1$s) o driver do sistema e o %2$s rodam o renderizador nativo (Renut): não precisa trocar de driver.</string>
+    <string name="gpu_notice_driver_ok">Neste aparelho (%1$s) o driver ativo roda o renderizador nativo (Renut). Se um dia não rodar, o jogo volta sozinho ao modo emulado e o app avisa aqui.</string>
+    <string name="gpu_notice_other">Neste aparelho (%1$s) o jogo usa o driver do sistema.</string>
+    <string name="gpu_notice_profile">Perfil recomendado para este aparelho: %1$s. Os perfis (Mínimo, Baixo, Médio, Alto, Ultra) ficam na aba Desempenho.</string>
+    <string name="gpu_notice_crash">Se o jogo fechar ou ficar com a imagem errada, o app mostra o que aconteceu e como mandar o log no Discord.</string>
+    <string name="perf_fps_120_heat_2k">Com 120 a %1$s: aquece bem mais e o jogo pode cair abaixo de 60 (Snapdragon 8 Elite a 2K: 30 FPS). Para 120 estável, use 1080p ou menos.</string>
+    <string name="err_dialog_gpu_reset_title">A GPU reiniciou</string>
+    <string name="err_dialog_gpu_reset_text">O driver da GPU travou e o jogo parou de desenhar antes de fechar. O progresso até o último save está guardado: toque em Jogar para continuar. Se acontecer sempre no mesmo ponto, mande o log.</string>
+    <string name="err_dialog_play_again">Jogar</string>
 </resources>

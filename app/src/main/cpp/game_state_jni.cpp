@@ -293,3 +293,11 @@ extern "C" JNIEXPORT jstring JNICALL
 Java_com_dfdx047_zandatsu_game_NativeGameState_nativePresentInfo(JNIEnv* env, jclass) {
   return env->NewStringUTF(rex::perf::GetPresentInfo().c_str());
 }
+
+// gpu_reset.cpp: o motivo do reinicio da GPU, ou "" enquanto ela estiver bem (GameActivity volta ao launcher).
+extern "C" const char* rex_swordman_gpu_reset_reason();
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_dfdx047_zandatsu_game_NativeGameState_nativeGpuReset(JNIEnv* env, jclass) {
+  return env->NewStringUTF(rex_swordman_gpu_reset_reason());
+}

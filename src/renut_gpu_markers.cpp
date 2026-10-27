@@ -37,6 +37,10 @@ REXCVAR_DEFINE_BOOL(swordman_renut_gpu_markers_end, true, "SwordMan",
                     "(o fim do pipeline espera pelo draw: +~5 ms de GPU e muda o ritmo); false = só o do início")
     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
 
+namespace swordman::gpu_reset {
+void Trigger(const char* why);  // app/src/main/cpp/gpu_reset.cpp
+}
+
 // Frames do jogo (src/renut_glue.cpp, contados no Swap).
 extern std::atomic<uint64_t> g_sa2_game_frames;
 
@@ -217,6 +221,8 @@ void After(plume::RenderCommandList* cmd, uint32_t index) {
 void OnDeviceLost() {
   static std::once_flag once;
   std::call_once(once, [] {
+    // Zandatsu (27/10): o Renut deixa de submeter e o app volta ao launcher (app/src/main/cpp/gpu_reset.cpp).
+    swordman::gpu_reset::Trigger("o Vulkan perdeu o dispositivo (sonda do Renut)");
     if (!On() || !Ready()) return;
     State& s = S();
     const uint32_t started = s.words[0], finished = s.words[1];
