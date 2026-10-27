@@ -8,6 +8,13 @@ Port de Metal Gear Rising: Revengeance (Xbox 360) para Android por recompilaçã
 - Horas sempre na hora de Portugal (Europe/Lisbon).
 - Ir direto ao ponto: fazer, medir, mostrar números. Nada de planos longos sem executar.
 
+## Como trabalhar
+- Sem pedir ok (decidir sozinho e anotar no relatório): repetir ou alongar medições (até 30 min por item); liberar
+  memória (`./gradlew --stop`, matar processos de build antigos, limpar caches de build); reinstalar o APK, repor
+  saves de teste, mudar `cvars.txt` nos aparelhos de teste.
+- Parar e perguntar só para: apagar arquivos fora do projeto, push/merge no main, release, trocar o driver padrão
+  da app, ou algo que mexa nos dados pessoais de um aparelho.
+
 ## Aparelhos (adb, ligados neste PC)
 | Aparelho | Serial | GPU | Meta |
 |---|---|---|---|
