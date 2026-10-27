@@ -43,6 +43,13 @@ Port de Metal Gear Rising: Revengeance (Xbox 360) para Android por recompilaçã
 - Loop sem ninguém: `tools/autoloop.sh` + `tools/autotest-plan.txt` (opcional).
 - Análise de capturas `.dfc`: repositório Optxbox (`python3 -m optxbox timeline|analyze|shaders`).
 
+## Relatórios
+- Ao fim de cada sessão longa (noite, dia, ou mais de 3 itens), publique o relatório como Artifact (página privada
+  no claude.ai) no formato do relatório de 27/10: tabela-resumo por item, fotos ao lado de cada item, antes/depois,
+  drivers, pendências e commits. Mande o link no fim.
+- O mesmo relatório também vai em docs/ como .md (sem as fotos).
+- No terminal, só um resumo de 5 linhas e o link.
+
 ## Mapa do frame do MGR (RP5, captura de 22/10)
 - Pré-passe de profundidade ~5,5 ms; mapa de sombra; sombra em tela (PS `BE9C3F694476A5B5`, ~3 ms);
   materiais da cena ~8,7 ms; efeitos/golpes ~3,6 ms; brilho 320x176 (desfoque
