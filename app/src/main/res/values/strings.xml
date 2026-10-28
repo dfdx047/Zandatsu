@@ -225,6 +225,11 @@
     <string name="gpu_notice_title">Before you play</string>
     <string name="gpu_notice_ok">Got it</string>
     <string name="about_gpu_notice">Performance tips</string>
+    <string name="about_whats_new">What\'s new</string>
+    <string name="whats_new_title">What\'s new in v%1$s</string>
+    <string name="whats_new_text">• Faster native renderer (Renut), now on Mali too: Retroid Pocket 5 at 720p close to 60 fps (46 on Xenia); RG Cube on the Low profile, 40 to 56 fps.\n• Sound fixed: enemies and combo hits play again.\n• The GPU restarted: if the GPU hangs, the game goes back to the launcher with a message instead of closing.\n• First launch: the app detects your GPU and suggests a profile (Minimum, Low, Medium, High or Ultra).\n• Drivers: the warning comes from what the active driver supports.\n• Aspect ratio: Original 16:9, Stretch or Widescreen (experimental).\n• FPS: 30, 60 or 120 interpolated (experimental, 120 Hz screens).\n• FPS meter in three levels.\n• New touch controls: the game\'s own actions, switches between menu and fight on its own, Sci-fi style and editor.\n• ISO import: read in place, no extracting.</string>
+    <string name="whats_new_known_title">Known issues</string>
+    <string name="whats_new_known_text">• Vibration is still unstable: turn it off in Controls ▸ Vibration.\n• Widescreen may flicker briefly on some devices: send the log (game menu ▸ System ▸ Export logs).\n• Adreno 650 with Turnip MrPurple: rare GPU hang; the game goes back to the launcher, just tap PLAY.</string>
     <string name="import_iso">Import .iso</string>
     <string name="import_folder">Import folder</string>
     <string name="busy_reading_disc">Reading the disc</string>

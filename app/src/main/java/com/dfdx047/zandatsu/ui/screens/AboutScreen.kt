@@ -99,6 +99,9 @@ fun AboutScreen(vm: LauncherViewModel) {
             OutlinedButton(onClick = { open(SwordManApp.KOFI_URL) }) { Text("Ko-fi") }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = { vm.openWhatsNew() }) {
+                Text(stringResource(R.string.about_whats_new))
+            }
             OutlinedButton(onClick = { vm.openGpuNotice() }) {
                 Text(stringResource(R.string.about_gpu_notice))
             }

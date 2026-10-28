@@ -242,6 +242,7 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
             if (c.useRenut) c.withRenutPreset(RenutPreset.entries[tier]) else c.withPreset(GraphicsPreset.entries[tier])
         }
         prefs.profileChosen = true
+        prefs.whatsNewSeen = com.dfdx047.zandatsu.BuildConfig.VERSION_NAME
         needsProfile = false
         AppLog.i("app", "perfil escolhido no primeiro arranque: $tier (${if (config.useRenut) "Renut" else "Xenia"})")
     }
@@ -558,6 +559,24 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
         showGpuNotice = false
         prefs.gpuNoticeShown = true
         prefs.turnipNoticeShown = true
+    }
+
+    /**
+     * Novidades desta versao: abrem uma vez a quem atualizou (ja tinha escolhido um perfil e ainda nao as viu); quem
+     * instala de novo nao as recebe (chooseProfile marca-as como vistas). Tambem se abrem pelo Sobre.
+     */
+    var showWhatsNew by mutableStateOf(
+        prefs.profileChosen && prefs.whatsNewSeen != com.dfdx047.zandatsu.BuildConfig.VERSION_NAME,
+    )
+        private set
+
+    fun openWhatsNew() {
+        showWhatsNew = true
+    }
+
+    fun dismissWhatsNew() {
+        showWhatsNew = false
+        prefs.whatsNewSeen = com.dfdx047.zandatsu.BuildConfig.VERSION_NAME
     }
 
     fun refreshDrivers() {

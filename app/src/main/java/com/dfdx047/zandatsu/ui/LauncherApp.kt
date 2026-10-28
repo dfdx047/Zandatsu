@@ -147,6 +147,7 @@ fun LauncherApp(vm: LauncherViewModel) {
     }
 
     if (vm.showGpuNotice) GpuNotice(vm, openTab = { tab = it })
+    if (vm.showWhatsNew && !vm.showGpuNotice && !vm.needsProfile) WhatsNewDialog(vm)
     if (vm.showUpdateDialog) UpdateDialog(vm)
     vm.errorReport?.let { ErrorDialog(vm, it, openTab = { t -> tab = t }) }
 }
@@ -253,6 +254,35 @@ private fun gpuNoticeText(vm: LauncherViewModel): String {
     )
     return driver + "\n\n" + stringResource(R.string.gpu_notice_profile, profile) + "\n\n" +
         stringResource(R.string.gpu_notice_crash)
+}
+
+/** Novidades da versao instalada, no idioma do aparelho (strings whats_new_*). */
+@Composable
+private fun WhatsNewDialog(vm: LauncherViewModel) {
+    AlertDialog(
+        onDismissRequest = { vm.dismissWhatsNew() },
+        icon = { Icon(Icons.Filled.Info, null) },
+        title = { Text(stringResource(R.string.whats_new_title, com.dfdx047.zandatsu.BuildConfig.VERSION_NAME)) },
+        text = {
+            Column(
+                Modifier
+                    .heightIn(max = 360.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(stringResource(R.string.whats_new_text), style = MaterialTheme.typography.bodyMedium)
+                Text(stringResource(R.string.whats_new_known_title), style = MaterialTheme.typography.titleSmall)
+                Text(
+                    stringResource(R.string.whats_new_known_text),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { vm.dismissWhatsNew() }) { Text(stringResource(R.string.gpu_notice_ok)) }
+        },
+    )
 }
 
 @Composable

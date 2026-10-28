@@ -1,101 +1,95 @@
 # Problemas conhecidos · Known issues · Problemas conocidos
 
-Zandatsu v1.0 e branch de desenvolvimento (26/10/2026).
+Zandatsu v1.1 (28/10/2026).
 
 ## Português (Brasil)
 
-1. **Adreno 650 (Retroid Pocket 5) com Turnip: travamentos curtos da GPU e, às vezes, o jogo fecha.** O hardware
-   detecta um travamento da GPU (`kgsl: GPU hang detected`) uma a três vezes a cada ~3 min de luta, em qualquer
-   resolução, com ou sem sombras e FSR. Na maioria das vezes é só um engasgo (um frame de ~40 ms). Às vezes, logo a
-   seguir, o driver Turnip fecha o jogo (`kgsl_queue_submit`; visto 6 vezes em 26/10, 3 delas em 9 lutas de 3–4 min a
-   720p à noite) ou a imagem congela. Feche e reabra o jogo. A causa
-   ainda está a ser investigada. Teste de drivers no RP5 (26/10, 15 min de luta cada, 720p): Turnip MrPurple T19 =
-   60 fps e 2 hangs; driver do sistema = 0 hangs, mas sem Renut (modo emulado, 32 fps). O Turnip continua o
-   recomendado. O Turnip do ARMSX2 não foi testado.
-2. **1080p, 2K e 4K continuam experimentais (`*`).** No RP5, 1080p dá 47 fps na luta (abaixo de 60) e sofre os mesmos
-   travamentos do item 1. Para jogar, use 720p ou 540p com FSR.
-3. **Mali antes da G57 (G52, G72, G76): Renut experimental.** O padrão é o modo emulado (Xenia); o Renut pode ser
-   escolhido à mão. Só a Mali-G57 (RG Cube) foi testada.
-4. **Samsung Xclipse: Renut e drivers RADV nunca testados num aparelho.** Os dois aparecem como experimentais. Com o
-   RADV o aparelho pode reiniciar se a GPU travar.
-5. **Adreno 6xx com o driver do sistema: sem Renut.** O driver Qualcomm do Adreno 650 não tem `shaderInt64`; o jogo
-   corre no modo emulado (Xenia), mais lento. Baixe e ative o Turnip na aba Drivers (o app mostra um aviso grande
-   com o driver recomendado e um atalho para a aba). O driver Qualcomm
-   v615.77 (issue #6) importa, mas trava a GPU em ~36 s.
-6. **O som some (#3, #5, #8, #9, #11): corrigido na v1.1 (patch 0183 do SDK).** Os sons dos inimigos e parte dos
-   golpes não tocavam. O decodificador XMA entregava cada som um frame (512 amostras) mais curto do que o banco
-   declara; o Wwise só termina uma voz quando lê o som inteiro, por isso cada voz ficava presa à espera, segurando o
-   seu contexto XMA. Uns 12 s depois do início de cada luta os ~165 contextos estavam todos presos e os sons novos
-   deixavam de ter voz (os primeiros inimigos de cada área ainda se ouviam, os seguintes não). Com a cvar
-   `audio_trace = true` o log mostra cada banco, evento e voz XMA. Se ainda faltar algum som, **sem fechar o jogo**,
-   abra o menu (Voltar), toque em **Exportar logs** e mande o zip na issue.
-7. **A ISO não pode ser apagada nem movida** depois de importada: o jogo lê-a no lugar. Se a mover, importe de novo.
-8. **Widescreen (experimental, só Renut).** A cena fica certa (hor+), mas o HUD continua no layout 16:9 encostado à
-   esquerda (o mapa fica a meio da tela) e o título 3D tem o texto à esquerda; logos e vídeos ficam 16:9 com barras.
-   No RP5 o fecho do jogo pelo Turnip (item 1) apareceu mais vezes em widescreen (4 em ~14 arranques).
+1. **Vibração ainda instável.** A vibração do controle às vezes falha ou fica presa; a causa ainda não foi
+   encontrada. Para desligar: launcher ▸ **Controles ▸ Vibração**.
+2. **Widescreen: pequenas piscadas em alguns aparelhos (experimental, só Renut).** A cena fica certa (hor+), mas em
+   alguns aparelhos a imagem pisca de vez em quando. O HUD continua no layout 16:9 encostado à esquerda e logos e
+   vídeos ficam 16:9 com barras. Se piscar no seu aparelho, mande o log:
+   1. **Sem fechar o jogo**, logo depois da piscada, toque em Voltar para abrir o menu do jogo.
+   2. **Sistema ▸ Exportar logs.** O app grava `Zandatsu-logs-AAAAMMDD-HHMMSS.zip` na pasta **Download** do aparelho.
+      (Se o jogo já fechou: launcher ▸ **Sobre ▸ Exportar logs**, que leva o log da última sessão.)
+   3. Anexe o zip numa [issue no GitHub](https://github.com/dfdx047/Zandatsu/issues) ou no canal de logs do
+      [Discord](https://discord.gg/nXSANX9V6k), com o modelo do aparelho e a proporção da tela.
+3. **Adreno 650 (Retroid Pocket 5) com o Turnip MrPurple: hang raro da GPU.** Cerca de 1 a cada 2–3 h de jogo, em
+   qualquer resolução. Desde a v1.1 o jogo para de desenhar e volta ao launcher com "A GPU reiniciou" em vez de fechar
+   com erro; basta tocar em **JOGAR**. O save é o do último checkpoint.
+4. **Som: corrigido na v1.1.** Os sons dos inimigos e os golpes dos combos que sumiam nas lutas (#3, #5, #8, #9, #11)
+   voltam a tocar: cada som XMA saía um frame mais curto e, uns 12 s depois do início da luta, não havia mais vozes
+   livres. Se ainda faltar algum som, mande o log como no item 2.
+5. **1080p, 2K e 4K continuam experimentais (`*`).** No RP5, 1080p dá 56 fps na luta. Para 60 estáveis no RP5, use
+   720p ou 540p com FSR.
+6. **Adreno 6xx com o driver do sistema: sem Renut.** O driver Qualcomm do Adreno 650 não tem `shaderInt64`; o jogo
+   corre no modo emulado (Xenia), mais lento. O app avisa e indica o Turnip na aba Drivers.
+7. **Adreno 700–729 com o driver do sistema: só o modo Xenia.** O driver do sistema fecha o jogo no Renut (#9); o app
+   cai para o Xenia sozinho.
+8. **Mali antes da G57 (G52, G72, G76): Renut experimental.** O padrão é o modo emulado (Xenia). Só a Mali-G57 (RG
+   Cube) foi testada.
+9. **Samsung Xclipse: Renut e drivers RADV nunca testados num aparelho.** Com o RADV o aparelho pode reiniciar se a
+   GPU travar.
+10. **A ISO não pode ser apagada nem movida** depois de importada: o jogo lê-a no lugar. Se a mover, importe de novo.
 
 ## English
 
-1. **Adreno 650 (Retroid Pocket 5) with Turnip: short GPU hangs, and sometimes the game closes.** The hardware detects
-   a GPU hang (`kgsl: GPU hang detected`) one to three times every ~3 minutes of combat, at any resolution, with or
-   without shadows and FSR. Most of the time it is just a hitch (one ~40 ms frame). Sometimes, right after one, the
-   Turnip driver closes the game (`kgsl_queue_submit`; seen 6 times on 2026-10-26, 3 of them in 9 fights of 3–4 min
-   at 720p in the evening) or the picture freezes. Close and reopen the game. The
-   cause is still being investigated. Driver test on the RP5 (2026-10-26, 15 min of combat each, 720p): Turnip
-   MrPurple T19 = 60 fps and 2 hangs; system driver = 0 hangs, but no Renut (emulated mode, 32 fps). Turnip stays
-   the recommended driver. The ARMSX2 Turnip was not tested.
-2. **1080p, 2K and 4K are still experimental (`*`).** On the RP5, 1080p runs at 47 fps in combat (below 60) and has
-   the same hangs as item 1. To play, use 720p, or 540p with FSR.
-3. **Mali older than the G57 (G52, G72, G76): Renut is experimental.** The default is emulated mode (Xenia); you can
-   pick Renut by hand. Only the Mali-G57 (RG Cube) has been tested.
-4. **Samsung Xclipse: Renut and the RADV drivers have never been tested on a device.** Both are shown as
-   experimental. With RADV the device may reboot if the GPU hangs.
-5. **Adreno 6xx with the system driver: no Renut.** The Qualcomm driver for the Adreno 650 lacks `shaderInt64`; the
-   game runs in emulated mode (Xenia), which is slower. Download and enable Turnip in the Drivers tab (the app warns
-   you with a large notice, the recommended driver and a shortcut to the tab). The Qualcomm v615.77 driver
-   (issue #6) imports, but hangs the GPU after ~36 s.
-6. **Sound disappears (#3, #5, #8, #9, #11): fixed in v1.1 (SDK patch 0183).** Enemy sounds and some sword hits
-   did not play. The XMA decoder delivered every sound one frame (512 samples) shorter than its bank declares; Wwise
-   only ends a voice once it has read the whole sound, so every voice stayed waiting and kept its XMA context. About
-   12 s into each fight all ~165 contexts were held and new sounds no longer got a voice (the first enemies of each
-   area could still be heard, the later ones not). With the cvar `audio_trace = true` the log shows every bank, event
-   and XMA voice. If a sound is still missing, **without closing the game**, open the menu (Back), tap **Export logs**
-   and attach the zip to the issue.
-7. **The ISO can't be deleted or moved** after importing: the game reads it in place. If you move it, import again.
-8. **Widescreen (experimental, Renut only).** The scene is right (hor+), but the HUD stays in the 16:9 layout against
-   the left edge (the map ends up mid-screen) and the 3D title has its text on the left; logos and videos stay 16:9
-   with bars. On the RP5 the Turnip crash (item 1) showed up more often in widescreen (4 in ~14 launches).
+1. **Vibration is still unstable.** Controller vibration sometimes fails or gets stuck; the cause has not been found
+   yet. To turn it off: launcher ▸ **Controls ▸ Vibration**.
+2. **Widescreen: brief flickers on some devices (experimental, Renut only).** The scene is right (hor+), but on some
+   devices the picture flickers now and then. The HUD stays in the 16:9 layout against the left edge, and logos and
+   movies stay 16:9 with bars. If it flickers on your device, please send the log:
+   1. **Without closing the game**, right after the flicker, press Back to open the game menu.
+   2. **System ▸ Export logs.** The app saves `Zandatsu-logs-YYYYMMDD-HHMMSS.zip` to the device's **Download** folder.
+      (If the game already closed: launcher ▸ **About ▸ Export logs**, which includes the last session's log.)
+   3. Attach the zip to a [GitHub issue](https://github.com/dfdx047/Zandatsu/issues) or the logs channel on
+      [Discord](https://discord.gg/nXSANX9V6k), with your device model and screen aspect ratio.
+3. **Adreno 650 (Retroid Pocket 5) with Turnip MrPurple: rare GPU hang.** About once every 2–3 h of play, at any
+   resolution. Since v1.1 the game stops drawing and goes back to the launcher with "The GPU restarted" instead of
+   closing with an error; just tap **PLAY**. You continue from the last checkpoint.
+4. **Sound: fixed in v1.1.** Enemy sounds and combo hits that went missing in fights (#3, #5, #8, #9, #11) play again:
+   every XMA sound came out one frame short and, about 12 s into a fight, no voices were left. If a sound is still
+   missing, send the log as in item 2.
+5. **1080p, 2K and 4K are still experimental (`*`).** On the RP5, 1080p runs at 56 fps in combat. For a steady 60 on
+   the RP5, use 720p, or 540p with FSR.
+6. **Adreno 6xx on the system driver: no Renut.** The Qualcomm driver for the Adreno 650 lacks `shaderInt64`; the game
+   runs in emulated mode (Xenia), which is slower. The app warns you and names the Turnip build in the Drivers tab.
+7. **Adreno 700–729 on the system driver: Xenia mode only.** The system driver closes the game on Renut (#9); the app
+   falls back to Xenia by itself.
+8. **Mali older than the G57 (G52, G72, G76): Renut is experimental.** The default is emulated mode (Xenia). Only the
+   Mali-G57 (RG Cube) has been tested.
+9. **Samsung Xclipse: Renut and the RADV drivers have never been tested on a device.** With RADV the device may reboot
+   if the GPU hangs.
+10. **The ISO can't be deleted or moved** after importing: the game reads it in place. If you move it, import again.
 
 ## Español
 
-1. **Adreno 650 (Retroid Pocket 5) con Turnip: cuelgues cortos de la GPU y, a veces, el juego se cierra.** El hardware
-   detecta un cuelgue de la GPU (`kgsl: GPU hang detected`) de una a tres veces cada ~3 min de combate, a cualquier
-   resolución, con o sin sombras y FSR. Casi siempre es solo un tirón (un fotograma de ~40 ms). A veces, justo después,
-   el driver Turnip cierra el juego (`kgsl_queue_submit`; visto 6 veces el 26/10, 3 de ellas en 9 combates de
-   3–4 min a 720p por la noche) o la imagen se congela. Cierra y vuelve a abrir el juego.
-   La causa todavía se está investigando. Prueba de drivers en la RP5 (26/10, 15 min de combate cada uno, 720p):
-   Turnip MrPurple T19 = 60 fps y 2 cuelgues; driver del sistema = 0 cuelgues, pero sin Renut (modo emulado, 32 fps).
-   Turnip sigue siendo el recomendado. El Turnip de ARMSX2 no se probó.
-2. **1080p, 2K y 4K siguen siendo experimentales (`*`).** En la RP5, 1080p da 47 fps en combate (por debajo de 60) y
-   tiene los mismos cuelgues del punto 1. Para jugar, usa 720p o 540p con FSR.
-3. **Mali anteriores a la G57 (G52, G72, G76): Renut experimental.** El modo predeterminado es el emulado (Xenia); Renut
-   se puede elegir a mano. Solo se probó la Mali-G57 (RG Cube).
-4. **Samsung Xclipse: Renut y los drivers RADV nunca se probaron en un dispositivo.** Los dos aparecen como
-   experimentales. Con RADV el dispositivo puede reiniciarse si la GPU se cuelga.
-5. **Adreno 6xx con el driver del sistema: sin Renut.** El driver de Qualcomm del Adreno 650 no tiene `shaderInt64`;
-   el juego corre en modo emulado (Xenia), más lento. Descarga y activa Turnip en la pestaña Drivers (la app muestra un
-   aviso grande con el driver recomendado y un acceso directo a la pestaña).
-   El driver de Qualcomm v615.77 (issue #6) se importa, pero cuelga la GPU a los ~36 s.
-6. **El sonido desaparece (#3, #5, #8, #9, #11): corregido en la v1.1 (parche 0183 del SDK).** Los sonidos de los
-   enemigos y parte de los golpes no sonaban. El decodificador XMA entregaba cada sonido un frame (512 muestras) más
-   corto de lo que declara el banco; Wwise solo termina una voz cuando lee el sonido entero, así que cada voz se quedaba
-   esperando y retenía su contexto XMA. Unos 12 s después del inicio de cada combate los ~165 contextos estaban todos
-   retenidos y los sonidos nuevos ya no tenían voz (los primeros enemigos de cada zona aún se oían, los siguientes no).
-   Con la cvar `audio_trace = true` el log muestra cada banco, evento y voz XMA. Si aún falta algún sonido, **sin
-   cerrar el juego**, abre el menú (Atrás), toca **Exportar logs** y adjunta el zip en la issue.
-7. **La ISO no se puede borrar ni mover** después de importarla: el juego la lee en su sitio. Si la mueves, impórtala
-   de nuevo.
-8. **Panorámica (experimental, solo Renut).** La escena queda bien (hor+), pero el HUD sigue en el diseño 16:9 pegado
-   a la izquierda (el mapa queda en medio de la pantalla) y el título 3D tiene el texto a la izquierda; los logos y
-   los vídeos quedan en 16:9 con barras. En la RP5 el cierre del juego por Turnip (punto 1) apareció más veces en
-   panorámica (4 en ~14 arranques).
+1. **La vibración aún es inestable.** La vibración del mando a veces falla o se queda pegada; todavía no se encontró la
+   causa. Para desactivarla: launcher ▸ **Controles ▸ Vibración**.
+2. **Panorámica: pequeños parpadeos en algunos dispositivos (experimental, solo Renut).** La escena queda bien (hor+),
+   pero en algunos dispositivos la imagen parpadea de vez en cuando. El HUD sigue en el diseño 16:9 pegado a la
+   izquierda, y los logos y los vídeos quedan en 16:9 con barras. Si parpadea en tu dispositivo, envía el log:
+   1. **Sin cerrar el juego**, justo después del parpadeo, pulsa Atrás para abrir el menú del juego.
+   2. **Sistema ▸ Exportar logs.** La app guarda `Zandatsu-logs-AAAAMMDD-HHMMSS.zip` en la carpeta **Download** del
+      dispositivo. (Si el juego ya se cerró: launcher ▸ **Acerca de ▸ Exportar logs**, que incluye el log de la última
+      sesión.)
+   3. Adjunta el zip en una [issue de GitHub](https://github.com/dfdx047/Zandatsu/issues) o en el canal de logs de
+      [Discord](https://discord.gg/nXSANX9V6k), con el modelo del dispositivo y la proporción de la pantalla.
+3. **Adreno 650 (Retroid Pocket 5) con Turnip MrPurple: cuelgue raro de la GPU.** Más o menos 1 cada 2–3 h de juego, a
+   cualquier resolución. Desde la v1.1 el juego deja de dibujar y vuelve al launcher con "La GPU se reinició" en vez de
+   cerrarse con error; basta con tocar **JUGAR**. Sigues desde el último punto de control.
+4. **Sonido: corregido en la v1.1.** Los sonidos de los enemigos y los golpes de los combos que desaparecían en los
+   combates (#3, #5, #8, #9, #11) vuelven a sonar: cada sonido XMA salía un frame más corto y, unos 12 s después de
+   empezar el combate, ya no quedaban voces libres. Si aún falta algún sonido, envía el log como en el punto 2.
+5. **1080p, 2K y 4K siguen siendo experimentales (`*`).** En la RP5, 1080p da 56 fps en combate. Para 60 estables en la
+   RP5, usa 720p o 540p con FSR.
+6. **Adreno 6xx con el driver del sistema: sin Renut.** El driver de Qualcomm del Adreno 650 no tiene `shaderInt64`; el
+   juego corre en modo emulado (Xenia), más lento. La app avisa e indica el Turnip en la pestaña Drivers.
+7. **Adreno 700–729 con el driver del sistema: solo modo Xenia.** El driver del sistema cierra el juego en Renut (#9);
+   la app pasa a Xenia sola.
+8. **Mali anteriores a la G57 (G52, G72, G76): Renut experimental.** El modo predeterminado es el emulado (Xenia). Solo
+   se probó la Mali-G57 (RG Cube).
+9. **Samsung Xclipse: Renut y los drivers RADV nunca se probaron en un dispositivo.** Con RADV el dispositivo puede
+   reiniciarse si la GPU se cuelga.
+10. **La ISO no se puede borrar ni mover** después de importarla: el juego la lee en su sitio. Si la mueves,
+    impórtala de nuevo.

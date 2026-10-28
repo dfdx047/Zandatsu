@@ -224,6 +224,11 @@
     <string name="gpu_notice_title">Antes de jugar</string>
     <string name="gpu_notice_ok">Entendido</string>
     <string name="about_gpu_notice">Consejos de rendimiento</string>
+    <string name="about_whats_new">Novedades</string>
+    <string name="whats_new_title">Novedades de la v%1$s</string>
+    <string name="whats_new_text">• Renderizador nativo (Renut) más rápido y ahora también en Mali: Retroid Pocket 5 a 720p cerca de 60 fps (46 en Xenia); RG Cube en el perfil Bajo, de 40 a 56 fps.\n• Sonido corregido: los enemigos y los golpes de los combos vuelven a sonar.\n• La GPU se reinició: si la GPU se cuelga, el juego vuelve al launcher con un aviso en vez de cerrarse.\n• Primer arranque: la app detecta la GPU y sugiere un perfil (Mínimo, Bajo, Medio, Alto o Ultra).\n• Drivers: el aviso sale de lo que soporta el driver activo.\n• Proporción: Original 16:9, Estirar o Panorámica (experimental).\n• FPS: 30, 60 o 120 interpolado (experimental, pantallas de 120 Hz).\n• Medidor de FPS en tres niveles.\n• Controles táctiles nuevos: las acciones del propio juego, cambia solo entre menú y combate, estilo Sci-fi y editor.\n• Importación de la ISO: se lee en su sitio, sin extraer.</string>
+    <string name="whats_new_known_title">Problemas conocidos</string>
+    <string name="whats_new_known_text">• La vibración aún es inestable: desactívala en Controles ▸ Vibración.\n• La panorámica puede parpadear un poco en algunos dispositivos: envía el log (menú del juego ▸ Sistema ▸ Exportar logs).\n• Adreno 650 con Turnip MrPurple: cuelgue raro de la GPU; el juego vuelve al launcher, basta con tocar JUGAR.</string>
     <string name="import_iso">Importar .iso</string>
     <string name="import_folder">Importar carpeta</string>
     <string name="busy_reading_disc">Leyendo el disco</string>

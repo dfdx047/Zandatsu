@@ -161,6 +161,11 @@ class LauncherPrefs(context: Context) {
         get() = prefs.getBoolean(KEY_GPU_NOTICE, false)
         set(v) = prefs.edit().putBoolean(KEY_GPU_NOTICE, v).apply()
 
+    /** Versao (versionName) cujas novidades o jogador ja viu; null = nenhuma. */
+    var whatsNewSeen: String?
+        get() = prefs.getString("whats_new_seen", null)
+        set(v) = prefs.edit().putString("whats_new_seen", v).apply()
+
     /** Ultima saida anormal do jogo ja mostrada (ApplicationExitInfo.timestamp). */
     var lastCrashShown: Long
         get() = prefs.getLong(KEY_LAST_CRASH_SHOWN, 0L)

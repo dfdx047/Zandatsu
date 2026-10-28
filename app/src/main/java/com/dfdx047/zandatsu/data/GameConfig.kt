@@ -807,10 +807,14 @@ object GpuSuggestion {
     }
 }
 
-/** O aparelho-alvo de cada perfil do Renut e o fps medido nele (luta do prologo; RenutPreset). */
+/**
+ * O aparelho-alvo de cada perfil do Renut e o fps medido nele (luta do prologo; RenutPreset). 28/10: Minimo num
+ * SD480+ real (o autor: acima de 30, ate 50); Baixo no RG Cube com o loadOp CLEAR (renut 0027): 51-56 parado, ~40-50
+ * a jogar.
+ */
 val RENUT_PRESET_TARGETS = listOf(
-    "Retroid Pocket 5 @ SD480+, 540p FSR: 40 fps",
-    "RG Cube (Mali-G57), 540p FSR: 37 fps",
+    "Snapdragon 480+, 540p FSR: 30–50 fps",
+    "RG Cube (Mali-G57), 540p FSR: 40–56 fps",
     "Retroid Pocket 5, 720p: 60 fps",
     "Retroid Pocket 5, 1080p: 56 fps · AYN Thor, 1080p FSR: 60 fps",
     "AYN Odin 3, 2K FSR: 60 fps",
