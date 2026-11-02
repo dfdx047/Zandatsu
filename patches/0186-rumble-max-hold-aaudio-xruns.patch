@@ -1,0 +1,85 @@
+SwordMan 0186: rumble never holds on Android; AAudio xruns in the log.
+
+Issues #8 and #28: the guest leaves ramps at a low nonzero value and SDL resent it every 2 s, so the motor never stopped
+(measured on the RP5, 01/11: amplitude 0.35 for over 8 s with nothing happening). Crackling with 0 underruns at the game's
+stream needs the driver's xrun count, now logged every 10 s when it changes.
+
+--- a/src/input/sdl/sdl_input_driver.cpp
++++ b/src/input/sdl/sdl_input_driver.cpp
+@@ -9,6 +9,8 @@
+  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
+  */
+ 
++#include <unordered_map>
++#include <utility>
+ #include <algorithm>
+ #include <array>
+ #include <cctype>
+@@ -30,8 +32,15 @@
+ 
+ namespace {
+ 
++#if defined(__ANDROID__)
++// SwordMan 0186 (issues #8 and #28, "keeps vibrating with nothing happening"): the guest leaves its rumble ramps at a low
++// nonzero value. A 360 motor barely turns at 15%; a phone or handheld motor is felt the whole time. Each new value now
++// buzzes for at most one second, and a repeated value does not arm it again.
++constexpr uint32_t kRumbleDurationMs = 1000;
++#else
+ // SDL clamps to SDL_MAX_RUMBLE_DURATION_MS, which is not a public constant.
+ constexpr uint32_t kRumbleDurationMs = 0xFFFF;
++#endif
+ 
+ const char* JoystickTypeName(SDL_JoystickType t) {
+   switch (t) {
+@@ -381,6 +390,17 @@
+     return X_ERROR_DEVICE_NOT_CONNECTED;
+   }
+ 
++#if defined(__ANDROID__)
++  {
++    static std::unordered_map<SDL_Gamepad*, std::pair<uint16_t, uint16_t>> last_rumble;
++    const std::pair<uint16_t, uint16_t> value{vibration->left_motor_speed, vibration->right_motor_speed};
++    auto it = last_rumble.find(controller->sdl);
++    if (it != last_rumble.end() && it->second == value) {
++      return X_ERROR_SUCCESS;
++    }
++    last_rumble[controller->sdl] = value;
++  }
++#endif
+   // XInput vibration holds until the guest changes it, but SDL rumble expires,
+   // and a zero duration expires on the next SDL_UpdateJoysticks. Arm it for
+   // SDL's maximum instead; each call cancels the previous effect anyway.
+--- a/thirdparty/sdl3/src/audio/aaudio/SDL_aaudiofuncs.h
++++ b/thirdparty/sdl3/src/audio/aaudio/SDL_aaudiofuncs.h
+@@ -63,7 +63,7 @@
+ SDL_PROC_UNUSED(int32_t, AAudioStream_getFramesPerBurst, (AAudioStream * stream))
+ SDL_PROC(int32_t, AAudioStream_getBufferCapacityInFrames, (AAudioStream * stream))
+ SDL_PROC(int32_t, AAudioStream_getFramesPerDataCallback, (AAudioStream * stream))
+-SDL_PROC_UNUSED(int32_t, AAudioStream_getXRunCount, (AAudioStream * stream))
++SDL_PROC(int32_t, AAudioStream_getXRunCount, (AAudioStream * stream))
+ SDL_PROC(int32_t, AAudioStream_getSampleRate, (AAudioStream * stream))
+ SDL_PROC(int32_t, AAudioStream_getChannelCount, (AAudioStream * stream))
+ SDL_PROC_UNUSED(int32_t, AAudioStream_getSamplesPerFrame, (AAudioStream * stream))
+--- a/thirdparty/sdl3/src/audio/aaudio/SDL_aaudio.c
++++ b/thirdparty/sdl3/src/audio/aaudio/SDL_aaudio.c
+@@ -175,6 +175,20 @@
+ 
+ static bool AAUDIO_WaitDevice(SDL_AudioDevice *device)
+ {
++    // SwordMan 0186: crackling with 0 underruns at the game's stream is below SDL; report the driver's xruns.
++    {
++        static Uint64 next_check = 0;
++        static int32_t last_xruns = 0;
++        const Uint64 now = SDL_GetTicks();
++        if (device->hidden->stream && now >= next_check) {
++            const int32_t xruns = ctx.AAudioStream_getXRunCount(device->hidden->stream);
++            next_check = now + 10000;
++            if (xruns != last_xruns) {
++                SDL_Log("AAudio xruns: %d (+%d em 10 s)", (int)xruns, (int)(xruns - last_xruns));
++                last_xruns = xruns;
++            }
++        }
++    }
+     while (!SDL_GetAtomicInt(&device->shutdown)) {
+         // this semaphore won't fire when the app is in the background (AAUDIO_PauseDevices was called).
+         if (SDL_WaitSemaphoreTimeout(device->hidden->semaphore, 100)) {

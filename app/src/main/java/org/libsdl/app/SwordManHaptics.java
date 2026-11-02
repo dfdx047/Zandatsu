@@ -20,6 +20,25 @@ final class SwordManHaptics extends SDLHapticHandler {
     private final SDLHapticHandler mBase;
     private final Vibrator mVibrator;
 
+    /**
+     * 01/11, issues #8 e #28 ("fica vibrando sem parar"): o MGR faz rampas de vibracao que nem sempre chegam a zero (no
+     * comando da 360 um motor a 15% quase nao gira; num motor de telemovel sente-se) e o SDL reenvia o ultimo valor a cada
+     * 2 s (SDL_RUMBLE_RESEND_MS), com 5 s de duracao: uma vibracao presa nunca acabava. Cada valor novo do jogo vibra no
+     * maximo MAX_HOLD_MS; os reenvios do mesmo valor nao contam.
+     */
+    private static final int MAX_HOLD_MS = 1000;
+    private final java.util.HashMap<Integer, float[]> mLast = new java.util.HashMap<>();
+
+    /** true = valor repetido (reenvio do SDL): nao vibra de novo. */
+    private synchronized boolean isResend(int device_id, float low, float high) {
+        float[] last = mLast.get(device_id);
+        if (last != null && last[0] == low && last[1] == high) {
+            return true;
+        }
+        mLast.put(device_id, new float[] {low, high});
+        return false;
+    }
+
     private SwordManHaptics(SDLHapticHandler base, Context context) {
         mBase = base;
         Vibrator v;
@@ -54,7 +73,7 @@ final class SwordManHaptics extends SDLHapticHandler {
         }
         int amp = Math.max(1, Math.min(255, Math.round(intensity * 255f)));
         try {
-            mVibrator.vibrate(VibrationEffect.createOneShot(Math.min(length, 5000), amp));
+            mVibrator.vibrate(VibrationEffect.createOneShot(Math.min(length, MAX_HOLD_MS), amp));
         } catch (Exception ignored) {
         }
     }
@@ -70,15 +89,21 @@ final class SwordManHaptics extends SDLHapticHandler {
 
     @Override
     void rumble(int device_id, float low_frequency_intensity, float high_frequency_intensity, int length) {
+        if (isResend(device_id, low_frequency_intensity, high_frequency_intensity)) {
+            return;
+        }
         if (device_id == SwordManPad.DEVICE_ID) {
             vibrate(Math.max(low_frequency_intensity, high_frequency_intensity), length);
         } else {
-            mBase.rumble(device_id, low_frequency_intensity, high_frequency_intensity, length);
+            mBase.rumble(device_id, low_frequency_intensity, high_frequency_intensity, Math.min(length, MAX_HOLD_MS));
         }
     }
 
     @Override
     void stop(int device_id) {
+        synchronized (this) {
+            mLast.remove(device_id);
+        }
         if (device_id == SwordManPad.DEVICE_ID) {
             if (mVibrator != null) {
                 mVibrator.cancel();

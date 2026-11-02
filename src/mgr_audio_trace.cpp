@@ -18,6 +18,7 @@
 //   0x82553E78  aux sends (mensagem 18)                          r3 = objeto, r4 = valores, r5 = quantos (<= 4)
 // O item dos bancos vai por valor em r4..r8 (palavras de 32 bits: r4 alto = tipo, r6 alto = ID do banco).
 
+#include <atomic>
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -228,6 +229,13 @@ REX_HOOK_RAW(sub_8256EC68) {
               Lo(w4));
 }
 
+// 01/11: sem audio_trace nenhum log via uma voz muda. As falhas contam sempre (ate 40 linhas e depois 1 em 100).
+static bool LogFailureNow() {
+  static std::atomic<uint32_t> n{0};
+  const uint32_t i = n.fetch_add(1, std::memory_order_relaxed);
+  return i < 40 || i % 100 == 0;
+}
+
 REX_EXTERN(__imp__sub_82570A80);
 REX_HOOK_RAW(sub_82570A80) {
   const uint32_t type = Hi(ctx.r4.u64), bank = Hi(ctx.r6.u64), mode = ctx.r10.u32;
@@ -237,7 +245,14 @@ REX_HOOK_RAW(sub_82570A80) {
     g_load_types.insert(type);
   }
   __imp__sub_82570A80(ctx, base);
-  if (!On()) return;
+  if (!On()) {
+    const uint32_t r = ctx.r3.u32;
+    if (r != 1 && r != 69) {
+      rex::audio::stats::Get().trace_bank_fail++;
+      if (LogFailureNow()) REXLOG_WARN("[audio] banco {:#x} FALHOU: {} (tipo {})", bank, r, type);
+    }
+    return;
+  }
   const uint32_t result = ctx.r3.u32;
   auto& c = rex::audio::stats::Get();
   bool was_pending = false;
@@ -262,7 +277,13 @@ REX_EXTERN(__imp__sub_825578E0);
 REX_HOOK_RAW(sub_825578E0) {
   const uint32_t event = ctx.r3.u32, object = ctx.r4.u32;
   __imp__sub_825578E0(ctx, base);
-  if (!On()) return;
+  if (!On()) {
+    if (ctx.r3.u32 == 0) {
+      rex::audio::stats::Get().trace_events_failed++;
+      if (LogFailureNow()) REXLOG_WARN("[audio] evento {:#x} objeto {:#x} sem evento carregado (playing 0)", event, object);
+    }
+    return;
+  }
   const uint32_t playing = ctx.r3.u32;
   auto& c = rex::audio::stats::Get();
   c.trace_events++;
