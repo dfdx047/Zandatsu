@@ -106,8 +106,8 @@ object CrashReports {
             RenutSupport.noteProbeFailure()
             AppLog.w("crash", "Renut falhou na sonda: o auto passa ao Xenia com este driver")
             reason += "\n\n" + when (java.util.Locale.getDefault().language) {
-                "pt" -> "O renderizador nativo nao funciona com este driver: o modo automatico passa a usar o Emulado. Pode voltar a escolhe-lo em Desempenho."
-                "es" -> "El renderizador nativo no funciona con este driver: el modo automatico pasa a usar el Emulado. Puedes volver a elegirlo en Rendimiento."
+                "pt" -> "O renderizador nativo não funciona com este driver: o modo automático passa a usar o Emulado. Você pode escolhê-lo de novo em Desempenho."
+                "es" -> "El renderizador nativo no funciona con este driver: el modo automático pasa a usar el Emulado. Puedes volver a elegirlo en Rendimiento."
                 else -> "The native renderer does not work with this driver: automatic mode now uses Emulated. You can choose it again in Performance."
             }
         }

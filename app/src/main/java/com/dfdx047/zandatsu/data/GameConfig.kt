@@ -582,7 +582,7 @@ object RenutSupport {
 
     /**
      * 01/11 (issues #16, #20 e #25, Mali-G57 MC2 de Helio G99/G100): o Renut perde o dispositivo ~4 s depois de abrir, a
-     * cada arranque, em todas as resolucoes. A sonda do Renut apanhou isso neste driver: o "auto" passa a usar o Xenia e o
+     * cada arranque, a 360p e 540p nos logs. A sonda do Renut apanhou isso neste driver: o "auto" passa a usar o Xenia e o
      * launcher diz porque. Escolher o Renut a mao continua a funcionar; trocar de driver volta a testar.
      */
     fun autoFailed(): Boolean = try {

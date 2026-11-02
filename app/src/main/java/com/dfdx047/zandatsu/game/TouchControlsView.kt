@@ -168,8 +168,11 @@ class TouchControlsView(context: Context) : View(context) {
     private fun icon(i: ControlIcon): Drawable =
         icons.getOrPut(i) { ContextCompat.getDrawable(context, i.drawable)!!.mutate() }
 
-    private fun cx(e: ControlElement) = e.x * width
-    private fun cy(e: ControlElement) = e.y * height
+    // Com a escala global grande o botao nao sai da tela (o centro continua o salvo no perfil).
+    private fun cx(e: ControlElement) = keepInside(e.x * width, radius(e), width)
+    private fun cy(e: ControlElement) = keepInside(e.y * height, radius(e), height)
+    private fun keepInside(c: Float, r: Float, size: Int) =
+        if (size < 2f * r) c else c.coerceIn(r, size - r)
     private fun radius(e: ControlElement) = e.sizeDp * globalScale * density / 2f
 
     private fun isBladeButton(e: ControlElement) =
