@@ -159,6 +159,7 @@ static void* OpenVulkanDriver() {
 // (renut::gpu::CaptureFrame: a mesma passagem de scan-out, para um alvo fora da swapchain) em logs/renut_shot.ppm.
 // ---------------------------------------------------------------------------------------------------------------
 #include <chrono>
+#include <unistd.h>
 #include <fstream>
 #include <thread>
 
@@ -432,12 +433,16 @@ const CoreSets& Cores() {
   return sets;
 }
 
+// As duas threads colocadas de propósito (o resto não fica preso: ver SwordManRenutFreeChildren).
+std::atomic<int> g_placed_main{0}, g_placed_render{0};
+
 void PlaceCurrentThread(const char* what, bool main_thread) {
   const int32_t mode = REXCVAR_GET(swordman_renut_cores);
   const CoreSets& c = Cores();
   if (mode == 0 || !c.ok) return;
   const cpu_set_t& set = mode == 1 ? c.big : (main_thread ? c.fastest : c.others);
   const bool ok = sched_setaffinity(0, sizeof(set), &set) == 0;
+  (main_thread ? g_placed_main : g_placed_render).store(gettid(), std::memory_order_relaxed);
   std::string list;
   for (int cpu = 0; cpu < CPU_SETSIZE; ++cpu)
     if (CPU_ISSET(cpu, &set)) list += (list.empty() ? "" : ",") + std::to_string(cpu);
@@ -524,7 +529,72 @@ void SwordManStartAudioPlacement() {
   std::thread(AudioPlacementLoop, little, list).detach();
 }
 
+// ---------------------------------------------------------------------------------------------------------------
+// 02/11: no Linux uma thread nova herda a máscara de quem a cria. Com a principal presa ao núcleo mais rápido, tudo o
+// que ela cria depois nasce preso ao mesmo núcleo: no RP5 (perfil SD480+) os 4 workers do Havok, XThreadEF04CCB0 e
+// XThread6E27ACB0, com a EF04 51% do tempo na fila desse núcleo enquanto os outros estavam livres.
+// swordman_renut_cores_children: 0 = herda (como antes); 1 = qualquer núcleo ligado; 2 = qualquer núcleo ligado menos
+// os da principal e da de render. Procura por /proc/self/task a cada segundo: apanha também as threads do driver e os
+// std::thread, que não passam pelo SDK. Só mexe em quem tem exatamente a máscara herdada.
+// ---------------------------------------------------------------------------------------------------------------
+REXCVAR_DEFINE_INT32(swordman_renut_cores_children, 1, "SwordMan",
+                     "Threads criadas pelas threads presas: 0 = herdam o núcleo; 1 = qualquer núcleo ligado; "
+                     "2 = qualquer núcleo ligado menos os da principal e da de render")
+    .range(0, 2)
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+
+namespace {
+
+void FreeChildrenLoop(int32_t policy) {
+  const CoreSets& c = Cores();
+  cpu_set_t target;
+  CPU_ZERO(&target);
+  for (int cpu = 0; cpu < CPU_SETSIZE; ++cpu) {
+    std::ifstream f("/sys/devices/system/cpu/cpu" + std::to_string(cpu) + "/cpufreq/cpuinfo_max_freq");
+    long khz = 0;
+    if (!(f >> khz)) break;
+    if (!CoreOnline(cpu)) continue;
+    if (policy == 2 && (CPU_ISSET(cpu, &c.big))) continue;
+    CPU_SET(cpu, &target);
+  }
+  if (CPU_COUNT(&target) == 0) return;
+  std::string list;
+  for (int cpu = 0; cpu < CPU_SETSIZE; ++cpu)
+    if (CPU_ISSET(cpu, &target)) list += (list.empty() ? "" : ",") + std::to_string(cpu);
+  std::set<int> done;
+  for (;;) {
+    const int keep_a = g_placed_main.load(std::memory_order_relaxed);
+    const int keep_b = g_placed_render.load(std::memory_order_relaxed);
+    if (DIR* dir = opendir("/proc/self/task")) {
+      while (dirent* e = readdir(dir)) {
+        const int tid = std::atoi(e->d_name);
+        if (tid <= 0 || tid == keep_a || tid == keep_b || done.count(tid)) continue;
+        cpu_set_t now;
+        if (sched_getaffinity(tid, sizeof(now), &now) != 0) continue;
+        if (!CPU_EQUAL(&now, &c.fastest) && !CPU_EQUAL(&now, &c.others) && !CPU_EQUAL(&now, &c.big)) continue;
+        done.insert(tid);
+        std::ifstream f(std::string("/proc/self/task/") + e->d_name + "/comm");
+        std::string name;
+        std::getline(f, name);
+        const bool ok = sched_setaffinity(tid, sizeof(target), &target) == 0;
+        REXLOG_INFO("swordman: {} ({}) herdou a máscara; agora nos núcleos {}{}", name, tid, list,
+                    ok ? "" : " (recusado)");
+      }
+      closedir(dir);
+    }
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+  }
+}
+
+}  // namespace
+
 void SwordManRenutPlaceMainThreadOnSwap() {
   static const bool once = (PlaceCurrentThread("thread principal do jogo", true), true);
   (void)once;
+  static const bool freed = [] {
+    const int32_t policy = REXCVAR_GET(swordman_renut_cores_children);
+    if (policy != 0 && REXCVAR_GET(swordman_renut_cores) != 0 && Cores().ok) std::thread(FreeChildrenLoop, policy).detach();
+    return true;
+  }();
+  (void)freed;
 }
