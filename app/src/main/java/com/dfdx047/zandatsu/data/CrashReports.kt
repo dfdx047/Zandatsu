@@ -100,8 +100,17 @@ object CrashReports {
         if (time <= prefs.lastCrashShown || time < SessionState.time() - 2000) return null
         prefs.lastCrashShown = time
         SessionState.acknowledge()
-        val reason = lines.getOrNull(1)?.trim().orEmpty()
+        var reason = lines.getOrNull(1)?.trim().orEmpty()
         AppLog.e("crash", "GPU_RESET: $reason")
+        if (reason.contains("sonda do Renut") && GameConfig.load().renderer == "auto" && !RenutSupport.autoFailed()) {
+            RenutSupport.noteProbeFailure()
+            AppLog.w("crash", "Renut falhou na sonda: o auto passa ao Xenia com este driver")
+            reason += "\n\n" + when (java.util.Locale.getDefault().language) {
+                "pt" -> "O renderizador nativo nao funciona com este driver: o modo automatico passa a usar o Emulado. Pode voltar a escolhe-lo em Desempenho."
+                "es" -> "El renderizador nativo no funciona con este driver: el modo automatico pasa a usar el Emulado. Puedes volver a elegirlo en Rendimiento."
+                else -> "The native renderer does not work with this driver: automatic mode now uses Emulated. You can choose it again in Performance."
+            }
+        }
         return CrashReport(ErrorKind.GPU_RESET, reason, tail(), time)
     }
 

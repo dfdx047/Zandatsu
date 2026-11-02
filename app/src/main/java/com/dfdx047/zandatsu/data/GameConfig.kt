@@ -78,7 +78,7 @@ data class GameConfig(
      * nas outras fica o Xenia mesmo com renut_support.txt "ok", e o Renut so por escolha explicita.
      */
     val useRenut: Boolean get() = renderer != "xenos" && RenutSupport.supported() &&
-        (renderer == "renut" || RenutSupport.validatedGpu())
+        (renderer == "renut" || (RenutSupport.validatedGpu() && !RenutSupport.autoFailed()))
 
     /**
      * sa2_render_height_handheld: as alturas que o Renut faz no Android (escalas de render_scale.h: 540p pelo patch
@@ -580,6 +580,24 @@ object RenutSupport {
         it.isAdreno() || it.isMaliValhall(probe = false)
     }
 
+    /**
+     * 01/11 (issues #16, #20 e #25, Mali-G57 MC2 de Helio G99/G100): o Renut perde o dispositivo ~4 s depois de abrir, a
+     * cada arranque, em todas as resolucoes. A sonda do Renut apanhou isso neste driver: o "auto" passa a usar o Xenia e o
+     * launcher diz porque. Escolher o Renut a mao continua a funcionar; trocar de driver volta a testar.
+     */
+    fun autoFailed(): Boolean = try {
+        File(dir, "renut_auto_failed.txt").takeIf { it.isFile }?.readText()?.trim() == driver()
+    } catch (e: Exception) {
+        false
+    }
+
+    fun noteProbeFailure() {
+        try {
+            File(dir, "renut_auto_failed.txt").writeText(driver() + "\n")
+        } catch (_: Exception) {
+        }
+    }
+
     /** Linha para o AppLog: a decisao do Renut neste aparelho e porque. */
     fun describe(renderer: String): String {
         val dr = com.dfdx047.zandatsu.drivers.DriverRepository
@@ -596,7 +614,7 @@ object RenutSupport {
             null
         }
         val offered = supported()
-        val use = renderer != "xenos" && offered && (renderer == "renut" || validatedGpu())
+        val use = renderer != "xenos" && offered && (renderer == "renut" || (validatedGpu() && !autoFailed()))
         val why = when {
             st?.firstOrNull() == "no" -> "falhou a verificacao: ${missing()}"
             st?.firstOrNull() == "ok" && !validatedGpu() -> "verificado ok, GPU nao validada (experimental)"
