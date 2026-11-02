@@ -24,6 +24,7 @@ import com.dfdx047.zandatsu.data.GraphicsPreset
 import com.dfdx047.zandatsu.data.RenutPreset
 import com.dfdx047.zandatsu.data.RenutSupport
 import com.dfdx047.zandatsu.data.withPreset
+import com.dfdx047.zandatsu.data.chosenRenutPreset
 import com.dfdx047.zandatsu.data.withRenutPreset
 import com.dfdx047.zandatsu.data.AppPaths
 import com.dfdx047.zandatsu.data.CrashReport
@@ -802,7 +803,11 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
     init {
         refreshDrivers()  // tambem tira um driver alternativo que nao serve para esta GPU
         viewModelScope.launch(Dispatchers.IO) {
-            val loaded = GameConfig.load()
+            val stored = GameConfig.load()
+            // v1.2: o Baixo passou a por o audio nos nucleos pequenos. Uma vez so, para quem atualizou continuar no Baixo.
+            val low = stored.copy(audioLittleCores = true)
+            val loaded = if (!prefs.lowAudioMigrated && stored.renutPreset == RenutPreset.LOW.name && low.chosenRenutPreset() == RenutPreset.LOW) low else stored
+            prefs.lowAudioMigrated = true
             // A decisao do Renut neste aparelho (oferecido ou nao, porque, o que o auto escolhe) para o log.
             AppLog.i("launcher", RenutSupport.describe(loaded.renderer))
             withContext(Dispatchers.Main) { config = loaded }

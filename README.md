@@ -6,7 +6,7 @@
   </picture>
 </p>
 
-<h1 align="center">Zandatsu v1.1</h1>
+<h1 align="center">Zandatsu v1.2</h1>
 
 <p align="center">
   <b>Metal Gear Rising: Revengeance</b> (Xbox 360) no Android · on Android · en Android
@@ -19,6 +19,17 @@
 > No se incluye ningún archivo del juego. Proyecto de fans, sin relación con Konami, PlatinumGames ni Microsoft.
 
 ## Imagens · Screenshots · Capturas
+
+### Novo na v1.2 · New in v1.2 · Nuevo en la v1.2
+
+| | |
+|---|---|
+| ![Blade Mode por toque](docs/assets/v1.2/blade-toque.jpg) | ![Tamanho dos botões](docs/assets/v1.2/tamanho-botoes.jpg) |
+| Blade Mode por toque · Touch Blade Mode · Blade Mode táctil | Tamanho de todos os botões: 60%, 100% e 150% · Size of all buttons · Tamaño de todos los botones |
+| ![Teste e mapeamento do controle](docs/assets/v1.2/mapeador.jpg) | ![Save manager](docs/assets/v1.2/saves.jpg) |
+| Controle externo: teste ao vivo e mapeamento · External controller: live test and mapping · Mando externo: prueba en vivo y mapeo | Saves: exportar, listar e restaurar · Saves: export, list and restore · Partidas: exportar, listar y restaurar |
+
+### Da v1.1 · From v1.1 · De la v1.1
 
 | | |
 |---|---|
@@ -49,13 +60,14 @@ O APK não traz o jogo: o código do jogo vai encriptado e só abre com o `defau
 
 ### Requisitos
 - A sua ISO de **Metal Gear Rising: Revengeance (USA, Europe)** do Xbox 360 (Title ID `4B4E080A`).
-- Android 11 ou mais novo, ARM64, Vulkan 1.3.
+- Android 11 ou mais novo, ARM64 com CPU ARMv8.2 ou mais nova, Vulkan 1.3.
 - Recomendado: Adreno 6xx com o driver **Turnip** (o app baixa e ativa na aba Drivers), Adreno 730 ou mais nova, ou
   Mali G57 e mais novas.
 - ~8 GB livres para a ISO.
 
 ### Instalar e importar a ISO
-1. Baixe `Zandatsu-v1.1.apk` da página de releases e instale. Quem tem a v1.0 instala por cima e mantém os dados.
+1. Baixe `Zandatsu-v1.2.apk` da página de releases e instale. Quem tem a v1.1 ou a v1.0 instala por cima e mantém saves,
+   jogo e ajustes.
 2. Abra o app: ele detecta a GPU e sugere um perfil gráfico (Mínimo a Ultra, cada um com o aparelho-alvo e o fps
    medido). Toque em **Aceitar** ou em **Escolher eu mesmo**; nada é aplicado antes disso.
 3. Em **Início ▸ Arquivos do jogo**, toque em **Importar .iso** e escolha a ISO. O app confere o `default.xex` e lê
@@ -63,6 +75,26 @@ O APK não traz o jogo: o código do jogo vai encriptado e só abre com o `defau
 4. Se o app pedir um driver (Adreno 650 com o driver do sistema, por exemplo), baixe o Turnip indicado na aba
    **Drivers** e ative-o. O driver nunca é trocado sozinho.
 5. Toque em **JOGAR**.
+
+### Novidades da v1.2
+Tudo o que mudou: [docs/CHANGELOG.md](docs/CHANGELOG.md).
+
+- **Controle na tela:** a troca entre menu e luta segue o modo do jogo e não fica mais trocando sozinha (#15). Há uma
+  opção para desligá-la.
+- **Blade Mode por toque:** um toque em LT entra e outro sai, e deslizar o dedo no lado direito da tela corta, com a
+  direção do deslize como ângulo. "Segurar LT" continua como opção. O corte com o analógico ao mesmo tempo ainda precisa de mais teste.
+- **Perfis de layout e tamanho de todos os botões**, de 50% a 160%.
+- **Saves (Sistema ▸ Saves):** exportar em zip para uma pasta que você escolhe, listar, restaurar com confirmação e backup
+  automático antes de restaurar.
+- **Controle externo (Controles ▸ Testar e mapear controle):** teste ao vivo, mapeamento automático e remapeamento,
+  salvos por controle (#12).
+- **Vibração presa corrigida** (#8, #28).
+- **Crash ao cortar o Sundowner** (#16, #18, #31): causa corrigida, ainda não testada nessa luta.
+- **Mali-G57 MC2** (#16, #20, #25): o modo automático passa ao Emulado quando o nativo perde o dispositivo.
+- **Modo mais estável:** depois do primeiro hang da GPU em Adreno 6xx com Turnip, o app liga um modo que evita esse hang.
+- **Desempenho:** threads do jogo não ficam mais presas num só núcleo. Ganho pequeno: de 2 a 4 fps nas lutas medidas.
+- **Ainda sem teste nos aparelhos afetados:** imagem cortada em Mali-G710/G720 (#13, #23) e fechamento com o driver do
+  sistema em Snapdragon recentes.
 
 ### Novidades da v1.1
 - **Renderizador nativo (Renut):** no Retroid Pocket 5 (Adreno 650) a 720p, perto de 60 fps na luta, com a GPU em
@@ -118,7 +150,8 @@ ou 120 interpolado. Também no menu do jogo (botão Voltar), com o jogo a correr
 \* experimental.
 
 ### Problemas conhecidos
-- Vibração ainda instável (causa não encontrada): desligue em **Controles ▸ Vibração**.
+- Mali-G615 (#22, #29): em alguns aparelhos o jogo fecha ao carregar o som. Causa não encontrada.
+- Mali-G57 MC2: só o modo Emulado no automático (o nativo perde o dispositivo).
 - Widescreen pode dar pequenas piscadas em alguns aparelhos: mande o log (como em
   [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md)).
 - Adreno 650 com o Turnip MrPurple: hang raro da GPU; o jogo volta ao launcher com aviso em vez de fechar.
@@ -144,14 +177,14 @@ disc.
 
 ### Requirements
 - Your own Xbox 360 ISO of **Metal Gear Rising: Revengeance (USA, Europe)** (Title ID `4B4E080A`).
-- Android 11 or newer, ARM64, Vulkan 1.3.
+- Android 11 or newer, ARM64 with an ARMv8.2 or newer CPU, Vulkan 1.3.
 - Recommended: Adreno 6xx with the **Turnip** driver (the app downloads and enables it in the Drivers tab), Adreno 730
   or newer, or Mali G57 and newer.
 - ~8 GB free for the ISO.
 
 ### Install and import the ISO
-1. Download `Zandatsu-v1.1.apk` from the releases page and install it. If you have v1.0, install over it: your data
-   stays.
+1. Download `Zandatsu-v1.2.apk` from the releases page and install it. If you have v1.1 or v1.0, install over it: your
+   saves, game and settings stay.
 2. Open the app: it detects your GPU and suggests a graphics profile (Minimum to Ultra, each with its target device
    and measured fps). Tap **Accept** or **Choose myself**; nothing is applied before that.
 3. In **Home ▸ Game files**, tap **Import .iso** and pick the ISO. The app checks the `default.xex` and reads the ISO
@@ -159,6 +192,26 @@ disc.
 4. If the app asks for a driver (Adreno 650 on the system driver, for example), download the Turnip build it names in
    the **Drivers** tab and enable it. The driver is never changed for you.
 5. Tap **PLAY**.
+
+### What's new in v1.2
+Everything that changed: [docs/CHANGELOG.md](docs/CHANGELOG.md).
+
+- **Touch controls:** switching between menu and fight follows the game's mode and no longer flips on its own (#15). You
+  can turn it off.
+- **Touch Blade Mode:** one tap on LT enters and another leaves, and swiping on the right side of the screen cuts, with
+  the swipe direction as the angle. Holding LT is still an option. Cutting while using the stick still needs more testing.
+- **Layout profiles and a size for all buttons**, from 50% to 160%.
+- **Saves (System ▸ Saves):** export to a zip in a folder you choose, list, restore with confirmation and an automatic
+  backup before restoring.
+- **External controllers (Controls ▸ Test and map controller):** live test, automatic mapping and remapping, saved per
+  controller (#12).
+- **Stuck vibration fixed** (#8, #28).
+- **Crash when cutting Sundowner** (#16, #18, #31): cause fixed, not tested in that fight yet.
+- **Mali-G57 MC2** (#16, #20, #25): automatic mode moves to Emulated when Native loses the device.
+- **More stable mode:** after the first GPU hang on Adreno 6xx with Turnip, the app turns on a mode that avoids this hang.
+- **Performance:** game threads no longer stay stuck on one core. A small gain: 2 to 4 fps in the measured fights.
+- **Not tested yet on the affected devices:** the cut-off picture on Mali-G710/G720 (#13, #23) and closing on the system
+  driver on recent Snapdragons.
 
 ### What's new in v1.1
 - **Native renderer (Renut):** on the Retroid Pocket 5 (Adreno 650) at 720p, close to 60 fps in combat, with the GPU
@@ -214,7 +267,8 @@ bilinear, AMD FSR 1 or AMD CAS, shadows, bloom, anisotropic, aspect ratio and FP
 \* experimental.
 
 ### Known issues
-- Vibration is still unstable (cause not found): turn it off in **Controls ▸ Vibration**.
+- Mali-G615 (#22, #29): on some devices the game closes while loading sound. Cause not found.
+- Mali-G57 MC2: Emulated mode only on automatic (Native loses the device).
 - Widescreen may flicker briefly on some devices: please send the log (see
   [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md)).
 - Adreno 650 with Turnip MrPurple: rare GPU hang; the game goes back to the launcher with a message instead of closing.
@@ -239,14 +293,14 @@ El APK no trae el juego: el código del juego va cifrado y solo se abre con el `
 
 ### Requisitos
 - Tu propia ISO de Xbox 360 de **Metal Gear Rising: Revengeance (USA, Europe)** (Title ID `4B4E080A`).
-- Android 11 o más reciente, ARM64, Vulkan 1.3.
+- Android 11 o más reciente, ARM64 con CPU ARMv8.2 o más nueva, Vulkan 1.3.
 - Recomendado: Adreno 6xx con el driver **Turnip** (la app lo descarga y lo activa en la pestaña Drivers), Adreno 730
   o más nueva, o Mali G57 y más nuevas.
 - ~8 GB libres para la ISO.
 
 ### Instalar e importar la ISO
-1. Descarga `Zandatsu-v1.1.apk` de la página de releases e instálalo. Si tienes la v1.0, instala encima: tus datos se
-   mantienen.
+1. Descarga `Zandatsu-v1.2.apk` de la página de releases e instálalo. Si tienes la v1.1 o la v1.0, instala encima: tus
+   partidas, el juego y los ajustes se mantienen.
 2. Abre la app: detecta tu GPU y sugiere un perfil gráfico (de Mínimo a Ultra, cada uno con su dispositivo objetivo y
    los fps medidos). Toca **Aceptar** o **Elegir yo mismo**; no se aplica nada antes.
 3. En **Inicio ▸ Archivos del juego**, toca **Importar .iso** y elige la ISO. La app comprueba el `default.xex` y lee
@@ -254,6 +308,28 @@ El APK no trae el juego: el código del juego va cifrado y solo se abre con el `
 4. Si la app pide un driver (Adreno 650 con el driver del sistema, por ejemplo), descarga en la pestaña **Drivers** el
    Turnip que indica y actívalo. El driver nunca se cambia solo.
 5. Toca **JUGAR**.
+
+### Novedades de la v1.2
+Todo lo que cambió: [docs/CHANGELOG.md](docs/CHANGELOG.md).
+
+- **Controles táctiles:** el cambio entre menú y combate sigue el modo del juego y ya no cambia solo (#15). Se puede
+  desactivar.
+- **Blade Mode táctil:** un toque en LT entra y otro sale, y deslizar el dedo en el lado derecho de la pantalla corta, con
+  la dirección del deslizamiento como ángulo. Mantener LT sigue como opción. Cortar usando el stick a la vez aún necesita más pruebas.
+- **Perfiles de diseño y tamaño de todos los botones**, de 50% a 160%.
+- **Partidas (Sistema ▸ Partidas):** exportar a un zip en la carpeta que elijas, listar, restaurar con confirmación y copia
+  automática antes de restaurar.
+- **Mando externo (Controles ▸ Probar y mapear mando):** prueba en vivo, mapeo automático y reasignación, guardados por
+  mando (#12).
+- **Vibración sin parar corregida** (#8, #28).
+- **Cierre al cortar a Sundowner** (#16, #18, #31): causa corregida, aún sin probar en ese combate.
+- **Mali-G57 MC2** (#16, #20, #25): el modo automático pasa al Emulado cuando el nativo pierde el dispositivo.
+- **Modo más estable:** después del primer cuelgue de la GPU en Adreno 6xx con Turnip, la app activa un modo que evita ese
+  cuelgue.
+- **Rendimiento:** los hilos del juego ya no se quedan en un solo núcleo. Mejora pequeña: de 2 a 4 fps en los combates
+  medidos.
+- **Aún sin probar en los dispositivos afectados:** la imagen cortada en Mali-G710/G720 (#13, #23) y el cierre con el
+  driver del sistema en Snapdragon recientes.
 
 ### Novedades de la v1.1
 - **Renderizador nativo (Renut):** en la Retroid Pocket 5 (Adreno 650) a 720p, cerca de 60 fps en combate, con la GPU
@@ -310,7 +386,8 @@ final bilineal, AMD FSR 1 o AMD CAS, sombras, brillo, anisotrópico, proporción
 \* experimental.
 
 ### Problemas conocidos
-- La vibración aún es inestable (causa no encontrada): desactívala en **Controles ▸ Vibración**.
+- Mali-G615 (#22, #29): en algunos dispositivos el juego se cierra al cargar el sonido. Causa no encontrada.
+- Mali-G57 MC2: solo modo Emulado en automático (el nativo pierde el dispositivo).
 - La panorámica puede parpadear un poco en algunos dispositivos: envía el log (ver
   [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md)).
 - Adreno 650 con Turnip MrPurple: cuelgue raro de la GPU; el juego vuelve al launcher con un aviso en vez de cerrarse.

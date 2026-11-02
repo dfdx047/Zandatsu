@@ -176,6 +176,11 @@ class LauncherPrefs(context: Context) {
         get() = prefs.getBoolean(KEY_GPU_NOTICE, false)
         set(v) = prefs.edit().putBoolean(KEY_GPU_NOTICE, v).apply()
 
+    /** A migracao unica do perfil Baixo para a v1.2 ja correu. */
+    var lowAudioMigrated: Boolean
+        get() = prefs.getBoolean("low_audio_migrated", false)
+        set(v) = prefs.edit().putBoolean("low_audio_migrated", v).apply()
+
     /** Versao (versionName) cujas novidades o jogador ja viu; null = nenhuma. */
     var whatsNewSeen: String?
         get() = prefs.getString("whats_new_seen", null)
