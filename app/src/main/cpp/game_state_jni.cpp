@@ -119,6 +119,15 @@ Java_com_dfdx047_zandatsu_game_NativeGameState_nativeFightFlag(JNIEnv*, jclass) 
   return (LoadGuestU32(kPlayStateFlags) & 0x111u) == 0x111u && LoadGuestU32(kPlayStateMode) == 1 ? 1 : 0;
 }
 
+// Modo do jogo (kPlayStateMode), -1 sem jogo. 01/11, percorrido no aparelho e em 4,4 h de logs de jogadores: 0 titulo e menu
+// principal, 1 em jogo (com o Codec, os golpes finais e as cenas no motor), 3 pausa, 4/11/12/13/16 ecras de menu, 8 e 9
+// transicoes curtas. Os bits de kPlayStateFlags caem em plena missao (357 vezes): nao servem para a troca de layout.
+extern "C" JNIEXPORT jint JNICALL
+Java_com_dfdx047_zandatsu_game_NativeGameState_nativePlayMode(JNIEnv*, jclass) {
+  if (!rex::Runtime::instance() || g_swordman_ticks.load(std::memory_order_relaxed) == 0) return -1;
+  return static_cast<jint>(LoadGuestU32(kPlayStateMode));
+}
+
 // Camara livre / modo foto (Dragon Burst). Nao existe no MGR.
 extern "C" JNIEXPORT jint JNICALL
 Java_com_dfdx047_zandatsu_game_NativeGameState_nativeMapFlag(JNIEnv*, jclass) {

@@ -220,6 +220,21 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
     @JvmName("changeTouchOpacity")
     fun setTouchOpacity(v: Float) { touchOpacity = v; prefs.touchOpacity = v }
 
+    var touchAutoSwitch by mutableStateOf(prefs.touchAutoSwitch)
+        private set
+    @JvmName("changeTouchAutoSwitch")
+    fun setTouchAutoSwitch(v: Boolean) { touchAutoSwitch = v; prefs.touchAutoSwitch = v }
+
+    var bladeToggle by mutableStateOf(prefs.bladeToggle)
+        private set
+    @JvmName("changeBladeToggle")
+    fun setBladeToggle(v: Boolean) { bladeToggle = v; prefs.bladeToggle = v }
+
+    var touchScale by mutableStateOf(prefs.touchScale)
+        private set
+    @JvmName("changeTouchScale")
+    fun setTouchScale(v: Float) { touchScale = v; prefs.touchScale = v }
+
     var checkUpdatesOnStart by mutableStateOf(prefs.checkUpdatesOnStart)
         private set
     // JvmName: evita o conflito com o setter privado da propriedade (mesma assinatura JVM).

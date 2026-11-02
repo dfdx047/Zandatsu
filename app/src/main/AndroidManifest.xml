@@ -65,6 +65,13 @@
             </intent-filter>
         </activity>
 
+        <!-- Teste e mapeamento do comando fisico. -->
+        <activity
+            android:name=".controls.PadMapperActivity"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape"
+            android:configChanges="orientation|screenSize|keyboard|keyboardHidden|navigation" />
+
         <!-- Editor do layout dos controles por toque (sempre em paisagem, como o jogo). -->
         <activity
             android:name=".controls.ControlsEditorActivity"

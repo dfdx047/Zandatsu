@@ -116,6 +116,7 @@ class GameOverlay(private val activity: Activity) : InputManager.InputDeviceList
             }
         }
         engine.pauseQuickMenu = prefs.pauseOnMenus
+        engine.autoSwitch = prefs.touchAutoSwitch
         // Volume escolhido no launcher (o ganho e global: pode ir antes de o audio arrancar).
         NativeGameState.setVolume(GameConfig.load().volume)
         engine.onBattleChanged = { battle ->
@@ -125,6 +126,7 @@ class GameOverlay(private val activity: Activity) : InputManager.InputDeviceList
                 it.layout = currentLayout()
             }
         }
+        engine.onLeftGame = { view?.stopBlade() }
         engine.onMapChanged = { map ->
             onMap = map
             view?.let {
@@ -213,6 +215,7 @@ class GameOverlay(private val activity: Activity) : InputManager.InputDeviceList
                     onMap = false
                 }
             }
+            engine.noteManualLayout(inBattle)
             com.dfdx047.zandatsu.data.AppLog.i("controls", "botao de troca -> " + currentLayoutKind().name)
             engine.diag?.invoke("botao de troca -> " + currentLayoutKind().name)
             view?.let {
@@ -467,6 +470,9 @@ class GameOverlay(private val activity: Activity) : InputManager.InputDeviceList
         v.badge = prefs.buttonBadge
         v.globalOpacity = prefs.touchOpacity
         v.haptics = prefs.touchHaptics
+        v.bladeToggle = prefs.bladeToggle
+        v.globalScale = prefs.touchScale
+        engine.autoSwitch = prefs.touchAutoSwitch
         val a = prefs.touchOpacity.coerceAtLeast(0.4f)
         gear?.alpha = a
         pauseButton?.alpha = a

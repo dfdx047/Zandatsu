@@ -354,6 +354,43 @@ object ControlLayoutStore {
         }
     }
 
+    // ------------------------------------------------ perfis de layout (01/11)
+    private val profilesDir get() = java.io.File(AppPaths.internalDir, "controls/profiles")
+
+    private fun profileFile(name: String) =
+        java.io.File(profilesDir, name.replace(Regex("[^\\p{L}\\p{N} _-]"), "_").trim().take(40) + ".json")
+
+    fun profiles(): List<String> =
+        profilesDir.listFiles { f -> f.extension == "json" }?.map { it.nameWithoutExtension }?.sorted().orEmpty()
+
+    /** Guarda os tres layouts atuais com um nome. */
+    fun saveProfile(name: String) {
+        if (name.isBlank()) return
+        val all = JSONObject()
+        for (k in LayoutKind.values()) all.put(k.name, toJson(load(k)))
+        val f = profileFile(name)
+        f.parentFile?.mkdirs()
+        f.writeText(all.toString(2))
+    }
+
+    fun loadProfile(name: String): Boolean {
+        return try {
+            val all = JSONObject(profileFile(name).readText())
+            for (k in LayoutKind.values()) {
+                val o = all.optJSONObject(k.name) ?: continue
+                save(fromJson(o).copy(menu = k != LayoutKind.GAMEPLAY, full = k == LayoutKind.FULL))
+            }
+            true
+        } catch (e: Exception) {
+            com.dfdx047.zandatsu.data.AppLog.w("controls", "perfil $name invalido", e)
+            false
+        }
+    }
+
+    fun deleteProfile(name: String) {
+        profileFile(name).delete()
+    }
+
     fun reset() {
         AppPaths.controlsFile.delete()
         AppPaths.controlsMenuFile.delete()

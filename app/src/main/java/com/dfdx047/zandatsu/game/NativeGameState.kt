@@ -50,6 +50,16 @@ object NativeGameState {
         }
     }
 
+    /** Modo do jogo (game_state_jni.cpp): 0 titulo, 1 em jogo, 3 pausa, outros menus; -1 desconhecido. */
+    fun playMode(): Int {
+        if (!available) return -1
+        return try {
+            nativePlayMode()
+        } catch (e: UnsatisfiedLinkError) {
+            -1
+        }
+    }
+
     /** A GPU travou/falhou (gpu_reset.cpp): o motivo; "" enquanto ela estiver bem. */
     @JvmStatic
     fun gpuReset(): String {
@@ -245,6 +255,7 @@ object NativeGameState {
     @JvmStatic
     private external fun nativeFightFlag(): Int
     @JvmStatic private external fun nativeMapFlag(): Int
+    @JvmStatic private external fun nativePlayMode(): Int
     @JvmStatic private external fun nativeBattleDebug(): String
     @JvmStatic private external fun nativeDumpFight(path: String, kind: Int, ms: Long): Boolean
 

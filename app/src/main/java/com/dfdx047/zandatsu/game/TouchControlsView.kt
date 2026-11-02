@@ -90,6 +90,26 @@ class TouchControlsView(context: Context) : View(context) {
             invalidate()
         }
     var haptics = true
+    /** Multiplica o tamanho de todos os botoes (opcao global). */
+    var globalScale = 1f
+        set(value) {
+            field = value.coerceIn(0.5f, 1.6f)
+            invalidate()
+        }
+    /** "LT alterna": toque entra/sai do Blade Mode; com ele ligado o lado direito corta deslizando o dedo. */
+    var bladeToggle = false
+        set(value) {
+            if (field && !value) stopBlade()
+            field = value
+        }
+    private var bladeId: String? = null
+    private var bladeElement: ControlElement? = null
+    private class Swipe(val pointer: Int, var ax: Float, var ay: Float) {
+        var x = ax
+        var y = ay
+        var moved = false
+    }
+    private var swipe: Swipe? = null
     var editMode = false
         set(value) {
             field = value
@@ -150,7 +170,35 @@ class TouchControlsView(context: Context) : View(context) {
 
     private fun cx(e: ControlElement) = e.x * width
     private fun cy(e: ControlElement) = e.y * height
-    private fun radius(e: ControlElement) = e.sizeDp * density / 2f
+    private fun radius(e: ControlElement) = e.sizeDp * globalScale * density / 2f
+
+    private fun isBladeButton(e: ControlElement) =
+        (e.action as? ControlAction.Press)?.inputs == setOf(PadInput.LT)
+
+    /** Durante o Blade Mode so o X, o Y e o proprio LT ficam no lado direito (o resto e zona de corte). */
+    private fun keptInBlade(e: ControlElement): Boolean {
+        val inputs = (e.action as? ControlAction.Press)?.inputs ?: return false
+        return inputs == setOf(PadInput.X) || inputs == setOf(PadInput.Y) || inputs == setOf(PadInput.LT)
+    }
+
+    private fun bladeHides(e: ControlElement) =
+        bladeId != null && e.kind == ElementKind.BUTTON && cx(e) > width / 2f && !keptInBlade(e)
+
+    fun stopBlade() {
+        val e = bladeElement ?: return
+        bladeElement = null
+        bladeId = null
+        pressed.remove(e.id)
+        listener?.onRelease(e)
+        endSwipe()
+        invalidate()
+    }
+
+    private fun endSwipe() {
+        val s = swipe ?: return
+        swipe = null
+        if (s.moved) listener?.onStick(true, 0f, 0f)
+    }
 
     private fun alphaOf(e: ControlElement, base: Float): Int =
         (255 * base * e.opacity * (if (editMode) 1f else globalOpacity)).toInt().coerceIn(0, 255)
@@ -183,7 +231,7 @@ class TouchControlsView(context: Context) : View(context) {
         // A zona da camara primeiro (fica por baixo dos botoes).
         for (e in layout.elements) if (e.kind == ElementKind.LOOK && isShown(e)) drawLook(canvas, e)
         for (e in layout.elements) {
-            if (!isShown(e)) continue
+            if (!isShown(e) || bladeHides(e)) continue
             when (e.kind) {
                 ElementKind.BUTTON -> drawButton(canvas, e)
                 ElementKind.STICK -> drawStick(canvas, e)
@@ -199,6 +247,16 @@ class TouchControlsView(context: Context) : View(context) {
                 ring.pathEffect = null
             }
         }
+        drawSwipe(canvas)
+    }
+
+    private fun drawSwipe(c: Canvas) {
+        val s = swipe ?: return
+        if (!s.moved) return
+        ring.color = red
+        ring.alpha = 220
+        ring.strokeWidth = 3f * density
+        c.drawLine(s.ax, s.ay, s.x, s.y, ring)
     }
 
     /** Entrada principal do botao (para o rotulo classico). */
@@ -583,7 +641,7 @@ class TouchControlsView(context: Context) : View(context) {
     /** Retangulo da zona da camara: o centro e (x, y); a largura e sizeDp*1.6 e a altura sizeDp. */
     private fun lookRect(e: ControlElement): FloatArray {
         val hw = e.sizeDp * density * 0.8f
-        val hh = e.sizeDp * density * 0.5f
+        val hh = e.sizeDp * density * 0.5f  // a zona da camara nao segue o tamanho global dos botoes
         return floatArrayOf(cx(e) - hw, cy(e) - hh, cx(e) + hw, cy(e) + hh)
     }
 
@@ -610,7 +668,7 @@ class TouchControlsView(context: Context) : View(context) {
         var best: ControlElement? = null
         var bestD = Float.MAX_VALUE
         for (e in layout.elements) {
-            if (!isShown(e) || e.kind == ElementKind.LOOK) continue
+            if (!isShown(e) || e.kind == ElementKind.LOOK || bladeHides(e)) continue
             val d = hypot(px - cx(e), py - cy(e))
             val reach = radius(e) * (if (e.kind == ElementKind.BUTTON) 1.15f else 1.25f)
             if (d <= reach && d / reach < bestD) {
@@ -629,8 +687,14 @@ class TouchControlsView(context: Context) : View(context) {
         when (ev.actionMasked) {
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
                 val i = ev.actionIndex
-                val e = hit(ev.getX(i), ev.getY(i)) ?: return true
                 val pid = ev.getPointerId(i)
+                val hitE = hit(ev.getX(i), ev.getY(i))
+                // Blade Mode: dedo no lado direito fora do X/Y/LT = corte (a zona da camara nao conta).
+                if (bladeId != null && ev.getX(i) > width / 2f && (hitE == null || hitE.kind == ElementKind.LOOK)) {
+                    if (swipe == null) swipe = Swipe(pid, ev.getX(i), ev.getY(i))
+                    return true
+                }
+                val e = hitE ?: return true
                 when (e.kind) {
                     ElementKind.STICK -> {
                         if (e.id !in sticks) {
@@ -659,6 +723,10 @@ class TouchControlsView(context: Context) : View(context) {
             MotionEvent.ACTION_MOVE -> {
                 for (i in 0 until ev.pointerCount) {
                     val pid = ev.getPointerId(i)
+                    if (swipe?.pointer == pid) {
+                        updateSwipe(ev.getX(i), ev.getY(i))
+                        continue
+                    }
                     val id = pointers[pid] ?: continue
                     val e = layout.elements.firstOrNull { it.id == id } ?: continue
                     when (e.kind) {
@@ -678,9 +746,15 @@ class TouchControlsView(context: Context) : View(context) {
                 }
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> {
-                endPointer(ev.getPointerId(ev.actionIndex))
+                val pid = ev.getPointerId(ev.actionIndex)
+                if (swipe?.pointer == pid) {
+                    endSwipe()
+                    invalidate()
+                }
+                endPointer(pid)
             }
             MotionEvent.ACTION_CANCEL -> {
+                endSwipe()
                 pointers.keys.toList().forEach(::endPointer)
             }
         }
@@ -723,7 +797,44 @@ class TouchControlsView(context: Context) : View(context) {
         }
     }
 
+    /**
+     * Corte: o analogico direito segue a direcao do deslize. A origem acompanha o dedo a [SWIPE_RADIUS_DP], por isso
+     * mudar de direcao muda logo o angulo, em vez de ter de voltar ao ponto onde o dedo pousou.
+     */
+    private fun updateSwipe(px: Float, py: Float) {
+        val s = swipe ?: return
+        val r = SWIPE_RADIUS_DP * density
+        var dx = px - s.ax
+        var dy = py - s.ay
+        val len = hypot(dx, dy)
+        s.x = px
+        s.y = py
+        if (!s.moved && len < TAP_SLOP_DP * density) return
+        s.moved = true
+        if (len > r) {
+            s.ax = px - dx / len * r
+            s.ay = py - dy / len * r
+            dx = dx / len * r
+            dy = dy / len * r
+        }
+        listener?.onStick(true, dx / r, dy / r)
+        invalidate()
+    }
+
     private fun pressButton(e: ControlElement) {
+        if (bladeToggle && isBladeButton(e)) {
+            if (bladeId == e.id) {
+                stopBlade()
+            } else {
+                bladeId = e.id
+                bladeElement = e
+                pressed.add(e.id)
+                if (haptics) performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                listener?.onPress(e)
+                invalidate()
+            }
+            return
+        }
         if (!pressed.add(e.id)) return
         if (haptics) performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
         listener?.onPress(e)
@@ -731,6 +842,7 @@ class TouchControlsView(context: Context) : View(context) {
     }
 
     private fun releaseButton(e: ControlElement) {
+        if (bladeToggle && isBladeButton(e)) return  // alterna: so outro toque solta
         if (!pressed.remove(e.id)) return
         listener?.onRelease(e)
         invalidate()
@@ -799,6 +911,8 @@ class TouchControlsView(context: Context) : View(context) {
 
     /** Solta tudo (ex.: o jogo foi para segundo plano, ou o layout mudou). */
     fun releaseAll() {
+        stopBlade()
+        endSwipe()
         pointers.keys.toList().forEach(::endPointer)
         pressed.clear()
         sticks.clear()
@@ -841,5 +955,6 @@ class TouchControlsView(context: Context) : View(context) {
         const val LOOK_RADIUS_DP = 56f
         const val TAP_MS = 220L
         const val TAP_SLOP_DP = 10f
+        const val SWIPE_RADIUS_DP = 40f
     }
 }

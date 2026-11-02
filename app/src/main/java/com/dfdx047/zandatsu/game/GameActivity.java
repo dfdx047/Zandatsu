@@ -254,6 +254,10 @@ public class GameActivity extends SDLActivity {
                 return true;
             }
         }
+        // Comando com mapeamento guardado (PadMapper): vai pelo comando virtual, nao pelo SDL.
+        if (com.dfdx047.zandatsu.controls.PadRouter.INSTANCE.onKey(event)) {
+            return true;
+        }
         // Back (o botao Back do Odin e de outros portateis, ou o gesto de voltar):
         // com um menu aberto volta um nivel; com o jogo a correr abre o menu.
         if (mOverlay != null && event.getKeyCode() == KeyEvent.KEYCODE_BACK) {
@@ -276,6 +280,9 @@ public class GameActivity extends SDLActivity {
             if (mOverlay.onMenuMotion(event)) {
                 return true;
             }
+        }
+        if (com.dfdx047.zandatsu.controls.PadRouter.INSTANCE.onMotion(event)) {
+            return true;
         }
         return super.dispatchGenericMotionEvent(event);
     }

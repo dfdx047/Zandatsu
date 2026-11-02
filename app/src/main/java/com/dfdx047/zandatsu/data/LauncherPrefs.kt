@@ -148,6 +148,21 @@ class LauncherPrefs(context: Context) {
         set(v) = prefs.edit().putBoolean(KEY_TOUCH_HAPTICS, v).apply()
 
     /** Opacidade global dos controles (0.1-1), multiplica a de cada botao. */
+    /** Troca automatica menu/luta dos controles na tela. */
+    var touchAutoSwitch: Boolean
+        get() = prefs.getBoolean("touch_auto_switch", true)
+        set(value) = prefs.edit().putBoolean("touch_auto_switch", value).apply()
+
+    /** LT alterna: um toque entra no Blade Mode e outro sai (em vez de segurar). */
+    var bladeToggle: Boolean
+        get() = prefs.getBoolean("touch_blade_toggle", true)
+        set(value) = prefs.edit().putBoolean("touch_blade_toggle", value).apply()
+
+    /** Tamanho de todos os botoes (multiplica o de cada um). */
+    var touchScale: Float
+        get() = prefs.getFloat("touch_scale", 1f)
+        set(value) = prefs.edit().putFloat("touch_scale", value).apply()
+
     var touchOpacity: Float
         get() = prefs.getFloat(KEY_TOUCH_OPACITY, 0.75f)
         set(v) = prefs.edit().putFloat(KEY_TOUCH_OPACITY, v).apply()

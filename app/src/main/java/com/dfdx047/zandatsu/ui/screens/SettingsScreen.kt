@@ -92,6 +92,8 @@ fun SettingsScreen(vm: LauncherViewModel) {
             )
         }
 
+        SaveManagerSection()
+
         SectionCard(
             stringResource(R.string.settings_logs),
             Icons.Filled.Description,

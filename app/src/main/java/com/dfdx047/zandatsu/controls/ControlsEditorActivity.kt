@@ -123,6 +123,7 @@ fun ControlsEditor(
             factory = { ctx ->
                 TouchControlsView(ctx).apply {
                     editMode = true
+                    globalScale = prefs.touchScale
                     style = prefs.controlStyle
                     directional = prefs.directional
                     badge = prefs.buttonBadge

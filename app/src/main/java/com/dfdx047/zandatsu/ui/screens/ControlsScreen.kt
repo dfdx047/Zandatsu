@@ -116,6 +116,28 @@ fun ControlsScreen(vm: LauncherViewModel) {
                 range = 0.1f..1f,
                 label = { v -> "${(v * 100).roundToInt()}%" },
             ) { v -> vm.setTouchOpacity(v) }
+            SettingSlider(
+                title = stringResource(R.string.settings_touch_scale),
+                value = vm.touchScale,
+                range = 0.5f..1.6f,
+                label = { v -> "${(v * 100).roundToInt()}%" },
+            ) { v -> vm.setTouchScale(v) }
+            SettingSwitch(
+                stringResource(R.string.settings_auto_switch),
+                stringResource(R.string.settings_auto_switch_sub),
+                checked = vm.touchAutoSwitch,
+                onChange = vm::setTouchAutoSwitch,
+            )
+            SettingSegmented(
+                title = stringResource(R.string.settings_blade_mode),
+                subtitle = stringResource(R.string.settings_blade_mode_sub),
+                options = listOf(
+                    true to stringResource(R.string.blade_toggle),
+                    false to stringResource(R.string.blade_hold),
+                ),
+                selected = vm.bladeToggle,
+                onSelect = vm::setBladeToggle,
+            )
             SettingSwitch(stringResource(R.string.settings_touch_haptics), checked = vm.touchHaptics, onChange = vm::setTouchHaptics)
             SettingSwitch(
                 stringResource(R.string.settings_pause_menus),
@@ -136,6 +158,7 @@ fun ControlsScreen(vm: LauncherViewModel) {
                 }
             }
             StatusLine(stringResource(R.string.settings_touch_helpers_note), Level.INFO)
+            LayoutProfiles()
         }
 
         // ------------------------------------------------- esquema do MGR no toque
@@ -155,6 +178,11 @@ fun ControlsScreen(vm: LauncherViewModel) {
                 range = 0f..0.5f,
                 label = { v -> "${(v * 100).roundToInt()}%" },
             ) { v -> vm.updateConfig { it.copy(deadzone = v.toDouble()) } }
+            FilledTonalButton(onClick = { context.startActivity(Intent(context, com.dfdx047.zandatsu.controls.PadMapperActivity::class.java)) }) {
+                Icon(Icons.Filled.SportsEsports, null)
+                Spacer(Modifier.width(6.dp))
+                Text(stringResource(R.string.mapper_open))
+            }
             SettingSwitch(stringResource(R.string.settings_rumble), checked = c.vibration) { on -> vm.updateConfig { it.copy(vibration = on) } }
         }
     }
@@ -167,10 +195,44 @@ fun ControlsScreen(vm: LauncherViewModel) {
             confirmButton = {
                 TextButton(onClick = {
                     ControlLayoutStore.reset()
+                    vm.setTouchScale(1f)
+                    vm.setTouchOpacity(0.7f)
                     confirmReset = false
                 }) { Text(stringResource(R.string.reset)) }
             },
             dismissButton = { TextButton(onClick = { confirmReset = false }) { Text(stringResource(R.string.cancel)) } },
         )
+    }
+}
+
+/** Perfis de layout: guarda os tres layouts atuais com um nome e volta a eles. */
+@Composable
+private fun LayoutProfiles() {
+    var names by remember { mutableStateOf(ControlLayoutStore.profiles()) }
+    var name by remember { mutableStateOf("") }
+    Text(stringResource(R.string.profiles_title), style = MaterialTheme.typography.titleSmall)
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        androidx.compose.material3.OutlinedTextField(
+            value = name,
+            onValueChange = { name = it.take(40) },
+            singleLine = true,
+            label = { Text(stringResource(R.string.profiles_name)) },
+            modifier = Modifier.weight(1f),
+        )
+        FilledTonalButton(enabled = name.isNotBlank(), onClick = {
+            ControlLayoutStore.saveProfile(name)
+            names = ControlLayoutStore.profiles()
+            name = ""
+        }) { Text(stringResource(R.string.profiles_save)) }
+    }
+    for (n in names) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(n, modifier = Modifier.weight(1f).padding(top = 10.dp))
+            OutlinedButton(onClick = { ControlLayoutStore.loadProfile(n) }) { Text(stringResource(R.string.profiles_load)) }
+            TextButton(onClick = {
+                ControlLayoutStore.deleteProfile(n)
+                names = ControlLayoutStore.profiles()
+            }) { Text(stringResource(R.string.profiles_delete)) }
+        }
     }
 }

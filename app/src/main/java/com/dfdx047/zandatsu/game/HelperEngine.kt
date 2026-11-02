@@ -64,9 +64,7 @@ class HelperEngine {
 
     /**
      * Luta ou menus (para trocar o layout dos controles). Chamado na thread principal
-     * so quando muda. Com histerese: entra na luta logo que a bandeira do jogo vai a
-     * 1 e so volta aos menus depois de [MENU_DELAY_TICKS] ticks seguidos a 0 (entre
-     * assaltos, KO e apresentacao a bandeira tambem vai a 0).
+     * so quando muda (ver [trackBattle]).
      */
     var onBattleChanged: ((Boolean) -> Unit)? = null
 
@@ -87,8 +85,14 @@ class HelperEngine {
     private var diagLast = ""
     @Volatile var inBattle = false
         private set
-    private var zeroTicks = 0
-    private var oneTicks = 0
+    private var lastMode = -1
+    @Volatile var onLeftGame: (() -> Unit)? = null
+    private var candidateTicks = 0
+    private var dwellTicks = MIN_DWELL_TICKS
+    private var lastClass: Boolean? = null
+    @Volatile private var manualHold = false
+    /** Opcao "Troca automatica" dos controles na tela. */
+    @Volatile var autoSwitch = true
     private val pressedAt = HashMap<String, Long>()
     private val releaseToken = HashMap<String, Int>()
     private var battleKnown = false
@@ -208,7 +212,7 @@ class HelperEngine {
         paused = NativeGameState.syncPause(menuOpen || freeze, pauseQuickMenu)
         side = NativeGameState.p1Side()
         if (!paused) {
-            trackBattle(NativeGameState.fightFlag())
+            trackBattle(NativeGameState.playMode())
             trackMap(NativeGameState.mapFlag())
         }
         diag?.let { d ->
@@ -254,33 +258,62 @@ class HelperEngine {
         flush(resolveRelative(wanted), lx, ly, rx, ry)
     }
 
-    private fun trackBattle(flag: Int) {
-        if (flag < 0) return
+    /**
+     * Troca automatica do layout (01/11). So o modo do jogo manda: 1 = em jogo; 3, 4, 11, 12, 13, 16 = menus; 0 = titulo e
+     * menu principal, mas tambem aparece em carregamentos, por isso exige mais tempo. Os outros (8, 9, desconhecidos) sao
+     * transicoes: nao trocam nem contam. Depois de uma troca ha [MIN_DWELL_TICKS] sem outra. Trocar a mao segura o
+     * layout ate o jogo mudar de classe; "Troca automatica" desligada nunca troca.
+     */
+    private fun trackBattle(mode: Int) {
+        // Saiu do jogo (pausa, game over, cena): um LT alternado nao pode ficar preso nem esconder o A.
+        if (mode >= 0 && mode != 1 && lastMode == 1) mainHandler.post { onLeftGame?.invoke() }
+        if (mode >= 0) lastMode = mode
+        if (mode < 0 || !autoSwitch) return
+        val wanted: Boolean? = when (mode) {
+            1 -> true
+            0, 3, 4, 11, 12, 13, 16 -> false
+            else -> null
+        }
         if (!battleKnown) {
-            // Primeira bandeira conhecida: o overlay comeca no layout de combate, e no titulo a bandeira e 0.
             battleKnown = true
-            inBattle = flag == 1
+            inBattle = wanted ?: false
+            lastClass = wanted
             diag?.invoke("estado inicial -> " + if (inBattle) "luta" else "menus")
             val now = inBattle
             mainHandler.post { onBattleChanged?.invoke(now) }
             return
         }
-        val next = when {
-            flag == 1 -> {
-                zeroTicks = 0
-                // MGR (27/10): a luta so conta com a bandeira estavel (nos menus pisca por um frame ou outro).
-                inBattle || ++oneTicks >= BATTLE_DELAY_TICKS
-            }
-            inBattle && ++zeroTicks < MENU_DELAY_TICKS -> true
-            else -> false
+        dwellTicks++
+        if (wanted == null) return
+        if (wanted != lastClass) {
+            lastClass = wanted
+            candidateTicks = 0
+            manualHold = false
         }
-        if (flag != 1) oneTicks = 0
-        if (next != inBattle) {
-            inBattle = next
-            com.dfdx047.zandatsu.data.AppLog.i("controls", "estado: " + if (next) "jogo" else "menus")
-            diag?.invoke("troca -> " + (if (next) "luta" else "menus") + " (bandeira=$flag)")
-            mainHandler.post { onBattleChanged?.invoke(next) }
+        if (wanted == inBattle || manualHold) {
+            candidateTicks = 0
+            return
         }
+        candidateTicks++
+        val need = when {
+            wanted -> GAME_STABLE_TICKS
+            mode == 0 -> TITLE_STABLE_TICKS
+            else -> MENU_STABLE_TICKS
+        }
+        if (candidateTicks < need || dwellTicks < MIN_DWELL_TICKS) return
+        inBattle = wanted
+        candidateTicks = 0
+        dwellTicks = 0
+        com.dfdx047.zandatsu.data.AppLog.i("controls", "estado: " + if (wanted) "jogo" else "menus")
+        diag?.invoke("troca -> " + (if (wanted) "luta" else "menus") + " (modo=$mode)")
+        mainHandler.post { onBattleChanged?.invoke(wanted) }
+    }
+
+    /** O jogador trocou de layout pelo botao: nao o desfaz enquanto o jogo nao mudar de classe. */
+    fun noteManualLayout(battle: Boolean) {
+        manualHold = true
+        inBattle = battle
+        candidateTicks = 0
     }
 
     private fun trackMap(flag: Int) {
@@ -345,9 +378,11 @@ class HelperEngine {
     }
 
     companion object {
-        /** 1,5 s a 60 Hz (pedido do usuario: no maximo ~2 s). */
-        const val MENU_DELAY_TICKS = 90
-        const val BATTLE_DELAY_TICKS = 15
+        /** Ticks de 60 Hz: em jogo 1 s estavel, menus 0,5 s (a pausa tem de responder), titulo 3 s, 2 s entre trocas. */
+        const val GAME_STABLE_TICKS = 60
+        const val MENU_STABLE_TICKS = 30
+        const val TITLE_STABLE_TICKS = 180
+        const val MIN_DWELL_TICKS = 120
         /** Duracao minima de um toque num botao (2 frames a 30 fps + folga). */
         const val MIN_PRESS_MS = 80L
         /** ~1,5 s fora do estado de voo antes de sair do layout do mapa. */
