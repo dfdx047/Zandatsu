@@ -122,6 +122,8 @@ data class GameConfig(
             "sa2_render_height_handheld" to renutHeight,
             // Principal no nucleo mais rapido, render nos outros grandes: +3 fps no RP5 (23/10).
             "swordman_renut_cores" to 2,
+            "swordman_renut_gpu_markers" to RenutSupport.hangGuard(),
+            "swordman_renut_gpu_markers_end" to !RenutSupport.hangGuard(),
             // Opcao ainda nao validada no aparelho: fica escondida no menu e sempre ligada.
             "swordman_renut_shadows" to (renutShadows || !RenutValidated.SHADOWS),
             "swordman_renut_bloom" to (renutBloom || !RenutValidated.BLOOM),
@@ -591,6 +593,28 @@ object RenutSupport {
         false
     }
 
+    /**
+     * 02/11: hang da GPU no Turnip em Adreno 6xx. O marcador do início do pipeline a cada draw some com o hang (RP5 no
+     * perfil SD480+: 0 em 6 corridas de 5 min, contra 9 em 14 sem ele), mas custa ~3 ms de GPU e ~1 fps na luta. Por isso
+     * só depois do primeiro hang neste driver; trocar de driver volta ao normal.
+     */
+    fun hangGuard(): Boolean = try {
+        File(dir, "gpu_hang_guard.txt").takeIf { it.isFile }?.readText()?.trim() == driver()
+    } catch (e: Exception) {
+        false
+    }
+
+    /** Driver próprio (o do sistema não tem VK_AMD_buffer_marker) numa Adreno 6xx, a única família em que o hang foi medido. */
+    fun turnip(): Boolean = driver() != "system" &&
+        Regex("""Adreno.*\b6\d\d\b""").containsMatchIn(com.dfdx047.zandatsu.drivers.DriverRepository.gpuName().orEmpty())
+
+    fun noteHang() {
+        try {
+            File(dir, "gpu_hang_guard.txt").writeText(driver() + "\n")
+        } catch (_: Exception) {
+        }
+    }
+
     fun noteProbeFailure() {
         try {
             File(dir, "renut_auto_failed.txt").writeText(driver() + "\n")
@@ -748,7 +772,7 @@ private fun RenutPreset.spec(): RenutPresetSpec = when (this) {
     RenutPreset.MINIMUM -> RenutPresetSpec(
         InternalResolution.P540, shadows = false, bloom = false, anisotropic = -1, effect = "fsr", audioLittle = true,
     )
-    RenutPreset.LOW -> RenutPresetSpec(InternalResolution.P540, shadows = true, bloom = true, anisotropic = -1, effect = "fsr")
+    RenutPreset.LOW -> RenutPresetSpec(InternalResolution.P540, shadows = true, bloom = true, anisotropic = -1, effect = "fsr", audioLittle = true)
     RenutPreset.MEDIUM -> RenutPresetSpec(InternalResolution.P720, shadows = true, bloom = true, anisotropic = -1, audioLittle = true)
     RenutPreset.HIGH -> RenutPresetSpec(
         InternalResolution.P1080, shadows = true, bloom = true, anisotropic = -1, lazyMips = true, shadow1x = true,

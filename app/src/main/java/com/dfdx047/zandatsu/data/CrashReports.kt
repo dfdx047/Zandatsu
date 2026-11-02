@@ -111,6 +111,15 @@ object CrashReports {
                 else -> "The native renderer does not work with this driver: automatic mode now uses Emulated. You can choose it again in Performance."
             }
         }
+        if (reason.contains("kgsl") && GameConfig.load().useRenut && RenutSupport.turnip() && !RenutSupport.hangGuard()) {
+            RenutSupport.noteHang()
+            AppLog.w("crash", "Hang da GPU: marcadores do inicio ligados com este driver")
+            reason += "\n\n" + when (java.util.Locale.getDefault().language) {
+                "pt" -> "Ligamos um modo mais estável para este aparelho. Ele evita esse travamento e pode custar cerca de 1 fps."
+                "es" -> "Activamos un modo más estable para este dispositivo. Evita este bloqueo y puede costar cerca de 1 fps."
+                else -> "We turned on a more stable mode for this device. It avoids this hang and may cost about 1 fps."
+            }
+        }
         return CrashReport(ErrorKind.GPU_RESET, reason, tail(), time)
     }
 
