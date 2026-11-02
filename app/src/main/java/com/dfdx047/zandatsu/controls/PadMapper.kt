@@ -217,12 +217,18 @@ object PadRouter {
         val d = ev.device ?: return false
         if (!PadMapper.isPad(d)) return false
         val m = map(ev.deviceId, d) ?: return false
-        val t = m.entries.firstOrNull { it.value.axis < 0 && it.value.key == ev.keyCode }?.key ?: return false
+        val t = m.entries.firstOrNull { it.value.axis < 0 && it.value.key == ev.keyCode }?.key
+        // Tecla de comando sem acao neste mapa: nao vai para o SDL, senao continuava a fazer o que fazia antes.
+        if (t == null) return KeyEvent.isGamepadButton(ev.keyCode) || isDpadKey(ev.keyCode)
         if (ev.repeatCount > 0) return true
         val down = ev.action == KeyEvent.ACTION_DOWN
         if (t.isTrigger) SwordManPad.axis(t.axis, if (down) 1f else -1f) else if (t.key != 0) SwordManPad.button(t.key, down)
         return true
     }
+
+    private fun isDpadKey(code: Int) = code == KeyEvent.KEYCODE_DPAD_UP || code == KeyEvent.KEYCODE_DPAD_DOWN ||
+        code == KeyEvent.KEYCODE_DPAD_LEFT || code == KeyEvent.KEYCODE_DPAD_RIGHT ||
+        code == KeyEvent.KEYCODE_DPAD_CENTER
 
     fun onMotion(ev: MotionEvent): Boolean {
         if (ev.source and InputDevice.SOURCE_JOYSTICK != InputDevice.SOURCE_JOYSTICK) return false

@@ -89,7 +89,7 @@ class PadMapperActivity : AppCompatActivity() {
         keysDown[event.keyCode] = event.action == KeyEvent.ACTION_DOWN
         val target = listening.value
         if (target != null && event.action == KeyEvent.ACTION_DOWN) {
-            draft[target] = PadSource(key = event.keyCode)
+            assign(target, PadSource(key = event.keyCode))
             listening.value = null
         }
         return true
@@ -108,12 +108,22 @@ class PadMapperActivity : AppCompatActivity() {
             if (abs(v - base) > 0.6f) {
                 // D-pad e botoes num eixo guardam o lado; analogicos e gatilhos o eixo inteiro.
                 val sign = if (target.isStick || target.isTrigger) 0 else if (v > base) 1 else -1
-                draft[target] = PadSource(axis = r.axis, sign = sign)
+                assign(target, PadSource(axis = r.axis, sign = sign))
                 listening.value = null
                 baseline.clear()
             }
         }
         return true
+    }
+
+    /** Botao ja usado por outra acao: as duas trocam de lugar, nenhuma fica sem botao. */
+    private fun assign(target: PadTarget, source: PadSource) {
+        val previous = draft[target]
+        val other = draft.entries.firstOrNull { it.key != target && it.value == source }?.key
+        draft[target] = source
+        if (other != null) {
+            if (previous != null) draft[other] = previous else draft.remove(other)
+        }
     }
 
     private fun sourceActive(s: PadSource?): Boolean {
