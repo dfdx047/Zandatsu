@@ -33,6 +33,7 @@
 #include <rex/logging/api.h>
 #include <rex/main_android.h>
 
+#include "renut_gpu_markers.h"
 #include "gpu_reset.h"
 
 REXCVAR_DEFINE_INT32(swordman_test_gpu_reset, 0, "SwordMan",
@@ -159,6 +160,7 @@ void Trigger(const char* why) {
   std::snprintf(g_reason, sizeof(g_reason), "%s", why);
   REXLOG_ERROR("GPU: {}; o jogo para de desenhar e volta ao launcher (\"A GPU reiniciou\")", why);
   WriteMarker(g_reason);
+  swordman::gpu_markers::DumpRingOnHang();
   rex::FlushLogging();
 }
 

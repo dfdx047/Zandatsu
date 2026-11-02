@@ -33,5 +33,7 @@ uint32_t Before(plume::RenderCommandList* cmd, const Info& info);
 void After(plume::RenderCommandList* cmd, uint32_t index);
 // No device lost (uma vez): logs/renut_gpu_hang.txt.
 void OnDeviceLost();
+// O vigia do kgsl apanhou um hang: grava o anel antes de o jogo fechar.
+void DumpRingOnHang();
 
 }  // namespace swordman::gpu_markers

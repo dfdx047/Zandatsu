@@ -218,6 +218,20 @@ void After(plume::RenderCommandList* cmd, uint32_t index) {
   banjo::renut_gpu::record::Marker(cmd, &Write, 4, index);
 }
 
+void DumpRingOnHang() {
+  // 02/11: o vigia do kgsl fecha o jogo antes do frame seguinte, por isso o pedido por ficheiro nunca era servido.
+  if (!On() || !Ready()) return;
+  State& s = S();
+  const uint32_t index = s.next.load() - 1;
+  const auto path = rex::GetAndroidAppDirectory() / "logs" / "renut_gpu_hang.txt";
+  FILE* f = std::fopen(path.c_str(), "w");
+  if (!f) return;
+  std::fprintf(f, "anel no hang do kgsl: gravados %u (a GPU ja estava parada; o fim do anel esta a frente do hang)\n\n", index);
+  WriteCommands(f, index >= kRing ? index - kRing + 1 : 1, index, kRing, 0, 0);
+  std::fclose(f);
+  REXLOG_INFO("Renut: anel da GPU no hang (comando {}): {}", index, path.string());
+}
+
 void OnDeviceLost() {
   static std::once_flag once;
   std::call_once(once, [] {
