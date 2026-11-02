@@ -111,7 +111,7 @@
     <string name="settings_touch_opacity">Opacidade</string>
     <string name="settings_touch_haptics">Vibrar ao tocar</string>
     <string name="settings_touch_edit">Editar layout</string>
-    <string name="settings_touch_helpers_note">Layout de combate: ataque leve/forte, pulo e ação no losango; Blade Mode (LB), Ninja Run (RB), mira (RT), arma secundária (LT) e esquiva (X+A) em volta. Arraste num ponto livre do lado direito para mover a câmera; um toque rápido a centraliza. No jogo, a engrenagem (canto de cima à esquerda) abre estas opções com o jogo pausado.</string>
+    <string name="settings_touch_helpers_note">Layout de combate: ataque leve/forte, pulo e ação no losango; Blade Mode (LT), Ninja Run (RT), mira (RB), arma secundária (LB) e esquiva (X+A) em volta. Arraste num ponto livre do lado direito para mover a câmera; um toque rápido a centraliza. No jogo, a engrenagem (canto de cima à esquerda) abre estas opções com o jogo pausado.</string>
     <string name="settings_touch_reset_title">Restaurar o layout?</string>
     <string name="settings_touch_reset_text">Todos os botões voltam ao lugar, tamanho e opacidade padrão. As suas macros são apagadas.</string>
     <string name="settings_physical_pad">Controle físico</string>
@@ -333,7 +333,7 @@
     <string name="debug_selftest_text">Autoteste do render: no jogo, abra o menu → Depuração → Autoteste do render. Ele congela a imagem sozinho, desliga os atalhos da GPU um a um e compara as imagens.</string>
     <string name="controls_scheme_title">Controles do MGR na tela</string>
     <string name="controls_scheme_sub">O mínimo de botões, combos já juntos</string>
-    <string name="controls_scheme_text">Analógico esquerdo: andar · arrastar à direita: câmera (toque = centralizar, R3)\nX ataque leve (+ analógico na direção do inimigo = aparar) · Y ataque forte · A pular · B ação / agarrar no Zandatsu\nLB segurar: Blade Mode (corte arrastando a câmera ou com X/Y) · RB segurar: Ninja Run · RT mira · LT arma secundária\nBotão de esquiva = X+A (com uma direção) · cruz pequena: ↑ Augment, ← → armas/itens, ↓ usar item · L3+R3: Ripper Mode\nStart pausa · Back Codec</string>
+    <string name="controls_scheme_text">Analógico esquerdo: andar · arrastar à direita: câmera (toque = centralizar, R3)\nX ataque leve (+ analógico na direção do inimigo = aparar) · Y ataque forte · A pular · B ação / agarrar no Zandatsu\nLT: Blade Mode (corte deslizando no lado direito ou com X/Y) · RT segurar: Ninja Run · RB mira · LB arma secundária\nBotão de esquiva = X+A (com uma direção) · cruz pequena: ↑ Augment, ← → armas/itens, ↓ usar item · L3+R3: Ripper Mode\nStart pausa · Back Codec</string>
     <string name="helper_dodge">Esquiva (X+A)</string>
     <string name="helper_ripper">Ripper Mode (L3+R3)</string>
     <string name="helper_augment">Augment Mode (↑)</string>

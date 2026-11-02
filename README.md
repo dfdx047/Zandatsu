@@ -28,6 +28,8 @@
 | Blade Mode por toque · Touch Blade Mode · Blade Mode táctil | Tamanho de todos os botões: 60%, 100% e 150% · Size of all buttons · Tamaño de todos los botones |
 | ![Teste e mapeamento do controle](docs/assets/v1.2/mapeador.jpg) | ![Save manager](docs/assets/v1.2/saves.jpg) |
 | Controle externo: teste ao vivo e mapeamento · External controller: live test and mapping · Mando externo: prueba en vivo y mapeo | Saves: exportar, listar e restaurar · Saves: export, list and restore · Partidas: exportar, listar y restaurar |
+| ![Opções dos controles](docs/assets/v1.2/controles-opcoes.jpg) | |
+| Opções da aba Controles: tamanho dos botões, Blade Mode (Alterna ou Segurar) · Controls tab options: button size, Blade Mode (Toggle or Hold) · Opciones de la pestaña Controles: tamaño de los botones, Blade Mode (Alternar o Mantener) | |
 
 ### Da v1.1 · From v1.1 · De la v1.1
 

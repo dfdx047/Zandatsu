@@ -38,9 +38,7 @@ Zandatsu v1.2.
     Emulado; escolher o nativo à mão continua possível. Causa não encontrada.
 13. **Correções ainda sem teste nos aparelhos afetados:** crash ao cortar o Sundowner (#16, #18, #31), imagem cortada em Mali-G710/G720 (#13,
     #23) e fechamento com o driver do sistema em Snapdragon recentes. Se continuar, mande o log.
-14. **Blade Mode por toque:** o corte por deslize com o analógico esquerdo ao mesmo tempo ainda precisa de mais teste. Se não sair como
-    esperado, use "Segurar".
-15. **Tamanho dos botões:** a partir de cerca de 150%, os botões na tela se sobrepõem.
+14. **Tamanho dos botões:** a partir de cerca de 150%, os botões na tela se sobrepõem.
 
 ## English
 
@@ -78,8 +76,7 @@ Zandatsu v1.2.
     can still choose Native by hand. Cause not found.
 13. **Fixes not tested yet on the affected devices:** the crash when cutting Sundowner (#16, #18, #31), the cut-off picture on Mali-G710/G720
     (#13, #23) and closing on the system driver on recent Snapdragons. If it still happens, send the log.
-14. **Touch Blade Mode:** swipe cuts while using the left stick still need more testing. If it doesn't work as expected, use "Hold".
-15. **Button size:** from about 150%, the on-screen buttons overlap.
+14. **Button size:** from about 150%, the on-screen buttons overlap.
 
 ## Español
 
@@ -119,5 +116,4 @@ Zandatsu v1.2.
     Emulado; aún puedes elegir el nativo a mano. Causa no encontrada.
 13. **Correcciones aún sin probar en los dispositivos afectados:** el cierre al cortar a Sundowner (#16, #18, #31), la imagen cortada en
     Mali-G710/G720 (#13, #23) y el cierre con el driver del sistema en Snapdragon recientes. Si sigue pasando, envía el log.
-14. **Blade Mode táctil:** el corte deslizando con el stick izquierdo a la vez aún necesita más pruebas. Si no sale como esperas, usa "Mantener".
-15. **Tamaño de los botones:** a partir de cerca de 150%, los botones en pantalla se superponen.
+14. **Tamaño de los botones:** a partir de cerca de 150%, los botones en pantalla se superponen.

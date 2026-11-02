@@ -13,6 +13,8 @@ Nenhum arquivo do jogo incluído · No game files included · No incluye archivo
 | Controle externo: teste ao vivo e mapeamento · External controller: live test and mapping · Mando externo: prueba en vivo y mapeo | Saves: exportar e listar · Saves: export and list · Partidas: exportar y listar |
 | ![Restaurar](assets/v1.2/restaurar.jpg) | ![Modo mais estável](assets/v1.2/modo-estavel.jpg) |
 | Restaurar com confirmação e backup automático · Restore with confirmation and automatic backup · Restaurar con confirmación y copia automática | Aviso depois de um hang da GPU · Message after a GPU hang · Aviso después de un cuelgue de la GPU |
+| ![Opções dos controles](assets/v1.2/controles-opcoes.jpg) | |
+| Opções da aba Controles: tamanho dos botões, Blade Mode (Alterna ou Segurar) · Controls tab options: button size, Blade Mode (Toggle or Hold) · Opciones de la pestaña Controles: tamaño de los botones, Blade Mode (Alternar o Mantener) | |
 
 ### Português (Brasil)
 
@@ -22,6 +24,7 @@ Controle na tela
 - Troca entre menu e luta refeita (#15). Antes dependia de uma bandeira que desligava no meio do jogo normal: nos logs, uma troca a cada 11 s (mediana) e até 179 numa sessão. Agora só o modo do jogo manda: transições não trocam, e depois de uma troca há um tempo mínimo sem outra.
 - Nova opção "Troca automática de layout", em Controles. Desligada, só o botão de troca muda o layout. Trocar à mão segura o layout até o jogo mudar de modo.
 - Blade Mode por toque: a opção "Blade Mode (LT)" traz Alterna e Segurar. Em Alterna, um toque em LT entra e outro sai. Com ele ligado, deslize o dedo no lado direito da tela para cortar: a direção do deslize é o ângulo do corte. X e Y continuam para cortes rápidos e o analógico esquerdo fica livre. Ao sair da luta (pausa, game over, cena), o Blade Mode se solta.
+- A ajuda da aba Controles descrevia o layout antigo: agora diz LT Blade Mode, RT Ninja Run, RB mira e LB arma secundária.
 - Perfis de layout: salvar com nome, carregar e apagar.
 - Tamanho de todos os botões, de 50% a 160%. Os botões não saem mais da tela.
 
@@ -57,7 +60,6 @@ Problemas conhecidos
 - Widescreen pode dar pequenas piscadas em alguns aparelhos: mande o log.
 - Adreno 650 com o Turnip MrPurple: hang da GPU. O jogo volta ao launcher com um aviso, e o modo mais estável liga sozinho.
 - A partir de cerca de 150% de tamanho, os botões na tela se sobrepõem.
-- Blade Mode por toque: o corte por deslize com o analógico esquerdo ao mesmo tempo ainda precisa de mais teste. Se não sair como esperado, use "Segurar" e mande o log.
 - Lista completa: docs/KNOWN_ISSUES.md no GitHub.
 
 ### English
@@ -68,6 +70,7 @@ Touch controls
 - Menu and fight switching rebuilt (#15). It relied on a flag that turned off during normal play: in the logs, one switch every 11 s (median) and up to 179 in a session. Now only the game's mode decides: transitions don't switch, and after a switch there is a minimum time before another.
 - New "Automatic layout switch" option in Controls. When off, only the switch button changes the layout. Switching by hand holds that layout until the game changes mode.
 - Touch Blade Mode: the "Blade Mode (LT)" option offers Toggle and Hold. With Toggle, one tap on LT enters and another leaves. While it's on, swipe on the right side of the screen to cut: the swipe direction is the cut angle. X and Y still do quick cuts and the left stick stays free. When you leave the fight (pause, game over, cutscene), Blade Mode releases.
+- The Controls tab help described the old layout: it now says LT Blade Mode, RT Ninja Run, RB lock-on and LB sub-weapon.
 - Layout profiles: save with a name, load and delete.
 - Size of all buttons, from 50% to 160%. Buttons no longer leave the screen.
 
@@ -103,7 +106,6 @@ Known issues
 - Widescreen may flicker briefly on some devices: please send the log.
 - Adreno 650 with Turnip MrPurple: GPU hang. The game goes back to the launcher with a message, and the more stable mode turns on by itself.
 - From about 150% size, the on-screen buttons overlap.
-- Touch Blade Mode: swipe cuts while using the left stick still need more testing. If it doesn't work as expected, use "Hold" and send the log.
 - Full list: docs/KNOWN_ISSUES.md on GitHub.
 
 ### Español
@@ -114,6 +116,7 @@ Controles táctiles
 - Cambio entre menú y combate rehecho (#15). Dependía de una bandera que se apagaba en medio del juego normal: en los logs, un cambio cada 11 s (mediana) y hasta 179 en una sesión. Ahora solo manda el modo del juego: las transiciones no cambian y, después de un cambio, hay un tiempo mínimo sin otro.
 - Nueva opción "Cambio automático de diseño", en Controles. Desactivada, solo el botón de cambio cambia el diseño. Cambiar a mano mantiene el diseño hasta que el juego cambie de modo.
 - Blade Mode táctil: la opción "Blade Mode (LT)" trae Alternar y Mantener. Con Alternar, un toque en LT entra y otro sale. Con él activo, desliza el dedo en el lado derecho de la pantalla para cortar: la dirección del deslizamiento es el ángulo del corte. X e Y siguen para cortes rápidos y el stick izquierdo queda libre. Al salir del combate (pausa, game over, cinemática), el Blade Mode se suelta.
+- La ayuda de la pestaña Controles describía el diseño antiguo: ahora dice LT Blade Mode, RT Ninja Run, RB fijar y LB arma secundaria.
 - Perfiles de diseño: guardar con nombre, cargar y borrar.
 - Tamaño de todos los botones, de 50% a 160%. Los botones ya no se salen de la pantalla.
 
@@ -149,7 +152,6 @@ Problemas conocidos
 - La panorámica puede parpadear un poco en algunos dispositivos: envía el log.
 - Adreno 650 con Turnip MrPurple: cuelgue de la GPU. El juego vuelve al launcher con un aviso, y el modo más estable se activa solo.
 - A partir de cerca de 150% de tamaño, los botones en pantalla se superponen.
-- Blade Mode táctil: el corte deslizando con el stick izquierdo a la vez aún necesita más pruebas. Si no sale como esperas, usa "Mantener" y envía el log.
 - Lista completa: docs/KNOWN_ISSUES.md en GitHub.
 
 ---

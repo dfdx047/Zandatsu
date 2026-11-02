@@ -112,7 +112,7 @@
     <string name="settings_touch_opacity">Opacity</string>
     <string name="settings_touch_haptics">Vibrate on touch</string>
     <string name="settings_touch_edit">Edit layout</string>
-    <string name="settings_touch_helpers_note">Combat layout: light/strong attack, jump and action in the diamond; Blade Mode (LB), Ninja Run (RB), lock-on (RT), sub-weapon (LT) and dodge (X+A) around it. Drag a free spot on the right side to move the camera; a quick tap centers it. In game, the gear (top left) opens these options with the game paused.</string>
+    <string name="settings_touch_helpers_note">Combat layout: light/strong attack, jump and action in the diamond; Blade Mode (LT), Ninja Run (RT), lock-on (RB), sub-weapon (LB) and dodge (X+A) around it. Drag a free spot on the right side to move the camera; a quick tap centers it. In game, the gear (top left) opens these options with the game paused.</string>
     <string name="settings_touch_reset_title">Reset the layout?</string>
     <string name="settings_touch_reset_text">Every button goes back to the default place, size and opacity. Your macros are removed.</string>
     <string name="settings_physical_pad">Physical controller</string>
@@ -334,7 +334,7 @@
     <string name="debug_selftest_text">Render self-test: in the game, open the menu → Debug → Render self-test. It freezes the picture by itself, turns the GPU shortcuts off one by one and compares pictures.</string>
     <string name="controls_scheme_title">MGR controls on the touch screen</string>
     <string name="controls_scheme_sub">The fewest buttons, combos already joined</string>
-    <string name="controls_scheme_text">Left stick: walk · drag on the right: camera (tap = center, R3)\nX light attack (+ stick toward the enemy = parry) · Y strong attack · A jump · B action / Zandatsu grab\nLB hold: Blade Mode (cut with the camera drag or X/Y) · RB hold: Ninja Run · RT lock-on · LT sub-weapon\nDodge button = X+A (with a direction) · small cross: ↑ Augment, ← → weapons/items, ↓ use item · L3+R3: Ripper Mode\nStart pause · Back Codec</string>
+    <string name="controls_scheme_text">Left stick: walk · drag on the right: camera (tap = center, R3)\nX light attack (+ stick toward the enemy = parry) · Y strong attack · A jump · B action / Zandatsu grab\nLT: Blade Mode (cut by swiping on the right side or with X/Y) · RT hold: Ninja Run · RB lock-on · LB sub-weapon\nDodge button = X+A (with a direction) · small cross: ↑ Augment, ← → weapons/items, ↓ use item · L3+R3: Ripper Mode\nStart pause · Back Codec</string>
     <string name="helper_dodge">Dodge (X+A)</string>
     <string name="helper_ripper">Ripper Mode (L3+R3)</string>
     <string name="helper_augment">Augment Mode (↑)</string>
