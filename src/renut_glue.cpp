@@ -24,6 +24,7 @@
 #include "renut_engine/gpu/sa2_renut_yield.h"
 
 REXCVAR_DECLARE(std::string, present_effect);  // SDK (ui/presenter.cpp)
+REXCVAR_DECLARE(std::string, swordman_renut_compact_sets);  // Renut (renut/0028)
 REXCVAR_DECLARE(std::string, swordman_renut_bc_decode);  // Renut (renut/0020): texturas BC sem suporte do driver
 
 REXCVAR_DEFINE_STRING(swordman_renderer, "xenos", "SwordMan",
@@ -302,6 +303,14 @@ bool SwordManRenutDeviceSupported(std::string* why) {
     // o layout em 5 (renut/0020, SetDrawSetsCompact). No Adreno nao: o Turnip diz 4 mas sempre ligou os 8.
     if (p.properties.vendorID != 0x5143) {
       need(p.properties.limits.maxBoundDescriptorSets >= 5, "5-descriptor-sets");
+    }
+    // Issues e logs de 30/10 (Adreno 810 e 830, 735): o driver Qualcomm diz 7 e rebenta dentro do
+    // vkCreatePipelineLayout com os 8 sets (SIGSEGV 0x100000019): layout compacto, como na Mali (renut/0028).
+    if (p12.driverID == VK_DRIVER_ID_QUALCOMM_PROPRIETARY && p.properties.limits.maxBoundDescriptorSets < 8 &&
+        REXCVAR_GET(swordman_renut_compact_sets) == "auto") {
+      REXCVAR_SET(swordman_renut_compact_sets, std::string("on"));
+      REXLOG_INFO("Renut: driver Qualcomm com {} descriptor sets: layout compacto",
+                  p.properties.limits.maxBoundDescriptorSets);
     }
     REXLOG_INFO("Renut: limites maxBoundDescriptorSets {} maxPerStageDescriptorUpdateAfterBindSampledImages {} "
                 "maxDescriptorSetUpdateAfterBindSampledImages {} maxPerStageUpdateAfterBindResources {} "

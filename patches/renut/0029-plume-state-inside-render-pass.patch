@@ -1,0 +1,19 @@
+Zandatsu (01/11, issues #13 e #23): viewport e scissor repetidos dentro de cada passe de render, contra o recorte herdado nas Mali-G710/G720.
+
+--- a/app/thirdparty/plume/plume_vulkan.cpp
++++ b/app/thirdparty/plume/plume_vulkan.cpp
+@@ -4424,6 +4424,14 @@
+             }
+             vkCmdBeginRenderPass(vk, &beginInfo, VkSubpassContents::VK_SUBPASS_CONTENTS_INLINE);
+             activeRenderPass = beginInfo.renderPass;
++#if defined(__ANDROID__)
++            // Zandatsu (renut/0029, issues #13 e #23): nas Mali-G710/G720 a imagem final sai recortada em coordenadas de
++            // tela (1024x720 a 720p, 1536x1080 a 1080p), como se o passe da swapchain herdasse o recorte de um passe
++            // anterior. O viewport e o scissor sao gravados antes do passe abrir (abre no primeiro draw): repetidos
++            // aqui, dentro do passe, o driver nao tem estado antigo a usar.
++            if (viewportBound) vkCmdSetViewport(vk, 0, 1, &boundViewport);
++            if (scissorBound) vkCmdSetScissor(vk, 0, 1, &boundScissor);
++#endif
+             if (mask != 0 && clearPass == VK_NULL_HANDLE) {
+                 // Sem a variante do passe: os clears como antes, ja dentro do passe.
+                 const VkClearRect rect = { { { 0, 0 }, { targetFramebuffer->width, targetFramebuffer->height } }, 0, 1 };

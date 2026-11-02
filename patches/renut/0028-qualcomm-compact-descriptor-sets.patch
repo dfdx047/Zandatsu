@@ -1,0 +1,29 @@
+Zandatsu (01/11, logs 30/10): driver Qualcomm no Adreno 7xx Gen 3/8xx com menos de 8 descriptor sets usa o layout compacto (swordman_renut_compact_sets).
+
+--- a/app/src/renut_engine/gpu/backend/video.cpp
++++ b/app/src/renut_engine/gpu/backend/video.cpp
+@@ -80,6 +80,12 @@
+ 
+ // SwordMan (Android): swordman_renut_no_gs = true skips the geometry shaders (BuildRectangleListShader) on a device that has them (a test of Turnip's geometry
+ // shaders: the intermittent GPU hang in combat, 24/10).
++REXCVAR_DEFINE_STRING(swordman_renut_compact_sets, "auto", "SwordMan",
++                      "Renut: layout compacto de descriptor sets no Adreno (auto = so com o driver Qualcomm abaixo de 8 "
++                      "sets; on; off)")
++    .allowed({"auto", "on", "off"})
++    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
++
+ REXCVAR_DEFINE_BOOL(swordman_renut_no_gs, false, "SwordMan",
+                     "Renut (diagnostic): no geometry shaders (rectangle lists as triangle lists, point sprites as "
+                     "points)")
+@@ -1064,7 +1070,10 @@
+   // SwordMan (Android): Mali-G57 (r40) binds 7 descriptor sets; the draw layout has 8 unless compacted. Not on Adreno:
+   // Turnip reports 4 there but has always bound the 8 (the layout the Renut is validated with).
+   const bool adreno = uint32_t(s.device->getDescription().vendor) == 0x5143;
+-  SetDrawSetsCompact(IsVulkan() && !adreno && s.device->getCapabilities().maxBoundDescriptorSets < 8);
++  // Zandatsu (renut/0028): the Qualcomm driver on Adreno 7xx Gen 3 / 8xx binds 7 too and crashes inside
++  // vkCreatePipelineLayout (fault 0x100000019) with 8; src/renut_glue.cpp asks for the compact layout there.
++  SetDrawSetsCompact(IsVulkan() && s.device->getCapabilities().maxBoundDescriptorSets < 8 &&
++                     (!adreno || REXCVAR_GET(swordman_renut_compact_sets) == "on"));
+   if (DrawSetsCompact())
+     RGPU_INFO("Draw layout: compact descriptor sets ({} bound at most)", s.device->getCapabilities().maxBoundDescriptorSets);
+   if (!BuildUtilityLayout(s) || !BuildSamplers(s) || !BuildNullTexture(s) ||
