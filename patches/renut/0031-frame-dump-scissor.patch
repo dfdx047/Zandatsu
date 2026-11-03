@@ -1,0 +1,15 @@
+Zandatsu (02/11, minimapa nas Mali de tres digitos): o dump de um frame passa a dizer o scissor, o viewport e os planos de recorte de cada draw. So diagnostico: sem efeito com o dump desligado.
+
+--- a/app/src/renut_engine/gpu/render/draw.cpp
++++ b/app/src/renut_engine/gpu/render/draw.cpp
+@@ -5063,6 +5063,10 @@
+       line += fmt::format(" z {:08X} {}x{} f{}", targets.depth->guest_va, targets.depth->width,
+                           targets.depth->height, int(targets.depth->format));
+     line += fmt::format(" | dc {:08X} bl {:08X} m {:X} |", key.depth_control, key.blend_control[0], key.color_mask);
++    // Zandatsu (renut/0031, minimapa nas Mali): o que recorta o draw.
++    line += fmt::format(" sc {},{}-{},{} vp {},{} {}x{} clip {:08X} |", viewport.scissor.left, viewport.scissor.top,
++                        viewport.scissor.right, viewport.scissor.bottom, viewport.viewport.x, viewport.viewport.y,
++                        viewport.viewport.width, viewport.viewport.height, u32(dev.m_ControlPacket.ClipControl));
+     for (u32 r = 0; r < d3d::kTextureFetchSlots; ++r) {
+       if (!(texture_mask & (1u << r)))
+         continue;

@@ -1,0 +1,188 @@
+Zandatsu (02/11, issues #2 e #36): nas Mali de tres digitos cada troca de scissor abre outro passe, com o renderArea do scissor (o minimapa saia na tela inteira). Em widescreen, um resolve nao e largado quando so a largura da tela difere (as piscadas). Tentativa nas Mali, sem aparelho no projeto para confirmar.
+
+--- a/app/thirdparty/plume/plume_vulkan.cpp
++++ b/app/thirdparty/plume/plume_vulkan.cpp
+@@ -186,6 +186,15 @@
+     static std::atomic<uint64_t> AndroidPassStats[12];
+     static std::atomic<bool> AndroidClearFold{ true };
+ 
++    // Zandatsu (renut/0032, issues #2 e #36): nas Mali de tres digitos uma troca de scissor no meio do passe nao vale (o
++    // quadro do minimapa, 180x180, sai na tela inteira). A troca fecha o passe, e o seguinte abre com o renderArea do
++    // scissor. So 4 trocas por frame no MGR, todas no HUD (dump de um frame em combate).
++    static std::atomic<bool> AndroidScissorPass{ false };
++
++    void SetAndroidScissorPass(bool enabled) {
++        AndroidScissorPass.store(enabled, std::memory_order_relaxed);
++    }
++
+     void GetAndroidPassStats(uint64_t out[12]) {
+         for (int i = 0; i < 12; i++) {
+             out[i] = AndroidPassStats[i].load(std::memory_order_relaxed);
+@@ -3924,6 +3933,11 @@
+                 return;
+             }
+ 
++#if defined(__ANDROID__)
++            if (activeRenderPass != VK_NULL_HANDLE && AndroidScissorPass.load(std::memory_order_relaxed)) {
++                endActiveRenderPass();
++            }
++#endif
+             vkCmdSetScissor(vk, 0, 1, &scissor);
+             boundScissor = scissor;
+             scissorBound = true;
+@@ -4003,8 +4017,16 @@
+                 return;
+             }
+         }
++        // Zandatsu (renut/0032): o retangulo do clear pode sair do renderArea do scissor.
++        if (androidAreaShrunk) {
++            endActiveRenderPass();
++        }
++        androidForceFullArea = true;
+ #endif
+         checkActiveRenderPass();
++#if defined(__ANDROID__)
++        androidForceFullArea = false;
++#endif
+ 
+         thread_local std::vector<VkClearRect> rectVector;
+         clearCommonRectVector(targetFramebuffer->getWidth(), targetFramebuffer->getHeight(), clearRects, clearRectsCount, rectVector);
+@@ -4040,8 +4062,16 @@
+                 }
+             }
+         }
++        // Zandatsu (renut/0032): como no clearColor.
++        if (androidAreaShrunk) {
++            endActiveRenderPass();
++        }
++        androidForceFullArea = true;
+ #endif
+         checkActiveRenderPass();
++#if defined(__ANDROID__)
++        androidForceFullArea = false;
++#endif
+ 
+         thread_local std::vector<VkClearRect> rectVector;
+         clearCommonRectVector(targetFramebuffer->getWidth(), targetFramebuffer->getHeight(), clearRects, clearRectsCount, rectVector);
+@@ -4412,6 +4442,19 @@
+                 AndroidPassStats[3].fetch_add(uint64_t(__builtin_popcount(mask & 0xFF) + ((mask & 0x300) ? 1 : 0)),
+                                               std::memory_order_relaxed);
+             }
++            // Zandatsu (renut/0032): um clear no abrir do passe ou dentro dele precisa do alvo inteiro.
++            androidAreaShrunk = false;
++            if (mask == 0 && !androidForceFullArea && scissorBound && AndroidScissorPass.load(std::memory_order_relaxed)) {
++                const int32_t x1 = std::max(boundScissor.offset.x, 0);
++                const int32_t y1 = std::max(boundScissor.offset.y, 0);
++                const int32_t x2 = std::min(boundScissor.offset.x + int32_t(boundScissor.extent.width), int32_t(targetFramebuffer->width));
++                const int32_t y2 = std::min(boundScissor.offset.y + int32_t(boundScissor.extent.height), int32_t(targetFramebuffer->height));
++                if (x2 > x1 && y2 > y1 && (uint32_t(x2 - x1) < targetFramebuffer->width || uint32_t(y2 - y1) < targetFramebuffer->height)) {
++                    beginInfo.renderArea.offset = { x1, y1 };
++                    beginInfo.renderArea.extent = { uint32_t(x2 - x1), uint32_t(y2 - y1) };
++                    androidAreaShrunk = true;
++                }
++            }
+             AndroidPassStats[0].fetch_add(1, std::memory_order_relaxed);
+             if (targetFramebuffer == lastEndedFramebuffer) {
+                 AndroidPassStats[1].fetch_add(1, std::memory_order_relaxed);
+--- a/app/thirdparty/plume/plume_vulkan.h
++++ b/app/thirdparty/plume/plume_vulkan.h
+@@ -294,6 +294,8 @@
+     // pelo que fechou o passe (r: 1 barreira, 2 setFramebuffer, 3 copyBufferRegion, 4 copyTextureRegion, 5 copyBuffer,
+     // 6 copyTexture, 7 fim da lista).
+     void GetAndroidPassStats(uint64_t out[12]);
++    // Zandatsu (renut/0032): cada troca de scissor abre outro passe, com o renderArea do scissor.
++    void SetAndroidScissorPass(bool enabled);
+     void SetAndroidClearFold(bool enabled);
+ #endif
+ 
+@@ -349,6 +351,8 @@
+         const VulkanPipelineLayout *activeGraphicsPipelineLayout = nullptr;
+         const VulkanPipelineLayout *activeRaytracingPipelineLayout = nullptr;
+         VkRenderPass activeRenderPass = VK_NULL_HANDLE;
++        bool androidAreaShrunk = false;
++        bool androidForceFullArea = false;
+ #if defined(__ANDROID__)
+         // Zandatsu (renut/0027): clears do alvo inteiro antes do primeiro draw do passe, feitos pelo loadOp CLEAR.
+         uint32_t pendingClearMask = 0;
+--- a/app/src/renut_engine/gpu/backend/present.cpp
++++ b/app/src/renut_engine/gpu/backend/present.cpp
+@@ -16,6 +16,9 @@
+ #include <string>
+ 
+ #include <plume_render_interface.h>
++#if defined(__ANDROID__)
++#include <plume_vulkan.h>  // Zandatsu (renut/0032)
++#endif
+ 
+ #include <rex/cvar.h>
+ #include <rex/perf/frame_rate.h>  // Zandatsu (renut/0025): the display's refresh, the presents
+@@ -39,6 +42,9 @@
+ 
+ // banjo-nx (2026-10-17, deko3d renderer tests): the captures copy the game's frame texture as it is (4-byte formats only,
+ // its channels as BGRA), without the scan-out pass: which of the two a wrong capture comes from.
++REXCVAR_DEFINE_STRING(swordman_renut_scissor_pass, "auto", "Banjo/Renut",
++                      "Zandatsu: each scissor change opens another render pass with the scissor as its render area: "
++                      "auto (three-digit Mali GPUs), true or false");
+ REXCVAR_DEFINE_STRING(swordman_renut_present_own_list, "auto", "Banjo/Renut",
+                       "Zandatsu: the output to the screen in a command list of its own: auto (three-digit Mali GPUs), "
+                       "true or false");
+@@ -145,7 +151,20 @@
+   return false;
+ }
+ 
++// Zandatsu (renut/0032, issues #2 e #36): o minimapa fora do quadro nas mesmas Mali; ver plume_vulkan.cpp.
++void ApplyScissorPass(VideoState &s) {
++  static const bool done = [&] {
++    const std::string mode = REXCVAR_GET(swordman_renut_scissor_pass);
++    const bool on = mode == "true" || (mode != "false" && MaliWithThreeDigits(s.device->getDescription().name));
++    plume::SetAndroidScissorPass(on);
++    RGPU_INFO("swordman_renut_scissor_pass = {}: {}", mode, on ? "um passe por scissor" : "scissor no mesmo passe");
++    return true;
++  }();
++  (void)done;
++}
++
+ bool UseOwnPresent(VideoState &s) {
++  ApplyScissorPass(s);
+   static const bool wanted = [&] {
+     const std::string mode = REXCVAR_GET(swordman_renut_present_own_list);
+     const bool on = mode == "true" || (mode != "false" && MaliWithThreeDigits(s.device->getDescription().name));
+--- a/app/src/renut_engine/gpu/render/textures.cpp
++++ b/app/src/renut_engine/gpu/render/textures.cpp
+@@ -21,6 +21,7 @@
+ #include "renut_engine/gpu/backend/gpu_profile.h"
+ #include "renut_engine/gpu/d3d/d3d.h"
+ #include "renut_engine/gpu/guest/guest_memory.h"
++#include "renut_engine/gpu/guest/widescreen.h"
+ #include "renut_engine/gpu/log.h"
+ #include "renut_engine/gpu/render/draw.h"
+ #include "renut_engine/gpu/render/graphics_options.h"
+@@ -773,6 +774,19 @@
+   return a[1] == b[1] && a[2] == b[2] && (a[5] & kDimensionMask) == (b[5] & kDimensionMask);
+ }
+ 
++// Zandatsu (renut/0032, as piscadas do widescreen): a copia da tela feita a 1280 e a mesma com a largura da tela
++// (WidenScreenTexture) so diferem na largura. Largar o que o resolve escreveu faz um frame a partir da memoria do jogo.
++bool OnlyWidened(const u32 a[6], const u32 b[6]) {
++  constexpr u32 kDimensionMask = 0x600u;
++  constexpr u32 kWidthMask = 0x1FFFu;
++  const u32 narrow = 1280u - 1u, wide = GuestScreenWidth() - 1u;
++  if (wide <= narrow || a[1] != b[1] || (a[2] & ~kWidthMask) != (b[2] & ~kWidthMask) ||
++      (a[5] & kDimensionMask) != (b[5] & kDimensionMask))
++    return false;
++  const u32 wa = a[2] & kWidthMask, wb = b[2] & kWidthMask;
++  return (wa == narrow && wb == wide) || (wa == wide && wb == narrow);
++}
++
+ // The resolve destination another header wrote this texture's memory through,
+ // when it holds the same data (SameData). Only the GPU has what the resolve
+ // wrote.
+@@ -1331,7 +1345,7 @@
+   // its header only in fields that leave the data alone (the mip range, say)
+   // keeps what the resolve wrote.
+   if (slot && std::memcmp(slot->desc, desc, sizeof(desc)) != 0 &&
+-      !(slot->gpu_written && SameData(slot->desc, desc))) {
++      !(slot->gpu_written && (SameData(slot->desc, desc) || OnlyWidened(slot->desc, desc)))) {
+     // banjo-nx (2026-10-18, the one-frame colour flashes): a texture only the GPU has the content of, thrown away for a
+     // fetch constant that reads the memory otherwise; the new one is filled from guest memory, which the resolve never
+     // wrote (zero: green through the game's colour encoding on deko3d; stale on Vulkan).
