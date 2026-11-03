@@ -101,6 +101,10 @@
     <string name="settings_aniso">Anisotropic filtering</string>
     <string name="settings_aspect">Aspect ratio</string>
     <string name="settings_aspect_mode">Image</string>
+    <string name="aspect_auto">Automatic</string>
+    <string name="aspect_auto_sub">Automatic follows this device\'s screen: Widescreen on screens wider than 16:9, Original 16:9 on the others.</string>
+    <string name="resolution_screen">Use screen resolution</string>
+    <string name="resolution_screen_sub">Screen detected: %1$dx%2$d. The game renders at %3$s, the lowest available height that covers the screen. It can be much heavier on the GPU.</string>
     <string name="aspect_original">Original 16:9</string>
     <string name="aspect_stretch">Stretch to fill</string>
     <string name="aspect_widescreen">Widescreen</string>

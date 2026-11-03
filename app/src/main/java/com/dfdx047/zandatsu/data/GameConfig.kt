@@ -14,6 +14,8 @@ import java.io.File
 data class GameConfig(
     // Desempenho / imagem
     val resolution: InternalResolution = InternalResolution.P720,  // draw_resolution_scale_x/y + draw_resolution_percent
+    // 02/11: a resolucao segue a tela deste aparelho (ScreenInfo.matchedResolution), relida a cada abertura.
+    val resolutionScreen: Boolean = false,
     val presentEffect: String = "bilinear",   // present_effect bilinear|cas|fsr
     val fsrQuality: String = "auto",          // present_fsr_quality_mode
     val fsrSharpness: Double = 0.2,           // present_fsr_sharpness_reduction 0-2 (0 = mais nitido)
@@ -42,8 +44,9 @@ data class GameConfig(
     val fpsDetail: String = "full",           // debug_overlay_detail: full / simple (SDK 0185)
     // Proporcao (26/10): original = 16:9 com barras, stretch = esticar ate a tela (present_letterbox no Xenia,
     // swordman_aspect no Renut), widescreen = o jogo desenha na proporcao da tela (hor+, so no Renut, experimental;
-    // no Xenia fica como original).
-    val aspect: String = "original",
+    // no Xenia fica como original). 02/11: auto = decidido pela tela de cada aparelho (effectiveAspect), o padrao de
+    // quem ainda nao tem configuracao; quem ja tem fica com a escolha gravada.
+    val aspect: String = "auto",
     val volume: Int = 100,                    // volume geral 0-100 (app, rex::audio::SetOutputGain)
     val vibration: Boolean = true,            // vibration
     val deadzone: Double = 0.0,               // left/right_stick_deadzone_percentage 0-0.5
@@ -79,6 +82,13 @@ data class GameConfig(
      */
     val useRenut: Boolean get() = renderer != "xenos" && RenutSupport.supported() &&
         (renderer == "renut" || (RenutSupport.validatedGpu() && !RenutSupport.autoFailed()))
+
+    /** O que vai para os cvars: auto = widescreen numa tela mais larga que 16:9 no Renut, senao original. */
+    val effectiveAspect: String get() = when {
+        aspect != "auto" -> aspect
+        useRenut && ScreenInfo.widerThan16x9 -> "widescreen"
+        else -> "original"
+    }
 
     /**
      * sa2_render_height_handheld: as alturas que o Renut faz no Android (escalas de render_scale.h: 540p pelo patch
@@ -159,8 +169,10 @@ data class GameConfig(
             "debug_overlay" to showFps,
             "debug_overlay_detail" to fpsDetail,
             "debug_overlay_language" to overlayLanguage(),
-            "present_letterbox" to (aspect != "stretch"),
-            "swordman_aspect" to aspect,
+            "present_letterbox" to (effectiveAspect != "stretch"),
+            "swordman_aspect" to effectiveAspect,
+            "swordman_aspect_choice" to aspect,
+            "swordman_resolution_screen" to resolutionScreen,
             "vibration" to vibration,
             "left_stick_deadzone_percentage" to deadzone.coerceIn(0.0, 1.0),
             "right_stick_deadzone_percentage" to deadzone.coerceIn(0.0, 1.0),
@@ -245,7 +257,7 @@ data class GameConfig(
 
     companion object {
         val EFFECTS = listOf("bilinear", "cas", "fsr")
-        val ASPECTS = listOf("original", "stretch", "widescreen")
+        val ASPECTS = listOf("auto", "original", "stretch", "widescreen")
         val FSR_QUALITY = listOf("auto", "quality", "balanced", "performance", "ultra_performance")
         val FXAA = listOf("none", "fxaa", "fxaa_extreme")
         /** Pixel shaders do desfoque do brilho do MGR (swordman_skip_ps). */
@@ -303,10 +315,12 @@ data class GameConfig(
             val interp = bool("dbz3_frame_interpolation", false)
             val skip = int("dbz3_frameskip", 0) > 0
             return GameConfig(
-                resolution = InternalResolution.from(
+                resolution = if (bool("swordman_resolution_screen", false)) ScreenInfo.matchedResolution()
+                else InternalResolution.from(
                     int("draw_resolution_scale_x", 1),
                     int("draw_resolution_percent", 100),
                 ),
+                resolutionScreen = bool("swordman_resolution_screen", false),
                 presentEffect = str("present_effect", d.presentEffect).let { if (it in EFFECTS) it else "fsr" },
                 fsrQuality = str("present_fsr_quality_mode", d.fsrQuality).let { if (it in FSR_QUALITY) it else "auto" },
                 fsrSharpness = dbl("present_fsr_sharpness_reduction", d.fsrSharpness),
@@ -331,8 +345,10 @@ data class GameConfig(
                 psFp16 = false,
                 showFps = bool("debug_overlay", d.showFps),
                 fpsDetail = str("debug_overlay_detail", d.fpsDetail).let { if (it == "simple") it else "full" },
-                aspect = str("swordman_aspect", if (bool("present_letterbox", true)) "original" else "stretch")
-                    .let { if (it in ASPECTS) it else "original" },
+                aspect = str(
+                    "swordman_aspect_choice",
+                    str("swordman_aspect", if (bool("present_letterbox", true)) d.aspect else "stretch"),
+                ).let { if (it in ASPECTS) it else d.aspect },
                 volume = int("swordman_volume", d.volume).coerceIn(0, 100),
                 vibration = bool("vibration", d.vibration),
                 deadzone = dbl("left_stick_deadzone_percentage", d.deadzone).coerceIn(0.0, 0.5),
@@ -492,6 +508,7 @@ fun GameConfig.withPreset(p: GraphicsPreset): GameConfig {
     val keep = if (frameRate == 30) 60 else frameRate
     return copy(
         resolution = t.resolution,
+        resolutionScreen = false,
         frameRate = if (t.fps30) 30 else keep,
         frameInterpolation = !t.fps30 && frameInterpolation,
         presentEffect = t.presentEffect,
@@ -787,6 +804,7 @@ fun GameConfig.withRenutPreset(p: RenutPreset): GameConfig {
     val t = p.spec()
     return copy(
         resolution = t.resolution,
+        resolutionScreen = false,
         renutShadows = t.shadows || !RenutValidated.SHADOWS,
         renutBloom = t.bloom || !RenutValidated.BLOOM,
         anisotropic = t.anisotropic,

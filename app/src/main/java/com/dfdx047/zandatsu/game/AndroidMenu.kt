@@ -380,7 +380,7 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
             com.dfdx047.zandatsu.data.XENOS_RESOLUTIONS.map { it to it.label }, c.resolution, restart = true,
         ) { v ->
             set(
-                c.copy(resolution = v),
+                c.copy(resolution = v, resolutionScreen = false),
                 mapOf(
                     "draw_resolution_scale_x" to "${v.scale}",
                     "draw_resolution_scale_y" to "${v.scale}",
@@ -506,8 +506,9 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
     }
 
     private fun aspectChoice(c: GameConfig, reason: String?): MChoice = choice(
-        s(R.string.settings_aspect_mode), reason ?: s(R.string.aspect_widescreen_sub),
+        s(R.string.settings_aspect_mode), (reason ?: s(R.string.aspect_widescreen_sub)) + " " + s(R.string.aspect_auto_sub),
         listOf(
+            "auto" to s(R.string.aspect_auto),
             "original" to s(R.string.aspect_original),
             "stretch" to s(R.string.aspect_stretch),
             "widescreen" to s(R.string.aspect_widescreen),
@@ -515,17 +516,27 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
         if (c.aspect == "widescreen" && reason != null) "original" else c.aspect,
     ) { v ->
         if (v == "widescreen" && reason != null) return@choice
-        set(c.copy(aspect = v), mapOf("present_letterbox" to (v != "stretch").toString(), "swordman_aspect" to v))
+        val next = c.copy(aspect = v)
+        set(next, mapOf("present_letterbox" to (next.effectiveAspect != "stretch").toString(), "swordman_aspect" to next.effectiveAspect))
     }
 
     private fun renutVideoItems(c: GameConfig): List<MenuItem> {
         val list = ArrayList<MenuItem>()
+        val screen = com.dfdx047.zandatsu.data.ScreenInfo
+        list += MToggle(
+            s(R.string.resolution_screen),
+            context.getString(R.string.resolution_screen_sub, screen.long, screen.short, screen.matchedResolution().renutLabel),
+            c.resolutionScreen,
+        ) { on ->
+            val next = if (on) c.copy(resolutionScreen = true, resolution = screen.matchedResolution()) else c.copy(resolutionScreen = false)
+            set(next, mapOf("sa2_render_height_handheld" to "${next.renutHeight}"))
+        }
         list += choice(
             s(R.string.settings_resolution), s(R.string.renut_resolution_sub),
             com.dfdx047.zandatsu.data.RENUT_RESOLUTIONS.map { it to it.renutLabel },
             if (c.resolution in com.dfdx047.zandatsu.data.RENUT_RESOLUTIONS) c.resolution else InternalResolution.P720,
         ) { v ->
-            val next = c.copy(resolution = v)
+            val next = c.copy(resolution = v, resolutionScreen = false)
             set(next, mapOf("sa2_render_height_handheld" to "${next.renutHeight}"))
         }
         list += MInfo(s(R.string.renut_res_experimental))

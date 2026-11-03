@@ -180,7 +180,7 @@ fun PerformanceScreen(vm: LauncherViewModel) {
                 subtitle = stringResource(R.string.perf_resolution_sub),
                 options = XENOS_RESOLUTIONS.map { r -> r to r.label },
                 selected = c.resolution,
-                onSelect = { v -> vm.updateConfig { it.copy(resolution = v) } },
+                onSelect = { v -> vm.updateConfig { it.copy(resolution = v, resolutionScreen = false) } },
             )
             Text(
                 stringResource(R.string.perf_resolution_no_1080),
@@ -350,12 +350,27 @@ private fun RenutOptions(vm: LauncherViewModel) {
 
     SectionCard(stringResource(R.string.settings_performance), Icons.Filled.Speed) {
         FrameRateSetting(vm, c)
+        SettingSwitch(
+            title = stringResource(R.string.resolution_screen),
+            subtitle = stringResource(
+                R.string.resolution_screen_sub,
+                com.dfdx047.zandatsu.data.ScreenInfo.long,
+                com.dfdx047.zandatsu.data.ScreenInfo.short,
+                com.dfdx047.zandatsu.data.ScreenInfo.matchedResolution().renutLabel,
+            ),
+            checked = c.resolutionScreen,
+        ) { on ->
+            vm.updateConfig {
+                if (on) it.copy(resolutionScreen = true, resolution = com.dfdx047.zandatsu.data.ScreenInfo.matchedResolution())
+                else it.copy(resolutionScreen = false)
+            }
+        }
         SettingSegmented(
             title = stringResource(R.string.settings_resolution),
             subtitle = stringResource(R.string.renut_resolution_sub),
             options = RENUT_RESOLUTIONS.map { r -> r to r.renutLabel },
             selected = if (c.resolution in RENUT_RESOLUTIONS) c.resolution else InternalResolution.P720,
-            onSelect = { v -> vm.updateConfig { it.copy(resolution = v) } },
+            onSelect = { v -> vm.updateConfig { it.copy(resolution = v, resolutionScreen = false) } },
         )
         StatusLine(
             stringResource(R.string.renut_res_experimental),
@@ -486,12 +501,13 @@ private fun AspectCard(vm: LauncherViewModel, c: GameConfig) {
         SettingSegmented(
             title = stringResource(R.string.settings_aspect_mode),
             options = listOf(
+                "auto" to stringResource(R.string.aspect_auto),
                 "original" to stringResource(R.string.aspect_original),
                 "stretch" to stringResource(R.string.aspect_stretch),
                 "widescreen" to stringResource(R.string.aspect_widescreen),
             ),
             selected = if (c.aspect == "widescreen" && reason != null) "original" else c.aspect,
-            subtitle = stringResource(R.string.aspect_widescreen_sub),
+            subtitle = stringResource(R.string.aspect_widescreen_sub) + " " + stringResource(R.string.aspect_auto_sub),
             disabled = if (reason != null) setOf("widescreen") else emptySet(),
             onSelect = { v -> vm.updateConfig { it.copy(aspect = v) } },
         )

@@ -100,6 +100,10 @@
     <string name="settings_aniso">Filtro anisotrópico</string>
     <string name="settings_aspect">Proporção de tela</string>
     <string name="settings_aspect_mode">Imagem</string>
+    <string name="aspect_auto">Automático</string>
+    <string name="aspect_auto_sub">Automático segue a tela deste aparelho: Widescreen em telas mais largas que 16:9, Original 16:9 nas outras.</string>
+    <string name="resolution_screen">Usar a resolução da tela</string>
+    <string name="resolution_screen_sub">Tela detectada: %1$dx%2$d. O jogo desenha em %3$s, a menor altura disponível que cobre a tela. Pode pesar bem mais na GPU.</string>
     <string name="aspect_original">Original 16:9</string>
     <string name="aspect_stretch">Esticar</string>
     <string name="aspect_widescreen">Widescreen</string>

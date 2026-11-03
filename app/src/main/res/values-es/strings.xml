@@ -100,6 +100,10 @@
     <string name="settings_aniso">Filtrado anisotrópico</string>
     <string name="settings_aspect">Relación de aspecto</string>
     <string name="settings_aspect_mode">Imagen</string>
+    <string name="aspect_auto">Automático</string>
+    <string name="aspect_auto_sub">Automático sigue la pantalla de este dispositivo: Panorámico en pantallas más anchas que 16:9, Original 16:9 en las demás.</string>
+    <string name="resolution_screen">Usar la resolución de la pantalla</string>
+    <string name="resolution_screen_sub">Pantalla detectada: %1$dx%2$d. El juego dibuja en %3$s, la menor altura disponible que cubre la pantalla. Puede pesar mucho más en la GPU.</string>
     <string name="aspect_original">Original 16:9</string>
     <string name="aspect_stretch">Estirar para llenar</string>
     <string name="aspect_widescreen">Panorámico</string>

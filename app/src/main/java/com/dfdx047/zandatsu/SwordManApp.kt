@@ -8,6 +8,7 @@ class SwordManApp : Application() {
     override fun onCreate() {
         super.onCreate()
         AppPaths.init(this)
+        com.dfdx047.zandatsu.data.ScreenInfo.init(this)
         // O jogo corre no processo ":game" (GameActivity muda-o para "game" no AppLog).
         val proc = getProcessName().substringAfter(':', "app")
         AppLog.process = proc

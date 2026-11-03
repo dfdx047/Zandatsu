@@ -809,6 +809,12 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
         refreshDrivers()  // tambem tira um driver alternativo que nao serve para esta GPU
         viewModelScope.launch(Dispatchers.IO) {
             val stored = GameConfig.load()
+            AppLog.i(
+                "launcher",
+                "tela ${com.dfdx047.zandatsu.data.ScreenInfo.long}x${com.dfdx047.zandatsu.data.ScreenInfo.short}: " +
+                    "proporcao ${stored.aspect} -> ${stored.effectiveAspect}, resolucao ${stored.resolution.label}" +
+                    if (stored.resolutionScreen) " (da tela)" else "",
+            )
             // v1.2: o Baixo passou a por o audio nos nucleos pequenos. Uma vez so, para quem atualizou continuar no Baixo.
             val low = stored.copy(audioLittleCores = true)
             val loaded = if (!prefs.lowAudioMigrated && stored.renutPreset == RenutPreset.LOW.name && low.chosenRenutPreset() == RenutPreset.LOW) low else stored

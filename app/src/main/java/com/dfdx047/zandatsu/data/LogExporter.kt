@@ -38,6 +38,7 @@ object LogExporter {
         appendLine("SoC: ${DriverRepository.socName()}  Adreno: ${DriverRepository.isAdreno()}  Xclipse: ${DriverRepository.isXclipse(probe = false)}")
         appendLine("GPU (GL): ${DriverRepository.gpuName(probe = false).ifEmpty { "?" }}")
         appendLine("Hardware: ${Build.HARDWARE}  Board: ${Build.BOARD}")
+        appendLine("Tela: ${ScreenInfo.long}x${ScreenInfo.short}  resolucao da tela -> ${ScreenInfo.matchedResolution().label}")
         appendLine("Driver Vulkan ativo: ${DriverRepository.activeDir() ?: "sistema"}")
         appendLine("Drivers instalados: " + DriverRepository.installed().joinToString { it.name })
         appendLine()
