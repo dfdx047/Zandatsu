@@ -1,0 +1,43 @@
+Zandatsu (02/11, correcao do renut/0030): o envio de texturas do overlay na saida em lista propria. Sem ele o overlay falhava de vez e o medidor de FPS sumia nas Mali de tres digitos.
+
+--- a/app/src/renut_engine/gpu/backend/video.cpp
++++ b/app/src/renut_engine/gpu/backend/video.cpp
+@@ -1348,7 +1348,9 @@
+ bool Video::UploadRGBA8Locked(plume::RenderTexture *texture, uint32_t width, uint32_t height,
+                               const uint8_t *rgba) {
+   auto &s = State();
+-  if (!s.list_open || !texture || !rgba || width == 0 || height == 0)
++  // Zandatsu (renut/0033): na saida em lista propria (renut/0030) a lista do jogo ja foi enviada; sem isto as texturas
++  // do overlay falhavam de vez e o medidor de FPS nao aparecia nas Mali de tres digitos.
++  if ((!s.list_open && !s.own_present_list) || !texture || !rgba || width == 0 || height == 0)
+     return false;
+ 
+   // D3D12 requires 256-byte aligned row pitches for buffer->texture copies.
+--- a/app/src/renut_engine/gpu/backend/video.h
++++ b/app/src/renut_engine/gpu/backend/video.h
+@@ -137,6 +137,7 @@
+   uint32_t frame = 0;
+   plume::RenderCommandList *command_list = nullptr;
+   bool list_open = false;
++  bool own_present_list = false;  // Zandatsu (renut/0033): s.command_list e a lista propria da saida
+   // banjo-nx (2026-10-19, banjo_deko3d_kick_submit): a slot's frame may record into more lists, submitted at the
+   // game's kicks: the list the slot records into now (command_lists[slot] or one of kick_lists[slot]), the kick lists
+   // taken in the slot's frame, the list ended at the last kick and not yet submitted (with the cleaner's ticket for
+--- a/app/src/renut_engine/gpu/backend/present.cpp
++++ b/app/src/renut_engine/gpu/backend/present.cpp
+@@ -1092,6 +1092,7 @@
+     }
+     s.command_list = g_own.lists[own_index].get();
+     s.command_list->begin();
++    s.own_present_list = true;
+   } else if (after) {
+     // The previous use of this list: two real frames ago.
+     if (g_interp.submitted[extra]) {
+@@ -1157,6 +1158,7 @@
+   plume::RenderCommandSemaphore *present_semaphore = s.present_semaphores[image_index].get();
+ #if defined(__ANDROID__)
+   if (own) {
++    s.own_present_list = false;
+     cmd->end();
+     if (s.command_list == cmd)
+       s.command_list = outer;

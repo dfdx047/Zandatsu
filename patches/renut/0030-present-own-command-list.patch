@@ -1,0 +1,159 @@
+Zandatsu (02/11, issues #2, #13 e #23): saida para a tela numa lista de comandos propria nas Mali de tres digitos, contra o recorte herdado dos passes do jogo. Tentativa, sem causa provada.
+
+--- a/app/src/renut_engine/gpu/backend/present.cpp
++++ b/app/src/renut_engine/gpu/backend/present.cpp
+@@ -39,6 +39,9 @@
+ 
+ // banjo-nx (2026-10-17, deko3d renderer tests): the captures copy the game's frame texture as it is (4-byte formats only,
+ // its channels as BGRA), without the scan-out pass: which of the two a wrong capture comes from.
++REXCVAR_DEFINE_STRING(swordman_renut_present_own_list, "auto", "Banjo/Renut",
++                      "Zandatsu: the output to the screen in a command list of its own: auto (three-digit Mali GPUs), "
++                      "true or false");
+ REXCVAR_DEFINE_BOOL(banjo_renut_capture_raw, false, "Banjo/Renut",
+                     "Test: frame captures copy the game's frame texture itself instead of the scanned-out picture "
+                     "(deko3d builds, 4-byte formats)");
+@@ -104,12 +107,79 @@
+ // Zandatsu (renut/0025): the real frame's lists after a generated one (dbz3_frame_interpolation, below).
+ void WaitInterpListsLocked(VideoState &s);
+ 
++#if defined(__ANDROID__)
++// Zandatsu (renut/0030, issues #2, #13 e #23): nas Mali-G710/G720 a imagem sai recortada a partir do canto, em pixels da
++// tela, num tamanho que vem dos passes anteriores do jogo: 1024x720 a 720p e 2048x1440 a 1440p na v1.1, 1920x1080 a 1080p
++// com o viewport e o scissor repetidos dentro do passe (renut/0029). Os primeiros frames, sem passes do jogo, saem
++// inteiros. Tentativa, sem causa provada: a saida para a tela numa lista de comandos so dela, depois de submeter a do jogo.
++// swordman_renut_present_own_list: auto = so nas Mali de tres digitos (G310, G615, G710, G720...).
++struct OwnPresent {
++  bool built = false, failed = false;
++  std::unique_ptr<plume::RenderCommandList> lists[kFramesInFlight];
++  std::unique_ptr<plume::RenderCommandFence> fences[kFramesInFlight];
++  std::unique_ptr<plume::RenderCommandSemaphore> acquire[kFramesInFlight];
++  bool submitted[kFramesInFlight] = {};
++  uint32_t index = 0;
++};
++OwnPresent g_own;
++
++void WaitOwnPresent(VideoState &s) {
++  for (uint32_t i = 0; i < kFramesInFlight; ++i) {
++    if (g_own.submitted[i]) {
++      s.queue->waitForCommandFence(g_own.fences[i].get());
++      g_own.submitted[i] = false;
++    }
++  }
++}
++
++bool MaliWithThreeDigits(const std::string &name) {
++  if (name.find("Mali") == std::string::npos && name.find("Immortalis") == std::string::npos)
++    return false;
++  for (size_t i = name.find('G'); i != std::string::npos; i = name.find('G', i + 1)) {
++    size_t n = 0;
++    while (i + 1 + n < name.size() && name[i + 1 + n] >= '0' && name[i + 1 + n] <= '9')
++      ++n;
++    if (n >= 3)
++      return true;
++  }
++  return false;
++}
++
++bool UseOwnPresent(VideoState &s) {
++  static const bool wanted = [&] {
++    const std::string mode = REXCVAR_GET(swordman_renut_present_own_list);
++    const bool on = mode == "true" || (mode != "false" && MaliWithThreeDigits(s.device->getDescription().name));
++    RGPU_INFO("swordman_renut_present_own_list = {}: {}", mode, on ? "saida numa lista propria" : "saida na lista do jogo");
++    return on;
++  }();
++  if (!wanted || g_own.failed)
++    return false;
++  if (!g_own.built) {
++    bool ok = true;
++    for (uint32_t i = 0; i < kFramesInFlight && ok; ++i) {
++      g_own.lists[i] = s.queue->createCommandList();
++      g_own.fences[i] = s.device->createCommandFence();
++      g_own.acquire[i] = s.device->createCommandSemaphore();
++      ok = g_own.lists[i] && g_own.fences[i] && g_own.acquire[i];
++    }
++    g_own.built = ok;
++    g_own.failed = !ok;
++    if (!ok)
++      RGPU_ERROR("swordman_renut_present_own_list: sem lista propria, saida na lista do jogo");
++  }
++  return g_own.built;
++}
++#endif
++
+ void RebuildSwapChain(VideoState &s) {
+   // Submit rather than abandon an open list: plume tracks layouts on record.
+   if (s.list_open)
+     detail::SubmitAndAdvance(s, nullptr, nullptr);
+   detail::WaitAllSubmitted(s);
+   WaitInterpListsLocked(s);
++#if defined(__ANDROID__)
++  WaitOwnPresent(s);
++#endif
+   s.swap_framebuffers.clear();
+   if (!s.swap_chain->resize() || !detail::BuildSwapChainTargets(s)) {
+     if (s.swap_chain->getWidth() && s.swap_chain->getHeight())
+@@ -962,10 +1032,17 @@
+ #if defined(__ANDROID__)
+   const bool after = role == PresentRole::kAfterGenerated;
+   const uint32_t extra = g_interp.extra;
+-  plume::RenderCommandSemaphore *acquire =
+-      after ? g_interp.acquire[extra].get() : s.acquire_semaphores[s.frame].get();
++  // Zandatsu (renut/0030): o trabalho do jogo sai antes, e a saida para a tela vai numa lista so dela.
++  const bool own = role == PresentRole::kFrame && UseOwnPresent(s);
++  if (own && s.list_open)
++    detail::SubmitAndAdvance(s, nullptr, nullptr);
++  const uint32_t own_index = g_own.index;
++  plume::RenderCommandSemaphore *acquire = own     ? g_own.acquire[own_index].get()
++                                           : after ? g_interp.acquire[extra].get()
++                                                   : s.acquire_semaphores[s.frame].get();
+ #else
+   constexpr bool after = false;
++  constexpr bool own = false;
+   plume::RenderCommandSemaphore *acquire = s.acquire_semaphores[s.frame].get();
+ #endif
+   uint32_t image_index = 0;
+@@ -975,7 +1052,7 @@
+   };
+   if (!acquire_image()) {
+     RebuildSwapChain(s);
+-    if (!after)
++    if (!after && !own)
+       acquire = s.acquire_semaphores[s.frame].get();
+     if (s.swap_framebuffers.empty() || !acquire_image()) {
+       if (s.list_open)
+@@ -988,7 +1065,15 @@
+   // What s.command_list was (the frame's list when open, else none): uploads on the way (the overlay's textures) may
+   // open the frame's list meanwhile, which then stays open for the next frame's draws.
+   plume::RenderCommandList *outer = s.command_list;
+-  if (after) {
++  if (own) {
++    if (g_own.submitted[own_index]) {
++      render_thread::WaitScope wait;
++      s.queue->waitForCommandFence(g_own.fences[own_index].get());
++      g_own.submitted[own_index] = false;
++    }
++    s.command_list = g_own.lists[own_index].get();
++    s.command_list->begin();
++  } else if (after) {
+     // The previous use of this list: two real frames ago.
+     if (g_interp.submitted[extra]) {
+       render_thread::WaitScope wait;
+@@ -1052,7 +1137,17 @@
+ 
+   plume::RenderCommandSemaphore *present_semaphore = s.present_semaphores[image_index].get();
+ #if defined(__ANDROID__)
+-  if (after) {
++  if (own) {
++    cmd->end();
++    if (s.command_list == cmd)
++      s.command_list = outer;
++    const plume::RenderCommandList *lists[] = {g_own.lists[own_index].get()};
++    plume::RenderCommandSemaphore *acquires[] = {acquire};
++    plume::RenderCommandSemaphore *signals[] = {present_semaphore};
++    s.queue->executeCommandLists(lists, 1, acquires, 1, signals, 1, g_own.fences[own_index].get());
++    g_own.submitted[own_index] = true;
++    g_own.index = (own_index + 1) % kFramesInFlight;
++  } else if (after) {
+     cmd->end();
+     if (s.command_list == cmd)
+       s.command_list = outer;
