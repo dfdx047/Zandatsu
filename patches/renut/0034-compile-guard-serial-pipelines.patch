@@ -1,0 +1,193 @@
+Zandatsu (03/11, issues #17, #22, #24, #29, #38 e #39): o pipeline em compilacao fica registado em cache/renut_compiling.bin; um que o driver nao acabou em 2 sessoes fica bloqueado, e depois da primeira a compilacao passa a ser uma de cada vez (sempre na PowerVR). Mali-G615: sinal 11 dentro do cmpbe_v2_compile_multiple_shaders; PowerVR: Scudo dentro do vulkan.mtk.so num PrebuildWorker.
+
+--- a/app/src/renut_engine/gpu/render/pipeline.cpp
++++ b/app/src/renut_engine/gpu/render/pipeline.cpp
+@@ -7,6 +7,7 @@
+ #include <atomic>
+ #include <bit>
+ #include <condition_variable>
++#include <cstdlib>
+ #include <cstring>
+ #include <deque>
+ #include <filesystem>
+@@ -31,13 +32,22 @@
+ REXCVAR_DEFINE_BOOL(banjo_deko3d_variant_log, false, "Banjo/Renut",
+                     "Write deko3d_variants.txt next to the executable: each graphics pipeline's vertex and pixel shader "
+                     "and specialization constants (tools/deko3d_variant_cache.py builds the deko3d DKSH cache from it)");
++// Zandatsu (renut/0034): ver compile_guard, mais abaixo.
++REXCVAR_DEFINE_STRING(swordman_renut_serial_pipelines, "auto", "Banjo/Renut",
++                      "Zandatsu: Renut compiles one pipeline at a time: auto (PowerVR, or after the driver died while "
++                      "compiling), true or false");
++REXCVAR_DEFINE_BOOL(swordman_renut_compile_guard, true, "Banjo/Renut",
++                    "Zandatsu: remember the pipeline being compiled (cache/renut_compiling.bin) and block one the "
++                    "driver died on in two sessions (cache/renut_bad_pipelines.txt)");
+ #include <xxhash.h>
+ #include <cstdio>  // banjo-nx (2026-10-20): the pipeline list file
+ #if defined(_WIN32)
+ #include <io.h>  // _commit
+ #else
+ #include <unistd.h>  // fsync
++#include <fcntl.h>   // Zandatsu (renut/0034): o registo do pipeline em compilacao
+ #endif
++#include <rex/filesystem.h>  // Zandatsu (renut/0034)
+ 
+ #if defined(_WIN32)
+ #ifndef NOMINMAX
+@@ -283,6 +293,133 @@
+ 
+ namespace {
+ 
++PipelineKey StoredKey(const PipelineKey &key);  // Zandatsu (renut/0034): abaixo, com a lista de pipelines
++
++// ---------------------------------------------------------------------------
++// Zandatsu (renut/0034, issues #17, #22, #24, #29, #38, #39): o driver que fecha o jogo a compilar
++// ---------------------------------------------------------------------------
++//
++// Mali-G615 (MT6897, o mesmo driver 5f616632 na v1.1 e na v1.2): 3 de 3 quedas com sinal 11 em 0x40 dentro do
++// cmpbe_v2_compile_multiple_shaders do libGLES_mali.so, sempre a partir de Build. PowerVR BXM-8-256 (MT6855): Scudo
++// "invalid chunk state" dentro do vulkan.mtk.so, num PrebuildWorker, 1 a 8 s depois dos primeiros frames, com pilhas
++// diferentes de uma queda para outra (as primeiras sessoes correram minutos). O processo morre dentro do driver; um
++// tratador de sinais nao pode continuar dali. Entao:
++// - cada thread escreve o pipeline que vai compilar numa posicao propria de cache/renut_compiling.bin, e apaga-a no fim;
++// - no arranque seguinte, uma posicao cheia e um pipeline cuja compilacao nao acabou: o log diz qual, a compilacao
++//   passa a ser uma de cada vez (swordman_renut_serial_pipelines = auto), e um pipeline achado assim em 2 sessoes fica
++//   bloqueado (cache/renut_bad_pipelines.txt): o draw dele nao desenha, ou a variante especializada usa a generica.
++//   Fechar o jogo a meio de uma compilacao tambem deixa a posicao cheia; por isso o bloqueio so na segunda vez.
++// - auto tambem compila um de cada vez na PowerVR (a queda varia como uma corrida entre threads).
++namespace compile_guard {
++constexpr uint32_t kSlots = 16;
++constexpr uint32_t kSlotBytes = 96;
++std::once_flag g_once;
++int g_fd = -1;
++std::atomic<uint32_t> g_next_slot{0};
++thread_local int t_slot = -2;  // -2: ainda sem posicao; -1: sem posicao livre
++bool g_serial = false;
++std::mutex g_serial_mutex;
++std::mutex g_blocked_mutex;
++std::unordered_map<std::string, uint32_t> g_seen;  // id -> sessoes em que a compilacao nao acabou
++std::filesystem::path g_bad_path;
++
++std::string Id(const PipelineKey &key) {
++  const PipelineKey stored = StoredKey(key);
++  const auto *vs = static_cast<const ShaderCacheEntry *>(key.vertex_shader);
++  const auto *ps = static_cast<const ShaderCacheEntry *>(key.pixel_shader);
++  return fmt::format("vs {:016X} ps {:016X} key {:016X}", vs ? vs->hash : 0, ps ? ps->hash : 0,
++                     XXH3_64bits(&stored, sizeof(stored)));
++}
++
++void Init() {
++#if defined(_WIN32)
++  return;
++#else
++  if (!REXCVAR_GET(swordman_renut_compile_guard) && REXCVAR_GET(swordman_renut_serial_pipelines) != "auto")
++    return;
++  std::error_code ec;
++  const std::filesystem::path folder = rex::filesystem::GetExecutableFolder() / "cache";
++  std::filesystem::create_directories(folder, ec);
++  g_bad_path = folder / "renut_bad_pipelines.txt";
++  const std::filesystem::path live = folder / "renut_compiling.bin";
++  // A lista: "<sessoes> <id>" por linha.
++  if (std::ifstream in(g_bad_path); in) {
++    std::string line;
++    while (std::getline(in, line)) {
++      const size_t sp = line.find(' ');
++      if (sp == std::string::npos)
++        continue;
++      g_seen[line.substr(sp + 1)] = uint32_t(std::strtoul(line.c_str(), nullptr, 10));
++    }
++  }
++  // O que a sessao anterior deixou a meio.
++  uint32_t unfinished = 0;
++  if (std::ifstream in(live, std::ios::binary); in) {
++    std::vector<char> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
++    for (size_t at = 0; at + kSlotBytes <= bytes.size(); at += kSlotBytes) {
++      const char *slot = bytes.data() + at;
++      if (slot[0] != 'v')
++        continue;
++      const std::string id(slot, strnlen(slot, kSlotBytes));
++      const uint32_t times = ++g_seen[id];
++      ++unfinished;
++      RGPU_WARN("[renut] a sessao anterior terminou durante a compilacao do pipeline {} ({}a vez){}", id, times,
++                times >= 2 ? "; bloqueado (cache/renut_bad_pipelines.txt)" : "");
++    }
++  }
++  if (unfinished) {
++    if (std::ofstream out(g_bad_path, std::ios::trunc); out) {
++      for (const auto &[id, times] : g_seen)
++        out << times << ' ' << id << '\n';
++    }
++  }
++  const std::string mode = REXCVAR_GET(swordman_renut_serial_pipelines);
++  const std::string name = State().device ? State().device->getDescription().name : std::string();
++  const bool powervr = name.find("PowerVR") != std::string::npos;
++  g_serial = mode == "true" || (mode == "auto" && (powervr || !g_seen.empty()));
++  RGPU_INFO("[renut] swordman_renut_serial_pipelines = {}: {}", mode,
++            g_serial ? (powervr ? "um pipeline de cada vez (PowerVR)"
++                                : "um pipeline de cada vez (o driver ja caiu a compilar)")
++                     : "em paralelo");
++  if (REXCVAR_GET(swordman_renut_compile_guard)) {
++    g_fd = ::open(live.c_str(), O_RDWR | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
++    if (g_fd >= 0) {
++      const std::vector<char> zeros(size_t(kSlots) * kSlotBytes, 0);
++      if (::pwrite(g_fd, zeros.data(), zeros.size(), 0) != ssize_t(zeros.size())) {
++        ::close(g_fd);
++        g_fd = -1;
++      }
++    }
++  }
++#endif
++}
++
++bool Blocked(const std::string &id) {
++  std::lock_guard lock(g_blocked_mutex);
++  const auto it = g_seen.find(id);
++  return it != g_seen.end() && it->second >= 2;
++}
++
++void Mark(const std::string *id) {
++#if !defined(_WIN32)
++  if (g_fd < 0)
++    return;
++  if (t_slot == -2) {
++    const uint32_t slot = g_next_slot.fetch_add(1, std::memory_order_relaxed);
++    t_slot = slot < kSlots ? int(slot) : -1;
++  }
++  if (t_slot < 0)
++    return;
++  char buf[kSlotBytes] = {};
++  if (id)
++    std::memcpy(buf, id->data(), std::min<size_t>(id->size(), kSlotBytes - 1));
++  (void)::pwrite(g_fd, buf, kSlotBytes, off_t(t_slot) * kSlotBytes);
++#else
++  (void)id;
++#endif
++}
++}  // namespace compile_guard
++
+ // Any thread: reads only what device creation set up.
+ std::unique_ptr<plume::RenderPipeline> Build(const PipelineKey &key, const PipelineInputs &inputs) {
+   // banjo-nx (a test, banjo_renut_diag_build_delay_ms): console-slow compiles on the PC.
+@@ -472,7 +609,23 @@
+   desc.inputElements = layout.input_elements.data();
+   desc.inputElementsCount = uint32_t(layout.input_elements.size());
+ 
++  // Zandatsu (renut/0034): ver compile_guard.
++  std::call_once(compile_guard::g_once, compile_guard::Init);
++  const std::string guard_id = compile_guard::Id(key);
++  if (compile_guard::Blocked(guard_id)) {
++    static std::atomic<uint32_t> logged{0};
++    if (logged.fetch_add(1, std::memory_order_relaxed) < 16)
++      RGPU_WARN("[renut] pipeline {} bloqueado: o driver caiu a compila-lo em 2 sessoes", guard_id);
++    return nullptr;
++  }
++  std::unique_lock<std::mutex> serial_lock;
++  if (compile_guard::g_serial)
++    serial_lock = std::unique_lock<std::mutex>(compile_guard::g_serial_mutex);
++  compile_guard::Mark(&guard_id);
+   auto pipeline = s.device->createGraphicsPipeline(desc);
++  compile_guard::Mark(nullptr);
++  if (serial_lock.owns_lock())
++    serial_lock.unlock();
+   if (GraphicsPipelineCreated(pipeline.get())) {
+     // Names the guest shaders in captures.
+     const auto *vs = static_cast<const ShaderCacheEntry *>(key.vertex_shader);
