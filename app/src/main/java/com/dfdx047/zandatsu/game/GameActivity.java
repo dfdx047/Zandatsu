@@ -712,10 +712,9 @@ public class GameActivity extends SDLActivity {
         }
         // Turnip so no Adreno; fora dele so o RADV (o launcher so o deixa ativar nas Xclipse). 24/10: o MaliSX2
         // corrompia a imagem no Mali-G57.
-        boolean radv = com.dfdx047.zandatsu.drivers.DriverRepository.INSTANCE.kindOf(source.getName())
-                == com.dfdx047.zandatsu.drivers.DriverKind.RADV;
-        boolean adreno = com.dfdx047.zandatsu.drivers.DriverRepository.INSTANCE.isAdreno();
-        if (adreno == radv) {
+        // 02/11: PanVK nas Mali, tambem so por escolha. probe = false: o processo do jogo nao abre GL.
+        if (!com.dfdx047.zandatsu.drivers.DriverRepository.INSTANCE.fitsDevice(
+                com.dfdx047.zandatsu.drivers.DriverRepository.INSTANCE.kindOf(source.getName()), false)) {
             deleteRecursively(internalDir);
             mDriverNote = "sistema (" + source.getName() + " nao serve para esta GPU: ignorado)";
             return;

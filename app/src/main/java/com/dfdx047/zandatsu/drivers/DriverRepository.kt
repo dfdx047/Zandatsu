@@ -19,7 +19,14 @@ import java.util.zip.ZipInputStream
  * <appDir>/driver/ (via libadrenotools); sem nada la usa o driver do sistema.
  * Nenhum e ativado por omissao: o usuario escolhe.
  */
-data class DriverSource(val owner: String, val repo: String, val label: String, val short: String = owner) {
+data class DriverSource(
+    val owner: String,
+    val repo: String,
+    val label: String,
+    val short: String = owner,
+    /** So estes anexos da release (null = todos os .zip e .so). */
+    val assetFilter: Regex? = null,
+) {
     val apiUrl get() = "https://api.github.com/repos/$owner/$repo/releases?per_page=20"
     val pageUrl get() = "https://github.com/$owner/$repo/releases"
 }
@@ -40,7 +47,7 @@ data class InstalledDriver(
 )
 
 /** Que driver e (pela libraryName): o Turnip so serve nas Adreno, o RADV so nas Xclipse. */
-enum class DriverKind { TURNIP, RADV, OTHER }
+enum class DriverKind { TURNIP, RADV, PANVK, OTHER }
 
 class DriverException(val reason: Reason, detail: String = "") : Exception(detail) {
     enum class Reason { NO_LIBRARY, NOT_ZIP, IO, NETWORK, MIN_API, WRONG_GPU }
@@ -61,6 +68,16 @@ object DriverRepository {
         DriverSource("Matheus-TestUser1", "radv-xclipse", "Matheus-TestUser1 — RADV Xclipse", "Matheus"),
     )
 
+    /** 02/11: PanVK (Mesa) para as Mali, a pedido; zip do AdrenoTools com libvulkan_panfrost.so, minApi 31. Sem testes no projeto. */
+    val PANVK_SOURCES = listOf(
+        DriverSource("JimVulkan", "mali-panvk", "JimVulkan — PanVK (Mali)", "JimVulkan"),
+        // As releases trazem pacotes para outros apps (Winlator, GameHub...) e uma .so glibc: so os do AdrenoTools servem aqui.
+        DriverSource(
+            "zenithblue-oss", "panvk-kbase-android", "zenithblue — PanVK kbase (Mali)", "zenithblue",
+            assetFilter = Regex("(-adrenotools|\\.adpkg)\\.zip$", RegexOption.IGNORE_CASE),
+        ),
+    )
+
     /** O RADV das Xclipse precisa do Android 14 (minApi 34 no meta.json dos pacotes). */
     const val RADV_MIN_API = 34
 
@@ -72,16 +89,18 @@ object DriverRepository {
     fun sourcesForDevice(): List<DriverSource> = when {
         isAdreno() -> TURNIP_SOURCES
         isXclipse() && Build.VERSION.SDK_INT >= RADV_MIN_API -> RADV_SOURCES
+        isMali() -> PANVK_SOURCES
         else -> emptyList()
     }
 
     /** Ha escolha de driver nesta GPU (Adreno: Turnip; Xclipse: RADV)? No resto so o driver do sistema. */
-    fun driversOffered(): Boolean = isAdreno() || isXclipse()
+    fun driversOffered(): Boolean = isAdreno() || isXclipse() || isMali()
 
     /** Este driver pode ser ativado nesta GPU? Turnip (e outros) so no Adreno, RADV so na Xclipse. */
-    fun fitsDevice(kind: DriverKind): Boolean = when {
-        isAdreno() -> kind != DriverKind.RADV
-        isXclipse() -> kind == DriverKind.RADV
+    fun fitsDevice(kind: DriverKind, probe: Boolean = true): Boolean = when {
+        isAdreno() -> kind != DriverKind.RADV && kind != DriverKind.PANVK
+        isXclipse(probe) -> kind == DriverKind.RADV
+        isMali(probe) -> kind == DriverKind.PANVK
         else -> false
     }
 
@@ -90,6 +109,7 @@ object DriverRepository {
         val n = libraryName.lowercase(java.util.Locale.ROOT)
         return when {
             "radeon" in n || "radv" in n -> DriverKind.RADV
+            "panfrost" in n || "panvk" in n -> DriverKind.PANVK
             "freedreno" in n || "turnip" in n || "adreno" in n -> DriverKind.TURNIP
             else -> DriverKind.OTHER
         }
@@ -113,6 +133,9 @@ object DriverRepository {
         val soc = (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) Build.SOC_MODEL ?: "" else "").uppercase(java.util.Locale.ROOT)
         return XCLIPSE_SOCS.any { soc.startsWith(it) }
     }
+
+    /** Mali (Bifrost, Valhall ou mais nova), pelo GL_RENDERER. */
+    fun isMali(probe: Boolean = true): Boolean = !isAdreno() && gpuName(probe).contains("Mali", true)
 
     /**
      * Mali Valhall ou mais nova (G57/G68/G77/G78 e as de tres digitos, G310 a G925), pelo GL_RENDERER. 26/10: o Renut
@@ -194,6 +217,7 @@ object DriverRepository {
             val assets = r.optJSONArray("assets") ?: JSONArray()
             val list = (0 until assets.length()).map { assets.getJSONObject(it) }
                 .filter { a -> a.optString("name").let { it.endsWith(".zip", true) || it.endsWith(".so") } }
+                .filter { a -> source.assetFilter?.containsMatchIn(a.optString("name")) ?: true }
                 .map { DriverAsset(it.optString("name"), it.optString("browser_download_url"), it.optLong("size")) }
             if (list.isEmpty()) continue
             out += DriverRelease(

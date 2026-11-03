@@ -135,13 +135,19 @@ fun DriversScreen(vm: LauncherViewModel) {
                     if (vm.driverBootFailed.isNotEmpty()) {
                         StatusLine(stringResource(R.string.drivers_boot_failed, vm.driverBootFailed.substringBefore(':')), Level.WARN)
                     }
+                } else if (vm.isMali) {
+                    // 02/11: PanVK (Mesa) nas Mali, experimental e so por escolha; o driver do sistema fica.
+                    StatusLine(stringResource(R.string.drivers_mali_warning), Level.WARN)
+                    if (vm.driverBootFailed.isNotEmpty()) {
+                        StatusLine(stringResource(R.string.drivers_boot_failed, vm.driverBootFailed.substringBefore(':')), Level.WARN)
+                    }
                 } else {
                     StatusLine(stringResource(R.string.drivers_not_adreno), Level.WARN)
                 }
             }
         }
-        // Fora do Adreno e da Xclipse (Mali): so o driver do sistema, sem escolha nem downloads.
-        if (!vm.isAdreno && !vm.isXclipse) return@LazyColumn
+        // Fora do Adreno, da Xclipse e da Mali: so o driver do sistema, sem escolha nem downloads.
+        if (!vm.isAdreno && !vm.isXclipse && !vm.isMali) return@LazyColumn
         item {
             SectionCard(stringResource(R.string.drivers_active_title), Icons.Filled.Memory) {
                 val active = vm.activeDriver

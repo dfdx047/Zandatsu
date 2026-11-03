@@ -546,6 +546,9 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
     /** Samsung Xclipse (drivers RADV); sabe-se no refreshDrivers (o nome da GPU vem do GL, fora da thread da UI). */
     var isXclipse by mutableStateOf(false)
         private set
+    /** Mali (drivers PanVK); sabe-se no refreshDrivers, como isXclipse. */
+    var isMali by mutableStateOf(false)
+        private set
     /** Nome da GPU (GL_RENDERER), "" ate ao refreshDrivers. */
     var gpuName by mutableStateOf("")
         private set
@@ -600,6 +603,8 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
             val xclipse = DriverRepository.isXclipse()
             gpuName = DriverRepository.gpuName()
             isXclipse = xclipse
+            val mali = DriverRepository.isMali()
+            isMali = mali
             // Um driver ativo que nao serve para esta GPU sai (o MaliSX2 de 23/10 no Mali; Turnip na Xclipse; RADV
             // no Adreno). Fica o do sistema.
             val old = DriverRepository.activeDir()
@@ -608,7 +613,7 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
                 AppLog.i("drivers", "$old ($kind) nao serve para esta GPU: desativado, driver do sistema")
                 DriverRepository.deactivate()
             }
-            installedDrivers = if (isAdreno || xclipse) DriverRepository.installed() else emptyList()
+            installedDrivers = if (isAdreno || xclipse || mali) DriverRepository.installed() else emptyList()
             activeDriver = DriverRepository.activeDir()
             val sources = DriverRepository.sourcesForDevice()
             if (sources.isNotEmpty() && driverSource !in sources) driverSource = sources.first()
