@@ -17,6 +17,11 @@ import java.io.File
  * As threads sao escolhidas pelo tempo de CPU (as [MAX_THREADS] que mais gastaram em 3 s), depois
  * de o jogo arrancar; o tempo de cada quadro e a media dos quadros desenhados (os da GPU, nao os
  * apresentados: esses ficam a 60 com quadros repetidos) em cada meio segundo.
+ *
+ * 03/11 (issues #19, #24 e #35): a escolha era uma so, aos 20 s, ainda nos menus, com 4 threads; as threads
+ * de trabalho do combate ficavam de fora. Na Mali-G615 (Dimensity 8300) a soma das threads gasta ~94 ms de
+ * CPU por quadro (241% de um nucleo a 25,7 fps), contra ~36 ms no RP5, sem nenhuma thread acima de 40%.
+ * Agora ate 8 threads, reescolhidas a cada [REPICK_MS] (setThreads no Android 14+, senao uma sessao nova).
  */
 class AdpfHint(private val context: Context, private val targetNs: Long) {
     private val main = Handler(Looper.getMainLooper())
@@ -56,8 +61,31 @@ class AdpfHint(private val context: Context, private val targetNs: Long) {
         }, "adpf-pick").start()
     }
 
+    private var lastTids: Set<Int> = emptySet()
+
     private fun createSession(tids: IntArray) {
         if (stopped || tids.isEmpty() || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
+        main.postDelayed({ pickThreads() }, REPICK_MS)
+        if (tids.toSet() == lastTids) return
+        val old = session
+        if (old != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            try {
+                old.setThreads(tids)
+                lastTids = tids.toSet()
+                AppLog.i("adpf", "threads trocadas: ${tids.size} ${names(tids)}")
+                return
+            } catch (t: Throwable) {
+                AppLog.i("adpf", "setThreads falhou: ${t.message}")
+            }
+        }
+        if (old != null) {
+            main.removeCallbacks(report)
+            try {
+                old.close()
+            } catch (_: Throwable) {
+            }
+            session = null
+        }
         try {
             val mgr = context.getSystemService(PerformanceHintManager::class.java) ?: return
             if (mgr.preferredUpdateRateNanos < 0) return
@@ -66,6 +94,7 @@ class AdpfHint(private val context: Context, private val targetNs: Long) {
                 AppLog.i("adpf", "sem sessao (o sistema nao suporta)")
                 return
             }
+            lastTids = tids.toSet()
             AppLog.i("adpf", "sessao com ${tids.size} threads ${names(tids)}, alvo ${targetNs / 1000} us")
             lastFrames = NativeGameState.gpuStats()[0]
             lastTime = SystemClock.elapsedRealtimeNanos()
@@ -120,7 +149,8 @@ class AdpfHint(private val context: Context, private val targetNs: Long) {
     }
 
     private companion object {
-        const val MAX_THREADS = 4
+        const val MAX_THREADS = 8
+        const val REPICK_MS = 30_000L
         const val REPORT_MS = 500L
     }
 }
