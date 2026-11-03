@@ -1,0 +1,60 @@
+Zandatsu (03/11, issues #16, #20 e #40): o log do Renut diz o driver Vulkan por extenso (nome, versao e API, pela VK_KHR_driver_properties). O G99 perde o dispositivo e o log nao dizia qual driver Mali era. So log.
+
+--- a/app/thirdparty/plume/plume_render_interface_types.h
++++ b/app/thirdparty/plume/plume_render_interface_types.h
+@@ -1786,6 +1786,8 @@
+         RenderDeviceVendor vendor = RenderDeviceVendor::UNKNOWN;
+         uint64_t driverVersion = 0;
+         uint64_t dedicatedVideoMemory = 0;
++        // Zandatsu (renut/0035, issues #16, #20 e #40): o driver Vulkan por extenso para o log (VK_KHR_driver_properties).
++        std::string driverInfo;
+     };
+ 
+     struct RenderDeviceCapabilities {
+--- a/app/thirdparty/plume/plume_vulkan.cpp
++++ b/app/thirdparty/plume/plume_vulkan.cpp
+@@ -4907,6 +4907,32 @@
+         // Store properties.
+         vkGetPhysicalDeviceProperties(physicalDevice, &physicalDeviceProperties);
+ 
++        // Zandatsu (renut/0035): nome e versao do driver para o log (o G99 da #40 perde o dispositivo e o log nao dizia
++        // qual driver Mali era). VkPhysicalDeviceDriverProperties e do Vulkan 1.2 ou da VK_KHR_driver_properties.
++        {
++            const uint32_t api = physicalDeviceProperties.apiVersion;
++            char line[512];
++            snprintf(line, sizeof(line), "API %u.%u.%u, driverVersion 0x%08X, vendor 0x%04X device 0x%08X",
++                     VK_API_VERSION_MAJOR(api), VK_API_VERSION_MINOR(api), VK_API_VERSION_PATCH(api),
++                     physicalDeviceProperties.driverVersion, physicalDeviceProperties.vendorID,
++                     physicalDeviceProperties.deviceID);
++            description.driverInfo = line;
++            const bool driverPropsFound = api >= VK_API_VERSION_1_2 ||
++                supportedOptionalExtensions.find(VK_KHR_DRIVER_PROPERTIES_EXTENSION_NAME) != supportedOptionalExtensions.end();
++            if (driverPropsFound) {
++                VkPhysicalDeviceDriverProperties driverProps = {};
++                driverProps.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES;
++                VkPhysicalDeviceProperties2 props2 = {};
++                props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
++                props2.pNext = &driverProps;
++                vkGetPhysicalDeviceProperties2(physicalDevice, &props2);
++                driverProps.driverName[VK_MAX_DRIVER_NAME_SIZE - 1] = 0;
++                driverProps.driverInfo[VK_MAX_DRIVER_INFO_SIZE - 1] = 0;
++                description.driverInfo = std::string(driverProps.driverName) + " " + driverProps.driverInfo + " (" +
++                    description.driverInfo + ")";
++            }
++        }
++
+         // Check for supported features.
+         void *featuresChain = nullptr;
+         VkPhysicalDeviceDescriptorIndexingFeatures indexingFeatures = {};
+--- a/app/src/renut_engine/gpu/backend/video.cpp
++++ b/app/src/renut_engine/gpu/backend/video.cpp
+@@ -1015,6 +1015,9 @@
+   s.backend_description =
+       std::string(BackendName(ActiveBackend())) + " on " + s.device->getDescription().name;
+   RGPU_INFO("Renderer: {}", s.backend_description);
++  // Zandatsu (renut/0035): o driver por extenso (nome, versao, API).
++  RGPU_INFO("Driver Vulkan: {}", s.device->getDescription().driverInfo.empty() ? std::string("?")
++                                                                             : s.device->getDescription().driverInfo);
+ 
+   s.queue = s.device->createCommandQueue(plume::RenderCommandListType::DIRECT);
+   if (!s.queue) {
