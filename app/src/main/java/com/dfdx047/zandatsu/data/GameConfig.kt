@@ -173,6 +173,9 @@ data class GameConfig(
             "swordman_aspect" to effectiveAspect,
             "swordman_aspect_choice" to aspect,
             "swordman_resolution_screen" to resolutionScreen,
+            // 03/11: o APK de teste B gravou "false" no mgr.toml da POCO (o merge guarda chaves que o app nao escreve);
+            // escrito sempre, o padrao volta. O menu e o autoteste trocam-no ao vivo, sem gravar.
+            "swordman_renut_scissor_pass" to "auto",
             "vibration" to vibration,
             "left_stick_deadzone_percentage" to deadzone.coerceIn(0.0, 1.0),
             "right_stick_deadzone_percentage" to deadzone.coerceIn(0.0, 1.0),
