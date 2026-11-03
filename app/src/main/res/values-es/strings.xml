@@ -514,4 +514,10 @@
     <string name="saves_empty">Aún no hay copias.</string>
     <string name="saves_no_data">Aún no hay partidas para exportar.</string>
     <string name="saves_game_running">Cierra el juego antes de restaurar.</string>
+    <string name="menu_minimap_test">Recorte del minimapa (prueba Mali)</string>
+    <string name="menu_minimap_test_help">Cambia en vivo, sin guardar. Mira si los bloques oscuros dentro del minimapa desaparecen.</string>
+    <string name="minimap_exact">Exacto</string>
+    <string name="minimap_16">Bloques de 16</string>
+    <string name="minimap_64">Bloques de 64</string>
+    <string name="minimap_full">Pase entero</string>
 </resources>

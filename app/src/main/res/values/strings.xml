@@ -515,4 +515,10 @@
     <string name="saves_empty">No backups yet.</string>
     <string name="saves_no_data">There are no saves to export yet.</string>
     <string name="saves_game_running">Close the game before restoring.</string>
+    <string name="menu_minimap_test">Minimap clipping (Mali test)</string>
+    <string name="menu_minimap_test_help">Changes live, not saved. Check whether the dark blocks inside the minimap go away.</string>
+    <string name="minimap_exact">Exact</string>
+    <string name="minimap_16">Blocks of 16</string>
+    <string name="minimap_64">Blocks of 64</string>
+    <string name="minimap_full">Whole pass</string>
 </resources>

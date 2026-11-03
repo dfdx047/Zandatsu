@@ -693,6 +693,7 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
                 actions.captureFrames()
                 actions.resume()
             },
+            minimapTestItem(c),
             MToggle(s(R.string.settings_verbose_log), s(R.string.settings_verbose_log_sub), c.verboseLog) { v ->
                 set(c.copy(verboseLog = v), mapOf("log_level" to if (v) "debug" else "info"))
             },
@@ -701,6 +702,33 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
             },
             MInfo(s(R.string.port_menu_restart_note)),
         )
+    }
+
+    /**
+     * renut/0036 (03/11, minimapa da POCO X7 Pro, Mali-G720): o recorte do minimapa nas Mali, ao vivo e sem gravar,
+     * para o testador comparar os modos num APK so. "off" = sem o passe por scissor (o mapa vai a tela inteira).
+     */
+    private fun minimapTestItem(c: GameConfig): MenuItem? {
+        if (!c.useRenut || !com.dfdx047.zandatsu.drivers.DriverRepository.isMali(probe = false)) return null
+        val current = if (live["swordman_renut_scissor_pass"] == "false") "off"
+        else live["swordman_renut_scissor_area"].orEmpty().ifEmpty { "exact" }
+        return choice(
+            s(R.string.menu_minimap_test), s(R.string.menu_minimap_test_help),
+            listOf(
+                "exact" to s(R.string.minimap_exact),
+                "16" to s(R.string.minimap_16),
+                "64" to s(R.string.minimap_64),
+                "full" to s(R.string.minimap_full),
+                "off" to s(R.string.off),
+            ),
+            current,
+        ) { v ->
+            val cvars = if (v == "off") mapOf("swordman_renut_scissor_pass" to "false", "swordman_renut_scissor_area" to "exact")
+            else mapOf("swordman_renut_scissor_pass" to "auto", "swordman_renut_scissor_area" to v)
+            live.putAll(cvars)
+            val ok = NativeGameState.setCvars(cvars, persist = false)
+            AppLog.i("menu", "minimapa (teste): $v" + if (ok) "" else " (falhou)")
+        }
     }
 
     private fun systemItems(): List<MenuItem> = listOfNotNull(
@@ -725,7 +753,7 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
     private fun num(x: Double): String = String.format(java.util.Locale.ROOT, "%.4f", x)
 
     private companion object {
-        val LIVE_CVARS = listOf("debug_overlay_position")
+        val LIVE_CVARS = listOf("debug_overlay_position", "swordman_renut_scissor_pass", "swordman_renut_scissor_area")
     }
 }
 

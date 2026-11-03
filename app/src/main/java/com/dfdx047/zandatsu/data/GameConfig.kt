@@ -291,6 +291,12 @@ data class GameConfig(
             }
         }
 
+        private fun maliDefaults(): Boolean = try {
+            com.dfdx047.zandatsu.drivers.DriverRepository.isMali(probe = false)
+        } catch (_: Throwable) {
+            false
+        }
+
         fun load(file: File = AppPaths.userToml): GameConfig {
             val m = try {
                 TomlLite.read(file)
@@ -352,7 +358,8 @@ data class GameConfig(
                 volume = int("swordman_volume", d.volume).coerceIn(0, 100),
                 vibration = bool("vibration", d.vibration),
                 deadzone = dbl("left_stick_deadzone_percentage", d.deadzone).coerceIn(0.0, 0.5),
-                verboseLog = str("log_level", "info").let { it == "debug" || it == "trace" },
+                // 03/11: nas Mali o log detalhado vem ligado (os logs dos testadores ja chegam completos).
+                verboseLog = str("log_level", if (maliDefaults()) "debug" else "info").let { it == "debug" || it == "trace" },
                 perfLogging = bool("dbz3_perf_logging", d.perfLogging),
                 directResolve = if (int("dbz3_direct_resolve_texture", d.directResolve) == 0) 0 else 1,
                 directResolveFast = bool("dbz3_direct_resolve_skip_memory", d.directResolveFast),

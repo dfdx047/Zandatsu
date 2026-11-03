@@ -170,7 +170,7 @@ class RenderSelfTest(
     private fun step(i: Int) {
         if (i > active.size || (live && i == active.size)) {
             NativeGameState.setCvars(base, persist = false)
-            finish()
+            if (minimapWanted()) minimapStep(0) else finish()
             return
         }
         val off: Map<String, String>
@@ -208,6 +208,87 @@ class RenderSelfTest(
                 log("autoteste: " + line.trim())
                 step(i + 1)
             }
+        }
+    }
+
+    // ------------------------------------------------------------ minimapa
+
+    /**
+     * renut/0036 (03/11, POCO X7 Pro, Mali-G720): nas Mali com o Nativo o autoteste passa por cada modo do recorte do
+     * minimapa e grava MINIMAP_SHOTS fotos do canto do mapa na resolucao da tela (minimapa_<modo>_<n>.jpg). Os blocos
+     * piscam (~40% dos frames), por isso varias fotos por modo. O testador nao precisa de mexer no menu.
+     */
+    private fun minimapWanted(): Boolean = live &&
+        NativeGameState.getCvar("swordman_renut_scissor_area").isNotEmpty() &&
+        com.dfdx047.zandatsu.data.GameConfig.load().useRenut &&
+        com.dfdx047.zandatsu.drivers.DriverRepository.isMali(probe = false)
+
+    private fun minimapStep(i: Int) {
+        if (i == 0) {
+            minimapOriginal = MINIMAP_CVARS.associateWith { NativeGameState.getCvar(it) }
+            try {
+                AppPaths.logsDir.listFiles { f -> f.name.startsWith("minimapa_") }?.forEach { it.delete() }
+            } catch (_: Exception) {
+            }
+            report.append("\nMinimapa (renut/0036): ${MINIMAP_SHOTS} fotos do canto do mapa por modo (minimapa_<modo>_<n>.jpg)\n")
+        }
+        if (i >= MINIMAP_MODES.size) {
+            NativeGameState.setCvars(minimapOriginal.filterValues { it.isNotEmpty() }, persist = false)
+            finish()
+            return
+        }
+        val (mode, cvars) = MINIMAP_MODES[i]
+        showStatus(activity.getString(com.dfdx047.zandatsu.R.string.selftest_step, i + 1, MINIMAP_MODES.size, "minimapa: $mode"))
+        log("autoteste: minimapa '$mode'")
+        NativeGameState.setCvars(cvars, persist = false)
+        var saved = 0
+        fun shot(k: Int) {
+            if (k >= MINIMAP_SHOTS) {
+                report.append(String.format(java.util.Locale.ROOT, "minimapa %-6s %s  %d fotos\n", mode,
+                    cvars.entries.joinToString(" ") { "${it.key}=${it.value}" }, saved))
+                minimapStep(i + 1)
+                return
+            }
+            captureCorner("minimapa_${mode}_$k.jpg") { ok ->
+                if (ok) saved++
+                after(MINIMAP_GAP_MS) { shot(k + 1) }
+            }
+        }
+        after(MINIMAP_SETTLE_MS) { shot(0) }
+    }
+
+    private var minimapOriginal = emptyMap<String, String>()
+
+    /** Foto do canto de cima a direita (onde o MGR desenha o minimapa), na resolucao da tela. */
+    private fun captureCorner(name: String, done: (Boolean) -> Unit) {
+        val w = surface.width
+        val h = surface.height
+        if (w <= 0 || h <= 0) {
+            done(false)
+            return
+        }
+        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        try {
+            PixelCopy.request(surface, bmp, { result ->
+                if (result != PixelCopy.SUCCESS) {
+                    main.post { done(false) }
+                    return@request
+                }
+                workHandler.post {
+                    val ok = try {
+                        // Metade direita, 45% de cima: o mapa em 16:9, 20:9 e na tela 1:1 do RG Cube.
+                        val x = w / 2
+                        val crop = Bitmap.createBitmap(bmp, x, 0, w - x, (h * 0.45).toInt())
+                        FileOutputStream(File(AppPaths.logsDir, name)).use { crop.compress(Bitmap.CompressFormat.JPEG, 85, it) }
+                        true
+                    } catch (_: Exception) {
+                        false
+                    }
+                    main.post { done(ok) }
+                }
+            }, workHandler)
+        } catch (e: Exception) {
+            done(false)
         }
     }
 
@@ -349,6 +430,18 @@ class RenderSelfTest(
             "vulkan_depth_4x_as_1x", "vulkan_samples_as_pixels_simple_ps", "skip_overwritten_transfers",
             "swordman_strip_quad_ps",
         )
+        val MINIMAP_CVARS = listOf("swordman_renut_scissor_pass", "swordman_renut_scissor_area")
+        /** Modos do recorte (renut/0036); "off" = sem o passe por scissor (0032), o mapa vai a tela inteira. */
+        val MINIMAP_MODES = listOf(
+            "exact" to mapOf("swordman_renut_scissor_pass" to "auto", "swordman_renut_scissor_area" to "exact"),
+            "16" to mapOf("swordman_renut_scissor_pass" to "auto", "swordman_renut_scissor_area" to "16"),
+            "64" to mapOf("swordman_renut_scissor_pass" to "auto", "swordman_renut_scissor_area" to "64"),
+            "full" to mapOf("swordman_renut_scissor_pass" to "auto", "swordman_renut_scissor_area" to "full"),
+            "off" to mapOf("swordman_renut_scissor_pass" to "false", "swordman_renut_scissor_area" to "exact"),
+        )
+        const val MINIMAP_SHOTS = 6
+        const val MINIMAP_SETTLE_MS = 1200L
+        const val MINIMAP_GAP_MS = 300L
         const val LIVE_ROUNDS = 2
         const val LIVE_SETTLE_MS = 600L
         const val LIVE_MEASURE_MS = 1400L
