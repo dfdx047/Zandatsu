@@ -1,0 +1,33 @@
+SwordMan 0187: Vulkan async pipelines no longer drained and awaited at every submission.
+
+Issue #41 (Adreno 710, system driver, Xenia): 308 pipelines compiled on the "GPU Commands" thread in 15 min of play;
+the watchdog caught it inside libllvm-qgl.so while the game thread waited. Draws already bind the placeholder.
+swordman_vulkan_async_wait_submission = true restores the old wait.
+
+--- a/src/graphics/vulkan/pipeline_cache.cpp
++++ b/src/graphics/vulkan/pipeline_cache.cpp
+@@ -63,6 +63,14 @@
+     .range(-1, 32)
+     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+ 
++// SwordMan 0187 (issue #41): o fim de cada submissao compilava a fila "assincrona" na thread de comandos da GPU e
++// esperava pelas threads de compilacao, entao cada pipeline novo parava o jogo (Adreno 710 com o driver do sistema: 308
++// pipelines em 15 min, todos na thread "GPU Commands", e o watchdog apanhou-a dentro do libllvm-qgl.so). O draw ja tem o
++// placeholder; o pipeline real troca-se sozinho e o placeholder e destruido depois da submissao que o usou.
++REXCVAR_DEFINE_BOOL(swordman_vulkan_async_wait_submission, false, "GPU/Vulkan",
++                    "SwordMan: each submission waits for the queued async pipelines (upstream behaviour; stalls the "
++                    "GPU thread on every new pipeline)");
++
+ REXCVAR_DEFINE_BOOL(dbz3_spec_texture_signs, true, "GPU/Vulkan",
+                     "DBZ3-Android: sinais das texturas como specialization constants (o driver "
+                     "elimina os ramos por componente, a amostragem signed e o gamma por pixel)")
+@@ -1039,6 +1047,9 @@
+     }
+     if (startup_loading) {
+       creation_request_cond_.notify_one();
++    } else if (!REXCVAR_GET(swordman_vulkan_async_wait_submission)) {
++      // SwordMan 0187: as threads de compilacao continuam sozinhas.
++      creation_request_cond_.notify_one();
+     } else {
+       // Help worker threads on the processor thread to reduce warm-up latency.
+       CreateQueuedPipelinesOnProcessorThread();
