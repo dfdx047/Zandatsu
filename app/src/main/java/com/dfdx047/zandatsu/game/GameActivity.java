@@ -58,10 +58,12 @@ public class GameActivity extends SDLActivity {
 
         setEnv("REX_APP_DIR", appDir.getAbsolutePath());
         setEnv("REX_NATIVE_LIB_DIR", getApplicationInfo().nativeLibraryDir);
-        // Compilacao de pipelines sincrona: no Android a async escondia 1 frame
-        // de cada vez que um pipeline faltava (travadinhas), e a sincrona custa
-        // menos de 1 ms por frame com a cache do driver. O cvars.txt pode mudar.
-        setEnv("REX_ASYNC_SHADER_COMPILATION", "false");
+        // Emulado (Xenia): compilacao de pipelines assincrona. Ate a 1.2 era sincrona (a async escondia 1 frame de cada
+        // vez que um pipeline faltava), mas cada pipeline novo parava a thread da GPU: issue #41 (Adreno 710, quedas
+        // para 0 fps). 04/11, RG Cube, cache apagada, o mesmo caminho: sincrona 37,4 s de engasgos (122 >= 100 ms, 8,6 s
+        // deles a compilar); async com o SDK 0187 (sem esperar por submissao) 25,7 s (81 >= 100 ms, 0,3 s a compilar).
+        // O fps estavel e a imagem depois de assentar sao iguais. O cvars.txt pode mudar.
+        setEnv("REX_ASYNC_SHADER_COMPILATION", "true");
         // Sem o evento sentinela do SDL: no Android o SDL_WaitEvent poe um sentinela a cada volta (o que o acorda)
         // e o SDL_PeepEvents tira-o logo, e a thread de UI gira a 100% de um nucleo sempre que nao esta bloqueada
         // a pintar (modo Renut: 99% medidos, 23/10). O SDK nao usa SDL_PollEvent, que e quem precisa do sentinela.
