@@ -315,36 +315,71 @@ object DiagRunner {
         false
     }
 
-    /** As janelas de desempenho depois de 10 s no titulo (o titulo leva alguns segundos a carregar). */
+    /**
+     * As janelas de desempenho que comecam 10 s depois do titulo (o titulo leva alguns segundos a carregar). Ficam de
+     * fora as janelas que tocam numa pausa (o jogador abriu o menu do app: 04/11, POCO X7 Pro, 3 pausas no meio do
+     * teste, uma janela de 19 s com um frame de 12,9 s) e as que nao tem o tamanho normal (10 s no Nativo, 5 s no Emulado).
+     */
     internal fun parsePerf(log: File, renderer: String): JSONObject {
         val lines = log.readLines()
         val title = lines.indexOfFirst { "Title_Alpha" in it }
-        val start = lines.drop(title + 1).firstOrNull()?.let { timeOf(it) }?.plus(10_000) ?: 0L
+        val o = JSONObject().put("id", PERF).put("renderer", renderer).put("scene", "menu do titulo")
+        val titleAt = lines.drop(title + 1).firstNotNullOfOrNull { timeOf(it) }
+            ?: return o.put("status", "fail").put("message", "nao chegou ao titulo")
+        val start = titleAt + 10_000
+        // Pausas do menu do app: [inicio, fim].
+        val pauses = ArrayList<LongArray>()
+        for (l in lines) {
+            val t = timeOf(l) ?: continue
+            if ("swordman: pausa" in l) pauses += longArrayOf(t, Long.MAX_VALUE)
+            else if ("swordman: retoma" in l) pauses.lastOrNull()?.takeIf { it[1] == Long.MAX_VALUE }?.set(1, t)
+        }
+        val pausesInTest = pauses.count { it[1] >= start }
+        fun usable(end: Long, seconds: Double, nominal: Double): Boolean {
+            if (seconds < nominal * 0.9 || seconds > nominal * 1.1) return false
+            val begin = end - (seconds * 1000).toLong()
+            return begin >= start && pauses.none { it[0] <= end && it[1] >= begin }
+        }
         val fps = ArrayList<Double>()
         val gpu = ArrayList<Double>()
         val render = ArrayList<Double>()
         val main = ArrayList<Double>()
         var maxFrame = 0.0
-        val reRenut = Regex("""\[renut] 10\.0 s: \d+ game frames \(([\d.]+) fps\), render thread busy ([\d.]+) ms.*GPU ([\d.]+) ms a frame""")
-        val reGame = Regex("""game thread, [\d.]+ s: \d+ frames, ([\d.]+) ms a frame from Swap to Swap \(most ([\d.]+) ms\)""")
-        val reXenia = Regex("""dbz3: perf fps=([\d.]+) .*max_frame_ms=([\d.]+) .*gpu_ms avg=([\d.]+)""")
+        var dropped = 0
+        val reRenut = Regex("""\[renut] ([\d.]+) s: \d+ game frames \(([\d.]+) fps\), render thread busy ([\d.]+) ms.*GPU ([\d.]+) ms a frame""")
+        val reGame = Regex("""game thread, ([\d.]+) s: \d+ frames, ([\d.]+) ms a frame from Swap to Swap \(most ([\d.]+) ms\)""")
+        val reXenia = Regex("""dbz3: perf fps=([\d.]+) .*window=([\d.]+)s max_frame_ms=([\d.]+) .*gpu_ms avg=([\d.]+)""")
         for (l in lines.drop(title + 1)) {
-            if ((timeOf(l) ?: 0L) < start) continue
-            reRenut.find(l)?.let { fps += it.groupValues[1].toDouble(); render += it.groupValues[2].toDouble(); gpu += it.groupValues[3].toDouble() }
-            reGame.find(l)?.let { main += it.groupValues[1].toDouble(); maxFrame = maxOf(maxFrame, it.groupValues[2].toDouble()) }
+            val t = timeOf(l) ?: continue
+            reRenut.find(l)?.let {
+                val g = it.groupValues
+                if (usable(t, g[1].toDouble(), 10.0)) { fps += g[2].toDouble(); render += g[3].toDouble(); gpu += g[4].toDouble() }
+                else if (t >= start) dropped++
+            }
+            reGame.find(l)?.let {
+                val g = it.groupValues
+                if (usable(t, g[1].toDouble(), 10.0)) { main += g[2].toDouble(); maxFrame = maxOf(maxFrame, g[3].toDouble()) }
+            }
             reXenia.find(l)?.let {
-                fps += it.groupValues[1].toDouble(); maxFrame = maxOf(maxFrame, it.groupValues[2].toDouble()); gpu += it.groupValues[3].toDouble()
+                val g = it.groupValues
+                if (usable(t, g[2].toDouble(), 5.0)) {
+                    fps += g[1].toDouble(); maxFrame = maxOf(maxFrame, g[3].toDouble()); gpu += g[4].toDouble()
+                } else if (t >= start) dropped++
             }
         }
-        val o = JSONObject().put("id", PERF).put("renderer", renderer).put("scene", "menu do titulo")
-        if (fps.isEmpty()) return o.put("status", "fail").put("message", "sem linhas de desempenho no log")
+        o.put("pauses", pausesInTest).put("windowsDropped", dropped)
+        val note = if (pausesInTest > 0) " (menu do app aberto ${pausesInTest}x: janelas descartadas)" else ""
+        if (fps.isEmpty()) {
+            return o.put("status", "fail")
+                .put("message", if (pausesInTest > 0) "interrompido: o menu do app foi aberto ${pausesInTest}x" else "sem linhas de desempenho no log")
+        }
         val avg = fps.average()
         o.put("status", "pass").put("seconds", if (renderer == "renut") fps.size * 10 else fps.size * 5)
             .put("fpsAvg", round(avg)).put("fpsMinWindow", round(fps.min())).put("frameMsAvg", round(1000.0 / avg))
             .put("frameMsMax", round(maxFrame)).put("gpuMsAvg", round(gpu.average()))
         if (main.isNotEmpty()) o.put("mainThreadMsAvg", round(main.average()))
         if (render.isNotEmpty()) o.put("renderThreadMsAvg", round(render.average()))
-        return o.put("message", "${round(avg)} fps, GPU ${round(gpu.average())} ms ($renderer)")
+        return o.put("message", "${round(avg)} fps, GPU ${round(gpu.average())} ms ($renderer, ${fps.size} janelas)$note")
     }
 
     private fun round(v: Double) = Math.round(v * 10) / 10.0

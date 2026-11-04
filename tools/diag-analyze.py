@@ -87,7 +87,10 @@ def fmt_perf(p):
         return "–"
     f = lambda k: "?" if p.get(k) is None else f"{p[k]:.1f}" if isinstance(p[k], (int, float)) else str(p[k])
     s = f"{f('fpsAvg')} / {f('gpuMsAvg')} / {f('mainThreadMsAvg')}, {p.get('renderer', '?')}"
-    return s + (" (fallback)" if p.get("fallbackFrom") else "") + ("" if p.get("status", "pass") == "pass" else f" [{p['status']}]")
+    s += " (fallback)" if p.get("fallbackFrom") else ""
+    # O jogador abriu o menu do app durante o teste: as janelas com pausa ficaram de fora (1.2.1+).
+    s += f" ⚠ {p['pauses']} pausa(s), {p.get('seconds', '?')} s" if p.get("pauses") else ""
+    return s + ("" if p.get("status", "pass") == "pass" else f" [{p['status']}]")
 
 
 def row_info(name, s):

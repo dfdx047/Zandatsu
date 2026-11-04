@@ -531,7 +531,7 @@
     <string name="diag_contents_title">What goes in the file</string>
     <string name="diag_contents">Device, SoC, Android, app version and settings. Everything Vulkan reports: properties, features, extensions, limits, supported formats (BC and ASTC included), driver ID and version. The active driver (system, Turnip, RADV or PanVK). CPU cores and frequencies, ADPF support, memory and temperature. The test results, their logs and the images read back from the GPU. Nothing from outside the app folder: no saves, no photos, no accounts.</string>
     <string name="diag_start">Start</string>
-    <string name="diag_running">Running. Do not leave the app.</string>
+    <string name="diag_running">Running. Don\'t leave the app or open the game menu: the game opens and closes by itself.</string>
     <string name="diag_close">Close</string>
     <string name="diag_st_pending">waiting</string>
     <string name="diag_st_running">running…</string>
