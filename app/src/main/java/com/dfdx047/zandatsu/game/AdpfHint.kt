@@ -62,6 +62,7 @@ class AdpfHint(private val context: Context, private val targetNs: Long) {
     }
 
     private var lastTids: Set<Int> = emptySet()
+    private var loggedUnsupported = false
 
     private fun createSession(tids: IntArray) {
         if (stopped || tids.isEmpty() || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
@@ -88,7 +89,12 @@ class AdpfHint(private val context: Context, private val targetNs: Long) {
         }
         try {
             val mgr = context.getSystemService(PerformanceHintManager::class.java) ?: return
-            if (mgr.preferredUpdateRateNanos < 0) return
+            if (mgr.preferredUpdateRateNanos < 0) {
+                // 04/11: sem esta linha o log nao dizia nada (RG Cube, GSI Android 13).
+                if (!loggedUnsupported) AppLog.i("adpf", "sem ADPF neste aparelho (preferredUpdateRateNanos < 0)")
+                loggedUnsupported = true
+                return
+            }
             session = mgr.createHintSession(tids, targetNs)
             if (session == null) {
                 AppLog.i("adpf", "sem sessao (o sistema nao suporta)")
