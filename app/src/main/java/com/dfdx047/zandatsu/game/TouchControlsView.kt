@@ -178,10 +178,15 @@ class TouchControlsView(context: Context) : View(context) {
     private fun isBladeButton(e: ControlElement) =
         (e.action as? ControlAction.Press)?.inputs == setOf(PadInput.LT)
 
-    /** Durante o Blade Mode so o X, o Y e o proprio LT ficam no lado direito (o resto e zona de corte). */
+    /**
+     * Durante o Blade Mode so o X, o Y, o B e o proprio LT ficam no lado direito (o resto e zona de corte).
+     * 04/11 (issue #45): o B e o Zandatsu (agarrar o ponto azul depois do corte); sem ele, no modo "alternar" nao havia
+     * como fazer Zandatsu pelo toque.
+     */
     private fun keptInBlade(e: ControlElement): Boolean {
         val inputs = (e.action as? ControlAction.Press)?.inputs ?: return false
-        return inputs == setOf(PadInput.X) || inputs == setOf(PadInput.Y) || inputs == setOf(PadInput.LT)
+        return inputs == setOf(PadInput.X) || inputs == setOf(PadInput.Y) || inputs == setOf(PadInput.B) ||
+            inputs == setOf(PadInput.LT)
     }
 
     private fun bladeHides(e: ControlElement) =
