@@ -42,3 +42,17 @@ extern "C" JNIEXPORT jstring JNICALL Java_com_dfdx047_zandatsu_diag_DiagNative_r
   std::string json = zdiag::RunTest(Str(env, test), Str(env, out_dir), li, Str(env, options));
   return JStr(env, json);
 }
+
+// Teste sem Vulkan no processo de quem chama (cpu_cores, no app: o :diag fica no cpuset de fundo, so nucleos 0-3).
+extern "C" JNIEXPORT jstring JNICALL Java_com_dfdx047_zandatsu_diag_DiagNative_runInProcess(JNIEnv* env, jclass,
+                                                                                         jstring test, jstring out_dir,
+                                                                                         jstring options) {
+  std::string json = zdiag::RunTest(Str(env, test), Str(env, out_dir), {}, Str(env, options), true);
+  return JStr(env, json);
+}
+
+// Perfil de CPU no processo do jogo (teste de desempenho): profileStart(dir) -> true se arrancou.
+extern "C" JNIEXPORT jboolean JNICALL Java_com_dfdx047_zandatsu_diag_DiagNative_profileStart(JNIEnv* env, jclass,
+                                                                                         jstring dir) {
+  return zdiag::StartProfiler(Str(env, dir)) ? JNI_TRUE : JNI_FALSE;
+}

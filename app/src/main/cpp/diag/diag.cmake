@@ -59,7 +59,9 @@ set(_zd_sources
     "${ZDIAG_DIR}/test_pipelines.cpp"
     "${ZDIAG_DIR}/test_render.cpp"
     "${ZDIAG_DIR}/test_bc.cpp"
-    "${ZDIAG_DIR}/test_timestamps.cpp")
+    "${ZDIAG_DIR}/test_timestamps.cpp"
+    "${ZDIAG_DIR}/test_cpu.cpp"
+    "${ZDIAG_DIR}/profiler.cpp")
 
 if(ZDIAG_CLI)
     set(_zd_target zdiag_cli)

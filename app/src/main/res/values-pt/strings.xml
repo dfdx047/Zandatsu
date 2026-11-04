@@ -526,7 +526,7 @@
     <string name="diag_section_sub">Testa a GPU e o driver (cerca de 3 min) e cria um arquivo para o desenvolvedor.</string>
     <string name="diag_title">Teste de GPU</string>
     <string name="diag_run">Rodar o teste de GPU</string>
-    <string name="diag_intro">Testes gráficos curtos, cada um num processo próprio: se o driver fechar, o teste anota onde e segue. Depois, 60 s da tela de título para medir o desempenho. O jogo abre e fecha sozinho algumas vezes. Cerca de 3 minutos; deixe a tela ligada.</string>
+    <string name="diag_intro">Testes gráficos curtos, cada um num processo próprio: se o driver fechar, o teste anota onde e segue. Depois, a CPU e 60 s da tela de título para medir o desempenho (repete mais 3 vezes com outros ajustes de threads se ficar abaixo de 30 fps). O jogo abre e fecha sozinho algumas vezes. Cerca de 3 minutos (até 10); deixe a tela ligada.</string>
     <string name="diag_contents_title">O que vai no arquivo</string>
     <string name="diag_contents">Aparelho, SoC, Android, versão do app e configurações. Tudo o que o Vulkan informa: propriedades, recursos, extensões, limites, formatos suportados (BC e ASTC incluídos), ID e versão do driver. O driver ativo (sistema, Turnip, RADV ou PanVK). Núcleos e frequências da CPU, suporte a ADPF, memória e temperatura. Os resultados dos testes, os logs deles e as imagens lidas de volta da GPU. Nada de fora da pasta do app: nenhum save, foto ou conta.</string>
     <string name="diag_start">Começar</string>
@@ -563,5 +563,6 @@
     <string name="diag_t_clear_loadop">Clears e loadOp</string>
     <string name="diag_t_bc_decode">Texturas BC (GPU contra CPU)</string>
     <string name="diag_t_timestamps">Timestamps da GPU</string>
+    <string name="diag_t_cpu_cores">CPU, núcleo a núcleo</string>
     <string name="diag_t_perf">Desempenho, 60 s (tela de título)</string>
 </resources>

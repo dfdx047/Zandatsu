@@ -98,6 +98,8 @@ class GameOverlay(private val activity: Activity) : InputManager.InputDeviceList
         AppPaths.init(activity)
         try {
             val fps = GameConfig.load().frameRate
+            // Teste de GPU, variante "sem ADPF" (DiagRunner): env ZDIAG_NO_ADPF=1.
+            if (android.system.Os.getenv("ZDIAG_NO_ADPF") == "1") throw IllegalStateException("ADPF desligado pelo teste")
             adpf = AdpfHint(activity, if (fps == 30) 33_333_333L else 16_666_667L).also { it.start() }
         } catch (_: Throwable) {
         }

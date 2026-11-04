@@ -201,7 +201,7 @@ struct TestDef {
 const std::vector<TestDef>& AllTests();
 // Corre um teste (o processo inteiro, se o driver fechar). Devolve o JSON do resultado.
 std::string RunTest(const std::string& id, const std::string& out_dir, const LoaderInfo& li,
-                    const std::string& options);
+                    const std::string& options, bool in_process = false);
 std::string TestsJson();
 
 void Log(const char* fmt, ...) __attribute__((format(printf, 1, 2)));
@@ -227,5 +227,9 @@ void TestViewportScissor(Test& t);
 void TestClearLoadOp(Test& t);
 void TestBcDecode(Test& t);
 void TestTimestamps(Test& t);
+void TestCpuCores(Test& t);
+
+// Perfil de CPU do processo do jogo (profiler.cpp): uma thread que escreve em dir ate o processo acabar.
+bool StartProfiler(const std::string& dir);
 
 }  // namespace zdiag

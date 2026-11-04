@@ -80,6 +80,17 @@ public class GameActivity extends SDLActivity {
         if (log != null && !log.isEmpty()) {
             setEnv("REX_LOG_FILE", log);
         }
+        // 04/11 (POCO X7 Pro: thread principal a 30 ms por frame com 14% de CPU): perfil de CPU por thread, pilhas e
+        // frequencias, para o teste de desempenho (libzdiag, profiler.cpp).
+        String profile = intent.getStringExtra("diag_profile");
+        if (profile != null && !profile.isEmpty()) {
+            try {
+                boolean ok = com.dfdx047.zandatsu.diag.DiagNative.profileStart(profile);
+                Log.i(TAG, "diag " + diag + ": perfil de CPU em " + profile + (ok ? "" : " (ja corria)"));
+            } catch (Throwable t) {
+                Log.w(TAG, "diag " + diag + ": perfil de CPU falhou", t);
+            }
+        }
         return diag;
     }
 

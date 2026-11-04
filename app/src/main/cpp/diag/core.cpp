@@ -325,6 +325,7 @@ const std::vector<TestDef>& AllTests() {
       {"clear_loadop", TestClearLoadOp},
       {"bc_decode", TestBcDecode},
       {"timestamps", TestTimestamps},
+      {"cpu_cores", TestCpuCores},
   };
   return tests;
 }
@@ -338,11 +339,12 @@ std::string TestsJson() {
 }
 
 std::string RunTest(const std::string& id, const std::string& out_dir, const LoaderInfo& li,
-                    const std::string& options) {
+                    const std::string& options, bool in_process) {
   mkdir(out_dir.c_str(), 0755);
   Test t(id, out_dir, Options::Parse(options));
   g_current = &t;
-  InstallCrashHandlers(out_dir + "/" + id + ".progress");
+  // No processo do app (cpu_cores): sem os handlers de queda nem o Vulkan.
+  if (!in_process) InstallCrashHandlers(out_dir + "/" + id + ".progress");
   const TestDef* def = nullptr;
   for (const TestDef& d : AllTests())
     if (id == d.id) def = &d;
@@ -351,8 +353,8 @@ std::string RunTest(const std::string& id, const std::string& out_dir, const Loa
   if (!def) {
     fatal = "teste desconhecido";
   } else {
-    t.Progress("load_vulkan");
-    if (!LoadVulkan(li)) {
+    if (!in_process) t.Progress("load_vulkan");
+    if (!in_process && !LoadVulkan(li)) {
       fatal = "Vulkan nao carregou: " + LastLoaderError();
     } else {
       try {
@@ -372,8 +374,10 @@ std::string RunTest(const std::string& id, const std::string& out_dir, const Loa
   r.obj().kv("id", id).kv("status", status).kv("durationMs", long(std::lround(ms))).kv("message", message);
   r.k("steps").raw(t.steps_json());
   r.k("details").raw(t.details.str());
-  r.k("vulkan");
-  WriteLoaderJson(r);
+  if (!in_process) {
+    r.k("vulkan");
+    WriteLoaderJson(r);
+  }
   r.end();
   std::string json = r.str();
   WriteFile(out_dir + "/" + id + ".json", json.data(), json.size(), true);

@@ -4,7 +4,7 @@ Metal Gear Rising: Revengeance (Xbox 360) no Android · on Android · en Android
 Nenhum arquivo do jogo incluído · No game files included · No incluye archivos del juego.
 
 **APK:** `Zandatsu-v1.2.1.apk` (1.2.1, versionCode 4)
-**SHA-256:** `574d20752e1bd62cb63090df4c3332544b9e66b80a918bf70f591fe32f3e6232`
+**SHA-256:** `1cdfb33cf960f3cf95ce1242c7e6b930fddef2b71b0e04d927382017fe98a934`
 
 ---
 
@@ -12,8 +12,8 @@ Nenhum arquivo do jogo incluído · No game files included · No incluye archivo
 
 Quem tem a v1.2, a v1.1 ou a v1.0 instala por cima e mantém saves, jogo e ajustes.
 
-**Novo: teste de GPU** (Sistema ▸ Diagnóstico ▸ Rodar o teste de GPU). Cerca de 3 minutos: testa o driver de vídeo, os
-shaders do jogo e o desempenho, e cria um arquivo zip. **Se o jogo tem problema no seu aparelho, rode o teste e mande o
+**Novo: teste de GPU** (Sistema ▸ Diagnóstico ▸ Rodar o teste de GPU). Cerca de 3 minutos (até 10 se o jogo não segura 30
+fps): testa o driver de vídeo, os shaders do jogo, a CPU e o desempenho, e cria um arquivo zip. **Se o jogo tem problema no seu aparelho, rode o teste e mande o
 arquivo** (botões Partilhar, Abrir issue no GitHub e Enviar no Discord). O zip só tem dados do aparelho, do Vulkan e
 dos testes: nenhum save, foto ou conta. Em GPUs com problema conhecido (Mali-G615, G710, G720, G925, G57 MC2, PowerVR,
 Adreno 7xx com o driver do sistema, Xclipse) o app sugere o teste ao abrir.
@@ -39,8 +39,8 @@ Correções
 
 If you have v1.2, v1.1 or v1.0, install over it: saves, game and settings stay.
 
-**New: GPU test** (System ▸ Diagnostics ▸ Run GPU test). About 3 minutes: it checks the graphics driver, the game's
-shaders and performance, and makes a zip file. **If the game has problems on your device, run the test and send the
+**New: GPU test** (System ▸ Diagnostics ▸ Run GPU test). About 3 minutes (up to 10 if the game can't hold 30
+fps): it checks the graphics driver, the game's shaders, the CPU and performance, and makes a zip file. **If the game has problems on your device, run the test and send the
 file** (Share, Open issue on GitHub and Send on Discord buttons). The zip only has device, Vulkan and test data: no
 saves, photos or accounts. On GPUs with known problems (Mali-G615, G710, G720, G925, G57 MC2, PowerVR, Adreno 7xx on the
 system driver, Xclipse) the app suggests the test at startup.
@@ -66,8 +66,8 @@ Fixes
 
 Si tienes la v1.2, v1.1 o v1.0, instala encima: se mantienen partidas, juego y ajustes.
 
-**Nuevo: prueba de GPU** (Sistema ▸ Diagnóstico ▸ Ejecutar la prueba de GPU). Unos 3 minutos: prueba el driver de
-vídeo, los shaders del juego y el rendimiento, y crea un archivo zip. **Si el juego tiene problemas en tu dispositivo,
+**Nuevo: prueba de GPU** (Sistema ▸ Diagnóstico ▸ Ejecutar la prueba de GPU). Unos 3 minutos (hasta 10 si el juego no mantiene 30
+fps): prueba el driver de vídeo, los shaders del juego, la CPU y el rendimiento, y crea un archivo zip. **Si el juego tiene problemas en tu dispositivo,
 ejecuta la prueba y envía el archivo** (botones Compartir, Abrir issue en GitHub y Enviar por Discord). El zip solo
 tiene datos del dispositivo, de Vulkan y de las pruebas: ni partidas, ni fotos, ni cuentas. En GPUs con problemas
 conocidos (Mali-G615, G710, G720, G925, G57 MC2, PowerVR, Adreno 7xx con el driver del sistema, Xclipse) la app sugiere

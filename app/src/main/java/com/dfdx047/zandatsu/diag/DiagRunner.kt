@@ -58,10 +58,13 @@ object DiagRunner {
 
     /** Os testes, pela ordem; os do jogo correm no processo :game. */
     val NATIVE = listOf("info", "pipelines_serial", "pipelines_parallel", "viewport_scissor", "clear_loadop", "bc_decode", "timestamps")
+
+    /** Velocidade de cada nucleo: no processo do app (o :diag fica no cpuset de fundo, que no RP5 so tem os nucleos 0-3). */
+    const val CPU = "cpu_cores"
     val GAME = listOf("game_shaders_serial", "game_shaders_parallel")
     const val PERF = "perf"
     val ORDER = listOf("info", "pipelines_serial", "pipelines_parallel", "game_shaders_serial", "game_shaders_parallel",
-        "viewport_scissor", "clear_loadop", "bc_decode", "timestamps", PERF)
+        "viewport_scissor", "clear_loadop", "bc_decode", "timestamps", "cpu_cores", PERF)
 
     private val _state = MutableStateFlow(State())
     val state: StateFlow<State> = _state
@@ -96,6 +99,7 @@ object DiagRunner {
     suspend fun run(context: Context) = withContext(Dispatchers.IO) {
         if (_state.value.running) return@withContext
         val gpu = gpu()
+        runStartedAt = System.currentTimeMillis() - 1000
         _state.value = State(running = true, items = ORDER.map { Item(it) }, gpu = gpu)
         val stamp = SimpleDateFormat("yyyyMMdd-HHmm", Locale.ROOT).format(Date())
         val root = File(AppPaths.appDir, "diag")
@@ -103,13 +107,19 @@ object DiagRunner {
         File(dir, "logs").mkdirs()
         AppLog.i("diag", "teste de GPU: ${gpu.name} (${gpu.family}), pasta ${dir.name}")
         val tests = JSONArray()
+        // Opcao de desenvolvimento "only=a,b" (diag_options): so esses testes.
+        val only = options.split(';').firstOrNull { it.startsWith("only=") }?.substringAfter('=')?.split(',')?.toSet()
         for (id in ORDER) {
             update(id, Status.RUNNING)
             val result = try {
-                when (id) {
+                when {
+                    only != null && id !in only -> JSONObject().put("id", id).put("status", "skip").put("message", "only")
+                    else -> when (id) {
+                    CPU -> runCpu(dir)
                     in NATIVE -> runNative(context, dir, id)
                     in GAME -> runGameShaders(context, dir, id)
                     else -> runPerf(context, dir)
+                    }
                 }
             } catch (e: Exception) {
                 JSONObject().put("id", id).put("status", "fail").put("message", "erro no app: ${e.message}")
@@ -146,6 +156,23 @@ object DiagRunner {
     private suspend fun waitGone(context: Context, suffix: String, ms: Long) {
         val t0 = SystemClock.elapsedRealtime()
         while (pidOf(context, suffix) != null && SystemClock.elapsedRealtime() - t0 < ms) delay(100)
+    }
+
+    /** Numa thread propria: se o nativo prender, a corrida segue ao fim de 90 s (a thread fica perdida ate o app sair). */
+    private suspend fun runCpu(dir: File): JSONObject {
+        val result = kotlinx.coroutines.CompletableDeferred<JSONObject>()
+        Thread({
+            result.complete(
+                try {
+                    JSONObject(DiagNative.runInProcess(CPU, dir.absolutePath, options))
+                } catch (e: Throwable) {
+                    JSONObject().put("id", CPU).put("status", "fail").put("message", e.toString())
+                },
+            )
+        }, "zdiag-cpu").start()
+        return kotlinx.coroutines.withTimeoutOrNull(90_000) { result.await() }
+            ?: JSONObject().put("id", CPU).put("status", "timeout").put("crashedAt", "$CPU/${progressStep(File(dir, "$CPU.progress")) ?: "?"}")
+                .put("message", "mais de 90 s")
     }
 
     private suspend fun runNative(context: Context, dir: File, id: String): JSONObject {
@@ -201,12 +228,13 @@ object DiagRunner {
         false
     }
 
-    private fun startGame(context: Context, id: String, cvars: List<String>, log: File) {
+    private fun startGame(context: Context, id: String, cvars: List<String>, log: File, profile: File? = null) {
         context.startActivity(
             Intent(context, GameActivity::class.java).setAction("com.dfdx047.zandatsu.PLAY")
                 .putExtra("diag", id)
                 .putExtra("diag_cvars", (listOf("vibration = false") + cvars).joinToString("\n"))
                 .putExtra("diag_log", log.absolutePath)
+                .apply { if (profile != null) putExtra("diag_profile", profile.absolutePath) }
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
         )
     }
@@ -267,46 +295,94 @@ object DiagRunner {
 
     /**
      * 60 s no menu do titulo (uma cena 3D fixa, sem save nem toques). Primeiro no Nativo; se ele cair ou nao chegar
-     * ao titulo, no Emulado. Le as linhas de desempenho que o jogo ja escreve no log.
+     * ao titulo, no Emulado. Le as linhas de desempenho que o jogo ja escreve no log, com o perfil de CPU ligado
+     * (profiler.cpp: tempo de cada thread a correr, na fila e a dormir, nucleos, frequencias, pilhas).
+     *
+     * 04/11 (POCO X7 Pro, Mali-G720): a thread principal a 30 ms por frame com 14% de CPU. Quando o aparelho nao segura
+     * os 30 fps do titulo, o teste repete o desempenho mudando uma coisa de cada vez: a thread principal solta
+     * (swordman_renut_cores = 0), as duas nos nucleos grandes sem nucleo fixo (= 1) e sem ADPF.
      */
     private suspend fun runPerf(context: Context, dir: File): JSONObject {
         if (!gameReady(context)) return JSONObject().put("id", PERF).put("status", "skip").put("message", "jogo nao importado")
-        val renut = perfOnce(context, dir, "renut")
-        if (renut.optString("status") == "pass") return renut
-        val xenos = perfOnce(context, dir, "xenos")
-        xenos.put("fallbackFrom", "renut: ${renut.optString("message")}")
-        return xenos
+        val renut = perfOnce(context, dir, "renut", "base", emptyList(), 75_000)
+        if (renut.optString("status") != "pass") {
+            val xenos = perfOnce(context, dir, "xenos", "xenos", emptyList(), 75_000)
+            xenos.put("fallbackFrom", "renut: ${renut.optString("message")}")
+            return xenos
+        }
+        if (renut.optDouble("fpsAvg", 0.0) >= 29.5 && !options.contains("perf_variants=1")) return renut
+        val variants = JSONArray()
+        for ((label, cvars) in listOf(
+            "nopin" to listOf("swordman_renut_cores = 0"),
+            "bigcores" to listOf("swordman_renut_cores = 1"),
+            "noadpf" to listOf("env:ZDIAG_NO_ADPF = 1"),
+        )) {
+            update(PERF, Status.RUNNING, "variante $label")
+            val v = perfOnce(context, dir, "renut", label, cvars, 55_000)
+            variants.put(JSONObject().put("variant", label).put("cvars", JSONArray(cvars)).put("status", v.optString("status"))
+                .put("fpsAvg", v.opt("fpsAvg")).put("gpuMsAvg", v.opt("gpuMsAvg")).put("mainThreadMsAvg", v.opt("mainThreadMsAvg"))
+                .put("renderThreadMsAvg", v.opt("renderThreadMsAvg")).put("pauses", v.opt("pauses")).put("message", v.optString("message")))
+        }
+        renut.put("variants", variants)
+        val text = (0 until variants.length()).joinToString("; ") {
+            val v = variants.getJSONObject(it)
+            "${v.optString("variant")} ${v.opt("fpsAvg") ?: v.optString("status")}"
+        }
+        return renut.put("message", renut.optString("message") + " | " + text)
     }
 
-    private suspend fun perfOnce(context: Context, dir: File, renderer: String): JSONObject {
-        val log = File(dir, "logs/perf_$renderer.log").apply { delete() }
+    private suspend fun perfOnce(
+        context: Context, dir: File, renderer: String, label: String, cvars: List<String>, measureMs: Long,
+    ): JSONObject {
+        val log = File(dir, "logs/perf_$label.log").apply { delete() }
+        val prof = File(dir, "prof_$label").apply { deleteRecursively(); mkdirs() }
         waitGone(context, ":game", 5000)
-        startGame(context, "perf_$renderer", listOf("swordman_renderer = $renderer"), log)
+        startGame(context, "perf_$label", listOf("swordman_renderer = $renderer") + cvars, log, prof)
         val t0 = SystemClock.elapsedRealtime()
         var titleAt = 0L
         var seen = false
+        var goWritten = false
+        val thermal = JSONArray()
+        var nextThermal = 0L
         while (true) {
             delay(500)
             val pid = pidOf(context, ":game")
             if (pid != null) seen = true
-            val elapsed = SystemClock.elapsedRealtime() - t0
+            val now = SystemClock.elapsedRealtime()
+            val elapsed = now - t0
             if (pid == null && (seen || elapsed > 20_000)) {
-                return JSONObject().put("id", PERF).put("renderer", renderer).put("status", "crash")
-                    .put("crashedAt", "perf/$renderer/${if (titleAt == 0L) "arranque" else "titulo"}")
+                return JSONObject().put("id", PERF).put("renderer", renderer).put("variant", label).put("status", "crash")
+                    .put("crashedAt", "perf/$label/${if (titleAt == 0L) "arranque" else "titulo"}")
                     .put("message", "o jogo fechou (${elapsed / 1000} s)")
             }
-            if (titleAt == 0L && logHas(log, "Title_Alpha")) titleAt = SystemClock.elapsedRealtime()
+            if (titleAt == 0L && logHas(log, "Title_Alpha")) titleAt = now
             if (titleAt == 0L && elapsed > 120_000) {
                 pid?.let(Process::killProcess)
-                return JSONObject().put("id", PERF).put("renderer", renderer).put("status", "timeout")
+                return JSONObject().put("id", PERF).put("renderer", renderer).put("variant", label).put("status", "timeout")
                     .put("message", "nao chegou ao titulo em 2 min")
             }
-            if (titleAt != 0L && SystemClock.elapsedRealtime() - titleAt > 75_000) {
+            // O perfil agrega as pilhas a partir daqui (as mesmas janelas que o parsePerf conta).
+            if (titleAt != 0L && !goWritten && now - titleAt > 10_000) {
+                goWritten = true
+                try { File(prof, "go").writeText(System.currentTimeMillis().toString()) } catch (_: Exception) {}
+            }
+            if (titleAt != 0L && now >= nextThermal) {
+                nextThermal = now + 5000
+                thermal.put(thermalNow(context))
+            }
+            if (titleAt != 0L && now - titleAt > measureMs) {
                 pid?.let(Process::killProcess)
                 waitGone(context, ":game", 5000)
-                return parsePerf(log, renderer)
+                return parsePerf(log, renderer).put("variant", label).put("thermal", thermal)
             }
         }
+    }
+
+    private fun thermalNow(context: Context): JSONObject {
+        val pm = context.getSystemService(PowerManager::class.java)
+        val o = JSONObject().put("status", pm.currentThermalStatus)
+        if (Build.VERSION.SDK_INT >= 30) o.put("headroom", pm.getThermalHeadroom(0).toDouble().takeIf { !it.isNaN() } ?: -1.0)
+        return o
     }
 
     private fun logHas(log: File, text: String): Boolean = try {
@@ -384,6 +460,8 @@ object DiagRunner {
 
     private fun round(v: Double) = Math.round(v * 10) / 10.0
 
+    private var runStartedAt = 0L
+    private val appLogTime = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.ROOT)
     private val timeFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.ROOT)
     private fun timeOf(line: String): Long? =
         if (line.length > 25 && line[0] == '[') try { timeFormat.parse(line.substring(1, 24))?.time } catch (_: Exception) { null } else null
@@ -496,6 +574,24 @@ object DiagRunner {
                 add("logs/${f.name}", if (b.size > 2_000_000) b.copyOfRange(b.size - 2_000_000, b.size) else b)
             }
             dir.listFiles()?.filter { it.name.endsWith(".png") }?.sortedBy { it.name }?.forEach { add("images/${it.name}", it.readBytes()) }
+            // O perfil de CPU de cada corrida de desempenho (profiler.cpp).
+            dir.listFiles()?.filter { it.isDirectory && it.name.startsWith("prof_") }?.sortedBy { it.name }?.forEach { d ->
+                d.listFiles()?.filter { it.isFile && !it.name.endsWith(".tmp") && it.name != "go" }?.sortedBy { it.name }?.forEach { f ->
+                    val b = f.readBytes()
+                    add("logs/${d.name}/${f.name}", if (b.size > 4_000_000) b.copyOfRange(b.size - 4_000_000, b.size) else b)
+                }
+            }
+            // O registo do app desde o inicio do teste (ADPF, launcher, diag).
+            try {
+                val since = runStartedAt
+                // So as etiquetas do sistema (sem [game]/[import]: trazem o caminho da ISO).
+                val tags = listOf("[adpf]", "[launcher]", "[driver]", "[diag]", "[crash]", "[app]")
+                val lines = AppPaths.appLog.readLines().filter { l ->
+                    l.length > 23 && tags.any { it in l } && (appLogTime.parse(l.substring(0, 23))?.time ?: 0L) >= since
+                }
+                if (lines.isNotEmpty()) add("logs/app.log", lines.joinToString("\n").toByteArray())
+            } catch (_: Exception) {
+            }
             // O que o compile_guard (renut/0034) sabe dos pipelines que derrubaram o driver.
             File(AppPaths.appDir, "cache/renut_bad_pipelines.txt").takeIf { it.isFile }?.let { add("logs/renut_bad_pipelines.txt", it.readBytes()) }
         }

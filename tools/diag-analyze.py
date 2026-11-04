@@ -7,7 +7,7 @@ from pathlib import Path, PurePosixPath
 
 MAX_MEMBER = 20 * 1024 * 1024
 TEST_ORDER = ["info", "pipelines_serial", "pipelines_parallel", "game_shaders_serial",
-              "game_shaders_parallel", "viewport_scissor", "clear_loadop", "bc_decode", "timestamps"]
+              "game_shaders_parallel", "viewport_scissor", "clear_loadop", "bc_decode", "timestamps", "cpu_cores"]
 ICON = {"pass": "✔", "fail": "✘", "crash": "💥", "timeout": "⏱"}
 
 
@@ -90,6 +90,10 @@ def fmt_perf(p):
     s += " (fallback)" if p.get("fallbackFrom") else ""
     # O jogador abriu o menu do app durante o teste: as janelas com pausa ficaram de fora (1.2.1+).
     s += f" ⚠ {p['pauses']} pausa(s), {p.get('seconds', '?')} s" if p.get("pauses") else ""
+    # Abaixo de 30 fps o teste repete com uma coisa mudada de cada vez (1.2.1+, detalhe: tools/diag-profile.py).
+    for v in p.get("variants") or []:
+        fps = v.get("fpsAvg")
+        s += f"; {v.get('variant')} {fps:.1f}" if isinstance(fps, (int, float)) else f"; {v.get('variant')} {v.get('status')}"
     return s + ("" if p.get("status", "pass") == "pass" else f" [{p['status']}]")
 
 

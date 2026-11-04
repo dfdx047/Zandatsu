@@ -21,4 +21,10 @@ object DiagNative {
         driverName: String?,
         options: String,
     ): String
+
+    /** Teste sem Vulkan neste processo (cpu_cores, no app em primeiro plano). */
+    @JvmStatic external fun runInProcess(test: String, outDir: String, options: String): String
+
+    /** Perfil de CPU do processo do jogo (no :game, durante o teste de desempenho): escreve em dir. */
+    @JvmStatic external fun profileStart(dir: String): Boolean
 }
