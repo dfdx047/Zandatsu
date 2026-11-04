@@ -1,0 +1,208 @@
+Zandatsu (04/11): teste de GPU do app. swordman_diag_compile = serial | parallel compila de verdade os pipelines da lista (os conhecidos por derrubar o driver primeiro, sem os bloquear), grava o JSON em swordman_diag_out e sai do processo.
+
+--- a/app/src/renut_engine/gpu/render/pipeline.cpp
++++ b/app/src/renut_engine/gpu/render/pipeline.cpp
+@@ -36,6 +36,13 @@
+ REXCVAR_DEFINE_STRING(swordman_renut_serial_pipelines, "auto", "Banjo/Renut",
+                       "Zandatsu: Renut compiles one pipeline at a time: auto (PowerVR, or after the driver died while "
+                       "compiling), true or false");
++// Zandatsu (renut/0037): o teste de GPU do app (Configuracoes > Diagnostico), ver DiagCompile mais abaixo.
++REXCVAR_DEFINE_STRING(swordman_diag_compile, "", "Banjo/Renut",
++                      "Zandatsu (GPU test): serial or parallel compiles the listed pipelines (known-bad first), writes "
++                      "swordman_diag_out and exits");
++REXCVAR_DEFINE_STRING(swordman_diag_out, "", "Banjo/Renut", "Zandatsu (GPU test): the JSON of swordman_diag_compile");
++REXCVAR_DEFINE_INT32(swordman_diag_compile_seconds, 40, "Banjo/Renut",
++                     "Zandatsu (GPU test): stop compiling after this many seconds");
+ REXCVAR_DEFINE_BOOL(swordman_renut_compile_guard, true, "Banjo/Renut",
+                     "Zandatsu: remember the pipeline being compiled (cache/renut_compiling.bin) and block one the "
+                     "driver died on in two sessions (cache/renut_bad_pipelines.txt)");
+@@ -394,7 +401,11 @@
+ #endif
+ }
+ 
++std::atomic<bool> g_diag_unblock{false};  // renut/0037: o teste de GPU compila tambem os bloqueados
++
+ bool Blocked(const std::string &id) {
++  if (g_diag_unblock.load(std::memory_order_relaxed))
++    return false;
+   std::lock_guard lock(g_blocked_mutex);
+   const auto it = g_seen.find(id);
+   return it != g_seen.end() && it->second >= 2;
+@@ -1365,8 +1376,177 @@
+   return result;
+ }
+ 
++// ---------------------------------------------------------------------------
++// Zandatsu (renut/0037): teste de GPU do app, "shaders do jogo"
++// ---------------------------------------------------------------------------
++//
++// Com swordman_diag_compile = serial | parallel, os pipelines da lista (cache/renut_pipelines.bin: os ja vistos neste
++// aparelho) sao compilados de verdade (o app desliga banjo_renut_pipeline_cache nestes arranques), primeiro os que o
++// compile_guard registou (cache/renut_bad_pipelines.txt, os conhecidos por derrubar o driver; aqui nao ficam
++// bloqueados). serial = 1 thread; parallel = 4 (a corrida da PowerVR). Para ao fim de swordman_diag_compile_seconds,
++// grava o JSON em swordman_diag_out e sai do processo. Se o driver matar o processo, o renut_compiling.bin do
++// compile_guard diz qual pipeline era (o app le-o).
++namespace diag_compile {
++
++std::string JsonEscape(const std::string &in) {
++  std::string out;
++  for (char c : in) {
++    if (c == '"' || c == '\\')
++      out += '\\';
++    if (uint8_t(c) < 0x20)
++      continue;
++    out += c;
++  }
++  return out;
++}
++
++void Run(std::vector<std::unique_ptr<Job>> jobs, std::string mode) {
++  const auto t0 = std::chrono::steady_clock::now();
++  compile_guard::g_diag_unblock.store(true);
++  std::call_once(compile_guard::g_once, compile_guard::Init);
++  // Os conhecidos primeiro.
++  std::unordered_set<std::string> known;
++  if (std::ifstream in(compile_guard::g_bad_path); in) {
++    std::string line;
++    while (std::getline(in, line)) {
++      const size_t sp = line.find(' ');
++      if (sp != std::string::npos)
++        known.insert(line.substr(sp + 1));
++    }
++  }
++  std::vector<Job *> order;
++  std::vector<std::string> ids;
++  for (const auto &j : jobs) order.push_back(j.get());
++  std::stable_partition(order.begin(), order.end(),
++                        [&](Job *j) { return known.contains(compile_guard::Id(j->key)); });
++  for (Job *j : order) ids.push_back(compile_guard::Id(j->key));
++  uint32_t known_listed = 0;
++  for (const auto &id : ids) known_listed += known.contains(id) ? 1 : 0;
++  RGPU_INFO("[renut] teste de GPU: {} pipelines na lista, {} conhecidos por derrubar o driver, modo {}", order.size(),
++            known_listed, mode);
++  // Os shaders, numa thread so (CreateCachedShader nao e o que se testa).
++  std::unordered_map<const ShaderCacheEntry *, std::unique_ptr<plume::RenderShader>> shaders;
++  auto shader = [&](const void *e) -> plume::RenderShader * {
++    const auto *entry = static_cast<const ShaderCacheEntry *>(e);
++    if (!entry)
++      return nullptr;
++    auto &slot = shaders[entry];
++    if (!slot)
++      slot = CreateCachedShader(State().device.get(), *entry);
++    return slot.get();
++  };
++  std::vector<PipelineInputs> inputs(order.size());
++  std::vector<bool> ready(order.size(), false);
++  for (size_t i = 0; i < order.size(); ++i) {
++    inputs[i].vertex_shader = shader(order[i]->key.vertex_shader);
++    inputs[i].pixel_shader = shader(order[i]->key.pixel_shader);
++    inputs[i].layout = &order[i]->layout;
++    ready[i] = inputs[i].vertex_shader && (!order[i]->key.pixel_shader || inputs[i].pixel_shader);
++  }
++  const uint32_t threads = mode == "parallel" ? 4u : 1u;
++  const auto limit = std::chrono::seconds(std::max(5, REXCVAR_GET(swordman_diag_compile_seconds)));
++  std::atomic<size_t> next{0};
++  std::atomic<bool> timed_out{false};
++  std::vector<double> ms(order.size(), -1.0);
++  std::vector<int> result(order.size(), 0);  // 0 nao tentado, 1 ok, -1 falhou, 2 sem shaders
++  std::vector<std::unique_ptr<plume::RenderPipeline>> built(order.size());
++  auto work = [&] {
++    for (;;) {
++      const size_t i = next.fetch_add(1);
++      if (i >= order.size())
++        return;
++      if (std::chrono::steady_clock::now() - t0 > limit) {
++        timed_out.store(true);
++        return;
++      }
++      if (!ready[i]) {
++        result[i] = 2;
++        continue;
++      }
++      const auto a = std::chrono::steady_clock::now();
++      built[i] = Build(order[i]->key, inputs[i]);
++      ms[i] = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - a).count();
++      result[i] = built[i] ? 1 : -1;
++    }
++  };
++  std::vector<std::thread> pool;
++  for (uint32_t t = 0; t < threads; ++t) pool.emplace_back(work);
++  for (auto &t : pool) t.join();
++  // O resumo.
++  std::vector<double> done_ms;
++  uint32_t ok = 0, failed = 0, no_shaders = 0, known_ok = 0;
++  std::string failed_ids, known_json, slowest_json;
++  std::vector<size_t> by_time;
++  for (size_t i = 0; i < order.size(); ++i) {
++    if (result[i] == 1) {
++      ++ok;
++      done_ms.push_back(ms[i]);
++      by_time.push_back(i);
++      if (known.contains(ids[i]))
++        ++known_ok;
++    } else if (result[i] == -1) {
++      ++failed;
++      if (failed <= 20)
++        failed_ids += fmt::format("{}\"{}\"", failed_ids.empty() ? "" : ",", JsonEscape(ids[i]));
++    } else if (result[i] == 2) {
++      ++no_shaders;
++    }
++    if (known.contains(ids[i]))
++      known_json += fmt::format("{}{{\"id\":\"{}\",\"result\":{},\"ms\":{:.1f}}}", known_json.empty() ? "" : ",",
++                                JsonEscape(ids[i]), result[i], ms[i]);
++  }
++  std::sort(by_time.begin(), by_time.end(), [&](size_t a, size_t b) { return ms[a] > ms[b]; });
++  for (size_t k = 0; k < std::min<size_t>(10, by_time.size()); ++k)
++    slowest_json += fmt::format("{}{{\"id\":\"{}\",\"ms\":{:.1f}}}", k ? "," : "", JsonEscape(ids[by_time[k]]),
++                                ms[by_time[k]]);
++  std::vector<double> sorted = done_ms;
++  std::sort(sorted.begin(), sorted.end());
++  double sum = 0;
++  for (double v : sorted) sum += v;
++  const double avg = sorted.empty() ? 0 : sum / sorted.size();
++  const double p95 = sorted.empty() ? 0 : sorted[std::min(sorted.size() - 1, sorted.size() * 95 / 100)];
++  const double mx = sorted.empty() ? 0 : sorted.back();
++  const double wall = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
++  const bool pass = failed == 0 && ok > 0;
++  const std::string id = mode == "parallel" ? "game_shaders_parallel" : "game_shaders_serial";
++  const std::string message =
++      order.empty() ? std::string("lista de pipelines vazia (jogue um pouco no Nativo e repita)")
++                    : fmt::format("{} de {} compilados em {:.1f} s ({} threads), {} falharam{}", ok, order.size(),
++                                  wall / 1000.0, threads, failed, timed_out.load() ? ", parou pelo tempo" : "");
++  const std::string json = fmt::format(
++      "{{\"id\":\"{}\",\"status\":\"{}\",\"durationMs\":{:.0f},\"message\":\"{}\",\"steps\":[],"
++      "\"details\":{{\"device\":\"{}\",\"threads\":{},\"listed\":{},\"built\":{},\"failed\":{},"
++      "\"noShaders\":{},\"notTried\":{},\"stoppedByTime\":{},\"limitSeconds\":{},\"avgMs\":{:.2f},"
++      "\"p95Ms\":{:.2f},\"maxMs\":{:.2f},\"sumMs\":{:.0f},\"knownBad\":{},\"knownBuilt\":{},"
++      "\"known\":[{}],\"slowest\":[{}],\"failedIds\":[{}]}}}}",
++      id, order.empty() ? "skip" : (pass ? "pass" : "fail"), wall, JsonEscape(message),
++      JsonEscape(State().device ? State().device->getDescription().name : std::string()), threads, order.size(), ok,
++      failed, no_shaders, order.size() - ok - failed - no_shaders, timed_out.load() ? "true" : "false",
++      limit.count(), avg, p95, mx, sum, known_listed, known_ok, known_json, slowest_json, failed_ids);
++  RGPU_INFO("[renut] teste de GPU: {}", message);
++  const std::string out = REXCVAR_GET(swordman_diag_out);
++  if (!out.empty()) {
++    const std::string tmp = out + ".tmp";
++    if (std::ofstream f(tmp, std::ios::trunc); f)
++      f << json;
++    std::rename(tmp.c_str(), out.c_str());
++  }
++  built.clear();
++  shaders.clear();
++  compile_guard::Mark(nullptr);
++  std::fflush(nullptr);
++  std::_Exit(0);
++}
++
++}  // namespace diag_compile
++
+ void StartPipelinePrebuild() {
+   std::vector<std::unique_ptr<Job>> jobs = LoadList();
++  // Zandatsu (renut/0037): o teste de GPU, numa thread propria; o processo sai no fim.
++  if (const std::string mode = REXCVAR_GET(swordman_diag_compile); mode == "serial" || mode == "parallel") {
++    std::thread(diag_compile::Run, std::move(jobs), mode).detach();
++    return;
++  }
+   if (jobs.empty())
+     return;
+   std::lock_guard lock(g_prebuild.mutex);
