@@ -598,10 +598,35 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
         prefs.whatsNewSeen = com.dfdx047.zandatsu.BuildConfig.VERSION_NAME
     }
 
+    // ------------------------------------------------------------ teste de GPU (Configuracoes > Diagnostico)
+    var showDiag by mutableStateOf(false)
+    var diagPromptGpu by mutableStateOf<String?>(null)
+    private var diagPromptChecked = false
+
+    /** O aviso de arranque, uma vez por abertura, so nas familias com problema conhecido (GpuFamily). */
+    private fun checkDiagPrompt() {
+        if (diagPromptChecked) return
+        diagPromptChecked = true
+        val gpu = com.dfdx047.zandatsu.diag.DiagRunner.gpu()
+        if (gpu.knownProblem && !prefs.diagPromptNever && !prefs.diagDone) diagPromptGpu = gpu.name
+    }
+
+    fun diagPromptAnswer(run: Boolean, never: Boolean, context: Context) {
+        diagPromptGpu = null
+        if (never) prefs.diagPromptNever = true
+        if (run) startDiag(context)
+    }
+
+    fun startDiag(context: Context) {
+        showDiag = true
+        com.dfdx047.zandatsu.diag.DiagRunner.start(context.applicationContext) { prefs.diagDone = true }
+    }
+
     fun refreshDrivers() {
         viewModelScope.launch(Dispatchers.IO) {
             val xclipse = DriverRepository.isXclipse()
             gpuName = DriverRepository.gpuName()
+            withContext(Dispatchers.Main) { checkDiagPrompt() }
             isXclipse = xclipse
             val mali = DriverRepository.isMali()
             isMali = mali

@@ -80,6 +80,12 @@
             android:theme="@style/Theme.SwordMan.Editor"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden" />
 
+        <!-- Teste de GPU: um micro-teste de Vulkan por processo (se o driver o derrubar, o launcher continua). -->
+        <service
+            android:name=".diag.DiagService"
+            android:exported="false"
+            android:process=":diag" />
+
         <!-- Partilha do APK descarregado com o instalador do sistema. -->
         <provider
             android:name="androidx.core.content.FileProvider"

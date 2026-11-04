@@ -25,6 +25,25 @@ class LauncherActivity : AppCompatActivity() {
             }
         }
         vm.checkUpdatesOnLaunch()
+        handleDiagIntent(intent)
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        handleDiagIntent(intent)
+    }
+
+    /**
+     * Teste de GPU pelo adb: am start -n com.dfdx047.zandatsu/.LauncherActivity -a com.dfdx047.zandatsu.DIAG
+     * [--es diag_options force_crash=viewport_scissor/minimap/area_full] [--ez prompt true].
+     */
+    private fun handleDiagIntent(intent: android.content.Intent?) {
+        if (intent?.action != "com.dfdx047.zandatsu.DIAG") return
+        com.dfdx047.zandatsu.diag.DiagRunner.options = intent.getStringExtra("diag_options").orEmpty()
+        intent.action = null
+        // --ez prompt true: so o aviso de arranque (para o ver numa GPU sem problema conhecido).
+        if (intent.getBooleanExtra("prompt", false)) vm.diagPromptGpu = com.dfdx047.zandatsu.diag.DiagRunner.gpu().name
+        else vm.startDiag(this)
     }
 
     override fun onResume() {

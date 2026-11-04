@@ -31,7 +31,7 @@ object LogExporter {
         "erro: ${e.message}"
     }
 
-    private fun deviceReport(): String = buildString {
+    internal fun deviceReport(): String = buildString {
         appendLine("Zandatsu ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
         appendLine("Aparelho: ${Build.MANUFACTURER} ${Build.MODEL} (${Build.DEVICE})")
         appendLine("Android: ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")

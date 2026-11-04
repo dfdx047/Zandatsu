@@ -158,6 +158,16 @@ class LauncherPrefs(context: Context) {
         get() = prefs.getBoolean("touch_blade_toggle", true)
         set(value) = prefs.edit().putBoolean("touch_blade_toggle", value).apply()
 
+    /** Teste de GPU (04/11): o aviso de arranque nas GPUs com problema conhecido ("Nao mostrar de novo"). */
+    var diagPromptNever: Boolean
+        get() = prefs.getBoolean("diag_prompt_never", false)
+        set(value) = prefs.edit().putBoolean("diag_prompt_never", value).apply()
+
+    /** O teste de GPU ja correu ate ao fim neste aparelho (o aviso de arranque deixa de aparecer). */
+    var diagDone: Boolean
+        get() = prefs.getBoolean("diag_done", false)
+        set(value) = prefs.edit().putBoolean("diag_done", value).apply()
+
     /** Tamanho de todos os botoes (multiplica o de cada um). */
     var touchScale: Float
         get() = prefs.getFloat("touch_scale", 1f)

@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
     <cache-path name="updates" path="updates/" />
+    <!-- O zip do teste de GPU (Partilhar o arquivo). -->
+    <external-files-path name="diag" path="diag/" />
 </paths>

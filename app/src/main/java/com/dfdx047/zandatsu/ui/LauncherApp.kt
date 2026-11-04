@@ -149,6 +149,8 @@ fun LauncherApp(vm: LauncherViewModel) {
     if (vm.showGpuNotice) GpuNotice(vm, openTab = { tab = it })
     if (vm.showWhatsNew && !vm.showGpuNotice && !vm.needsProfile) WhatsNewDialog(vm)
     if (vm.showUpdateDialog) UpdateDialog(vm)
+    if (vm.showDiag) com.dfdx047.zandatsu.ui.screens.DiagnosticsScreen(vm)
+    vm.diagPromptGpu?.let { if (!vm.showGpuNotice && !vm.showDiag) com.dfdx047.zandatsu.ui.screens.DiagPromptDialog(vm, it) }
     vm.errorReport?.let { ErrorDialog(vm, it, openTab = { t -> tab = t }) }
 }
 
