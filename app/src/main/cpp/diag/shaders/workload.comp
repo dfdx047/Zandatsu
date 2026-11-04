@@ -1,0 +1,15 @@
+#version 450
+// Carga de ALU para os timestamps e para os pipelines de compute.
+layout(local_size_x = 64) in;
+layout(constant_id = 0) const int MODE = 0;
+layout(push_constant) uniform P { uint iters; uint count; } pc;
+layout(set = 0, binding = 0) buffer B { vec4 data[]; } b;
+void main() {
+  uint i = gl_GlobalInvocationID.x;
+  vec4 v = vec4(float(i) * 1e-4, 0.5, 0.25, 1.0);
+  for (uint k = 0u; k < pc.iters; ++k) {
+    v = fract(v * 1.000173 + v.yzwx * 0.371) + sin(v.wxyz);
+    if (MODE == 1) v = sqrt(abs(v) + 0.5) * inversesqrt(v * v + 1.0);
+  }
+  if (i < pc.count) b.data[i] = v;
+}

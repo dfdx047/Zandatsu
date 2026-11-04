@@ -95,6 +95,9 @@ target_link_libraries(rexui PRIVATE adrenotools)
 target_compile_definitions(rexui PRIVATE REX_HAS_ADRENOTOOLS=1)
 target_link_libraries(rexruntime PRIVATE adrenotools)
 
+# Teste de GPU (Configuracoes > Diagnostico): libzdiag.so, Vulkan sem o jogo, um teste por processo (:diag).
+include("${CMAKE_CURRENT_LIST_DIR}/diag/diag.cmake")
+
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 

@@ -1,0 +1,11 @@
+#version 450
+// Le a imagem BC (decodificada pelo hardware) texel a texel e guarda RGBA8 num buffer.
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(set = 0, binding = 0) uniform sampler2D tex;
+layout(set = 0, binding = 1) buffer B { uint px[]; } b;
+layout(push_constant) uniform P { uint w; uint h; } pc;
+void main() {
+  uvec2 p = gl_GlobalInvocationID.xy;
+  if (p.x >= pc.w || p.y >= pc.h) return;
+  b.px[p.y * pc.w + p.x] = packUnorm4x8(texelFetch(tex, ivec2(p), 0));
+}

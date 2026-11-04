@@ -1,0 +1,15 @@
+#version 450
+// Reducao em memoria partilhada; tamanho do grupo por constante de especializacao (id 0).
+layout(local_size_x_id = 0) in;
+layout(set = 0, binding = 0) buffer B { vec4 data[]; } b;
+shared vec4 s[gl_WorkGroupSize.x];
+void main() {
+  uint l = gl_LocalInvocationID.x;
+  s[l] = b.data[gl_GlobalInvocationID.x];
+  barrier();
+  for (uint st = gl_WorkGroupSize.x / 2u; st > 0u; st >>= 1u) {
+    if (l < st) s[l] += s[l + st];
+    barrier();
+  }
+  if (l == 0u) b.data[gl_WorkGroupID.x] = s[0];
+}
