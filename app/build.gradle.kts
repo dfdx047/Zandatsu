@@ -37,6 +37,8 @@ val uiOnly = (project.findProperty("df.uiOnly") as String?) == "true"
 val d3dTrace = (project.findProperty("df.d3dTrace") as String?) == "true"
 // "-Pdf.thinlto=true": ThinLTO no codigo gerado e no libmain.so (SM_THINLTO; build a parte, mais lento).
 val thinLto = (project.findProperty("df.thinlto") as String?) == "true"
+// "-Pdf.march=armv8-a": CPU alvo do codigo nativo (omissao armv8.2-a; armv8-a para SoCs ARMv8.0 como o SD665).
+val march = (project.findProperty("df.march") as String?) ?: "armv8.2-a"
 
 android {
     namespace = "com.dfdx047.zandatsu"
@@ -70,6 +72,7 @@ android {
                         "-DREXGLUE_BUILD_TESTS=OFF",
                         "-DDB_D3D_TRACE=" + (if (d3dTrace) "ON" else "OFF"),
                         "-DSM_THINLTO=" + (if (thinLto) "ON" else "OFF"),
+                        "-DSM_MARCH=$march",
                     )
                     // Frame pointers em todo o codigo nativo: o vigia (watchdog.cpp) e o
                     // simpleperf seguem a cadeia de frames para mostrar as pilhas.

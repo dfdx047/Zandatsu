@@ -136,7 +136,7 @@ target_include_directories(mgr_renut_gpu PRIVATE
     "${REXSDK_ROOT}/thirdparty/imgui"
     "${CMAKE_BINARY_DIR}/rexglue-sdk/include")
 target_compile_definitions(mgr_renut_gpu PRIVATE MGR_RENUT_RENDERER=1 SA2_RENUT_RENDERER=1 RENUT_RECOMP)
-target_compile_options(mgr_renut_gpu PRIVATE -march=armv8.2-a -ffp-contract=off -fno-strict-aliasing)
+target_compile_options(mgr_renut_gpu PRIVATE -march=${SM_MARCH} -ffp-contract=off -fno-strict-aliasing)
 target_link_libraries(mgr_renut_gpu PRIVATE rex::runtime plume renut_zstd renut_smolv renut_xxhash rex::o1heap)
 
 # Liga o Renut ao libgame.so (<alvo>) e diz ao codigo do app que ele existe (SM_RENUT).

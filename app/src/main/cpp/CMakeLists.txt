@@ -69,11 +69,17 @@ set(REXGLUE_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(REXGLUE_ENABLE_DLSS OFF CACHE BOOL "" FORCE)
 set(REXGLUE_ENABLE_FSR_SDK OFF CACHE BOOL "" FORCE)
 set(REXGLUE_ENABLE_FIDELITYFX OFF CACHE BOOL "" FORCE)
+# Alvo da CPU (-Pdf.march no Gradle): armv8.2-a por omissao; armv8-a para SoCs ARMv8.0 sem atomicos LSE
+# (ex.: Snapdragon 665/Kryo 260, Mi A3), onde o ldadd/cas do 8.1 da SIGILL ao carregar o librexruntime.
+if(NOT SM_MARCH)
+    set(SM_MARCH "armv8.2-a")
+endif()
+message(STATUS "SM_MARCH: ${SM_MARCH}")
 # ARMv8.2-A tambem no SDK (runtime, plugin da GPU, terceiros): atomicos LSE em linha
 # em vez das chamadas __aarch64_cas*/ldadd*. Os aparelhos de teste (Snapdragon 865 e
 # Unisoc T770/T820) sao ARMv8.2.
-string(APPEND CMAKE_C_FLAGS " -march=armv8.2-a")
-string(APPEND CMAKE_CXX_FLAGS " -march=armv8.2-a")
+string(APPEND CMAKE_C_FLAGS " -march=${SM_MARCH}")
+string(APPEND CMAKE_CXX_FLAGS " -march=${SM_MARCH}")
 add_subdirectory("${REXSDK_ROOT}" rexglue-sdk)
 
 #-----------------------------------------------------------------------------
@@ -119,7 +125,7 @@ add_library(mgr_recomp OBJECT ${GENERATED_SOURCES})
 target_include_directories(mgr_recomp PRIVATE "${SM_ROOT}" "${SM_ROOT}/src" "${SM_GENERATED}")
 target_link_libraries(mgr_recomp PRIVATE rex::runtime)
 target_precompile_headers(mgr_recomp PRIVATE "${SM_GENERATED}/mgr_pch.h")
-target_compile_options(mgr_recomp PRIVATE -march=armv8.2-a -ffp-contract=off)
+target_compile_options(mgr_recomp PRIVATE -march=${SM_MARCH} -ffp-contract=off)
 
 #-----------------------------------------------------------------------------
 # libgame.so: src/ do projeto (o mesmo main.cpp do build de PC) + glue Android.
@@ -177,7 +183,7 @@ rexglue_configure_target(game GPU_PLUGINS xenos)
 
 # Alvo minimo: ARMv8.2-A. Fica depois do rexglue_configure_target, que poe
 # -march=armv8-a, para prevalecer.
-target_compile_options(game PRIVATE -march=armv8.2-a)
+target_compile_options(game PRIVATE -march=${SM_MARCH})
 
 # Chamadas entre funcoes do proprio libgame.so sem PLT: as ~85 mil sub_* do codigo gerado tem visibilidade padrao
 # (exportadas, logo "substituiveis" em tempo de execucao) e cada chamada entre elas passava por um stub do PLT e pelo
@@ -229,6 +235,6 @@ add_custom_target(game_pack DEPENDS "${SM_PACK_DIR}/libgame.zdat" "${SM_PACK_DIR
 add_library(main SHARED "${CMAKE_CURRENT_LIST_DIR}/game_lib_jni.cpp" "${SM_ROOT}/src/xex_image.cpp")
 target_include_directories(main PRIVATE "${SM_ROOT}/src" "${REXSDK_ROOT}/thirdparty")
 target_link_libraries(main PRIVATE mspack log)
-target_compile_options(main PRIVATE -march=armv8.2-a)
+target_compile_options(main PRIVATE -march=${SM_MARCH})
 # O Gradle so compila os alvos da lista (build.gradle.kts): o libgame.so e o pacote vem por aqui.
 add_dependencies(main game_pack)
