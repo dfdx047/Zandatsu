@@ -4,7 +4,7 @@ Metal Gear Rising: Revengeance (Xbox 360) no Android · on Android · en Android
 Nenhum arquivo do jogo incluído · No game files included · No incluye archivos del juego.
 
 **APK:** `Zandatsu-v1.2.2.apk` (1.2.2, versionCode 5)
-**SHA-256:** `PREENCHER`
+**SHA-256:** `4439b2fc6c95f41b451819f453054bd90932f651d83e23a9de4d5a8373145c92`
 
 ---
 
