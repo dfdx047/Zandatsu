@@ -16,17 +16,76 @@ import javax.crypto.spec.SecretKeySpec
  * (assets/libgame.zdat, tools/pack-libgame.py). A chave e o SHA-256 da imagem PE do default.xex do jogador, lida pelo
  * libmain.so (src/xex_image.cpp); o libgame.so desencriptado fica em getFilesDir() (privado da app) e o GameActivity
  * carrega-o de la. Feito no import e de novo quando o APK traz outro libgame (libgame.json "id").
+ *
+ * O APK traz dois: libgame (ARMv8.2, atomicos LSE em linha) e libgame-v80 (ARMv8.0, para SoCs como o Snapdragon 665,
+ * onde as instrucoes do 8.1 dao SIGILL). Escolhe-se pela CPU (HWCAP do kernel); o id de cada um e diferente, entao trocar
+ * de variante refaz a copia. Para testar: ficheiro "libgame-variant" com v80 ou v82 na pasta do app (Android/data).
  */
 object GameLib {
-    private const val ASSET = "libgame.zdat"
-    private const val META = "libgame.json"
+    private const val V82 = "libgame"
+    private const val V80 = "libgame-v80"
 
     fun file(context: Context) = File(context.filesDir, "libgame.so")
     private fun stamp(context: Context) = File(context.filesDir, "libgame.id")
 
     private class Meta(val titleId: String, val xexSha1: String, val keySha256: String, val id: String, val size: Long)
 
-    private fun meta(context: Context): Meta = context.assets.open(META).use { s ->
+    // HWCAP do aarch64 (asm/hwcap.h): atomicos LSE e SQRDMLAH (ARMv8.1), CRC32.
+    private const val AT_HWCAP = 16L
+    private const val HWCAP_CRC32 = 1L shl 7
+    private const val HWCAP_ATOMICS = 1L shl 8
+    private const val HWCAP_ASIMDRDM = 1L shl 12
+    private const val HWCAP_V81 = HWCAP_CRC32 or HWCAP_ATOMICS or HWCAP_ASIMDRDM
+
+    /** AT_HWCAP de /proc/self/auxv (pares u64 tipo/valor); se falhar, as "Features" do /proc/cpuinfo. */
+    private fun hwcap(): Long {
+        try {
+            val b = ByteBuffer.wrap(File("/proc/self/auxv").readBytes()).order(ByteOrder.nativeOrder())
+            while (b.remaining() >= 16) {
+                val type = b.long
+                val value = b.long
+                if (type == AT_HWCAP) return value
+                if (type == 0L) break
+            }
+        } catch (_: Exception) {
+        }
+        return try {
+            val f = File("/proc/cpuinfo").readLines().firstOrNull { it.startsWith("Features") }
+                ?.substringAfter(':')?.trim()?.split(Regex("\\s+"))?.toSet() ?: emptySet()
+            (if ("crc32" in f) HWCAP_CRC32 else 0L) or (if ("atomics" in f) HWCAP_ATOMICS else 0L) or
+                (if ("asimdrdm" in f) HWCAP_ASIMDRDM else 0L)
+        } catch (_: Exception) {
+            0L
+        }
+    }
+
+    private var cachedVariant: String? = null
+
+    /** "libgame" (CPU ARMv8.1+) ou "libgame-v80"; so ha o segundo se o APK o trouxer. */
+    @JvmStatic
+    fun variant(context: Context): String = cachedVariant ?: run {
+        val forced = try {
+            context.getExternalFilesDir(null)?.let { File(it, "libgame-variant") }?.takeIf { it.isFile }?.readText()?.trim()
+        } catch (_: Exception) {
+            null
+        }
+        val cap = hwcap()
+        val v81 = cap and HWCAP_V81 == HWCAP_V81
+        val hasV80 = try { context.assets.open("$V80.json").close(); true } catch (_: Exception) { false }
+        val v = when {
+            !hasV80 -> V82
+            forced == "v80" -> V80
+            forced == "v82" -> V82
+            v81 -> V82
+            else -> V80
+        }
+        AppLog.i("import", "CPU hwcap 0x%x (ARMv8.1 %s)%s: %s".format(
+            cap, if (v81) "sim" else "nao", forced?.let { " forcado $it" } ?: "", v))
+        cachedVariant = v
+        v
+    }
+
+    private fun meta(context: Context): Meta = context.assets.open("${variant(context)}.json").use { s ->
         val j = JSONObject(s.readBytes().decodeToString())
         Meta(j.getString("title_id"), j.getString("xex_sha1"), j.getString("key_sha256"), j.getString("id"), j.getLong("size"))
     }
@@ -73,7 +132,7 @@ object GameLib {
         val part = File(out.parentFile, out.name + ".part")
         stamp(context).delete()
         try {
-            context.assets.open(ASSET).use { raw ->
+            context.assets.open("${variant(context)}.zdat").use { raw ->
                 val input = DataInputStream(raw.buffered(1 shl 20))
                 val header = ByteArray(24).also { input.readFully(it) }
                 val hb = ByteBuffer.wrap(header).order(ByteOrder.LITTLE_ENDIAN)
@@ -107,7 +166,7 @@ object GameLib {
         } finally {
             part.delete()
         }
-        AppLog.i("import", "libgame.so pronto (${out.length() / (1 shl 20)} MB, id ${m.id}, title ${m.titleId})")
+        AppLog.i("import", "libgame.so pronto (${variant(context)}, ${out.length() / (1 shl 20)} MB, id ${m.id}, title ${m.titleId})")
     }
 
     private fun ByteArray.hex() = joinToString("") { "%02x".format(it) }

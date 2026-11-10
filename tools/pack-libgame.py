@@ -10,7 +10,8 @@ Formato do .zdat (lido pelo GameLib.kt):
   depois cada pedaço i do .so, encriptado (AES-256-GCM, nonce = prefixo + i em u32 BE, AAD = o cabeçalho) e com a
   etiqueta de 16 bytes no fim. Pedaços de 1 MiB: o aparelho desencripta sem ter o .so inteiro na memória.
 
-Uso: pack-libgame.py <libgame.so> <llvm-strip> <default.xex> <pasta de saída>
+Uso: pack-libgame.py <libgame.so> <llvm-strip> <default.xex> <pasta de saída> [nome]
+  nome: libgame (omissão) ou libgame-v80 (o libgame.so em armv8-a, para CPUs sem os atómicos do ARMv8.1).
 """
 import hashlib
 import json
@@ -26,7 +27,8 @@ CHUNK = 1 << 20
 
 
 def main():
-    so, strip, xex, out = sys.argv[1:]
+    so, strip, xex, out = sys.argv[1:5]
+    name = sys.argv[5] if len(sys.argv) > 5 else 'libgame'
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     subprocess.run(['bash', os.path.join(root, 'tools/xex-image/build.sh')], check=True)
     with tempfile.TemporaryDirectory() as t:
@@ -47,12 +49,12 @@ def main():
     header = b'ZDT1' + struct.pack('<IQ', CHUNK, len(plain)) + prefix
     aes = AESGCM(key)
     os.makedirs(out, exist_ok=True)
-    tmp = os.path.join(out, 'libgame.zdat.part')
+    tmp = os.path.join(out, name + '.zdat.part')
     with open(tmp, 'wb') as f:
         f.write(header)
         for i in range(0, len(plain), CHUNK):
             f.write(aes.encrypt(prefix + struct.pack('>I', i // CHUNK), plain[i:i + CHUNK], header))
-    os.replace(tmp, os.path.join(out, 'libgame.zdat'))
+    os.replace(tmp, os.path.join(out, name + '.zdat'))
     meta = {
         'format': 1,
         'title_id': title_id,
@@ -62,9 +64,9 @@ def main():
         'id': hashlib.sha256(header).hexdigest()[:16],
         'size': len(plain),
     }
-    with open(os.path.join(out, 'libgame.json'), 'w') as f:
+    with open(os.path.join(out, name + '.json'), 'w') as f:
         json.dump(meta, f, indent=1)
-    print(f'libgame.zdat: {len(plain) / 1e6:.1f} MB, title {title_id}, id {meta["id"]}')
+    print(f'{name}.zdat: {len(plain) / 1e6:.1f} MB, title {title_id}, id {meta["id"]}')
 
 
 if __name__ == '__main__':

@@ -10,7 +10,8 @@
 # E uma biblioteca OBJECT, de proposito: os hooks substituem as definicoes fracas sub_X do codigo gerado, e os membros
 # de um arquivo estatico so sao puxados por simbolos em falta (os hooks nunca entrariam).
 #
-# Usa: SM_ROOT, REXSDK_ROOT (CMakeLists.txt do app). Define: mgr_renut_gpu, sm_renut_setup(<alvo>).
+# Usa: SM_ROOT, REXSDK_ROOT (CMakeLists.txt do app). Define: sm_renut_setup(<alvo> <march>), que cria a biblioteca
+# do Renut desse libgame.so (mgr_renut_gpu para o "game", <alvo>_renut_gpu para os outros).
 
 set(SM_MGRNX       "${SM_ROOT}/third_party/mgr-nx-deko")
 set(RENUT_APP_DIR  "${SM_MGRNX}/app")
@@ -62,87 +63,95 @@ if(TARGET o1heap AND NOT TARGET rex::o1heap)
     add_library(rex::o1heap ALIAS o1heap)
 endif()
 
-add_library(mgr_renut_gpu OBJECT
-    # O dispositivo, o frame e a thread de render.
-    "${RENUT_GPU_DIR}/backend/backend.cpp"
-    "${RENUT_GPU_DIR}/backend/gpu_profile.cpp"
-    "${RENUT_GPU_DIR}/backend/memory_report.cpp"
-    "${RENUT_GPU_DIR}/backend/native_window.cpp"
-    "${RENUT_GPU_DIR}/backend/present.cpp"
-    "${RENUT_GPU_DIR}/backend/queued.cpp"
-    "${RENUT_GPU_DIR}/backend/render_thread.cpp"
-    "${RENUT_GPU_DIR}/backend/video.cpp"
-    # O Direct3D do jogo, nativo, e os seus hooks (sem d3d/hooks/state.cpp, como no deles).
-    "${RENUT_GPU_DIR}/d3d/d3d_native_state.cpp"
-    "${RENUT_GPU_DIR}/d3d/hooks/device.cpp"
-    "${RENUT_GPU_DIR}/d3d/hooks/draw.cpp"
-    "${RENUT_GPU_DIR}/d3d/hooks/resource.cpp"
-    "${RENUT_GPU_DIR}/d3d/hooks/shader.cpp"
-    "${RENUT_GPU_DIR}/guest/callbacks.cpp"
-    "${RENUT_GPU_DIR}/guest/command_buffers.cpp"
-    "${RENUT_GPU_DIR}/guest/guest_records.cpp"
-    "${RENUT_GPU_DIR}/guest/sa2_screen.cpp"
-    "${RENUT_GPU_DIR}/overlay/app_integration.cpp"
-    "${RENUT_GPU_DIR}/overlay/overlay_drawer.cpp"
-    "${RENUT_GPU_DIR}/overlay/overlay_ui.cpp"
-    "${RENUT_GPU_DIR}/render/draw.cpp"
-    "${RENUT_GPU_DIR}/render/format.cpp"
-    "${RENUT_GPU_DIR}/render/graphics_options.cpp"
-    "${RENUT_GPU_DIR}/render/pipeline.cpp"
-    "${RENUT_GPU_DIR}/render/shader_library.cpp"
-    "${RENUT_GPU_DIR}/render/surfaces.cpp"
-    "${RENUT_GPU_DIR}/render/texture_layout.cpp"
-    "${RENUT_GPU_DIR}/render/textures.cpp"
-    "${RENUT_GPU_DIR}/render/upload_ring.cpp"
-    "${RENUT_GPU_DIR}/render/vertex_format.cpp"
-    # Os do mgr_renut_gpu.cmake: escolha, afinacao, verificacoes, ritmo dos frames.
-    "${RENUT_GPU_DIR}/banjo_renut_select.cpp"
-    "${RENUT_GPU_DIR}/banjo_renut_tuning.cpp"
-    "${RENUT_GPU_DIR}/banjo_renut_checks.cpp"
-    "${RENUT_GPU_DIR}/banjo_renut_record.cpp"
-    "${RENUT_GPU_DIR}/sa2_renut_pacing.cpp"
-    "${RENUT_APP_DIR}/src/renut_engine/display_sync.cpp"
-    "${RENUT_APP_DIR}/src/renut_engine/perf/frame_stats.cpp"
-    "${RENUT_APP_DIR}/src/renut_engine/sa2_compat/frame_latency.cpp"
-    "${RENUT_APP_DIR}/src/renut_engine/sa2_compat/sa2_compat.cpp"
-    # Marcadores de GPU por draw (swordman_renut_gpu_markers; patch renut/0014 chama-os).
-    "${SM_ROOT}/src/renut_gpu_markers.cpp"
-    # Dump de um frame (swordman_renut_frame_dump; patch renut/0015 chama-o).
-    "${SM_ROOT}/src/renut_frame_dump.cpp"
-    # Sombras e brilho ligados/desligados (swordman_renut_shadows / _bloom; patch renut/0016 chama-o).
-    "${SM_ROOT}/src/renut_effects.cpp"
-    # Widescreen hor+ do MGR (swordman_aspect; o Renut le a largura em guest/sa2_screen.cpp, patch renut/0022).
-    "${SM_ROOT}/src/mgr_widescreen.cpp"
-    # O que o jogo pede ao Wwise (bancos, eventos), para o log (audio_trace; SDK patch 0182).
-    "${SM_ROOT}/src/mgr_audio_trace.cpp"
-    # Os shaders do jogo traduzidos no PC (dados do jogo: so builds pessoais).
-    "${SM_RENUT_OUT}/shader_cache.cpp")
-set_source_files_properties("${SM_RENUT_OUT}/shader_cache.cpp" PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+# A biblioteca do Renut para um libgame.so: <nome> com o codigo nessa CPU alvo (um por -march).
+function(sm_renut_gpu_lib NAME MARCH)
+    add_library(${NAME} OBJECT
+        # O dispositivo, o frame e a thread de render.
+        "${RENUT_GPU_DIR}/backend/backend.cpp"
+        "${RENUT_GPU_DIR}/backend/gpu_profile.cpp"
+        "${RENUT_GPU_DIR}/backend/memory_report.cpp"
+        "${RENUT_GPU_DIR}/backend/native_window.cpp"
+        "${RENUT_GPU_DIR}/backend/present.cpp"
+        "${RENUT_GPU_DIR}/backend/queued.cpp"
+        "${RENUT_GPU_DIR}/backend/render_thread.cpp"
+        "${RENUT_GPU_DIR}/backend/video.cpp"
+        # O Direct3D do jogo, nativo, e os seus hooks (sem d3d/hooks/state.cpp, como no deles).
+        "${RENUT_GPU_DIR}/d3d/d3d_native_state.cpp"
+        "${RENUT_GPU_DIR}/d3d/hooks/device.cpp"
+        "${RENUT_GPU_DIR}/d3d/hooks/draw.cpp"
+        "${RENUT_GPU_DIR}/d3d/hooks/resource.cpp"
+        "${RENUT_GPU_DIR}/d3d/hooks/shader.cpp"
+        "${RENUT_GPU_DIR}/guest/callbacks.cpp"
+        "${RENUT_GPU_DIR}/guest/command_buffers.cpp"
+        "${RENUT_GPU_DIR}/guest/guest_records.cpp"
+        "${RENUT_GPU_DIR}/guest/sa2_screen.cpp"
+        "${RENUT_GPU_DIR}/overlay/app_integration.cpp"
+        "${RENUT_GPU_DIR}/overlay/overlay_drawer.cpp"
+        "${RENUT_GPU_DIR}/overlay/overlay_ui.cpp"
+        "${RENUT_GPU_DIR}/render/draw.cpp"
+        "${RENUT_GPU_DIR}/render/format.cpp"
+        "${RENUT_GPU_DIR}/render/graphics_options.cpp"
+        "${RENUT_GPU_DIR}/render/pipeline.cpp"
+        "${RENUT_GPU_DIR}/render/shader_library.cpp"
+        "${RENUT_GPU_DIR}/render/surfaces.cpp"
+        "${RENUT_GPU_DIR}/render/texture_layout.cpp"
+        "${RENUT_GPU_DIR}/render/textures.cpp"
+        "${RENUT_GPU_DIR}/render/upload_ring.cpp"
+        "${RENUT_GPU_DIR}/render/vertex_format.cpp"
+        # Os do ${NAME}.cmake: escolha, afinacao, verificacoes, ritmo dos frames.
+        "${RENUT_GPU_DIR}/banjo_renut_select.cpp"
+        "${RENUT_GPU_DIR}/banjo_renut_tuning.cpp"
+        "${RENUT_GPU_DIR}/banjo_renut_checks.cpp"
+        "${RENUT_GPU_DIR}/banjo_renut_record.cpp"
+        "${RENUT_GPU_DIR}/sa2_renut_pacing.cpp"
+        "${RENUT_APP_DIR}/src/renut_engine/display_sync.cpp"
+        "${RENUT_APP_DIR}/src/renut_engine/perf/frame_stats.cpp"
+        "${RENUT_APP_DIR}/src/renut_engine/sa2_compat/frame_latency.cpp"
+        "${RENUT_APP_DIR}/src/renut_engine/sa2_compat/sa2_compat.cpp"
+        # Marcadores de GPU por draw (swordman_renut_gpu_markers; patch renut/0014 chama-os).
+        "${SM_ROOT}/src/renut_gpu_markers.cpp"
+        # Dump de um frame (swordman_renut_frame_dump; patch renut/0015 chama-o).
+        "${SM_ROOT}/src/renut_frame_dump.cpp"
+        # Sombras e brilho ligados/desligados (swordman_renut_shadows / _bloom; patch renut/0016 chama-o).
+        "${SM_ROOT}/src/renut_effects.cpp"
+        # Widescreen hor+ do MGR (swordman_aspect; o Renut le a largura em guest/sa2_screen.cpp, patch renut/0022).
+        "${SM_ROOT}/src/mgr_widescreen.cpp"
+        # O que o jogo pede ao Wwise (bancos, eventos), para o log (audio_trace; SDK patch 0182).
+        "${SM_ROOT}/src/mgr_audio_trace.cpp"
+        # Os shaders do jogo traduzidos no PC (dados do jogo: so builds pessoais).
+        "${SM_RENUT_OUT}/shader_cache.cpp")
+    set_source_files_properties("${SM_RENUT_OUT}/shader_cache.cpp" PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
 
-target_include_directories(mgr_renut_gpu BEFORE PRIVATE
-    # O xxhash.h do XenosRecomp, a frente do do SDK (outra versao).
-    "${RENUT_XXHASH_DIR}")
-target_include_directories(mgr_renut_gpu PRIVATE
-    "${RENUT_APP_DIR}"
-    "${RENUT_APP_DIR}/src"
-    "${RENUT_APP_DIR}/src/renut_engine/sa2_compat"
-    "${RENUT_GPU_DIR}/shaders"
-    "${RENUT_XR_DIR}/XenosRecomp"
-    # host_shaders/<nome>.spirv.h
-    "${SM_RENUT_OUT}"
-    "${REXSDK_ROOT}/src/core"
-    # renut_gpu_markers.h (src/), incluido pelo patch renut/0014.
-    "${SM_ROOT}/src"
-    "${REXSDK_ROOT}/thirdparty/imgui"
-    "${CMAKE_BINARY_DIR}/rexglue-sdk/include")
-target_compile_definitions(mgr_renut_gpu PRIVATE MGR_RENUT_RENDERER=1 SA2_RENUT_RENDERER=1 RENUT_RECOMP)
-target_compile_options(mgr_renut_gpu PRIVATE -march=${SM_MARCH} -ffp-contract=off -fno-strict-aliasing)
-target_link_libraries(mgr_renut_gpu PRIVATE rex::runtime plume renut_zstd renut_smolv renut_xxhash rex::o1heap)
+    target_include_directories(${NAME} BEFORE PRIVATE
+        # O xxhash.h do XenosRecomp, a frente do do SDK (outra versao).
+        "${RENUT_XXHASH_DIR}")
+    target_include_directories(${NAME} PRIVATE
+        "${RENUT_APP_DIR}"
+        "${RENUT_APP_DIR}/src"
+        "${RENUT_APP_DIR}/src/renut_engine/sa2_compat"
+        "${RENUT_GPU_DIR}/shaders"
+        "${RENUT_XR_DIR}/XenosRecomp"
+        # host_shaders/<nome>.spirv.h
+        "${SM_RENUT_OUT}"
+        "${REXSDK_ROOT}/src/core"
+        # renut_gpu_markers.h (src/), incluido pelo patch renut/0014.
+        "${SM_ROOT}/src"
+        "${REXSDK_ROOT}/thirdparty/imgui"
+        "${CMAKE_BINARY_DIR}/rexglue-sdk/include")
+    target_compile_definitions(${NAME} PRIVATE MGR_RENUT_RENDERER=1 SA2_RENUT_RENDERER=1 RENUT_RECOMP)
+    target_compile_options(${NAME} PRIVATE -march=${MARCH} -ffp-contract=off -fno-strict-aliasing)
+    target_link_libraries(${NAME} PRIVATE rex::runtime plume renut_zstd renut_smolv renut_xxhash rex::o1heap)
+endfunction()
 
 # Liga o Renut ao libgame.so (<alvo>) e diz ao codigo do app que ele existe (SM_RENUT).
-function(sm_renut_setup TARGET)
+function(sm_renut_setup GAME MARCH)
+    set(LIB "mgr_renut_gpu")
+    if(NOT GAME STREQUAL "game")
+        set(LIB "${GAME}_renut_gpu")
+    endif()
+    sm_renut_gpu_lib(${LIB} ${MARCH})
     # adrenotools: o driver Vulkan do plume (src/renut_glue.cpp, plume_android_vulkan_library).
-    target_link_libraries(${TARGET} PRIVATE mgr_renut_gpu adrenotools)
-    target_compile_definitions(${TARGET} PRIVATE SM_RENUT=1 MGR_RENUT_RENDERER=1 SA2_RENUT_RENDERER=1)
-    target_include_directories(${TARGET} PRIVATE "${RENUT_APP_DIR}" "${RENUT_APP_DIR}/src")
+    target_link_libraries(${GAME} PRIVATE ${LIB} adrenotools)
+    target_compile_definitions(${GAME} PRIVATE SM_RENUT=1 MGR_RENUT_RENDERER=1 SA2_RENUT_RENDERER=1)
+    target_include_directories(${GAME} PRIVATE "${RENUT_APP_DIR}" "${RENUT_APP_DIR}/src")
 endfunction()

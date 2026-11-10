@@ -37,8 +37,11 @@ val uiOnly = (project.findProperty("df.uiOnly") as String?) == "true"
 val d3dTrace = (project.findProperty("df.d3dTrace") as String?) == "true"
 // "-Pdf.thinlto=true": ThinLTO no codigo gerado e no libmain.so (SM_THINLTO; build a parte, mais lento).
 val thinLto = (project.findProperty("df.thinlto") as String?) == "true"
-// "-Pdf.march=armv8-a": CPU alvo do codigo nativo (omissao armv8.2-a; armv8-a para SoCs ARMv8.0 como o SD665).
+// "-Pdf.march=...": CPU alvo do libgame.so principal (omissao armv8.2-a). O APK leva tambem um libgame.so em armv8-a
+// (SoCs ARMv8.0 como o SD665) e o app escolhe pela CPU; "-Pdf.dualMarch=false" tira esse segundo (build mais rapido,
+// so para aparelhos ARMv8.1+). O SDK (.so do APK) e sempre armv8-a com atomicos outline.
 val march = (project.findProperty("df.march") as String?) ?: "armv8.2-a"
+val dualMarch = (project.findProperty("df.dualMarch") as String?) != "false"
 
 android {
     namespace = "com.dfdx047.zandatsu"
@@ -51,8 +54,8 @@ android {
         // estao todos disponiveis no bionic.
         minSdk = 30
         targetSdk = 35
-        versionCode = 4
-        versionName = "1.2.1"  // a v1.0 publicada saiu como 0.1.0 (1): o aviso de atualizacao voltava sempre (issue #1)
+        versionCode = 5
+        versionName = "1.2.2"  // a v1.0 publicada saiu como 0.1.0 (1): o aviso de atualizacao voltava sempre (issue #1)
 
         ndk {
             abiFilters += listOf("arm64-v8a")
@@ -73,6 +76,7 @@ android {
                         "-DDB_D3D_TRACE=" + (if (d3dTrace) "ON" else "OFF"),
                         "-DSM_THINLTO=" + (if (thinLto) "ON" else "OFF"),
                         "-DSM_MARCH=$march",
+                        "-DSM_DUAL_MARCH=" + (if (dualMarch) "ON" else "OFF"),
                     )
                     // Frame pointers em todo o codigo nativo: o vigia (watchdog.cpp) e o
                     // simpleperf seguem a cadeia de frames para mostrar as pilhas.
@@ -115,7 +119,7 @@ android {
             // por caminho e o runtime carrega o plugin da GPU de la.
             useLegacyPackaging = true
             // O codigo do jogo so vai encriptado (assets/libgame.zdat), nunca como .so.
-            excludes += "**/libgame.so"
+            excludes += "**/libgame*.so"
         }
     }
 
