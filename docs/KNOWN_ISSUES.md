@@ -1,6 +1,6 @@
 # Problemas conhecidos · Known issues · Problemas conocidos
 
-Zandatsu v1.2.
+Zandatsu v1.2.2.
 
 ## Português (Brasil)
 

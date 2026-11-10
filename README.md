@@ -6,7 +6,7 @@
   </picture>
 </p>
 
-<h1 align="center">Zandatsu v1.2</h1>
+<h1 align="center">Zandatsu v1.2.2</h1>
 
 <p align="center">
   <b>Metal Gear Rising: Revengeance</b> (Xbox 360) no Android · on Android · en Android
@@ -62,13 +62,13 @@ O APK não traz o jogo: o código do jogo vai encriptado e só abre com o `defau
 
 ### Requisitos
 - A sua ISO de **Metal Gear Rising: Revengeance (USA, Europe)** do Xbox 360 (Title ID `4B4E080A`).
-- Android 11 ou mais novo, ARM64 com CPU ARMv8.2 ou mais nova, Vulkan 1.3.
+- Android 11 ou mais novo, ARM64 (ARMv8.0 ou mais nova; nas CPUs ARMv8.0, como o Snapdragon 665, use o perfil Mínimo), Vulkan 1.3.
 - Recomendado: Adreno 6xx com o driver **Turnip** (o app baixa e ativa na aba Drivers), Adreno 730 ou mais nova, ou
   Mali G57 e mais novas.
 - ~8 GB livres para a ISO.
 
 ### Instalar e importar a ISO
-1. Baixe `Zandatsu-v1.2.apk` da página de releases e instale. Quem tem a v1.1 ou a v1.0 instala por cima e mantém saves,
+1. Baixe `Zandatsu-v1.2.2.apk` da página de releases e instale. Quem tem a v1.2, a v1.1 ou a v1.0 instala por cima e mantém saves,
    jogo e ajustes.
 2. Abra o app: ele detecta a GPU e sugere um perfil gráfico (Mínimo a Ultra, cada um com o aparelho-alvo e o fps
    medido). Toque em **Aceitar** ou em **Escolher eu mesmo**; nada é aplicado antes disso.
@@ -77,6 +77,11 @@ O APK não traz o jogo: o código do jogo vai encriptado e só abre com o `defau
 4. Se o app pedir um driver (Adreno 650 com o driver do sistema, por exemplo), baixe o Turnip indicado na aba
    **Drivers** e ative-o. O driver nunca é trocado sozinho.
 5. Toque em **JOGAR**.
+
+### Novidades da v1.2.2
+- **CPUs ARMv8.0** (Snapdragon 625 a 665 e 835, Helio P60/P70): o jogo abre. Um APK só, que escolhe a versão da sua CPU.
+- **Teste de GPU** (Sistema ▸ Diagnóstico): se o jogo tem problema no seu aparelho, rode e mande o zip.
+- Correções para Mali-G615, G710/G720/G925 e PowerVR, e menos travadas no Emulado (#41). Lista completa no CHANGELOG.
 
 ### Novidades da v1.2
 Tudo o que mudou: [docs/CHANGELOG.md](docs/CHANGELOG.md).
@@ -179,13 +184,13 @@ disc.
 
 ### Requirements
 - Your own Xbox 360 ISO of **Metal Gear Rising: Revengeance (USA, Europe)** (Title ID `4B4E080A`).
-- Android 11 or newer, ARM64 with an ARMv8.2 or newer CPU, Vulkan 1.3.
+- Android 11 or newer, ARM64 (ARMv8.0 or newer; on ARMv8.0 CPUs such as the Snapdragon 665, use the Minimum profile), Vulkan 1.3.
 - Recommended: Adreno 6xx with the **Turnip** driver (the app downloads and enables it in the Drivers tab), Adreno 730
   or newer, or Mali G57 and newer.
 - ~8 GB free for the ISO.
 
 ### Install and import the ISO
-1. Download `Zandatsu-v1.2.apk` from the releases page and install it. If you have v1.1 or v1.0, install over it: your
+1. Download `Zandatsu-v1.2.2.apk` from the releases page and install it. If you have v1.2, v1.1 or v1.0, install over it: your
    saves, game and settings stay.
 2. Open the app: it detects your GPU and suggests a graphics profile (Minimum to Ultra, each with its target device
    and measured fps). Tap **Accept** or **Choose myself**; nothing is applied before that.
@@ -194,6 +199,11 @@ disc.
 4. If the app asks for a driver (Adreno 650 on the system driver, for example), download the Turnip build it names in
    the **Drivers** tab and enable it. The driver is never changed for you.
 5. Tap **PLAY**.
+
+### What's new in v1.2.2
+- **ARMv8.0 CPUs** (Snapdragon 625 to 665 and 835, Helio P60/P70): the game starts. One APK that picks the build for your CPU.
+- **GPU test** (System ▸ Diagnostics): if the game has problems on your device, run it and send the zip.
+- Fixes for Mali-G615, G710/G720/G925 and PowerVR, and fewer stalls on Emulated (#41). Full list in the CHANGELOG.
 
 ### What's new in v1.2
 Everything that changed: [docs/CHANGELOG.md](docs/CHANGELOG.md).
@@ -295,13 +305,13 @@ El APK no trae el juego: el código del juego va cifrado y solo se abre con el `
 
 ### Requisitos
 - Tu propia ISO de Xbox 360 de **Metal Gear Rising: Revengeance (USA, Europe)** (Title ID `4B4E080A`).
-- Android 11 o más reciente, ARM64 con CPU ARMv8.2 o más nueva, Vulkan 1.3.
+- Android 11 o más reciente, ARM64 (ARMv8.0 o más nueva; en CPUs ARMv8.0, como el Snapdragon 665, usa el perfil Mínimo), Vulkan 1.3.
 - Recomendado: Adreno 6xx con el driver **Turnip** (la app lo descarga y lo activa en la pestaña Drivers), Adreno 730
   o más nueva, o Mali G57 y más nuevas.
 - ~8 GB libres para la ISO.
 
 ### Instalar e importar la ISO
-1. Descarga `Zandatsu-v1.2.apk` de la página de releases e instálalo. Si tienes la v1.1 o la v1.0, instala encima: tus
+1. Descarga `Zandatsu-v1.2.2.apk` de la página de releases e instálalo. Si tienes la v1.2, la v1.1 o la v1.0, instala encima: tus
    partidas, el juego y los ajustes se mantienen.
 2. Abre la app: detecta tu GPU y sugiere un perfil gráfico (de Mínimo a Ultra, cada uno con su dispositivo objetivo y
    los fps medidos). Toca **Aceptar** o **Elegir yo mismo**; no se aplica nada antes.
@@ -310,6 +320,11 @@ El APK no trae el juego: el código del juego va cifrado y solo se abre con el `
 4. Si la app pide un driver (Adreno 650 con el driver del sistema, por ejemplo), descarga en la pestaña **Drivers** el
    Turnip que indica y actívalo. El driver nunca se cambia solo.
 5. Toca **JUGAR**.
+
+### Novedades de la v1.2.2
+- **CPUs ARMv8.0** (Snapdragon 625 a 665 y 835, Helio P60/P70): el juego abre. Un solo APK que elige la versión de tu CPU.
+- **Prueba de GPU** (Sistema ▸ Diagnóstico): si el juego tiene problemas en tu dispositivo, ejecútala y envía el zip.
+- Correcciones para Mali-G615, G710/G720/G925 y PowerVR, y menos tirones en Emulado (#41). Lista completa en el CHANGELOG.
 
 ### Novedades de la v1.2
 Todo lo que cambió: [docs/CHANGELOG.md](docs/CHANGELOG.md).
