@@ -101,13 +101,13 @@
     <string name="settings_aspect">Proporção de tela</string>
     <string name="settings_aspect_mode">Imagem</string>
     <string name="aspect_auto">Automático</string>
-    <string name="aspect_auto_sub">Automático segue a tela deste aparelho: Widescreen em telas mais largas que 16:9, Original 16:9 nas outras.</string>
+    <string name="aspect_auto_sub">Automático segue a tela deste aparelho: Ultrawide em telas mais largas que 16:9, Widescreen 16:9 nas outras.</string>
     <string name="resolution_screen">Usar a resolução da tela</string>
     <string name="resolution_screen_sub">Tela detectada: %1$dx%2$d. O jogo desenha em %3$s, a menor altura disponível que cobre a tela. Pode pesar bem mais na GPU.</string>
-    <string name="aspect_original">Original 16:9</string>
+    <string name="aspect_original">Widescreen 16:9</string>
     <string name="aspect_stretch">Esticar</string>
-    <string name="aspect_widescreen">Widescreen</string>
-    <string name="aspect_widescreen_sub">Widescreen (experimental): o jogo desenha na proporção da tela (mais visão dos lados; o HUD fica no layout 16:9). Vale no próximo arranque do jogo.</string>
+    <string name="aspect_widescreen">Ultrawide %1$s</string>
+    <string name="aspect_widescreen_sub">Ultrawide (experimental): o jogo desenha na forma inteira da tela (%1$s, mais visão dos lados; o HUD fica no layout 16:9). Widescreen 16:9 é a imagem original do jogo. Vale no próximo arranque do jogo.</string>
     <string name="settings_controls">Controles</string>
     <string name="settings_touch">Controles na tela</string>
     <string name="settings_touch_sub">Botões por cima do jogo.</string>
@@ -232,7 +232,7 @@
     <string name="whats_new_title">Novidades da v%1$s</string>
     <string name="whats_new_text">• Controle na tela: a troca entre menu e luta segue o modo do jogo e não fica mais trocando sozinha. Dá para desligar em Controles.\n• Blade Mode por toque: toque em LT para entrar e sair e deslize o dedo no lado direito da tela para cortar. Segurar LT continua como opção.\n• Perfis de layout e tamanho de todos os botões, em Controles.\n• Saves, em Sistema: exportar em zip, listar, restaurar com confirmação e backup automático antes de restaurar.\n• Controle externo, em Controles: teste ao vivo, mapeamento automático e remapeamento, salvos por controle.\n• Vibração: não fica mais presa vibrando sem parar.\n• Sundowner: corrigida a causa do crash ao começar a cortar. Ainda não testado nessa luta: se fechar, mande o log.\n• Modo mais estável: depois do primeiro travamento da GPU na Adreno 6xx com Turnip, o app liga sozinho um modo que evita esse travamento.\n• Mali-G57 MC2: o modo automático passa a usar o Emulado quando o nativo não funciona.\n• Desempenho: threads do jogo não ficam mais presas no mesmo núcleo, de 2 a 4 fps a mais nas lutas medidas.\n• Correções para a tela cortada em algumas Mali e para o fechamento com o driver do sistema em Snapdragon recentes, ainda sem teste nesses aparelhos: se continuar, mande o log.</string>
     <string name="whats_new_known_title">Problemas conhecidos</string>
-    <string name="whats_new_known_text">• Widescreen pode dar pequenas piscadas em alguns aparelhos: mande o log (menu do jogo ▸ Sistema ▸ Exportar logs).\n• Adreno 650 com o Turnip MrPurple: hang da GPU; o jogo volta ao launcher e o modo mais estável liga sozinho, é só tocar em JOGAR.\n• Mali-G615: alguns aparelhos não abrem o jogo; causa ainda não encontrada.</string>
+    <string name="whats_new_known_text">• Ultrawide pode dar pequenas piscadas em alguns aparelhos: mande o log (menu do jogo ▸ Sistema ▸ Exportar logs).\n• Adreno 650 com o Turnip MrPurple: hang da GPU; o jogo volta ao launcher e o modo mais estável liga sozinho, é só tocar em JOGAR.\n• Mali-G615: alguns aparelhos não abrem o jogo; causa ainda não encontrada.</string>
     <string name="import_iso">Importar .iso</string>
     <string name="import_folder">Importar pasta</string>
     <string name="busy_reading_disc">Lendo o disco</string>
@@ -455,8 +455,8 @@
     <string name="fps_meter_simple">Simples</string>
     <string name="fps_meter_full">Completo</string>
     <string name="fps_meter_sub">Simples: só o FPS do jogo. Completo: FPS do jogo e da tela, tempo de frame, GPU e CPU em ms, 1% low e gráfico.</string>
-    <string name="aspect_ws_needs_renut">Widescreen só no renderizador nativo (Renut).</string>
-    <string name="aspect_ws_screen_169">Widescreen: esta tela é 16:9 (ou mais estreita), fica igual ao Original.</string>
+    <string name="aspect_ws_needs_renut">Ultrawide só no renderizador nativo (Renut).</string>
+    <string name="aspect_ws_screen_169">Ultrawide: esta tela é 16:9 (ou mais estreita), fica igual ao Widescreen 16:9.</string>
     <string name="ctl_style_classic">Clássico</string>
     <string name="ctl_style_scifi">Sci-fi</string>
     <string name="renut_blocked">O driver ativo não roda o renderizador nativo (Renut): %1$s. O jogo usa o modo emulado (Xenia), mais lento.</string>

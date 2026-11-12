@@ -492,6 +492,7 @@ private fun FpsMeterSetting(vm: LauncherViewModel, c: GameConfig) {
 private fun AspectCard(vm: LauncherViewModel, c: GameConfig) {
     val context = LocalContext.current
     val wide = remember { DisplayRates.isWiderThan16x9(context) }
+    val ratio = remember { com.dfdx047.zandatsu.data.ScreenInfo.apply { if (long == 0) init(context) }.ratioLabel() }
     val reason = when {
         !c.useRenut -> stringResource(R.string.aspect_ws_needs_renut)
         !wide -> stringResource(R.string.aspect_ws_screen_169)
@@ -504,10 +505,10 @@ private fun AspectCard(vm: LauncherViewModel, c: GameConfig) {
                 "auto" to stringResource(R.string.aspect_auto),
                 "original" to stringResource(R.string.aspect_original),
                 "stretch" to stringResource(R.string.aspect_stretch),
-                "widescreen" to stringResource(R.string.aspect_widescreen),
+                "widescreen" to stringResource(R.string.aspect_widescreen, ratio),
             ),
             selected = if (c.aspect == "widescreen" && reason != null) "original" else c.aspect,
-            subtitle = stringResource(R.string.aspect_widescreen_sub) + " " + stringResource(R.string.aspect_auto_sub),
+            subtitle = stringResource(R.string.aspect_widescreen_sub, ratio) + " " + stringResource(R.string.aspect_auto_sub),
             disabled = if (reason != null) setOf("widescreen") else emptySet(),
             onSelect = { v -> vm.updateConfig { it.copy(aspect = v) } },
         )

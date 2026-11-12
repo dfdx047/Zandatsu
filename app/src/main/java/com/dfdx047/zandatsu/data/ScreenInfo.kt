@@ -30,6 +30,18 @@ object ScreenInfo {
         get() = short > 0 && long.toFloat() / short > 16f / 9f + 0.02f
 
     /**
+     * A proporcao da tela como se costuma escrever (x:9, meio ponto): 2712x1220 -> "20:9", 2400x1080 -> "20:9",
+     * 2340x1080 -> "19.5:9", 1920x1080 -> "16:9". Para o nome do modo Ultrawide (12/11: "Widescreen" era o 16:9).
+     */
+    fun ratioLabel(): String = ratioLabel(long, short)
+
+    fun ratioLabel(long: Int, short: Int): String {
+        if (short <= 0) return "21:9"
+        val x = Math.round(long.toFloat() / short * 9f * 2f) / 2f
+        return (if (x % 1f == 0f) x.toInt().toString() else x.toString()) + ":9"
+    }
+
+    /**
      * O Renut so tem alturas fixas (render_scale.h): a menor que cobre a tela. Ex.: 1080 numa tela de 1080, 1440 numa
      * de 1220 (nao ha 1220). Sem tela lida: 720p.
      */

@@ -505,13 +505,15 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
         return aspectChoice(c, reason)
     }
 
+    private fun ratioLabel(): String = com.dfdx047.zandatsu.data.ScreenInfo.let { if (it.long == 0) it.init(context); it.ratioLabel() }
+
     private fun aspectChoice(c: GameConfig, reason: String?): MChoice = choice(
-        s(R.string.settings_aspect_mode), (reason ?: s(R.string.aspect_widescreen_sub)) + " " + s(R.string.aspect_auto_sub),
+        s(R.string.settings_aspect_mode), (reason ?: s(R.string.aspect_widescreen_sub, ratioLabel())) + " " + s(R.string.aspect_auto_sub),
         listOf(
             "auto" to s(R.string.aspect_auto),
             "original" to s(R.string.aspect_original),
             "stretch" to s(R.string.aspect_stretch),
-            "widescreen" to s(R.string.aspect_widescreen),
+            "widescreen" to s(R.string.aspect_widescreen, ratioLabel()),
         ),
         if (c.aspect == "widescreen" && reason != null) "original" else c.aspect,
     ) { v ->
