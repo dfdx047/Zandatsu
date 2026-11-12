@@ -37,6 +37,8 @@ class AdpfHint(private val context: Context, private val targetNs: Long) {
         true
     }
     private var stopped = false
+    /** Alvo em vigor: [targetNs] ou mais, se o jogo pede menos quadros (cutscenes e menus a 30). */
+    private var currentTargetNs = targetNs
 
     fun start(delayMs: Long = 20_000) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
@@ -103,13 +105,13 @@ class AdpfHint(private val context: Context, private val targetNs: Long) {
                 loggedUnsupported = true
                 return
             }
-            session = mgr.createHintSession(tids, targetNs)
+            session = mgr.createHintSession(tids, currentTargetNs)
             if (session == null) {
                 AppLog.i("adpf", "sem sessao (o sistema nao suporta)")
                 return
             }
             lastTids = tids.toSet()
-            AppLog.i("adpf", "sessao com ${tids.size} threads ${names(tids)}, alvo ${targetNs / 1000} us")
+            AppLog.i("adpf", "sessao com ${tids.size} threads ${names(tids)}, alvo ${currentTargetNs / 1000} us")
             NativeGameState.gpuStats().let { lastFrames = it[0]; lastGpuUs = it[1] }
             lastTime = SystemClock.elapsedRealtimeNanos()
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
@@ -129,6 +131,17 @@ class AdpfHint(private val context: Context, private val targetNs: Long) {
             val frames = stats[0]
             val now = SystemClock.elapsedRealtimeNanos()
             val df = frames - lastFrames
+            // 12/11 (POCO X6 Pro): o alvo segue o ritmo que o jogo pede (renut/0044). Com o alvo fixo em 16,7 ms, as
+            // cutscenes e os menus a 30 reportavam 33 ms por quadro e o sistema subia os clocks sem ganho (so calor).
+            val wanted = maxOf(targetNs, FRAME_60_NS * NativeGameState.frameRefreshes().coerceIn(1, 4))
+            if (wanted != currentTargetNs) {
+                try {
+                    s.updateTargetWorkDuration(wanted)
+                    AppLog.i("adpf", "alvo ${wanted / 1000} us (o jogo pede ${1_000_000_000L / wanted} fps)")
+                    currentTargetNs = wanted
+                } catch (_: Throwable) {
+                }
+            }
             if (df > 0 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 val perFrame = (now - lastTime) / df
                 try {
@@ -187,5 +200,6 @@ class AdpfHint(private val context: Context, private val targetNs: Long) {
         const val MAX_THREADS = 8
         const val REPICK_MS = 30_000L
         const val REPORT_MS = 500L
+        const val FRAME_60_NS = 16_666_667L
     }
 }

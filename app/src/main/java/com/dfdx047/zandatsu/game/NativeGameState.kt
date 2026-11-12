@@ -200,6 +200,16 @@ object NativeGameState {
         }
     }
 
+    /** Refreshes de 60 Hz por frame que o jogo pede (1 = 60 fps, 2 = 30, 3 = 20); 1 sem o jogo ou sem o Renut. */
+    fun frameRefreshes(): Int {
+        if (!available) return 1
+        return try {
+            nativeFrameRefreshes()
+        } catch (_: UnsatisfiedLinkError) {
+            1
+        }
+    }
+
     /** Pixel shaders saltados (hashes separados por virgula; "" = nenhum), sem passar pela cvar. */
     fun setSkipPs(hashes: String) {
         if (!available) return
@@ -249,6 +259,7 @@ object NativeGameState {
     @JvmStatic private external fun nativeFrames(): Long
     @JvmStatic private external fun nativeGpuReset(): String
     @JvmStatic private external fun nativeGpuStats(): LongArray
+    @JvmStatic private external fun nativeFrameRefreshes(): Int
     @JvmStatic private external fun nativeSetSkipPs(hashes: String)
     @JvmStatic private external fun nativePsCensus(reset: Boolean): String
 

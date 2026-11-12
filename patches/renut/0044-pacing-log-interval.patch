@@ -1,0 +1,49 @@
+Zandatsu (Android): o intervalo de apresentacao que o MGR pede vai para o log a cada mudanca, e fica
+exportado (swordman_renut_frame_refreshes) para o alvo do ADPF da app seguir o ritmo do jogo (12/11).
+--- a/app/src/renut_engine/gpu/sa2_renut_pacing.cpp
++++ b/app/src/renut_engine/gpu/sa2_renut_pacing.cpp
+@@ -17,6 +17,7 @@
+ #include "renut_engine/gpu/sa2_renut_pacing.h"
+ 
+ #include <algorithm>
++#include <atomic>
+ #include <chrono>
+ #include <string>
+ #include <thread>
+@@ -65,6 +66,9 @@
+ constexpr Clock::duration kRefresh = std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(1.0 / 60.0));
+ 
+ // Refreshes per frame for D3DPRESENT_INTERVAL_*: as SA2's SynchronizeToPresentationInterval (sub_825589D8) maps them.
++// Zandatsu (renut/0044): refreshes de 60 Hz por frame que o jogo pediu por ultimo (o ADPF da app segue-o).
++std::atomic<uint32_t> g_zandatsu_refreshes{1};
++
+ uint32_t RefreshesPerFrame(uint32_t interval) {
+   switch (interval) {
+     case 0:  // DEFAULT
+@@ -177,6 +181,17 @@
+   const auto *interval_word = ::renut::gpu::GuestPtr<const be_u32>(device_va + kDeviceOffsetPresentationInterval);
+   const uint32_t refreshes = RefreshesPerFrame(interval_word ? uint32_t(*interval_word) : 1);
+   const auto now = Clock::now();
++  {
++    // Zandatsu (renut/0044, 12/11): o intervalo que o jogo pede (1 = 60 fps, 2 = 30, 4 = 20), a cada mudanca.
++    static uint32_t last_raw = 0xFFFFFFFFu, logged = 0;
++    const uint32_t raw = interval_word ? uint32_t(*interval_word) : 1;
++    g_zandatsu_refreshes.store(refreshes, std::memory_order_relaxed);
++    if (raw != last_raw && logged < 400) {
++      ++logged;
++      REXLOG_INFO("[pacing] o jogo pede o intervalo {} ({} refreshes de 60 Hz por frame)", raw, refreshes);
++    }
++    last_raw = raw;
++  }
+   // sa2-nx (2026-10-20, banjo_display_sync, Banjo's latency set): on the Switch the release follows the display's own
+   // refresh (its vsync event) plus a measured phase, as late as the frame's image still makes the refresh, instead of
+   // this clock's 60 Hz grid, which drifts against the display's. A late frame goes at once (as relaxed vsync); fixed
+@@ -230,3 +245,8 @@
+ }
+ 
+ }  // namespace sa2::renut
++
++// Zandatsu (renut/0044): refreshes de 60 Hz por frame pedidos pelo jogo (1 = 60 fps, 2 = 30, 3 = 20; 0 = sem vsync).
++extern "C" __attribute__((visibility("default"))) uint32_t swordman_renut_frame_refreshes() {
++  return sa2::renut::g_zandatsu_refreshes.load(std::memory_order_relaxed);
++}

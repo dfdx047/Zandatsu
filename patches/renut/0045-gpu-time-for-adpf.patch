@@ -1,0 +1,28 @@
+Zandatsu (Android): tempo de GPU do Renut exportado para o ADPF da app (swordman_renut_gpu_stats, 12/11).
+O WorkDuration ia com o contador do Xenia, a zero com o Renut: o sistema recebia GPU 1 ns por quadro.
+--- a/app/src/renut_engine/gpu/banjo_renut_tuning.cpp
++++ b/app/src/renut_engine/gpu/banjo_renut_tuning.cpp
+@@ -907,7 +907,13 @@
+     AbApply(target, half == 1);
+ }
+ 
++// Zandatsu (renut/0045, 12/11): o tempo de GPU de cada frame, acumulado para o ADPF da app (AdpfHint.kt, WorkDuration).
++// O contador do Xenia (rex_swordman_gpu_stats) fica a zero com o Renut: o sistema recebia "GPU 1 ns por quadro".
++static std::atomic<uint64_t> g_android_gpu_frames{0}, g_android_gpu_us{0};
++
+ void StatsGpuFrame(double ms) {
++  g_android_gpu_frames.fetch_add(1, std::memory_order_relaxed);
++  g_android_gpu_us.fetch_add(uint64_t(ms * 1000.0), std::memory_order_relaxed);
+   std::lock_guard lock(g_stats.mutex);
+   ++g_stats.total.gpu_frames;
+   g_stats.total.gpu_ms += ms;
+@@ -1592,3 +1598,9 @@
+ }
+ 
+ }  // namespace banjo::renut_gpu
++
++// Zandatsu (renut/0045): [frames, microssegundos de GPU] desde o arranque (game_state_jni.cpp, nativeGpuStats).
++extern "C" __attribute__((visibility("default"))) void swordman_renut_gpu_stats(uint64_t *out) {
++  out[0] = banjo::renut_gpu::g_android_gpu_frames.load(std::memory_order_relaxed);
++  out[1] = banjo::renut_gpu::g_android_gpu_us.load(std::memory_order_relaxed);
++}

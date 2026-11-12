@@ -153,6 +153,14 @@ Java_com_dfdx047_zandatsu_game_NativeGameState_nativeFrames(JNIEnv*, jclass) {
 
 // 0107: tempo de GPU acumulado e censo de pixel shaders (autoteste de efeitos).
 extern "C" void rex_swordman_gpu_stats(uint64_t* out);
+extern "C" void swordman_renut_gpu_stats(uint64_t* out);
+extern "C" uint32_t swordman_renut_frame_refreshes();
+
+// 12/11: refreshes de 60 Hz por frame que o jogo pede (1 = 60 fps, 2 = 30), para o alvo do ADPF.
+extern "C" JNIEXPORT jint JNICALL
+Java_com_dfdx047_zandatsu_game_NativeGameState_nativeFrameRefreshes(JNIEnv*, jclass) {
+  return static_cast<jint>(swordman_renut_frame_refreshes());
+}
 extern "C" size_t rex_swordman_ps_census(char* buf, size_t size, int reset);
 
 extern "C" void rex_swordman_set_skip_ps(const char* text);
@@ -168,7 +176,9 @@ Java_com_dfdx047_zandatsu_game_NativeGameState_nativeSetSkipPs(JNIEnv* env, jcla
 extern "C" JNIEXPORT jlongArray JNICALL
 Java_com_dfdx047_zandatsu_game_NativeGameState_nativeGpuStats(JNIEnv* env, jclass) {
   uint64_t v[2] = {0, 0};
-  rex_swordman_gpu_stats(v);
+  // 12/11: com o Renut o tempo de GPU vem dele (renut/0045); o do Xenia fica a zero.
+  swordman_renut_gpu_stats(v);
+  if (v[0] == 0) rex_swordman_gpu_stats(v);
   jlongArray out = env->NewLongArray(2);
   const jlong j[2] = {static_cast<jlong>(v[0]), static_cast<jlong>(v[1])};
   env->SetLongArrayRegion(out, 0, 2, j);
