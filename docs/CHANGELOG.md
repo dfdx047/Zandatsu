@@ -38,7 +38,7 @@ Correções
 - Nativo com vsync desligado não fica mais preso em 30 fps.
 - CPU: as threads do jogo só são acordadas quando há trabalho para elas.
 - **Otimização de CPU** (Gráficos ▸ Desempenho), ligada por padrão: as tarefas do jogo correm numa thread só, sem
-  acordar os outros núcleos. No POCO X6 Pro a 1080p: de 52–55 para **58–59 fps**, com menos calor. Se o jogo travar com
+  acordar os outros núcleos. No POCO X6 Pro, jogando a 720p: **59 fps** estáveis, também em Ultrawide. A 1080p a GPU é o limite: 50–55 fps em 16:9. Se o jogo travar com
   ela ligada, a launcher desliga-a sozinha e avisa.
 - Proporção mais simples: **16:9 (original)**, o padrão, ou **Esticar**; o **Ultrawide** passa a ser um interruptor à
   parte, que segue a proporção da sua tela (ex.: 20:9). O antigo "Automático", que ligava o Ultrawide nas telas largas,
@@ -80,7 +80,7 @@ Fixes
 - Native with vsync off is no longer stuck at 30 fps.
 - CPU: game threads are only woken up when there is work for them.
 - **CPU optimization** (Graphics ▸ Performance), on by default: the game's tasks run on one thread without waking the
-  other cores. On the POCO X6 Pro at 1080p: from 52–55 to **58–59 fps**, with less heat. If the game freezes with it on,
+  other cores. On the POCO X6 Pro, playing at 720p: a steady **59 fps**, Ultrawide too. At 1080p the GPU is the limit: 50–55 fps at 16:9. If the game freezes with it on,
   the launcher turns it off by itself and tells you.
 - Simpler aspect: **16:9 (original)**, the default, or **Stretch**; **Ultrawide** is now a separate switch that follows
   your screen's ratio (e.g. 20:9). The old "Automatic", which turned on Ultrawide on wide screens, is gone: it becomes
@@ -124,7 +124,7 @@ Correcciones
 - Nativo con vsync desactivado ya no se queda en 30 fps.
 - CPU: los hilos del juego solo se despiertan cuando hay trabajo para ellos.
 - **Optimización de CPU** (Gráficos ▸ Rendimiento), activada por defecto: las tareas del juego corren en un solo hilo,
-  sin despertar los otros núcleos. En el POCO X6 Pro a 1080p: de 52–55 a **58–59 fps**, con menos calor. Si el juego se
+  sin despertar los otros núcleos. En el POCO X6 Pro, jugando a 720p: **59 fps** estables, también en Ultrawide. A 1080p la GPU es el límite: 50–55 fps en 16:9. Si el juego se
   cuelga con ella activada, el launcher la desactiva solo y avisa.
 - Proporción más simple: **16:9 (original)**, el predeterminado, o **Estirar**; el **Ultrawide** pasa a ser un
   interruptor aparte que sigue la proporción de tu pantalla (p. ej. 20:9). El antiguo "Automático", que activaba el
