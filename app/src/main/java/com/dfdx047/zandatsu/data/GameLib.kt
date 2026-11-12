@@ -136,28 +136,55 @@ object GameLib {
                 val input = DataInputStream(raw.buffered(1 shl 20))
                 val header = ByteArray(24).also { input.readFully(it) }
                 val hb = ByteBuffer.wrap(header).order(ByteOrder.LITTLE_ENDIAN)
-                if (hb.getInt(0) != 0x3154445A) throw ImportException(ImportException.Reason.IO, "libgame.zdat")  // "ZDT1"
+                // "ZDT1": pedacos so encriptados; "ZDT2" (12/11): cada pedaco com o tamanho a frente, comprimido (zlib) e
+                // depois encriptado (tools/pack-libgame.py).
+                val magic = hb.getInt(0)
+                val packed = when (magic) {
+                    0x3154445A -> false  // "ZDT1"
+                    0x3254445A -> true   // "ZDT2"
+                    else -> throw ImportException(ImportException.Reason.IO, "libgame.zdat")
+                }
                 val chunk = hb.getInt(4)
                 val size = hb.getLong(8)
                 val nonce = ByteArray(12).also { System.arraycopy(header, 16, it, 0, 8) }
                 val spec = SecretKeySpec(key, "AES")
                 val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-                val buf = ByteArray(chunk + 16)
+                // Um bloco comprimido pode passar um pouco do pedaco (dados que nao comprimem): folga de 1/8 + 1 KiB.
+                val buf = ByteArray(chunk + chunk / 8 + 1024 + 16)
+                val plain = ByteArray(chunk)
+                val inflater = java.util.zip.Inflater()
                 part.outputStream().buffered(1 shl 20).use { o ->
                     var done = 0L
                     var i = 0
                     while (done < size) {
                         val n = minOf(chunk.toLong(), size - done).toInt()
-                        input.readFully(buf, 0, n + 16)
+                        val blockLen = if (packed) Integer.reverseBytes(input.readInt()) else n + 16
+                        if (blockLen < 16 || blockLen > buf.size) throw ImportException(ImportException.Reason.IO, "libgame.zdat")
+                        input.readFully(buf, 0, blockLen)
                         ByteBuffer.wrap(nonce, 8, 4).order(ByteOrder.BIG_ENDIAN).putInt(i)
                         cipher.init(Cipher.DECRYPT_MODE, spec, GCMParameterSpec(128, nonce))
                         cipher.updateAAD(header)
-                        o.write(cipher.doFinal(buf, 0, n + 16))
+                        val dec = cipher.doFinal(buf, 0, blockLen)
+                        if (packed) {
+                            inflater.reset()
+                            inflater.setInput(dec)
+                            var got = 0
+                            while (got < n && !inflater.finished()) {
+                                val k = inflater.inflate(plain, got, n - got)
+                                if (k == 0 && (inflater.needsInput() || inflater.needsDictionary())) break
+                                got += k
+                            }
+                            if (got != n) throw ImportException(ImportException.Reason.IO, "libgame.zdat: pedaco $i")
+                            o.write(plain, 0, n)
+                        } else {
+                            o.write(dec)
+                        }
                         done += n
                         i++
                         onProgress(ImportProgress.Unpacking(done, size))
                     }
                 }
+                inflater.end()
             }
             if (!part.renameTo(out)) throw ImportException(ImportException.Reason.IO, out.name)
             stamp(context).writeText(m.id)

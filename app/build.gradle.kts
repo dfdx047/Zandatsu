@@ -138,7 +138,11 @@ android {
 
     buildTypes {
         getByName("release") {
-            isMinifyEnabled = false
+            // 12/11: R8 corta o que nao se usa das bibliotecas (dex de 44 MB para poucos MB), sem renomear nada
+            // (proguard-rules.pro); shrinkResources tira os recursos dessas partes.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = if (releaseKeyFile.exists()) signingConfigs.getByName("release")
                 else signingConfigs.getByName("debug")
         }

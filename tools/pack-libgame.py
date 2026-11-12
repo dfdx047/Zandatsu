@@ -6,9 +6,12 @@ aparelho): só quem tem o disco a obtém. O APK leva o .zdat e o json, com o SHA
 suportada" antes de tentar), nunca a chave.
 
 Formato do .zdat (lido pelo GameLib.kt):
-  cabeçalho de 24 bytes: "ZDT1", tamanho do pedaço (u32 LE), tamanho do .so (u64 LE), prefixo do nonce (8 bytes);
-  depois cada pedaço i do .so, encriptado (AES-256-GCM, nonce = prefixo + i em u32 BE, AAD = o cabeçalho) e com a
-  etiqueta de 16 bytes no fim. Pedaços de 1 MiB: o aparelho desencripta sem ter o .so inteiro na memória.
+  cabeçalho de 24 bytes: "ZDT2", tamanho do pedaço (u32 LE), tamanho do .so (u64 LE), prefixo do nonce (8 bytes);
+  depois, por cada pedaço i do .so: o tamanho do bloco que segue (u32 LE) e o pedaço comprimido (zlib, nível 9) e
+  encriptado (AES-256-GCM, nonce = prefixo + i em u32 BE, AAD = o cabeçalho), com a etiqueta de 16 bytes no fim.
+  Pedaços de 1 MiB: o aparelho desencripta sem ter o .so inteiro na memória.
+  12/11: comprimir antes de encriptar (encriptado já não comprime no APK): 85,6 -> 32,7 MB por libgame.
+  O GameLib.kt ainda lê o "ZDT1" (pedaços só encriptados, sem tamanho à frente).
 
 Uso: pack-libgame.py <libgame.so> <llvm-strip> <default.xex> <pasta de saída> [nome]
   nome: libgame (omissão) ou libgame-v80 (o libgame.so em armv8-a, para CPUs sem os atómicos do ARMv8.1).
@@ -20,6 +23,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import zlib
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
@@ -46,17 +50,19 @@ def main():
         xex_sha1 = hashlib.sha1(f.read()).hexdigest()
 
     prefix = os.urandom(8)
-    header = b'ZDT1' + struct.pack('<IQ', CHUNK, len(plain)) + prefix
+    header = b'ZDT2' + struct.pack('<IQ', CHUNK, len(plain)) + prefix
     aes = AESGCM(key)
     os.makedirs(out, exist_ok=True)
     tmp = os.path.join(out, name + '.zdat.part')
     with open(tmp, 'wb') as f:
         f.write(header)
         for i in range(0, len(plain), CHUNK):
-            f.write(aes.encrypt(prefix + struct.pack('>I', i // CHUNK), plain[i:i + CHUNK], header))
+            block = aes.encrypt(prefix + struct.pack('>I', i // CHUNK), zlib.compress(plain[i:i + CHUNK], 9), header)
+            f.write(struct.pack('<I', len(block)))
+            f.write(block)
     os.replace(tmp, os.path.join(out, name + '.zdat'))
     meta = {
-        'format': 1,
+        'format': 2,  # 2 = ZDT2 (pedaços comprimidos)
         'title_id': title_id,
         'xex_sha1': xex_sha1,
         'key_sha256': hashlib.sha256(key).hexdigest(),
@@ -66,7 +72,8 @@ def main():
     }
     with open(os.path.join(out, name + '.json'), 'w') as f:
         json.dump(meta, f, indent=1)
-    print(f'{name}.zdat: {len(plain) / 1e6:.1f} MB, title {title_id}, id {meta["id"]}')
+    packed = os.path.getsize(os.path.join(out, name + '.zdat'))
+    print(f'{name}.zdat: {len(plain) / 1e6:.1f} MB -> {packed / 1e6:.1f} MB, title {title_id}, id {meta["id"]}')
 
 
 if __name__ == '__main__':
