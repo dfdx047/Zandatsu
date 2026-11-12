@@ -54,8 +54,8 @@ android {
         // estao todos disponiveis no bionic.
         minSdk = 30
         targetSdk = 35
-        versionCode = 5
-        versionName = "1.2.2"  // a v1.0 publicada saiu como 0.1.0 (1): o aviso de atualizacao voltava sempre (issue #1)
+        versionCode = 6
+        versionName = "1.3"  // a v1.0 publicada saiu como 0.1.0 (1): o aviso de atualizacao voltava sempre (issue #1)
 
         ndk {
             abiFilters += listOf("arm64-v8a")
