@@ -1,0 +1,86 @@
+Zandatsu (12/11, POCO X6 Pro): swordman_ppc_global_lock = false tira o mutex global das zonas mfmsr/mtmsrd do codigo
+do jogo (como o disable_global_lock do Xenia Canary). Elas envolvem lwarx/stwcx, que ja sao CAS atomicos. O mutex
+(partilhado por todas as threads e pelo kernel HLE) era ~8% da CPU do jogo.
+--- a/resources/templates/codegen/pch_h.inja
++++ b/resources/templates/codegen/pch_h.inja
+@@ -355,21 +355,45 @@
+   return count;
+ }
+ 
+-#define REX_CHECK_GLOBAL_LOCK()                                        \
+-  ([&]() -> u64 {                                                      \
+-    auto lock_ = rex::thread::global_critical_region::AcquireDirect(); \
+-    return ppc_global_lock_count_().load() ? 0 : 0x8000;               \
++// Zandatsu (0190, 12/11): swordman_ppc_global_lock = false tira o mutex global das zonas mfmsr/mtmsrd do codigo do
++// jogo (como o disable_global_lock do Xenia Canary). Elas envolvem lwarx/stwcx, que ja sao CAS atomicos; no Xbox 360
++// desligar as interrupcoes num nucleo nunca excluiu os outros. No POCO X6 Pro esse mutex (partilhado por todas as
++// threads) era ~8% da CPU do jogo. Lido uma vez (static), antes do primeiro uso.
++extern "C" bool rex_ppc_global_lock_off_init();
++inline bool ppc_global_lock_off_() {
++  static const bool off = rex_ppc_global_lock_off_init();
++  return off;
++}
++inline int& ppc_global_lock_depth_() {
++  thread_local int depth = 0;
++  return depth;
++}
++
++#define REX_CHECK_GLOBAL_LOCK()                                          \
++  ([&]() -> u64 {                                                        \
++    if (ppc_global_lock_off_())                                          \
++      return ppc_global_lock_depth_() ? 0 : 0x8000;                      \
++    auto lock_ = rex::thread::global_critical_region::AcquireDirect();   \
++    return ppc_global_lock_count_().load() ? 0 : 0x8000;                 \
+   }())
+ 
+-#define REX_ENTER_GLOBAL_LOCK()                          \
+-  do {                                                   \
+-    rex::thread::global_critical_region::mutex().lock(); \
+-    ppc_global_lock_count_().fetch_add(1);               \
++#define REX_ENTER_GLOBAL_LOCK()                              \
++  do {                                                       \
++    if (ppc_global_lock_off_()) {                            \
++      ++ppc_global_lock_depth_();                            \
++    } else {                                                 \
++      rex::thread::global_critical_region::mutex().lock();   \
++      ppc_global_lock_count_().fetch_add(1);                 \
++    }                                                        \
+   } while (0)
+ 
+-#define REX_LEAVE_GLOBAL_LOCK()                                                           \
+-  do {                                                                                    \
+-    auto old_count_ = ppc_global_lock_count_().fetch_sub(1);                              \
+-    assert(old_count_ >= 1 && "LeaveGlobalLock called without matching EnterGlobalLock"); \
+-    rex::thread::global_critical_region::mutex().unlock();                                \
++#define REX_LEAVE_GLOBAL_LOCK()                                                             \
++  do {                                                                                      \
++    if (ppc_global_lock_off_()) {                                                           \
++      --ppc_global_lock_depth_();                                                           \
++    } else {                                                                                \
++      auto old_count_ = ppc_global_lock_count_().fetch_sub(1);                              \
++      assert(old_count_ >= 1 && "LeaveGlobalLock called without matching EnterGlobalLock"); \
++      rex::thread::global_critical_region::mutex().unlock();                                \
++    }                                                                                       \
+   } while (0)
+--- a/src/system/xthread.cpp
++++ b/src/system/xthread.cpp
+@@ -37,6 +37,19 @@
+ #include <rex/thread.h>
+ #include <rex/vec128.h>
+ 
++// Zandatsu (0190, 12/11): o mutex global nas zonas mfmsr/mtmsrd do codigo do jogo (resources/templates/codegen/pch_h.inja).
++REXCVAR_DEFINE_BOOL(swordman_ppc_global_lock, true, "SwordMan",
++                    "Zonas mfmsr/mtmsrd do codigo do jogo com o mutex global (como no Xenia). false: so os CAS do "
++                    "lwarx/stwcx (como o disable_global_lock do Xenia Canary), sem disputar um mutex entre todas as threads")
++    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
++
++extern "C" __attribute__((visibility("default"))) bool rex_ppc_global_lock_off_init() {
++  const bool off = !REXCVAR_GET(swordman_ppc_global_lock);
++  REXLOG_INFO("swordman: zonas mfmsr/mtmsrd do jogo {}", off ? "sem o mutex global (swordman_ppc_global_lock = false)"
++                                                             : "com o mutex global");
++  return off;
++}
++
+ REXCVAR_DEFINE_BOOL(ignore_thread_priorities, true, "Kernel",
+                     "Ignores game-specified thread priorities");
+ 

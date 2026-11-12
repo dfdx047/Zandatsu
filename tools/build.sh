@@ -44,9 +44,9 @@ rm -f "$LOG"
 
 # Carimbo do codegen: tudo o que muda o codigo gerado.
 STAMP_FILE="generated/.codegen-stamp"
-# So os patches que mexem no recompilador (src/codegen, src/rexglue, include/rex/codegen):
+# So os patches que mexem no recompilador (src/codegen, src/rexglue, include/rex/codegen, os templates do codegen):
 # os da GPU/runtime nao mudam o codigo gerado (0111: 88 s de codegen com "0 written").
-CODEGEN_PATCHES="$(grep -lE '^\+\+\+ b/(src/(codegen|rexglue)|include/rex/codegen)/' patches/*.patch 2>/dev/null || true)"
+CODEGEN_PATCHES="$(grep -lE '^\+\+\+ b/(src/(codegen|rexglue)|include/rex/codegen|resources/templates/codegen)/' patches/*.patch 2>/dev/null || true)"
 # shellcheck disable=SC2086
 STAMP="$(cat mgr_manifest.toml mgr_overrides.toml mgr_codegen.toml $CODEGEN_PATCHES assets/default.xex 2>/dev/null | sha1sum | cut -d' ' -f1)"
 if [ ! -f generated/default/sources.cmake ] || [ "$(cat "$STAMP_FILE" 2>/dev/null)" != "$STAMP" ]; then
