@@ -172,12 +172,19 @@ fun <T> ChoiceRow(options: List<Pair<T, String>>, selected: T, disabled: Set<T> 
         val style = MaterialTheme.typography.labelLarge
         val density = LocalDensity.current
         val per = maxWidth / options.size.coerceAtLeast(1)
-        val fits = remember(options, per, style, density) {
-            // Segmento: 12 dp de cada lado + o visto do selecionado (18 + 8 dp) + a borda.
-            options.all { (_, label) ->
-                with(density) { measurer.measure(label, style, maxLines = 1, softWrap = false).size.width.toDp() } + 52.dp <= per
+        val gap = 8.dp
+        // Largura do nome mais comprido + o espaco do botao (12 dp de cada lado, o visto 18 + 8 dp, a borda).
+        val longest = remember(options, style, density) {
+            options.maxOf { (_, label) ->
+                with(density) { measurer.measure(label, style, maxLines = 1, softWrap = false).size.width.toDp() }
             }
         }
+        val fits = longest + 52.dp <= per
+        // Chip: 8 dp de cada lado + o visto (18 + 8 dp) + a borda.
+        val need = longest + 44.dp
+        // 12/11 (retrato): senao, grelha de botoes da mesma largura com o maior numero de colunas em que todos cabem
+        // (antes chips de larguras diferentes com as filas encostadas: "Esticar" colado a "Automatico").
+        val cols = (options.size downTo 1).firstOrNull { c -> (maxWidth - gap * (c - 1)) / c >= need } ?: 1
         if (fits) {
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                 options.forEachIndexed { i, (value, label) ->
@@ -192,26 +199,33 @@ fun <T> ChoiceRow(options: List<Pair<T, String>>, selected: T, disabled: Set<T> 
                 }
             }
         } else {
-            FlowRow(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(0.dp),
-            ) {
-                options.forEach { (value, label) ->
-                    val on = value == selected
-                    FilterChip(
-                        selected = on,
-                        onClick = { onSelect(value) },
-                        enabled = value !in disabled,
-                        label = { Text(label, maxLines = 1, softWrap = false, style = style) },
-                        leadingIcon = if (on) {
-                            { Icon(Icons.Filled.Check, null, Modifier.size(18.dp)) }
-                        } else {
-                            null
-                        },
-                        shape = RoundedCornerShape(50),
-                        modifier = Modifier.height(40.dp),
-                    )
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(gap)) {
+                options.chunked(cols).forEach { row ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(gap)) {
+                        row.forEach { (value, label) ->
+                            val on = value == selected
+                            FilterChip(
+                                selected = on,
+                                onClick = { onSelect(value) },
+                                enabled = value !in disabled,
+                                label = {
+                                    Text(
+                                        label, maxLines = 1, softWrap = false, style = style,
+                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                },
+                                leadingIcon = if (on) {
+                                    { Icon(Icons.Filled.Check, null, Modifier.size(18.dp)) }
+                                } else {
+                                    null
+                                },
+                                shape = RoundedCornerShape(50),
+                                modifier = Modifier.weight(1f).height(44.dp),
+                            )
+                        }
+                        repeat(cols - row.size) { Spacer(Modifier.weight(1f)) }
+                    }
                 }
             }
         }
