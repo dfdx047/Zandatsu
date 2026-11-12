@@ -38,7 +38,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddToHomeScreen
 import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.LocalCafe
@@ -53,6 +55,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -268,6 +271,10 @@ private fun GameFilesCard(vm: LauncherViewModel) {
     val pickIso = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri != null) vm.importIso(uri)
     }
+    // DLC do 360: os arquivos da pasta Content/0000000000000000/4B4E080A/00000002 (um por DLC, varios de uma vez).
+    val pickDlc = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris: List<Uri> ->
+        vm.importDlc(uris)
+    }
     val install = vm.install
     val installed = install?.installed == true
     var showFiles by remember { mutableStateOf(false) }
@@ -330,6 +337,34 @@ private fun GameFilesCard(vm: LauncherViewModel) {
                 Icon(Icons.Filled.FolderOpen, null)
                 Spacer(Modifier.width(6.dp))
                 Text(stringResource(R.string.import_folder), maxLines = 1, softWrap = false)
+            }
+            OutlinedButton(onClick = { pickDlc.launch(arrayOf("*/*")) }, enabled = vm.busy == null) {
+                Icon(Icons.Filled.Extension, null)
+                Spacer(Modifier.width(6.dp))
+                Text(stringResource(R.string.import_dlc), maxLines = 1, softWrap = false)
+            }
+        }
+        if (vm.dlcs.isNotEmpty()) {
+            Text(
+                stringResource(R.string.dlc_title, vm.dlcs.size),
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            vm.dlcs.forEach { d ->
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.weight(1f)) {
+                        Text(d.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
+                        Text(
+                            stringResource(if (d.installed) R.string.dlc_installed else R.string.dlc_pending) +
+                                " · " + (if (d.bytes < 1048576) "%d KB".format(d.bytes / 1024) else "%.1f MB".format(d.bytes / 1048576.0)),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    IconButton(onClick = { vm.removeDlc(d.file) }, enabled = vm.busy == null) {
+                        Icon(Icons.Filled.Delete, stringResource(R.string.dlc_remove))
+                    }
+                }
             }
         }
         // ISO ativa e sobras de uma extracao antiga: o jogo ja nao as le.

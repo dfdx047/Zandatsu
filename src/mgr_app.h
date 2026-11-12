@@ -30,6 +30,8 @@ bool SwordManRenutDeviceSupported(std::string* why = nullptr);
 void SwordManStartAudioPlacement();
 #endif
 
+void SwordManInstallImportedDlc();  // src/mgr_dlc.cpp
+
 class MgrApp : public rex::ReXApp {
  public:
   using rex::ReXApp::ReXApp;
@@ -136,7 +138,8 @@ class MgrApp : public rex::ReXApp {
   // void OnPostInitLogging() override {}
   // void OnLoadXexImage(std::string& xex_image) override {}
   // void OnPostLoadXexImage() override {}
-  // void OnPostSetup() override {}
+  // Zandatsu (12/11): DLC importados pela launcher (<pasta do app>/dlc/, src/mgr_dlc.cpp), antes do jogo arrancar.
+  void OnPostSetup() override { SwordManInstallImportedDlc(); }
   // void OnCreateDialogs(rex::ui::ImGuiDrawer* drawer) override {}
   // std::unique_ptr<rex::ui::ImGuiDialog> CreateAchievementsOverlay() override;
   // std::unique_ptr<rex::ui::AchievementNotificationDialog>

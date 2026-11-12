@@ -1,0 +1,14 @@
+Zandatsu (12/11): XamContentCreate no log (info): o pacote que o jogo cria ou abre, o resultado e a licenca.
+Para ver os DLC importados pela launcher a montar.
+--- a/src/kernel/xam/xam_content.cpp
++++ b/src/kernel/xam/xam_content.cpp
+@@ -214,6 +214,9 @@
+     if (license_mask_ptr && result == X_ERROR_SUCCESS) {
+       *license_mask_ptr = content_license;
+     }
++    // Zandatsu (0191, 12/11): DLC importados pela launcher; o que o jogo cria/abre e com que resultado.
++    REXKRNL_INFO("XamContentCreate: {} {} tipo {:08X} -> {} (licenca {:08X})", root_name,
++                 content_data.file_name(), uint32_t(XContentType(content_data.content_type)), result, content_license);
+ 
+     if (disposition_ptr) {
+       *disposition_ptr = static_cast<uint32_t>(disposition);

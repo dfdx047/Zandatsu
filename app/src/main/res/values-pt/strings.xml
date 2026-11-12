@@ -605,4 +605,12 @@
     <string name="home_change_iso">Trocar .iso</string>
     <string name="controls_legend_title">O que cada botão faz</string>
     <string name="back">Voltar</string>
+    <string name="import_dlc">Importar DLC</string>
+    <string name="busy_importing_dlc">Copiando DLC</string>
+    <string name="msg_dlc_ok">%1$d DLC importado(s). O jogo instala-os quando abrir.</string>
+    <string name="err_dlc_not_package">Não é um pacote do Xbox 360 (escolha os arquivos de Content/0000000000000000/4B4E080A/00000002, não um .zip ou pasta): %1$s</string>
+    <string name="dlc_title">DLC (%1$d)</string>
+    <string name="dlc_installed">Instalado</string>
+    <string name="dlc_pending">Instala quando o jogo abrir</string>
+    <string name="dlc_remove">Remover</string>
 </resources>

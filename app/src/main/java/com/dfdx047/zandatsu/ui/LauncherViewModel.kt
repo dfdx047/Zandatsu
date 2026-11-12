@@ -34,6 +34,7 @@ import com.dfdx047.zandatsu.data.DarkMode
 import com.dfdx047.zandatsu.data.ErrorKind
 import com.dfdx047.zandatsu.data.FileStatus
 import com.dfdx047.zandatsu.data.GameConfig
+import com.dfdx047.zandatsu.data.DlcFiles
 import com.dfdx047.zandatsu.data.GameFiles
 import com.dfdx047.zandatsu.data.IsoSource
 import com.dfdx047.zandatsu.data.GameInstall
@@ -454,6 +455,50 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
             }
             install = GameFiles.check()
             staleBytes = IsoSource.staleBytes()
+        }
+    }
+
+    // ------------------------------------------------------- DLC do jogador
+    /** Pacotes de DLC importados (por instalar ou instalados; o jogo instala-os no proximo arranque). */
+    var dlcs by mutableStateOf(DlcFiles.list())
+        private set
+
+    /** Copia os pacotes de DLC escolhidos (arquivos da pasta Content do 360) para <appDir>/dlc/. */
+    fun importDlc(uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        val ctx = getApplication<Application>()
+        viewModelScope.launch(Dispatchers.IO) {
+            var ok = 0
+            val bad = mutableListOf<String>()
+            try {
+                for (uri in uris) {
+                    try {
+                        val pkg = DlcFiles.import(ctx, uri) { done, total, name ->
+                            busy = Busy(R.string.busy_importing_dlc, name, if (total > 0) done.toFloat() / total else null)
+                        }
+                        AppLog.i("dlc", "importado: ${pkg.file} (${pkg.name}, ${pkg.bytes} bytes)")
+                        ok++
+                    } catch (e: DlcFiles.NotAPackage) {
+                        AppLog.w("dlc", "nao e um pacote do 360: ${e.fileName}")
+                        bad += e.fileName
+                    } catch (e: java.io.IOException) {
+                        AppLog.w("dlc", "falhou: ${e.message}")
+                        bad += (e.message ?: "-")
+                    }
+                }
+            } finally {
+                busy = null
+            }
+            dlcs = DlcFiles.list()
+            if (bad.isEmpty()) say(R.string.msg_dlc_ok, ok) else say(R.string.err_dlc_not_package, bad.joinToString())
+        }
+    }
+
+    fun removeDlc(file: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            DlcFiles.remove(file)
+            AppLog.i("dlc", "removido: $file")
+            dlcs = DlcFiles.list()
         }
     }
 

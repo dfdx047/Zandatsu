@@ -118,6 +118,8 @@ function(sm_renut_gpu_lib NAME MARCH)
         "${SM_ROOT}/src/mgr_widescreen.cpp"
         # O que o jogo pede ao Wwise (bancos, eventos), para o log (audio_trace; SDK patch 0182).
         "${SM_ROOT}/src/mgr_audio_trace.cpp"
+        # DLC importados pela launcher (pasta dlc/): instalados com o ContentManager do SDK antes do jogo arrancar.
+        "${SM_ROOT}/src/mgr_dlc.cpp"
         # Os shaders do jogo traduzidos no PC (dados do jogo: so builds pessoais).
         "${SM_RENUT_OUT}/shader_cache.cpp")
     set_source_files_properties("${SM_RENUT_OUT}/shader_cache.cpp" PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
