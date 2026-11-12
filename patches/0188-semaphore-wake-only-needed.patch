@@ -1,0 +1,36 @@
+Zandatsu (12/11, POCO X6 Pro): o semaforo acorda so quantos o contador deixa entrar (notify_one x n), e consumir
+uma unidade nao acorda ninguem. Com notify_all os 5 workers de jobs do MGR acordavam a cada job: ~23% da CPU do
+jogo em futex.
+--- a/src/core/threading_posix.cpp
++++ b/src/core/threading_posix.cpp
+@@ -668,18 +668,24 @@
+       *out_previous_count = count_;
+     }
+     count_ += release_count;
+-    cond_.notify_all();
++    // Zandatsu (0188, 12/11): acorda so quantos o contador deixa entrar. Com notify_all cada job que o MGR solta
++    // acordava os 5 workers e 4 voltavam a dormir: ~23% da CPU do jogo em futex no POCO X6 Pro (Dimensity 8300).
++    // Quem acorda volta a verificar o contador (TryAcquire), por isso um notify a mais nunca faz mal.
++    if (release_count >= wait_queue_.size()) {
++      cond_.notify_all();
++    } else {
++      for (uint32_t i = 0; i < release_count; ++i) {
++        cond_.notify_one();
++      }
++    }
+     PosixConditionBase::NotifyMultiWaiters();
+     return true;
+   }
+ 
+  private:
+   inline bool signaled() const override { return count_ > 0; }
+-  inline void post_execution() override {
+-    count_--;
+-    cond_.notify_all();
+-    PosixConditionBase::NotifyMultiWaiters();
+-  }
++  // Zandatsu (0188): consumir uma unidade nao deixa mais ninguem entrar: sem acordar ninguem.
++  inline void post_execution() override { count_--; }
+   uint32_t count_;
+   const uint32_t maximum_count_;
+ };

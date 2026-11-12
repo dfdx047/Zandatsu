@@ -1,0 +1,192 @@
+Zandatsu (12/11, POCO X6 Pro): sinais sem futex quando ninguem dorme no evento/semaforo, e espera com spin opcional
+(swordman_wait_spin_us, 0 por defeito: 30 us gastaram +46% de CPU e +0,4 W sem ganho de fps). O MGR reparte o
+frame em fork/join (um semaforo por worker para comecar e outro para acabar, muitas vezes por frame).
+--- a/src/core/threading_posix.cpp
++++ b/src/core/threading_posix.cpp
+@@ -38,6 +38,16 @@
+ #include <rex/assert.h>
+ #include <rex/chrono/chrono_steady_cast.h>
+ #include <rex/logging.h>
++#include <rex/cvar.h>
++
++// Zandatsu (0189, 12/11): espera com spin curto antes de dormir. O MGR reparte o trabalho do frame em fork/join (um
++// semaforo por worker para comecar e outro para acabar, muitas vezes por frame): cada passagem eram dois futex por
++// worker, ~23% da CPU do jogo no POCO X6 Pro, e o atraso de acordar ficava no caminho da thread principal.
++// Medido no X6 (luta, 52 fps): 30 us = +46% de CPU e +0,4 W sem ganho de fps; 100 us = +2 fps por +0,6 W. Fica 0.
++REXCVAR_DEFINE_INT32(swordman_wait_spin_us, 0, "SwordMan",
++                     "Microssegundos de espera ativa (yield) antes de uma thread do jogo dormir num evento ou semaforo; "
++                     "0 = dorme logo (como antes)")
++    .range(0, 1000);
+ #include <rex/thread/timer_queue.h>
+ 
+ #include <sched.h>
+@@ -287,6 +297,21 @@
+   virtual ~PosixConditionBase() = default;
+   virtual bool Signal() = 0;
+ 
++  // Zandatsu (0189): com mutex_ trancado. Um sinal avanca epoch_ (quem esta em spin ve-o sem o mutex) e so chama o
++  // futex se alguem esta mesmo a dormir no cond_ (o bionic chama-o sempre, mesmo sem ninguem a espera).
++  void WakeAllLocked() {
++    epoch_.fetch_add(1, std::memory_order_release);
++    if (sleepers_) {
++      cond_.notify_all();
++    }
++  }
++  void WakeOneLocked() {
++    epoch_.fetch_add(1, std::memory_order_release);
++    if (sleepers_) {
++      cond_.notify_one();
++    }
++  }
++
+   // DBZ3-Android: WaitMultiple fazia polling (trylock em todos os handles,
+   // vetor novo e sleep de 1 ms em cada volta) e gastava ~50% de um nucleo na
+   // thread de audio. Agora qualquer sinal (Set/Release/fim de thread) avanca um
+@@ -359,14 +384,50 @@
+     std::unique_lock<std::mutex> lock(mutex_);
+ #endif
+     if (predicate()) {
+-      executed = true;
+-    } else {
+-      if (timeout == std::chrono::milliseconds::max()) {
+-        cond_.wait(lock, predicate);
+-        executed = true;  // Did not time out;
+-      } else {
+-        executed = cond_.wait_for(lock, timeout, predicate);
++      return WaitResult::kSuccess;
++    }
++    const bool forever = timeout == std::chrono::milliseconds::max();
++    if (!forever && timeout.count() <= 0) {
++      return WaitResult::kTimeout;
++    }
++    const auto start = std::chrono::steady_clock::now();
++    const auto deadline = forever ? std::chrono::steady_clock::time_point::max() : start + timeout;
++    // Zandatsu (0189): spin curto (swordman_wait_spin_us) a ver se chega um sinal, antes de dormir.
++    static const int32_t spin_us = REXCVAR_GET(swordman_wait_spin_us);
++    if (spin_us > 0) {
++      const uint32_t seen = epoch_.load(std::memory_order_acquire);
++      lock.unlock();
++      const auto spin_end = std::min(deadline, start + std::chrono::microseconds(spin_us));
++      bool moved = false;
++      for (uint32_t i = 0;; ++i) {
++        if (epoch_.load(std::memory_order_acquire) != seen) {
++          moved = true;
++          break;
++        }
++#if defined(__aarch64__)
++        __asm__ __volatile__("yield");
++#endif
++        if ((i & 31) == 31 && std::chrono::steady_clock::now() >= spin_end) {
++          break;
++        }
+       }
++      lock.lock();
++      if (predicate()) {
++        return WaitResult::kSuccess;
++      }
++      (void)moved;
++    }
++    executed = true;
++    while (!predicate()) {
++      ++sleepers_;
++      if (forever) {
++        cond_.wait(lock);
++      } else if (cond_.wait_until(lock, deadline) == std::cv_status::timeout) {
++        --sleepers_;
++        executed = predicate();
++        break;
++      }
++      --sleepers_;
+     }
+     return executed ? WaitResult::kSuccess : WaitResult::kTimeout;
+   }
+@@ -547,6 +608,9 @@
+   std::atomic<uint32_t> multi_waiters_{0};
+   std::condition_variable cond_;
+   std::mutex mutex_;
++  // Zandatsu (0189): threads a dormir no cond_ (sob mutex_) e contador de sinais (lido sem o mutex no spin).
++  uint32_t sleepers_ = 0;
++  std::atomic<uint32_t> epoch_{0};
+ };
+ 
+ // There really is no native POSIX handle for a single wait/signal construct
+@@ -571,7 +635,7 @@
+     } else {
+       signal_ = true;
+     }
+-    cond_.notify_all();
++    WakeAllLocked();
+     PosixConditionBase::NotifyMultiWaiters();
+     return true;
+   }
+@@ -596,7 +660,7 @@
+     } else {
+       GrantFrontLocked();
+     }
+-    cond_.notify_all();
++    WakeAllLocked();
+     return true;
+   }
+ 
+@@ -639,10 +703,10 @@
+     // Sinal entregue mas nao usado: vai para o seguinte, ou fica no evento.
+     if (!wait_queue_.empty()) {
+       GrantFrontLocked();
+-      cond_.notify_all();
++      WakeAllLocked();
+     } else {
+       signal_ = true;
+-      cond_.notify_all();
++      WakeAllLocked();
+       PosixConditionBase::NotifyMultiWaiters();
+     }
+   }
+@@ -672,10 +736,10 @@
+     // acordava os 5 workers e 4 voltavam a dormir: ~23% da CPU do jogo em futex no POCO X6 Pro (Dimensity 8300).
+     // Quem acorda volta a verificar o contador (TryAcquire), por isso um notify a mais nunca faz mal.
+     if (release_count >= wait_queue_.size()) {
+-      cond_.notify_all();
++      WakeAllLocked();
+     } else {
+       for (uint32_t i = 0; i < release_count; ++i) {
+-        cond_.notify_one();
++        WakeOneLocked();
+       }
+     }
+     PosixConditionBase::NotifyMultiWaiters();
+@@ -708,7 +772,7 @@
+       --count_;
+       // Free to be acquired by another thread
+       if (count_ == 0) {
+-        cond_.notify_all();
++        WakeAllLocked();
+         PosixConditionBase::NotifyMultiWaiters();
+       }
+       return true;
+@@ -741,7 +805,7 @@
+   bool Signal() override {
+     std::lock_guard<std::mutex> lock(mutex_);
+     signal_ = true;
+-    cond_.notify_all();
++    WakeAllLocked();
+     PosixConditionBase::NotifyMultiWaiters();
+     return true;
+   }
+@@ -1170,7 +1234,7 @@
+ 
+       exit_code_ = exit_code;
+       signaled_ = true;
+-      cond_.notify_all();
++      WakeAllLocked();
+       PosixConditionBase::NotifyMultiWaiters();
+     }
+     if (is_current_thread) {
+@@ -1667,7 +1731,7 @@
+     std::unique_lock<std::mutex> lock(thread->handle_.mutex_);
+     thread->handle_.exit_code_ = 0;
+     thread->handle_.signaled_ = true;
+-    thread->handle_.cond_.notify_all();
++    thread->handle_.WakeAllLocked();
+     thread->handle_.NotifyMultiWaiters();
+   }
+ 
