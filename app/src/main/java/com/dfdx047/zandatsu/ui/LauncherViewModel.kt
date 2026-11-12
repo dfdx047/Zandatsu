@@ -271,6 +271,12 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch(Dispatchers.IO) { GameConfig.save(next) }
     }
 
+    /** Grava a config atual mesmo sem mudanca (o que vai para o jogo depende tambem de ficheiros, ex. JobSerialGuard). */
+    fun saveConfig() {
+        val c = config
+        viewModelScope.launch(Dispatchers.IO) { GameConfig.save(c) }
+    }
+
     var busy by mutableStateOf<Busy?>(null)
         private set
     var message by mutableStateOf<UiMessage?>(null)

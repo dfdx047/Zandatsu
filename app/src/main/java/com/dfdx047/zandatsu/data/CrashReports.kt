@@ -48,6 +48,7 @@ object CrashReports {
      */
     @Synchronized
     fun lastGameExit(context: Context, prefs: LauncherPrefs): CrashReport? {
+        JobSerialGuard.checkLastSession()  // travamento com o job serial: desliga-o para o proximo arranque
         gpuReset(prefs)?.let { return it }
         val state = SessionState.read()
         if (state != SessionState.State.STARTING && state != SessionState.State.RUNNING) return null

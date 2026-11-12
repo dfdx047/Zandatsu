@@ -50,6 +50,9 @@ import com.dfdx047.zandatsu.data.withPreset
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import com.dfdx047.zandatsu.ui.LauncherViewModel
 import com.dfdx047.zandatsu.ui.components.Level
@@ -199,6 +202,7 @@ fun PerformanceScreen(vm: LauncherViewModel) {
             }
             if (c.resolution.scale >= 3) StatusLine(stringResource(R.string.settings_resolution_warn), Level.WARN)
             FpsMeterSetting(vm, c)
+            CpuSerialSetting(vm, c)
         }
 
         // ---------------------------------------------------- efeitos e som
@@ -377,6 +381,7 @@ private fun RenutOptions(vm: LauncherViewModel) {
             if (c.resolution in RENUT_EXPERIMENTAL) Level.WARN else Level.INFO,
         )
         FpsMeterSetting(vm, c)
+        CpuSerialSetting(vm, c)
     }
 
     AspectCard(vm, c)
@@ -485,8 +490,9 @@ private fun FpsMeterSetting(vm: LauncherViewModel, c: GameConfig) {
 }
 
 /**
- * Proporcao, nos dois renderizadores (27/10: com o Renut o cartao nao aparecia). Widescreen sempre na lista, desligado
- * com o motivo quando nao se aplica (renderizador emulado, ou tela que nao e mais larga que 16:9).
+ * Proporcao, nos dois renderizadores. 12/11: a imagem e 16:9 (original, o padrao) ou Esticar; o Ultrawide e um
+ * interruptor a parte, que segue a proporcao da tela (so no Renut e numa tela mais larga que 16:9; senao fica desligado
+ * com o motivo).
  */
 @Composable
 private fun AspectCard(vm: LauncherViewModel, c: GameConfig) {
@@ -498,21 +504,47 @@ private fun AspectCard(vm: LauncherViewModel, c: GameConfig) {
         !wide -> stringResource(R.string.aspect_ws_screen_169)
         else -> null
     }
+    val ultrawide = c.aspect == "widescreen" && reason == null
     SectionCard(stringResource(R.string.settings_aspect), Icons.Filled.PhotoSizeSelectLarge) {
-        SettingSegmented(
-            title = stringResource(R.string.settings_aspect_mode),
-            options = listOf(
-                "auto" to stringResource(R.string.aspect_auto),
-                "original" to stringResource(R.string.aspect_original),
-                "stretch" to stringResource(R.string.aspect_stretch),
-                "widescreen" to stringResource(R.string.aspect_widescreen, ratio),
-            ),
-            selected = if (c.aspect == "widescreen" && reason != null) "original" else c.aspect,
-            subtitle = stringResource(R.string.aspect_widescreen_sub, ratio) + " " + stringResource(R.string.aspect_auto_sub),
-            disabled = if (reason != null) setOf("widescreen") else emptySet(),
-            onSelect = { v -> vm.updateConfig { it.copy(aspect = v) } },
-        )
-        if (reason != null) StatusLine(reason, Level.INFO)
+        if (!ultrawide) {
+            SettingSegmented(
+                title = stringResource(R.string.settings_aspect_mode),
+                options = listOf(
+                    "original" to stringResource(R.string.aspect_original),
+                    "stretch" to stringResource(R.string.aspect_stretch),
+                ),
+                selected = if (c.aspect == "stretch") "stretch" else "original",
+                subtitle = stringResource(R.string.aspect_mode_sub),
+                onSelect = { v -> vm.updateConfig { it.copy(aspect = v) } },
+            )
+        }
+        SettingSwitch(
+            title = stringResource(R.string.aspect_widescreen, ratio),
+            subtitle = reason ?: stringResource(R.string.aspect_ultrawide_sub, ratio),
+            checked = ultrawide,
+            enabled = reason == null,
+        ) { on -> vm.updateConfig { it.copy(aspect = if (on) "widescreen" else "original") } }
+    }
+}
+
+/**
+ * 12/11: tarefas do jogo numa thread so (swordman_job_serial), nos dois renderizadores. Ligada por padrao; desligada
+ * sozinha depois de um travamento com ela (JobSerialGuard). Vale no proximo arranque.
+ */
+@Composable
+private fun CpuSerialSetting(vm: LauncherViewModel, c: GameConfig) {
+    var tripped by remember { mutableStateOf(com.dfdx047.zandatsu.data.JobSerialGuard.tripped()) }
+    SettingSwitch(
+        title = stringResource(R.string.cpu_serial),
+        subtitle = stringResource(if (c.jobSerial && tripped) R.string.cpu_serial_off else R.string.cpu_serial_sub),
+        checked = c.jobSerial && !tripped,
+    ) { on ->
+        if (on && tripped) {
+            com.dfdx047.zandatsu.data.JobSerialGuard.reset()
+            tripped = false
+        }
+        vm.updateConfig { it.copy(jobSerial = on) }
+        vm.saveConfig()
     }
 }
 

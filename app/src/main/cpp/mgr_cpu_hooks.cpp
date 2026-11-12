@@ -104,7 +104,12 @@ REX_HOOK_RAW(sub_828BF158) {
 }
 
 REX_HOOK_RAW(sub_828BE6C0) {
-  static const bool serial = REXCVAR_GET(swordman_job_serial);
+  // 12/11: a launcher procura "job serial ligado" no log para o desligar depois de um travamento (JobSerialGuard.kt).
+  static const bool serial = [] {
+    const bool on = REXCVAR_GET(swordman_job_serial);
+    REXLOG_INFO("swordman: job serial {}", on ? "ligado" : "desligado");
+    return on;
+  }();
   if (!serial) {
     __imp__sub_828BE6C0(ctx, base);
     return;

@@ -44,9 +44,12 @@ data class GameConfig(
     val fpsDetail: String = "full",           // debug_overlay_detail: full / simple (SDK 0185)
     // Proporcao (26/10): original = 16:9 com barras, stretch = esticar ate a tela (present_letterbox no Xenia,
     // swordman_aspect no Renut), widescreen = o jogo desenha na proporcao da tela (hor+, so no Renut, experimental;
-    // no Xenia fica como original). 02/11: auto = decidido pela tela de cada aparelho (effectiveAspect), o padrao de
-    // quem ainda nao tem configuracao; quem ja tem fica com a escolha gravada.
-    val aspect: String = "auto",
+    // no Xenia fica como original). 12/11: o "auto" (que escolhia o ultrawide nas telas largas) saiu; 16:9 e o padrao e
+    // o ultrawide e um interruptor a parte na launcher. Um "auto" gravado passa a original.
+    val aspect: String = "original",
+    // 12/11: swordman_job_serial (mgr_cpu_hooks.cpp) ligado por padrao: no X6 Pro 1080p 16:9 de 52-55 para 58-59 fps,
+    // menos calor. Um travamento do jogo com ele ligado (FATAL no log) desliga-o sozinho (JobSerialGuard).
+    val jobSerial: Boolean = true,
     val volume: Int = 100,                    // volume geral 0-100 (app, rex::audio::SetOutputGain)
     val vibration: Boolean = true,            // vibration
     val deadzone: Double = 0.0,               // left/right_stick_deadzone_percentage 0-0.5
@@ -83,12 +86,15 @@ data class GameConfig(
     val useRenut: Boolean get() = renderer != "xenos" && RenutSupport.supported() &&
         (renderer == "renut" || (RenutSupport.validatedGpu() && !RenutSupport.autoFailed()))
 
-    /** O que vai para os cvars: auto = widescreen numa tela mais larga que 16:9 no Renut, senao original. */
+    /** O que vai para os cvars (o ultrawide so no Renut e numa tela mais larga que 16:9; senao 16:9). */
     val effectiveAspect: String get() = when {
-        aspect != "auto" -> aspect
-        useRenut && ScreenInfo.widerThan16x9 -> "widescreen"
+        aspect == "widescreen" && !(useRenut && ScreenInfo.widerThan16x9) -> "original"
+        aspect in ASPECTS -> aspect
         else -> "original"
     }
+
+    /** O que vai para o jogo: a escolha, menos depois de um travamento com o serial ligado. */
+    val effectiveJobSerial: Boolean get() = jobSerial && !JobSerialGuard.tripped()
 
     /**
      * sa2_render_height_handheld: as alturas que o Renut faz no Android (escalas de render_scale.h: 540p pelo patch
@@ -141,6 +147,8 @@ data class GameConfig(
             "swordman_renut_resolve_mips_lazy" to renutLazyMips,
             "renut_shadow_resolution" to if (renutShadow1x) "1x" else "Resolution",
             "swordman_audio_little_cores" to audioLittleCores,
+            "swordman_job_serial" to effectiveJobSerial,
+            "swordman_job_serial_choice" to jobSerial,
             "renut_anisotropic_filtering" to when (anisotropic) {
                 2 -> "2x"
                 3 -> "4x"
@@ -260,7 +268,7 @@ data class GameConfig(
 
     companion object {
         val EFFECTS = listOf("bilinear", "cas", "fsr")
-        val ASPECTS = listOf("auto", "original", "stretch", "widescreen")
+        val ASPECTS = listOf("original", "stretch", "widescreen")
         val FSR_QUALITY = listOf("auto", "quality", "balanced", "performance", "ultra_performance")
         val FXAA = listOf("none", "fxaa", "fxaa_extreme")
         /** Pixel shaders do desfoque do brilho do MGR (swordman_skip_ps). */
@@ -357,7 +365,8 @@ data class GameConfig(
                 aspect = str(
                     "swordman_aspect_choice",
                     str("swordman_aspect", if (bool("present_letterbox", true)) d.aspect else "stretch"),
-                ).let { if (it in ASPECTS) it else d.aspect },
+                ).let { if (it in ASPECTS) it else d.aspect },  // "auto" (ate 12/11) -> 16:9
+                jobSerial = bool("swordman_job_serial_choice", d.jobSerial),
                 volume = int("swordman_volume", d.volume).coerceIn(0, 100),
                 vibration = bool("vibration", d.vibration),
                 deadzone = dbl("left_stick_deadzone_percentage", d.deadzone).coerceIn(0.0, 0.5),

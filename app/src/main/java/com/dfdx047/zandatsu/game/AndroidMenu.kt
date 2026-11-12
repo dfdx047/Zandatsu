@@ -529,33 +529,38 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
     }
 
     /** Renut: resolucao (540p a 4K), FPS na tela, filtro (FSR/CAS) e anisotropico; o resto e do Xenia. */
-    /** Proporcao: original / esticar ao vivo; widescreen (so no Renut) vale no proximo arranque. */
-    private fun aspectItem(c: GameConfig): MChoice {
-        // Widescreen sempre na lista; quando nao se aplica a ajuda diz porque e a escolha nao muda nada.
+    /**
+     * Proporcao (12/11): 16:9 / esticar ao vivo; o Ultrawide e um interruptor a parte (so no Renut, numa tela mais larga
+     * que 16:9; vale no proximo arranque).
+     */
+    private fun aspectItem(c: GameConfig): List<MenuItem> {
         val reason = when {
             !c.useRenut -> s(R.string.aspect_ws_needs_renut)
             !DisplayRates.isWiderThan16x9(context) -> s(R.string.aspect_ws_screen_169)
             else -> null
         }
-        return aspectChoice(c, reason)
+        val ultrawide = c.aspect == "widescreen" && reason == null
+        val items = ArrayList<MenuItem>()
+        if (!ultrawide) {
+            items += choice(
+                s(R.string.settings_aspect_mode), s(R.string.aspect_mode_sub),
+                listOf("original" to s(R.string.aspect_original), "stretch" to s(R.string.aspect_stretch)),
+                if (c.aspect == "stretch") "stretch" else "original",
+            ) { v -> applyAspect(c.copy(aspect = v)) }
+        }
+        items += MToggle(
+            s(R.string.aspect_widescreen, ratioLabel()), reason ?: s(R.string.aspect_ultrawide_sub, ratioLabel()), ultrawide,
+            restart = true,
+        ) { on ->
+            if (reason == null) applyAspect(c.copy(aspect = if (on) "widescreen" else "original"))
+        }
+        return items
     }
+
+    private fun applyAspect(next: GameConfig) =
+        set(next, mapOf("present_letterbox" to (next.effectiveAspect != "stretch").toString(), "swordman_aspect" to next.effectiveAspect))
 
     private fun ratioLabel(): String = com.dfdx047.zandatsu.data.ScreenInfo.let { if (it.long == 0) it.init(context); it.ratioLabel() }
-
-    private fun aspectChoice(c: GameConfig, reason: String?): MChoice = choice(
-        s(R.string.settings_aspect_mode), (reason ?: s(R.string.aspect_widescreen_sub, ratioLabel())) + " " + s(R.string.aspect_auto_sub),
-        listOf(
-            "auto" to s(R.string.aspect_auto),
-            "original" to s(R.string.aspect_original),
-            "stretch" to s(R.string.aspect_stretch),
-            "widescreen" to s(R.string.aspect_widescreen, ratioLabel()),
-        ),
-        if (c.aspect == "widescreen" && reason != null) "original" else c.aspect,
-    ) { v ->
-        if (v == "widescreen" && reason != null) return@choice
-        val next = c.copy(aspect = v)
-        set(next, mapOf("present_letterbox" to (next.effectiveAspect != "stretch").toString(), "swordman_aspect" to next.effectiveAspect))
-    }
 
     /**
      * Predefinicao do Renut (como na launcher), ao vivo: so as cvars que mudam. A do audio nos nucleos pequenos so
