@@ -46,6 +46,8 @@ Zandatsu v1.3.
     Raiden). Sam's Side Story, Wolf's Side Story e VR Mission Expansion instalam, mas o jogo não as usa: STORY não mostra
     os capítulos extra e VR MISSIONS continua com 20. Devem precisar de uma atualização do jogo (title update) que o
     Zandatsu ainda não aplica. Um pacote danificado aparece a vermelho na lista; remova e importe outra cópia.
+18. **Otimização de CPU: travamento raro.** Em cerca de 1 de 25 cargas de luta (visto no Odin 2 Mini) o jogo parou ao
+    entrar na luta com ela ligada. A launcher desliga-a sozinha depois disso; pode ligá-la de novo em Gráficos.
 
 ## English
 
@@ -92,6 +94,8 @@ Zandatsu v1.3.
     Ninja, MGS4 Raiden). Sam's Side Story, Wolf's Side Story and VR Mission Expansion install, but the game doesn't use
     them: STORY shows no extra chapters and VR MISSIONS stays at 20. They likely need a game title update that Zandatsu
     doesn't apply yet. A damaged package shows in red in the list; remove it and import another copy.
+18. **CPU optimization: rare freeze.** In about 1 of 25 fight loads (seen on the Odin 2 Mini) the game froze entering
+    the fight with it on. The launcher turns it off by itself afterwards; you can turn it back on in Graphics.
 
 ## Español
 
@@ -141,3 +145,6 @@ Zandatsu v1.3.
     MGS4 Raiden). Sam's Side Story, Wolf's Side Story y VR Mission Expansion se instalan, pero el juego no las usa: STORY
     no muestra los capítulos extra y VR MISSIONS sigue con 20. Probablemente necesitan una actualización del juego (title
     update) que Zandatsu aún no aplica. Un paquete dañado aparece en rojo en la lista; quítalo e importa otra copia.
+18. **Optimización de CPU: cuelgue raro.** En cerca de 1 de cada 25 cargas de pelea (visto en el Odin 2 Mini) el juego
+    se colgó al entrar en la pelea con ella activada. El launcher la desactiva solo después; puedes volver a activarla
+    en Gráficos.

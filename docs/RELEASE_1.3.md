@@ -4,7 +4,7 @@ Metal Gear Rising: Revengeance (Xbox 360) no Android · on Android · en Android
 Nenhum arquivo do jogo incluído · No game files included · No incluye archivos del juego.
 
 **APK:** `Zandatsu-v1.3.apk` (1.3, versionCode 6)
-**SHA-256:** `2eac7a1d5f0372cadb2ec44836710f8a1fc3a0179f4d6d03c19327d51a365566`
+**SHA-256:** `4616fc87bdb79e39eab9e3d4071d5c6a3265d34d6a1cb1a708a0713bc9098dbd`
 
 ---
 
@@ -40,8 +40,12 @@ Correções
 - Pular as logos volta a funcionar no Nativo (tela de título em 9 s).
 - Nativo com vsync desligado não fica mais preso em 30 fps.
 - CPU: as threads do jogo só são acordadas quando há trabalho para elas.
-- Proporção com nomes mais claros: **Widescreen 16:9** (a imagem original) e **Ultrawide** com a proporção real da sua
-  tela (ex.: 20:9).
+- **Otimização de CPU** (Gráficos ▸ Desempenho), ligada por padrão: as tarefas do jogo correm numa thread só, sem
+  acordar os outros núcleos. No POCO X6 Pro a 1080p: de 52–55 para **58–59 fps**, com menos calor. Se o jogo travar com
+  ela ligada, a launcher desliga-a sozinha e avisa.
+- Proporção mais simples: **16:9 (original)**, o padrão, ou **Esticar**; o **Ultrawide** passa a ser um interruptor à
+  parte, que segue a proporção da sua tela (ex.: 20:9). O antigo "Automático", que ligava o Ultrawide nas telas largas,
+  saiu: quem o tinha passa a 16:9.
 
 Testado no AYN Odin 2 Mini (Snapdragon 8 Gen 2, 1080p, Alto, Nativo): instala por cima da 1.2.2 mantendo jogo e ajustes;
 59–60 fps na primeira luta com o driver do sistema e com o Turnip MrPurple T30 (GPU cerca de 30% mais rápida no Turnip),
@@ -78,8 +82,12 @@ Fixes
 - Skip logos works again on Native (title screen in 9 s).
 - Native with vsync off is no longer stuck at 30 fps.
 - CPU: game threads are only woken up when there is work for them.
-- Clearer aspect names: **Widescreen 16:9** (the original image) and **Ultrawide** with your screen's real ratio
-  (e.g. 20:9).
+- **CPU optimization** (Graphics ▸ Performance), on by default: the game's tasks run on one thread without waking the
+  other cores. On the POCO X6 Pro at 1080p: from 52–55 to **58–59 fps**, with less heat. If the game freezes with it on,
+  the launcher turns it off by itself and tells you.
+- Simpler aspect: **16:9 (original)**, the default, or **Stretch**; **Ultrawide** is now a separate switch that follows
+  your screen's ratio (e.g. 20:9). The old "Automatic", which turned on Ultrawide on wide screens, is gone: it becomes
+  16:9.
 
 Tested on the AYN Odin 2 Mini (Snapdragon 8 Gen 2, 1080p, High, Native): installs over 1.2.2 keeping game and settings;
 59–60 fps in the first fight on the system driver and on Turnip MrPurple T30 (GPU about 30% faster on Turnip), with no
@@ -118,8 +126,12 @@ Correcciones
 - Saltar los logos vuelve a funcionar en Nativo (pantalla de título en 9 s).
 - Nativo con vsync desactivado ya no se queda en 30 fps.
 - CPU: los hilos del juego solo se despiertan cuando hay trabajo para ellos.
-- Nombres de proporción más claros: **Widescreen 16:9** (la imagen original) y **Ultrawide** con la proporción real de
-  tu pantalla (p. ej. 20:9).
+- **Optimización de CPU** (Gráficos ▸ Rendimiento), activada por defecto: las tareas del juego corren en un solo hilo,
+  sin despertar los otros núcleos. En el POCO X6 Pro a 1080p: de 52–55 a **58–59 fps**, con menos calor. Si el juego se
+  cuelga con ella activada, el launcher la desactiva solo y avisa.
+- Proporción más simple: **16:9 (original)**, el predeterminado, o **Estirar**; el **Ultrawide** pasa a ser un
+  interruptor aparte que sigue la proporción de tu pantalla (p. ej. 20:9). El antiguo "Automático", que activaba el
+  Ultrawide en pantallas anchas, desaparece: pasa a 16:9.
 
 Probado en el AYN Odin 2 Mini (Snapdragon 8 Gen 2, 1080p, Alto, Nativo): se instala encima de la 1.2.2 manteniendo juego
 y ajustes; 59–60 fps en la primera pelea con el driver del sistema y con Turnip MrPurple T30 (GPU cerca de un 30% más
