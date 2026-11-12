@@ -1,0 +1,16 @@
+Zandatsu (Android): renut_vsync = false usa MAILBOX quando nao ha IMMEDIATE (o Android so da FIFO e MAILBOX), 12/11.
+Antes caia em FIFO e o frame de 27 ms ficava em 33 (30 fps cravados no POCO X6 Pro).
+--- a/app/thirdparty/plume/plume_vulkan.cpp
++++ b/app/thirdparty/plume/plume_vulkan.cpp
+@@ -3033,6 +3033,11 @@
+         if (immediatePresentModeSupported && !vsyncEnabled) {
+             requiredPresentMode = VK_PRESENT_MODE_IMMEDIATE_KHR;
+         }
++        // Zandatsu (renut/0040, 12/11): Android has no IMMEDIATE (only FIFO and MAILBOX): vsync off fell back to FIFO,
++        // which rounds a 27 ms frame to 33 ms. MAILBOX shows the latest finished frame at the next refresh, no tearing.
++        else if (mailboxPresentModeSupported && !vsyncEnabled) {
++            requiredPresentMode = VK_PRESENT_MODE_MAILBOX_KHR;
++        }
+         // FIFO is guaranteed to be supported.
+         else {
+             requiredPresentMode = VK_PRESENT_MODE_FIFO_KHR;
