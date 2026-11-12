@@ -1,0 +1,54 @@
+Zandatsu (12/11): "Pular as logos" volta a funcionar no Renut. O MGR conta as logos por frame: o pacing de 60 Hz e o present FIFO prendiam-nas ao tempo real (relogio do guest x8 sem efeito). Com o arranque acelerado (SDK 0168) ativo, os Swap saem logo e so 1 frame em 8 e desenhado.
+
+--- a/app/src/renut_engine/gpu/sa2_renut_pacing.cpp
++++ b/app/src/renut_engine/gpu/sa2_renut_pacing.cpp
+@@ -49,6 +49,13 @@
+ REXCVAR_DEFINE_BOOL(mgr_renut_vsync_relaxed, true, "MGR",
+                     "Release a late frame immediately while preserving the guest presentation interval");
+ 
++// Zandatsu (renut/0038): "Pular as logos" do app (SDK 0168). O MGR conta as logos por frame, nao pelo relogio do
++// guest: com o pacing a 60 Hz o relogio x8 nao as acelerava (12/11, POCO X6 Pro: Kojima aos 8 s, titulo aos 32 s).
++// Enquanto o arranque acelerado estiver ativo, os Swap saem logo, sem esperar o refresh.
++namespace rex {
++bool SwordmanBootFastForwardActive();
++}
++
+ namespace sa2::renut {
+ 
+ namespace {
+@@ -163,6 +170,10 @@
+ void PaceSwap(uint32_t device_va) {
+   static const bool on = REXCVAR_GET(sa2_renut_vblank_pacing);
+   if (!on || !device_va) return;
++  if (::rex::SwordmanBootFastForwardActive()) {
++    g_started = false;  // a grelha recomeca no primeiro Swap depois do arranque acelerado
++    return;
++  }
+   const auto *interval_word = ::renut::gpu::GuestPtr<const be_u32>(device_va + kDeviceOffsetPresentationInterval);
+   const uint32_t refreshes = RefreshesPerFrame(interval_word ? uint32_t(*interval_word) : 1);
+   const auto now = Clock::now();
+--- a/app/src/renut_engine/gpu/backend/queued.cpp
++++ b/app/src/renut_engine/gpu/backend/queued.cpp
+@@ -3,6 +3,10 @@
+  */
+ #include "renut_engine/gpu/backend/queued.h"
+ 
++namespace rex {
++bool SwordmanBootFastForwardActive();  // SDK 0168 (Zandatsu, renut/0038)
++}
++
+ #include <algorithm>
+ #include <atomic>
+ #include <bit>
+@@ -604,7 +608,10 @@
+ 
+ void AdvanceFrameSkip() {
+   const std::string text = rex::cvar::GetFlagByName("dbz3_frameskip");
+-  const int skip = text.empty() ? 0 : std::clamp(std::atoi(text.c_str()), 0, 3);
++  int skip = text.empty() ? 0 : std::clamp(std::atoi(text.c_str()), 0, 3);
++  // Zandatsu (renut/0038): no arranque acelerado ("Pular as logos") so 1 frame em 8 vai a GPU e a tela; sem isto o
++  // present FIFO prendia as logos ao refresh da tela (120 Hz = so 2x).
++  if (::rex::SwordmanBootFastForwardActive()) skip = 7;
+   ++g_frame_skip_counter;
+   g_frame_skipped.store(skip > 0 && g_frame_skip_counter % uint32_t(skip + 1) != 0, std::memory_order_relaxed);
+ }
