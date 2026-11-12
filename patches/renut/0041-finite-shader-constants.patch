@@ -1,0 +1,41 @@
+Zandatsu (Android): ceu preto nas Mali-G615 (issues #24 e #35), 12/11 no POCO X6 Pro.
+O ceu do MGR desliga o nevoeiro com fogParam = (+inf, 60000): fator saturate(inf * (60000 + z)). A Xenos multiplica a
+moda do D3D9 (0 x inf = 0); no host da NaN e o saturate de NaN e indefinido (a Mali da o nevoeiro, preto).
+swordman_renut_finite_constants (ligado): +-inf nas constantes float passa a +-FLT_MAX ao subir para a GPU.
+--- a/app/src/renut_engine/gpu/render/draw.cpp
++++ b/app/src/renut_engine/gpu/render/draw.cpp
+@@ -75,6 +75,17 @@
+ // SwordMan (Android): Renut's counterpart of SwordMan's swordman_skip_ps (the Xenia path): to measure what a pixel
+ // shader costs, the draws with these pixel shaders are not drawn. Hex hashes as the GPU profile names them
+ // (renut_gpu_profile with banjo_renut_diag_gpu_shaders), comma separated. Read at start.
++// Zandatsu (renut/0041): +-inf nas constantes float dos shaders passa a +-FLT_MAX (0 x inf = 0, como a Xenos).
++REXCVAR_DEFINE_BOOL(swordman_renut_finite_constants, true, "SwordMan",
++                    "Renut: infinite float shader constants become the largest finite float, so 0 x inf is 0 as on "
++                    "the Xenos (MGR's sky turns its fog off with an infinite constant: black sky on Mali)")
++    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
++namespace {
++bool FiniteConstantsOn() {
++  static const bool on = REXCVAR_GET(swordman_renut_finite_constants);
++  return on;
++}
++}  // namespace
+ REXCVAR_DEFINE_STRING(swordman_renut_skip_ps, "", "SwordMan",
+                       "Renut (diagnostic): pixel shader hashes (hex, comma separated) whose draws are skipped")
+     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+@@ -1788,6 +1799,16 @@
+     std::memcpy(last.bytes + group * kConstantGroupBytes, lanes, kConstantGroupBytes);
+     for (u32 &lane : lanes)
+       lane = std::byteswap(lane);
++    // Zandatsu (renut/0041, 12/11, ceu preto nas Mali-G615, issues #24 e #35): a Xenos multiplica a moda do D3D9
++    // (0 x inf = 0) e o MGR conta com isso: o ceu desliga o nevoeiro com fogParam.x = +inf, e o fator e
++    // saturate(inf * (60000 + z)). No host 0 x inf = NaN, e o saturate de NaN e indefinido (a Mali da o nevoeiro,
++    // preto). Com o maior float finito no lugar do infinito o resultado so muda nesse caso, que passa a dar 0.
++    if (FiniteConstantsOn()) {
++      for (u32 &lane : lanes) {
++        if ((lane & 0x7FFFFFFFu) == 0x7F800000u)
++          lane = (lane & 0x80000000u) | 0x7F7FFFFFu;
++      }
++    }
+     std::memcpy(out + group * kConstantGroupBytes, lanes, kConstantGroupBytes);
+   }
+   // Every register of those groups is in the upload, with the bytes it has
