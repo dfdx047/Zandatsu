@@ -1,0 +1,66 @@
+Zandatsu (Android): o teste "frame 2D" do widescreen na thread de render, 12/11 (POCO X6 Pro, "pulos" no ultrawide).
+- O numero de draws alargados de um frame era lido no Swap (thread do jogo), com a thread de render atrasada: um frame
+  de jogo podia contar menos de 8 e sair um frame em 16:9 com barras. Agora lido no QueueFrame (thread de render).
+- Contados todos os draws num alvo alargado, tambem os de viewport reaproveitado (sa2_renut_chain_reuse).
+- 2D so depois de 3 frames seguidos; log das trocas (ate 40).
+--- a/app/src/renut_engine/gpu/render/draw.cpp
++++ b/app/src/renut_engine/gpu/render/draw.cpp
+@@ -1478,9 +1478,6 @@
+   {
+     const HostSurface *first = t.color_count && t.colors[0] ? t.colors[0] : t.depth;
+     key[22] = first && GuestScreenWidth() > 1280 && IsWidenedSurface(first->guest_va) ? 1u : 0u;
+-    if (key[22])
+-      NoteWidenedDraw();
+-
+   }
+   key[23] = 0;
+   static u32 last_key[24];
+@@ -4622,6 +4619,13 @@
+     g_viewport_reuse.predication = g_replay_predication;
+     g_viewport_reuse.viewport = viewport;
+   }
++  // Zandatsu (renut/0039, 12/11): every draw to a widened target counts for the frame's 2D test (guest/widescreen.h),
++  // the ones whose viewport is reused too (sa2_renut_chain_reuse; ComputeViewport counted only the others).
++  if (GuestScreenWidth() > 1280) {
++    const HostSurface *first = targets.color_count && targets.colors[0] ? targets.colors[0] : targets.depth;
++    if (first && IsWidenedSurface(first->guest_va))
++      NoteWidenedDraw();
++  }
+   // SwordMan (2026-10-26, widescreen): MGR's movies (the prerendered cutscenes, CRI's pixel shader 6E6A2121A431D6E8,
+   // the only new shader when the prologue's starts) cover the whole wider back buffer, stretched; drawn into its
+   // console 1280 columns instead, the present's 2D frame (guest/widescreen.h) shows them 16:9 with bars, under their
+--- a/app/src/renut_engine/gpu/d3d/hooks/device.cpp
++++ b/app/src/renut_engine/gpu/d3d/hooks/device.cpp
+@@ -938,11 +938,29 @@
+     // (sa2_renut_gamma_ramp).
+   }
+ 
+-  // SwordMan (2026-10-26, widescreen): a frame with under 8 draws to a widened target is 2D (guest/widescreen.h).
+-  const bool frame_2d = renut::gpu::GuestScreenWidth() > 1280 && renut::gpu::TakeWidenedDraws() < 8;
+   // SwordMan (2026-10-27, dbz3_frameskip): um frame nao desenhado nao apresenta (fica a imagem anterior).
+   const bool skipped = FrameSkipped();
+-  render_thread::QueueFrame([front_buffer, swap_ordinal, device_va, completed_swap, frame_2d, skipped] {
++  render_thread::QueueFrame([front_buffer, swap_ordinal, device_va, completed_swap, skipped] {
++    // SwordMan (2026-10-26, widescreen): a frame with under 8 draws to a widened target is 2D (guest/widescreen.h).
++    // Zandatsu (renut/0039, 12/11, POCO X6 Pro: "pulos" no ultrawide): decided here, on the render thread, after the
++    // frame's draws (which count them) and not at the game thread's Swap, which took the draws the render thread had
++    // replayed so far: with the render thread a frame behind (GPU-bound, 30 fps) a game frame could count under 8 and
++    // show for one frame as the console's 1280 columns (16:9 with bars). And 2D only after 3 such frames in a row (the
++    // logos and movies are long), back to the whole width at the first frame that is not.
++    static uint32_t run_2d = 0, logged_2d = 0;
++    static bool shown_2d = false;
++    bool frame_2d = false;
++    if (renut::gpu::GuestScreenWidth() > 1280) {
++      const uint32_t widened = renut::gpu::TakeWidenedDraws();
++      run_2d = widened < 8 ? run_2d + 1 : 0;
++      frame_2d = run_2d >= 3;
++      if (frame_2d != shown_2d && logged_2d < 40) {
++        ++logged_2d;
++        RGPU_INFO("[renut] widescreen: {} no swap {} ({} draws alargados)", frame_2d ? "frames 2D (16:9)" : "imagem inteira",
++                  swap_ordinal, widened);
++      }
++      shown_2d = frame_2d;
++    }
+     PresentImage image;
+     {
+       std::lock_guard lock(State().mutex);
