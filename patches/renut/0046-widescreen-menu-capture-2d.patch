@@ -1,0 +1,78 @@
+Zandatsu (Android): menus sobre a cena no ultrawide (12/11): o frame com copia das 1280 colunas do back buffer (save depois do
+Start, pausa, MISSION FAILED) e 2D (16:9), e a camada de vidro do XUI (PS 35FDD96124A9C8E2) nao se desenha (a emenda).
+--- a/app/src/renut_engine/gpu/d3d/hooks/device.cpp
++++ b/app/src/renut_engine/gpu/d3d/hooks/device.cpp
+@@ -952,7 +952,9 @@
+     bool frame_2d = false;
+     if (renut::gpu::GuestScreenWidth() > 1280) {
+       const uint32_t widened = renut::gpu::TakeWidenedDraws();
+-      run_2d = widened < 8 ? run_2d + 1 : 0;
++      // Zandatsu (renut/0046): or a menu over the scene (a copy of the back buffer's 1280 columns this frame).
++      const uint32_t captures = renut::gpu::TakeScreenCaptures();
++      run_2d = (widened < 8 || captures > 0) ? run_2d + 1 : 0;
+       frame_2d = run_2d >= 3;
+       if (frame_2d != shown_2d && logged_2d < 40) {
+         ++logged_2d;
+--- a/app/src/renut_engine/gpu/guest/sa2_screen.cpp
++++ b/app/src/renut_engine/gpu/guest/sa2_screen.cpp
+@@ -81,6 +81,18 @@
+   return g_widened_draws.exchange(0, std::memory_order_relaxed);
+ }
+ 
++namespace {
++std::atomic<uint32_t> g_screen_captures{0};
++}  // namespace
++
++void NoteScreenCapture() {
++  g_screen_captures.fetch_add(1, std::memory_order_relaxed);
++}
++
++uint32_t TakeScreenCaptures() {
++  return g_screen_captures.exchange(0, std::memory_order_relaxed);
++}
++
+ void SetFrame2D(bool frame_2d) {
+   g_frame_2d.store(frame_2d, std::memory_order_relaxed);
+ }
+--- a/app/src/renut_engine/gpu/guest/widescreen.h
++++ b/app/src/renut_engine/gpu/guest/widescreen.h
+@@ -43,4 +43,12 @@
+ void SetFrame2D(bool frame_2d);
+ bool Frame2D();
+ 
++// Zandatsu (renut/0046, 12/11): the menus over the scene (the save screen after Start, the pause, MISSION FAILED) copy
++// the console's 1280 columns of the back buffer into a texture and draw their filtered background from it, laid out
++// for those 1280 columns: past them the scene showed unfiltered ("an image repeated near A/B"). Combat and the main menu
++// make no such copy. NoteScreenCapture: a resolve of those columns (render/draw.cpp); TakeScreenCaptures: the frame's
++// count, for the 2D test at the Swap (d3d/hooks/device.cpp), and clears it.
++void NoteScreenCapture();
++uint32_t TakeScreenCaptures();
++
+ } // namespace renut::gpu
+--- a/app/src/renut_engine/gpu/render/draw.cpp
++++ b/app/src/renut_engine/gpu/render/draw.cpp
+@@ -1226,6 +1226,12 @@
+       RGPU_INFO("swordman_renut_skip_ps: {} pixel shaders not drawn", out.size());
+     return out;
+   }();
++  // Zandatsu (renut/0046, 12/11, POCO X6 Pro: "imagem repete perto do A/B" no menu depois do Start): the menus'
++  // glass layer (XUI's refraction mesh over the copied screen, only in the save screen, the pause and MISSION FAILED)
++  // samples a copy of the console's 1280 columns across the wider screen: its last fifth showed the scene unfiltered,
++  // a seam with the title's sword repeated past it. Wider than 16:9 it is not drawn (the blurred background stays).
++  if (hash == 0x35FDD96124A9C8E2ull && GuestScreenWidth() > 1280)
++    return true;
+   return !skip.empty() && skip.count(hash);
+ }
+ 
+@@ -5932,6 +5938,11 @@
+     source_rect = &widened_rect;
+   }
+   HostSurface *surface = GetHostSurfaceLocked(source_va);
++  // Zandatsu (renut/0046, 12/11): the console's 1280 columns of the back buffer (the screen's width already, not a
++  // WidenScreenSurface target) copied for a menu's background: that frame is 2D (guest/widescreen.h).
++  if (source_rect && source_rect->x1 == 0 && source_rect->x2 == 1280 && GuestScreenWidth() > 1280 && surface &&
++      !surface->depth && surface->width == GuestScreenWidth() && surface->height == 720)
++    NoteScreenCapture();
+   if (swordman::frame_dump::On() && surface && swordman::frame_dump::Active(TextureFrameLocked())) {
+     const ClearRect r = source_rect ? *source_rect : ClearRect{0, 0, -1, -1};
+     swordman::frame_dump::Line(fmt::format(
