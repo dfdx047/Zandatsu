@@ -37,8 +37,15 @@ class AdpfHint(private val context: Context, private val targetNs: Long) {
         true
     }
     private var stopped = false
-    /** Alvo em vigor: [targetNs] ou mais, se o jogo pede menos quadros (cutscenes e menus a 30). */
-    private var currentTargetNs = targetNs
+    // Teste de calor (12/11): o ficheiro "adpf-target-us" na pasta do app troca o alvo de 60 fps (microssegundos).
+    private val baseTargetNs = try {
+        context.getExternalFilesDir(null)?.let { java.io.File(it, "adpf-target-us") }?.takeIf { it.isFile }
+            ?.readText()?.trim()?.toLongOrNull()?.let { it * 1000L } ?: targetNs
+    } catch (_: Throwable) {
+        targetNs
+    }
+    /** Alvo em vigor: [baseTargetNs] ou mais, se o jogo pede menos quadros (cutscenes e menus a 30). */
+    private var currentTargetNs = baseTargetNs
 
     fun start(delayMs: Long = 20_000) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
@@ -133,7 +140,7 @@ class AdpfHint(private val context: Context, private val targetNs: Long) {
             val df = frames - lastFrames
             // 12/11 (POCO X6 Pro): o alvo segue o ritmo que o jogo pede (renut/0044). Com o alvo fixo em 16,7 ms, as
             // cutscenes e os menus a 30 reportavam 33 ms por quadro e o sistema subia os clocks sem ganho (so calor).
-            val wanted = maxOf(targetNs, FRAME_60_NS * NativeGameState.frameRefreshes().coerceIn(1, 4))
+            val wanted = maxOf(baseTargetNs, FRAME_60_NS * NativeGameState.frameRefreshes().coerceIn(1, 4))
             if (wanted != currentTargetNs) {
                 try {
                     s.updateTargetWorkDuration(wanted)
