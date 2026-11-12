@@ -1,0 +1,154 @@
+Zandatsu (Android): hora de exibicao de cada quadro com VK_GOOGLE_display_timing (12/11, POCO X6 Pro).
+Com o 0042 os frames ja saem no vsync, mas o trabalho de cada um varia (jogo 13 ms com picos de 30, GPU, present)
+e o video a 30 quadros/s numa tela de 120 Hz ainda ficava 3, 4 ou 5 refreshes. O present pede a hora do quadro
+anterior mais os refreshes do frame, na grelha do vsync, com 20 ms de margem (swordman_present_timing = 1: so
+frames de 30 fps ou menos, cutscenes, videos e menus; o gameplay a 60 nao ganha latencia).
+--- a/app/thirdparty/plume/plume_vulkan.cpp
++++ b/app/thirdparty/plume/plume_vulkan.cpp
+@@ -277,6 +277,9 @@
+     // VK_ERROR_DEVICE_LOST.
+     extern "C" void zandatsu_gpu_gate();
+     extern "C" void zandatsu_gpu_lost(const char *call);
++    // Zandatsu (renut/0043): a hora de exibicao do proximo present (CLOCK_MONOTONIC ns), 0 = logo (display_sync).
++    extern "C" uint64_t zandatsu_desired_present_ns();
++    static uint32_t zandatsuPresentTimeId = 0;
+ 
+     static void ReportAndroidDeviceLost(VkResult res, const char *call) {
+         if (res == VK_ERROR_DEVICE_LOST) {
+@@ -2826,7 +2829,26 @@
+             presentId.swapchainCount = 1;
+             presentInfo.pNext = &presentId;
+         }
+-        
++#if defined(__ANDROID__)
++        // Zandatsu (renut/0043): a hora em que o quadro deve aparecer (VK_GOOGLE_display_timing), pedida ao
++        // display_sync do Renut: os quadros saem a intervalos iguais da grelha do vsync, mesmo quando o trabalho de
++        // cada um varia (sem isto o video a 30 quadros/s numa tela de 120 Hz ficava 3, 4 ou 5 refreshes).
++        VkPresentTimeGOOGLE presentTime = {};
++        VkPresentTimesInfoGOOGLE presentTimes = {};
++        if (commandQueue->device->capabilities.displayTiming && isVsyncEnabled()) {
++            const uint64_t desired = zandatsu_desired_present_ns();
++            if (desired != 0) {
++                presentTime.presentID = ++zandatsuPresentTimeId;
++                presentTime.desiredPresentTime = desired;
++                presentTimes.sType = VK_STRUCTURE_TYPE_PRESENT_TIMES_INFO_GOOGLE;
++                presentTimes.swapchainCount = 1;
++                presentTimes.pTimes = &presentTime;
++                presentTimes.pNext = presentInfo.pNext;
++                presentInfo.pNext = &presentTimes;
++            }
++        }
++#endif
++
+         VkResult res;
+         {
+             const std::scoped_lock queueLock(*commandQueue->queue->mutex);
+--- a/app/src/renut_engine/display_sync.cpp
++++ b/app/src/renut_engine/display_sync.cpp
+@@ -40,6 +40,19 @@
+                     "almost a whole refresh more; now and then one was shown three refreshes and the next one). A frame "
+                     "that ends late is released at once, as before. The [display] line every 10 s gives present -> "
+                     "display and input -> display (renut_engine/display_sync.cpp)");
++// Zandatsu (renut/0043): a hora de exibicao de cada quadro (VK_GOOGLE_display_timing) na grelha do vsync.
++REXCVAR_DEFINE_INT32(swordman_present_timing, 1, "SwordMan",
++                     "Android, vsync on: each frame asks the display for its time (VK_GOOGLE_display_timing), the "
++                     "previous one's plus the frame's refreshes, on the display's own refresh grid (banjo_display_sync): "
++                     "a 30 fps video on a 120 Hz display stays 4 refreshes a frame instead of 3, 4 or 5. A late frame "
++                     "goes at once and the grid starts again from it. 0 = off; 1 = frames of 30 fps or less (cutscenes, "
++                     "videos, menus: no latency added to 60 fps play); 2 = every frame")
++    .range(0, 2);
++REXCVAR_DEFINE_INT32(swordman_present_margin_us, 20000, "SwordMan",
++                     "swordman_present_timing: how far ahead of the present (rounded up to whole refreshes) a frame's "
++                     "time is put when the grid starts. 12/11 on the POCO X6 Pro at 120 Hz: 2 refreshes left 85% of a "
++                     "30 fps video's frames on time, 3 refreshes (this) 96%")
++    .range(4000, 60000);
+ REXCVAR_DEFINE_BOOL(banjo_display_phase_auto, true, "Banjo/Enhancements",
+                     "banjo_display_sync: the phase found by measurement: as late after the refresh as the frames' "
+                     "images still reach the display at the refresh they reached before (0.25 ms later every 90 frames "
+@@ -124,6 +137,10 @@
+ std::atomic<uint64_t> g_last_vsync{0};  // the latest refresh (steady_clock ns)
+ std::atomic<uint64_t> g_period{0};      // the refresh period (ns), averaged
+ std::atomic<uint64_t> g_phase{0};       // the release after the refresh (ns)
++std::atomic<uint64_t> g_frame_ns{0};    // Zandatsu (renut/0043): the frame's time on the grid (refreshes x period)
++// Zandatsu (renut/0043): the render thread's present times (zandatsu_desired_present_ns).
++uint64_t g_target_ns = 0;
++std::atomic<uint64_t> g_timed{0}, g_reanchored{0};
+ 
+ // The limiter's releases, by the Swap of the frame each released.
+ struct Release {
+@@ -405,9 +422,12 @@
+   const double ratio = double(frame_ns) / double(period);
+   const uint64_t refreshes = std::max<uint64_t>(1, uint64_t(std::llround(ratio)));
+   // Zandatsu (renut/0042): um frame que nao e um numero inteiro de refreshes (60 fps numa tela de 90 Hz): o timer.
+-  if (std::fabs(ratio - double(refreshes)) > 0.1)
++  if (std::fabs(ratio - double(refreshes)) > 0.1) {
++    g_frame_ns.store(0, std::memory_order_relaxed);
+     return 0;
++  }
+   const uint64_t frame = refreshes * period;
++  g_frame_ns.store(frame, std::memory_order_relaxed);
+   // A frame that ended after its time: at once, as the timer did (no waiting for a later refresh: no 20 fps).
+   if (previous && now >= previous + frame)
+     return now;
+@@ -474,17 +494,59 @@
+       "refresh {:.3f} ms, {} refreshes ({} with a new image); present -> display {:.1f} ms (max {:.1f}), input -> "
+       "display {:.1f} ms (max {:.1f}), release -> display {:.1f} ms; {} images never shown (a newer one was ready "
+       "first); phase {:.2f} ms after the refresh{}, {} misses ({} in all), {} steps later; slowest fence test {:.2f} "
+-      "ms, longest release wait {:.1f} ms, {} clamped",
++      "ms, longest release wait {:.1f} ms, {} clamped; present times {} ({} started the grid again, "
++      "swordman_present_timing)",
+       double(period) / 1e6, g_refreshes, g_refreshes_with_image, g_present_display.Mean(), g_present_display.max,
+       g_input_display.Mean(), g_input_display.max, g_release_display.Mean(), g_superseded,
+       double(g_phase.load(std::memory_order_relaxed)) / 1e6,
+       g_hold_until ? fmt::format(" (held at most {:.2f} ms)", double(g_ceiling) / 1e6) : std::string(), g_misses,
+       g_misses_total, g_phase_ups, double(g_fence_test_max_ns.exchange(0, std::memory_order_relaxed)) / 1e6,
+       double(g_release_wait_max_ns.exchange(0, std::memory_order_relaxed)) / 1e6,
+-      g_release_clamped.exchange(0, std::memory_order_relaxed));
++      g_release_clamped.exchange(0, std::memory_order_relaxed), g_timed.exchange(0, std::memory_order_relaxed),
++      g_reanchored.exchange(0, std::memory_order_relaxed));
+   g_present_display = g_input_display = g_release_display = Sum{};
+   g_refreshes = g_refreshes_with_image = g_superseded = g_misses = g_phase_ups = 0;
+   return line;
+ }
+ 
+ }  // namespace banjo::display_sync
++
++// Zandatsu (renut/0043): plume's Android present (VK_GOOGLE_display_timing), on the render thread just before
++// vkQueuePresentKHR: the time this frame should reach the display, 0 = at once. The previous frame's time plus the
++// frame's refreshes; a frame that cannot make it (less than two refreshes ahead: the GPU is still drawing it) takes
++// the first refresh of the grid two refreshes from now, and the next ones follow it. Half a refresh early, so the
++// compositor's rounding never pushes it to the refresh after.
++extern "C" uint64_t zandatsu_desired_present_ns() {
++  using namespace banjo::display_sync;
++  static const int32_t mode = REXCVAR_GET(swordman_present_timing);
++  if (!mode || !g_running.load(std::memory_order_acquire))
++    return 0;
++  const uint64_t vsync = g_last_vsync.load(std::memory_order_acquire);
++  const uint64_t period = g_period.load(std::memory_order_relaxed);
++  const uint64_t frame = g_frame_ns.load(std::memory_order_relaxed);
++  const uint64_t now = NowNs();
++  // Mode 1: only frames of 30 fps or less (two 60 Hz refreshes or more).
++  if (!vsync || !period || !frame || now > vsync + kGridStaleNs || (mode == 1 && frame < 30'000'000ull)) {
++    g_target_ns = 0;
++    return 0;
++  }
++  static const uint64_t margin_ns = uint64_t(REXCVAR_GET(swordman_present_margin_us)) * 1000;
++  const uint64_t margin = std::max<uint64_t>(1, (margin_ns + period - 1) / period);
++  // The grid's first refresh at or after 'from'.
++  auto grid_at = [&](uint64_t from) { return vsync + (from - vsync + period - 1) / period * period; };
++  uint64_t target = g_target_ns ? g_target_ns + frame : 0;
++  if (!target || target > now + frame + margin * period) {
++    // The grid starts (or the frame rate went up and it slid ahead): 'margin' refreshes from now.
++    if (target)
++      g_reanchored.fetch_add(1, std::memory_order_relaxed);
++    target = grid_at(now + margin * period);
++  } else if (target < now + period) {
++    // Late (the frame cannot make its refresh): at once, and the grid goes on from the refresh it will likely reach.
++    g_reanchored.fetch_add(1, std::memory_order_relaxed);
++    g_target_ns = grid_at(now + period);
++    return 0;
++  }
++  g_target_ns = target;
++  g_timed.fetch_add(1, std::memory_order_relaxed);
++  return target - period / 2;
++}

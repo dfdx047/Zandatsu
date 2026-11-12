@@ -1,0 +1,112 @@
+Zandatsu (Android): banjo_display_sync no Android com o AChoreographer (12/11, POCO X6 Pro).
+A HyperOS ignora o pedido de 60 Hz (tela a 120 Hz); o timer proprio de 60 Hz do pacing escorregava contra ela e o
+video a 30 quadros/s ficava 2, 3, 5 ou 6 refreshes em vez de 4 (24% dos quadros). O limitador passa a soltar os
+frames no vsync real da tela. Fase fixa (sem fences de present no Vulkan). Frame que nao e um numero inteiro de
+refreshes (60 fps a 90 Hz): o timer, como antes.
+--- a/app/src/renut_engine/display_sync.cpp
++++ b/app/src/renut_engine/display_sync.cpp
+@@ -23,6 +23,11 @@
+ #if REX_PLATFORM_SWITCH
+ #include <switch.h>  // viGetDisplayVsyncEvent
+ #endif
++#if defined(__ANDROID__)
++// Zandatsu (renut/0042): o vsync da tela pelo AChoreographer.
++#include <android/choreographer.h>
++#include <android/looper.h>
++#endif
+ 
+ // sa2-nx (2026-10-20): on by default in SA2 (the user's call: Banjo's latency set); SA2's frame pacing
+ // (gpu/sa2_renut_pacing.cpp) takes its releases from here.
+@@ -169,6 +174,12 @@
+ 
+ // A displayed frame's refresh count from its anchor: the phase's measurement. Requires g_mutex.
+ void PhaseFrame(uint32_t refreshes, uint64_t now) {
++#if defined(__ANDROID__)
++  // Zandatsu (renut/0042): sem fences de present no Vulkan (PresentDone -1), a medicao da fase nao vale: fase fixa.
++  (void)refreshes;
++  (void)now;
++  return;
++#endif
+   if (!REXCVAR_GET(banjo_display_phase_auto))
+     return;
+   const uint64_t max = uint64_t(REXCVAR_GET(banjo_display_phase_max_us)) * 1000;
+@@ -316,13 +327,65 @@
+     g_last_vsync.store(now, std::memory_order_release);
+     AtRefresh(now, uint64_t(period));
+   }
++#elif defined(__ANDROID__)
++  // Zandatsu (renut/0042, 12/11, POCO X6 Pro): a HyperOS ignora o pedido de 60 Hz e a tela fica a 120 Hz; o timer
++  // proprio de 60 Hz do pacing escorrega contra ela e o video a 30 quadros/s ficava 2, 3, 5 ou 6 refreshes em vez de 4
++  // (24% dos quadros: tremido). Aqui o vsync da tela vem do AChoreographer, num looper so desta thread; o periodo vem
++  // do callback de taxa de refresh (API 30) ou, sem ele, da media dos intervalos.
++  ALooper_prepare(0);
++  AChoreographer *choreographer = AChoreographer_getInstance();
++  if (!choreographer) {
++    REXLOG_WARN("[display] sem AChoreographer: o limitador de frames fica com o timer proprio (banjo_display_sync)");
++    return;
++  }
++  g_phase.store(uint64_t(REXCVAR_GET(banjo_display_phase_us)) * 1000, std::memory_order_relaxed);
++  static std::atomic<int64_t> s_hint{0};
++  AChoreographer_registerRefreshRateCallback(
++      choreographer, [](int64_t period_ns, void *) { s_hint.store(period_ns, std::memory_order_relaxed); }, nullptr);
++  struct Ctx {
++    AChoreographer *choreographer;
++    uint64_t last = 0;
++    double period = 0.0;
++  };
++  static Ctx ctx{choreographer};
++  static AChoreographer_frameCallback64 on_frame = [](int64_t frame_ns, void *data) {
++    auto *c = static_cast<Ctx *>(data);
++    AChoreographer_postFrameCallback64(c->choreographer, on_frame, data);
++    const uint64_t now = uint64_t(frame_ns);  // CLOCK_MONOTONIC, o mesmo do steady_clock
++    const int64_t hint = s_hint.load(std::memory_order_relaxed);
++    if (hint > 0) {
++      c->period = double(hint);
++    } else if (c->last && now > c->last) {
++      const double gap = double(now - c->last);
++      if (c->period <= 0.0)
++        c->period = gap;
++      const double refreshes = std::max(1.0, std::round(gap / c->period));
++      if (refreshes <= 4.0)
++        c->period += (gap / refreshes - c->period) / 16.0;
++    }
++    c->last = now;
++    if (c->period <= 0.0)
++      return;
++    g_period.store(uint64_t(c->period), std::memory_order_relaxed);
++    g_last_vsync.store(now, std::memory_order_release);
++    if (!g_running.load(std::memory_order_relaxed)) {
++      REXLOG_INFO("[display] o limitador de frames segue o vsync da tela (banjo_display_sync, AChoreographer), "
++                  "refresh {:.3f} ms, fase fixa {} us (banjo_display_phase_us)",
++                  c->period / 1e6, REXCVAR_GET(banjo_display_phase_us));
++      g_running.store(true, std::memory_order_release);
++    }
++    AtRefresh(now, uint64_t(c->period));
++  };
++  AChoreographer_postFrameCallback64(choreographer, on_frame, &ctx);
++  for (;;)
++    ALooper_pollOnce(-1, nullptr, nullptr, nullptr);
+ #endif
+ }
+ 
+ }  // namespace
+ 
+ void Start() {
+-#if REX_PLATFORM_SWITCH
++#if REX_PLATFORM_SWITCH || defined(__ANDROID__)
+   static std::once_flag once;
+   std::call_once(once, [] {
+     if (REXCVAR_GET(banjo_display_sync))
+@@ -339,7 +402,11 @@
+   const uint64_t period = g_period.load(std::memory_order_relaxed);
+   if (!vsync || !period || now > vsync + kGridStaleNs)
+     return 0;
+-  const uint64_t refreshes = std::max<uint64_t>(1, uint64_t(std::llround(double(frame_ns) / double(period))));
++  const double ratio = double(frame_ns) / double(period);
++  const uint64_t refreshes = std::max<uint64_t>(1, uint64_t(std::llround(ratio)));
++  // Zandatsu (renut/0042): um frame que nao e um numero inteiro de refreshes (60 fps numa tela de 90 Hz): o timer.
++  if (std::fabs(ratio - double(refreshes)) > 0.1)
++    return 0;
+   const uint64_t frame = refreshes * period;
+   // A frame that ended after its time: at once, as the timer did (no waiting for a later refresh: no 20 fps).
+   if (previous && now >= previous + frame)

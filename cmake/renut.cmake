@@ -140,7 +140,7 @@ function(sm_renut_gpu_lib NAME MARCH)
         "${CMAKE_BINARY_DIR}/rexglue-sdk/include")
     target_compile_definitions(${NAME} PRIVATE MGR_RENUT_RENDERER=1 SA2_RENUT_RENDERER=1 RENUT_RECOMP)
     target_compile_options(${NAME} PRIVATE -march=${MARCH} -ffp-contract=off -fno-strict-aliasing)
-    target_link_libraries(${NAME} PRIVATE rex::runtime plume renut_zstd renut_smolv renut_xxhash rex::o1heap)
+    target_link_libraries(${NAME} PRIVATE rex::runtime plume renut_zstd renut_smolv renut_xxhash rex::o1heap android)
 endfunction()
 
 # Liga o Renut ao libgame.so (<alvo>) e diz ao codigo do app que ele existe (SM_RENUT).
