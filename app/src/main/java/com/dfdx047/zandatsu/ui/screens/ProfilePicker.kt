@@ -23,6 +23,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -114,7 +115,7 @@ fun ProfilePicker(vm: LauncherViewModel) {
                         modifier = Modifier.fillMaxWidth(),
                         onClick = null,
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    com.dfdx047.zandatsu.ui.components.ButtonRow {
                         Button(onClick = { vm.chooseProfile(suggestion.tier) }) { Text(stringResource(R.string.profile_accept)) }
                         OutlinedButton(onClick = { chooseMyself = true }) { Text(stringResource(R.string.profile_choose_myself)) }
                     }
@@ -158,7 +159,26 @@ private fun ProfileCard(
             Text(name, style = MaterialTheme.typography.titleMedium, color = scheme.primary)
             Text(desc, style = MaterialTheme.typography.bodySmall)
             if (target != null) {
-                Text(stringResource(R.string.profile_target, target), style = MaterialTheme.typography.labelLarge)
+                // 12/11: "Alvo: aparelho, 720p: 60 fps" numa linha so partia ao meio ("fps" sozinho) em retrato. Agora
+                // uma linha por aparelho: o aparelho a esquerda (pode partir) e os fps a direita, inteiros.
+                Text(
+                    stringResource(R.string.profile_target, "").trimEnd(' ', ':'),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = scheme.onSurfaceVariant,
+                )
+                target.split(" · ").forEach { t ->
+                    val cut = t.lastIndexOf(": ")
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            if (cut > 0) t.substring(0, cut) else t,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.weight(1f).padding(end = 8.dp),
+                        )
+                        if (cut > 0) {
+                            Text(t.substring(cut + 2), style = MaterialTheme.typography.labelLarge, softWrap = false)
+                        }
+                    }
+                }
             }
         }
     }

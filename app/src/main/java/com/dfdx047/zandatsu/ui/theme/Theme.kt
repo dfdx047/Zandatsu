@@ -102,7 +102,8 @@ private val GameDark = darkColorScheme(
 private val DfTypography = Typography().let { t ->
     t.copy(
         headlineMedium = t.headlineMedium.copy(fontWeight = FontWeight.Black),
-        headlineSmall = t.headlineSmall.copy(fontWeight = FontWeight.ExtraBold),
+        // 12/11: e o titulo dos AlertDialog; a 24 sp "Ajude a melhorar o jogo" partia em duas linhas em retrato.
+        headlineSmall = t.headlineSmall.copy(fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, lineHeight = 26.sp),
         titleLarge = t.titleLarge.copy(fontWeight = FontWeight.ExtraBold),
         titleMedium = t.titleMedium.copy(fontWeight = FontWeight.Bold),
         labelLarge = t.labelLarge.copy(fontWeight = FontWeight.Bold, letterSpacing = 0.6.sp),

@@ -155,7 +155,7 @@ fun DriversScreen(vm: LauncherViewModel) {
                     if (active == null) stringResource(R.string.driver_current_system) else stringResource(R.string.driver_current, active),
                     style = MaterialTheme.typography.bodyLarge,
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                com.dfdx047.zandatsu.ui.components.ButtonRow {
                     OutlinedButton(onClick = { vm.useSystemDriver() }, enabled = active != null) {
                         Text(stringResource(R.string.drivers_use_system))
                     }

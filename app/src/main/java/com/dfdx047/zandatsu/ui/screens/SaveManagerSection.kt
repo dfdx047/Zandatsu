@@ -65,7 +65,7 @@ fun SaveManagerSection() {
     }
 
     SectionCard(stringResource(R.string.saves_title), Icons.Filled.Save, subtitle = stringResource(R.string.saves_sub)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        com.dfdx047.zandatsu.ui.components.ButtonRow {
             OutlinedButton(onClick = { pick.launch(tree) }) { Text(stringResource(R.string.saves_folder)) }
             FilledTonalButton(enabled = tree != null && !busy, onClick = {
                 busy = true

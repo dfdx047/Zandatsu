@@ -5,6 +5,10 @@ package com.dfdx047.zandatsu.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -16,11 +20,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -40,6 +46,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -137,7 +145,10 @@ fun SettingSlider(
     }
 }
 
-/** Escolha entre poucas opcoes (botoes segmentados). */
+/**
+ * Escolha entre poucas opcoes. Botoes segmentados quando todos os nomes cabem inteiros na largura; senao (12/11:
+ * em retrato ficava "Autom...", "Origin...", "36...") uma grelha de chips que passa para a linha de baixo, sem cortar.
+ */
 @Composable
 fun <T> SettingSegmented(
     title: String, options: List<Pair<T, String>>, selected: T, subtitle: String? = null,
@@ -148,19 +159,74 @@ fun <T> SettingSegmented(
         if (subtitle != null) {
             Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-            options.forEachIndexed { i, (value, label) ->
-                SegmentedButton(
-                    selected = value == selected,
-                    onClick = { onSelect(value) },
-                    enabled = value !in disabled,
-                    shape = SegmentedButtonDefaults.itemShape(index = i, count = options.size),
-                ) {
-                    Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        ChoiceRow(options, selected, disabled, onSelect)
+    }
+}
+
+/** So os botoes de [SettingSegmented]: segmentados se couberem, chips senao. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun <T> ChoiceRow(options: List<Pair<T, String>>, selected: T, disabled: Set<T> = emptySet(), onSelect: (T) -> Unit) {
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val measurer = rememberTextMeasurer()
+        val style = MaterialTheme.typography.labelLarge
+        val density = LocalDensity.current
+        val per = maxWidth / options.size.coerceAtLeast(1)
+        val fits = remember(options, per, style, density) {
+            // Segmento: 12 dp de cada lado + o visto do selecionado (18 + 8 dp) + a borda.
+            options.all { (_, label) ->
+                with(density) { measurer.measure(label, style, maxLines = 1, softWrap = false).size.width.toDp() } + 52.dp <= per
+            }
+        }
+        if (fits) {
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                options.forEachIndexed { i, (value, label) ->
+                    SegmentedButton(
+                        selected = value == selected,
+                        onClick = { onSelect(value) },
+                        enabled = value !in disabled,
+                        shape = SegmentedButtonDefaults.itemShape(index = i, count = options.size),
+                    ) {
+                        Text(label, maxLines = 1, softWrap = false)
+                    }
+                }
+            }
+        } else {
+            FlowRow(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(0.dp),
+            ) {
+                options.forEach { (value, label) ->
+                    val on = value == selected
+                    FilterChip(
+                        selected = on,
+                        onClick = { onSelect(value) },
+                        enabled = value !in disabled,
+                        label = { Text(label, maxLines = 1, softWrap = false, style = style) },
+                        leadingIcon = if (on) {
+                            { Icon(Icons.Filled.Check, null, Modifier.size(18.dp)) }
+                        } else {
+                            null
+                        },
+                        shape = RoundedCornerShape(50),
+                        modifier = Modifier.height(40.dp),
+                    )
                 }
             }
         }
     }
+}
+
+/** Linha de botoes que passa para a linha de baixo quando nao cabe (em vez de espremer o texto letra a letra). */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun ButtonRow(modifier: Modifier = Modifier, center: Boolean = false, content: @Composable () -> Unit) {
+    FlowRow(
+        if (center) modifier.fillMaxWidth() else modifier,
+        horizontalArrangement = if (center) Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally) else Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) { content() }
 }
 
 /** Escolha numa lista maior (menu). */
@@ -176,7 +242,7 @@ fun <T> SettingDropdown(title: String, options: List<Pair<T, String>>, selected:
         }
         Box {
             OutlinedButton(onClick = { open = true }) {
-                Text(options.firstOrNull { it.first == selected }?.second ?: "-", maxLines = 1)
+                Text(options.firstOrNull { it.first == selected }?.second ?: "-", maxLines = 1, softWrap = false)
                 Icon(Icons.Filled.ArrowDropDown, null)
             }
             DropdownMenu(expanded = open, onDismissRequest = { open = false }) {

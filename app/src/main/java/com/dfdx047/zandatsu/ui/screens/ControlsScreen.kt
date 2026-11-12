@@ -145,7 +145,7 @@ fun ControlsScreen(vm: LauncherViewModel) {
                 checked = vm.pauseOnMenus,
                 onChange = vm::setPauseOnMenus,
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            com.dfdx047.zandatsu.ui.components.ButtonRow {
                 FilledTonalButton(onClick = { context.startActivity(Intent(context, ControlsEditorActivity::class.java)) }) {
                     Icon(Icons.Filled.Edit, null)
                     Spacer(Modifier.width(6.dp))

@@ -68,7 +68,7 @@ fun DebugScreen(vm: LauncherViewModel) {
                 stringResource(R.string.settings_perf_log_sub),
                 checked = c.perfLogging,
             ) { on -> vm.updateConfig { it.copy(perfLogging = on) } }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            com.dfdx047.zandatsu.ui.components.ButtonRow {
                 OutlinedButton(onClick = { vm.exportLogs(context) }, enabled = vm.busy == null) {
                     Text(stringResource(R.string.export_logs))
                 }

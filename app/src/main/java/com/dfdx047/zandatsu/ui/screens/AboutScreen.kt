@@ -77,7 +77,7 @@ fun AboutScreen(vm: LauncherViewModel) {
         Text(stringResource(R.string.about_version, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE), style = MaterialTheme.typography.bodyMedium)
         Text(stringResource(R.string.about_developer, SwordManApp.DEVELOPER), style = MaterialTheme.typography.titleMedium)
 
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        com.dfdx047.zandatsu.ui.components.ButtonRow(center = true) {
             Button(onClick = { open(SwordManApp.GITHUB_URL) }) {
                 Icon(Icons.Filled.Code, null)
                 Spacer(Modifier.width(6.dp))
@@ -93,12 +93,12 @@ fun AboutScreen(vm: LauncherViewModel) {
                 Text(stringResource(R.string.about_check_updates))
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        com.dfdx047.zandatsu.ui.components.ButtonRow(center = true) {
             OutlinedButton(onClick = { open(SwordManApp.DISCORD_URL) }) { Text("Discord") }
             OutlinedButton(onClick = { open(SwordManApp.YOUTUBE_URL) }) { Text("YouTube") }
             OutlinedButton(onClick = { open(SwordManApp.KOFI_URL) }) { Text("Ko-fi") }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        com.dfdx047.zandatsu.ui.components.ButtonRow(center = true) {
             OutlinedButton(onClick = { vm.openWhatsNew() }) {
                 Text(stringResource(R.string.about_whats_new))
             }
