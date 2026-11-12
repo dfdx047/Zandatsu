@@ -313,6 +313,7 @@
     <string name="menu_capture_help">Records the next frames for the native renderer. They go into Export logs.</string>
     <string name="menu_restart_badge">Restart needed</string>
     <string name="menu_restart_needed">Applies the next time the game starts.</string>
+    <string name="menu_preset_custom">Custom</string>
     <string name="menu_hints">LB/RB tabs · ↑↓ move · ◀▶ change · A choose · B close</string>
     <string name="menu_selftest">Render self-test, live (about 4 min, keep playing)</string>
     <string name="menu_selftest_help">Freezes the picture (the game stops, the GPU keeps redrawing the same frame) and turns the renderer shortcuts off one at a time, comparing pictures: shows which one breaks the image and how much each is worth. Unfreezes at the end. Result in Export logs.</string>

@@ -240,8 +240,10 @@ class GameOverlay(private val activity: Activity) : InputManager.InputDeviceList
             setViewTreeSavedStateRegistryOwner(owner)
             setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindowOrReleasedFromPool)
             setContent {
-                // O tema do app (MGR ou Material You), sempre escuro por cima do jogo.
-                SwordManTheme(themeMode = prefs.themeMode, darkMode = DarkMode.DARK) {
+                // O tema da launcher (MGR ou Material You). O menu segue tambem o claro/escuro dela (12/11); o
+                // editor dos controles continua escuro por cima do jogo.
+                val dark = if (screen.value == InGameScreen.MENU) prefs.darkMode else DarkMode.DARK
+                SwordManTheme(themeMode = prefs.themeMode, darkMode = dark) {
                     InGameOverlay(screen.value, prefs, this@GameOverlay, menuModel, menuController)
                 }
             }
@@ -340,6 +342,7 @@ class GameOverlay(private val activity: Activity) : InputManager.InputDeviceList
     private fun openMenuAt(tab: Int) {
         menuModel.refresh()
         menuController.onClose = { resume() }
+        menuController.padConnected = physicalPadConnected()
         menuController.open(tab)
         setScreen(InGameScreen.MENU)
     }

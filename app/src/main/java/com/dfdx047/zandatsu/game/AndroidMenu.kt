@@ -6,10 +6,33 @@ import android.os.Handler
 import android.os.Looper
 import android.view.KeyEvent
 import android.view.MotionEvent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SportsEsports
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.runtime.remember
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,7 +50,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -44,7 +66,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -65,12 +86,14 @@ import com.dfdx047.zandatsu.data.TouchMode
 import com.dfdx047.zandatsu.data.cvars
 import com.dfdx047.zandatsu.data.frameMode
 import com.dfdx047.zandatsu.data.withFrameMode
+import com.dfdx047.zandatsu.data.chosenRenutPreset
+import com.dfdx047.zandatsu.data.withRenutPreset
 import com.dfdx047.zandatsu.ui.theme.LogoStyle
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /*
- * Menu do jogo do Zandatsu (Android). Abre-se com o Back (o botao do Odin e de outros
+ * Menu do jogo do Zandatsu (Android), painel lateral no tema da launcher. Abre-se com o Back (o botao do Odin e de outros
  * portateis, o botao/gesto de voltar do telemovel), com Back + Start no comando, com o botao
  * de pausa ou com a engrenagem por cima do jogo, e usa-se igual por toque e por comando: LB/RB mudam de aba, cima/baixo escolhem a linha, esquerda/direita mudam o
  * valor, A escolhe, B fecha. Cada mudanca vai logo para o jogo (cvars ao vivo) e fica no
@@ -131,6 +154,8 @@ class MenuController {
     var tabCount = 1
     var items: List<MenuItem> = emptyList()
     var onClose: () -> Unit = {}
+    /** Comando fisico ligado: o painel mostra as teclas (LB/RB, A, B). */
+    var padConnected by mutableStateOf(false)
 
     private val main = Handler(Looper.getMainLooper())
     private var heldDir = 0
@@ -210,6 +235,7 @@ class MenuController {
 
     /** Tecla premida com o menu aberto. Devolve true se a consumiu. */
     fun onKeyDown(code: Int): Boolean {
+        if (KeyEvent.isGamepadButton(code)) padConnected = true
         when (code) {
             KeyEvent.KEYCODE_DPAD_UP -> direction(DIR_UP)
             KeyEvent.KEYCODE_DPAD_DOWN -> direction(DIR_DOWN)
@@ -218,7 +244,8 @@ class MenuController {
             KeyEvent.KEYCODE_BUTTON_L1, KeyEvent.KEYCODE_BUTTON_L2 -> changeTab(-1)
             KeyEvent.KEYCODE_BUTTON_R1, KeyEvent.KEYCODE_BUTTON_R2 -> changeTab(1)
             KeyEvent.KEYCODE_BUTTON_A, KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> activate()
-            KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_BUTTON_START -> close()
+            KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_BUTTON_START, KeyEvent.KEYCODE_BUTTON_SELECT,
+            KeyEvent.KEYCODE_ESCAPE, KeyEvent.KEYCODE_BUTTON_MODE -> close()
             else -> return KeyEvent.isGamepadButton(code)
         }
         return true
@@ -327,21 +354,18 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
         get() = listOf(
             s(R.string.menu_tab_pause),
             s(R.string.menu_tab_video),
-            s(R.string.perf_effects_title),
             s(R.string.tab_controls),
-            s(R.string.tab_debug),
             s(R.string.menu_tab_system),
         )
 
     /** Indice da aba dos controles (a engrenagem abre nela). */
-    val controlsTab = 3
+    val controlsTab = 2
 
+    // 12/11 (painel lateral): 4 abas, so o que se muda com o jogo a correr.
     fun items(tab: Int): List<MenuItem> = when (tab) {
         0 -> pauseItems()
-        1 -> videoItems()
-        2 -> effectItems()
-        3 -> controlItems()
-        4 -> debugItems()
+        1 -> videoItems() + effectItems()
+        2 -> controlItems()
         else -> systemItems()
     }
 
@@ -362,12 +386,23 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
         if (confirmExit) actions.exitToLauncher() else confirmExit = true
     }
 
-    private fun pauseItems(): List<MenuItem> = listOf(
-        MAction(s(R.string.ingame_resume), null, s(R.string.menu_go)) { actions.resume() },
-        MAction(s(R.string.settings_touch_edit), s(R.string.menu_edit_help), s(R.string.menu_open)) { actions.openEditor() },
-        MHeader(s(R.string.menu_session)),
-        exitItem(),
-    )
+    private fun pauseItems(): List<MenuItem> {
+        val c = cfg
+        return listOf(
+            MAction(s(R.string.ingame_resume), null, s(R.string.menu_go)) { actions.resume() },
+            MAction(s(R.string.settings_touch_edit), s(R.string.menu_edit_help), s(R.string.menu_open)) { actions.openEditor() },
+            MStep(s(R.string.settings_volume), null, "${c.volume}%") { d ->
+                val next = (c.volume + d * 10).coerceIn(0, 100)
+                NativeGameState.setVolume(next)
+                saveAppOnly(c.copy(volume = next))
+            },
+            MToggle(s(R.string.settings_vibration), null, c.vibration) { v ->
+                set(c.copy(vibration = v), mapOf("vibration" to v.toString()))
+            },
+            MHeader(s(R.string.menu_session)),
+            exitItem(),
+        )
+    }
 
     private fun pct(x: Double) = "${(x * 100).roundToInt()}%"
 
@@ -522,8 +557,34 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
         set(next, mapOf("present_letterbox" to (next.effectiveAspect != "stretch").toString(), "swordman_aspect" to next.effectiveAspect))
     }
 
+    /**
+     * Predefinicao do Renut (como na launcher), ao vivo: so as cvars que mudam. A do audio nos nucleos pequenos so
+     * vale no proximo arranque (fica gravada).
+     */
+    private fun presetItem(c: GameConfig): MChoice {
+        val names = mapOf(
+            com.dfdx047.zandatsu.data.RenutPreset.MINIMUM to s(R.string.preset_minimum),
+            com.dfdx047.zandatsu.data.RenutPreset.LOW to s(R.string.preset_light),
+            com.dfdx047.zandatsu.data.RenutPreset.MEDIUM to s(R.string.preset_balanced),
+            com.dfdx047.zandatsu.data.RenutPreset.HIGH to s(R.string.preset_high),
+            com.dfdx047.zandatsu.data.RenutPreset.ULTRA to s(R.string.preset_ultra),
+        )
+        val current = c.chosenRenutPreset()
+        val options: List<Pair<com.dfdx047.zandatsu.data.RenutPreset?, String>> =
+            names.map { it.key to it.value } + if (current == null) listOf(null to s(R.string.menu_preset_custom)) else emptyList()
+        return choice(s(R.string.preset_title), s(R.string.preset_sub), options, current) { p ->
+            if (p == null) return@choice
+            val next = c.withRenutPreset(p)
+            val before = c.toToml()
+            val changed = next.toToml().filter { (k, v) -> before[k] != v }.mapValues { it.value.toString() }
+            set(next, changed)
+            Thread { GameConfig.save(next) }.start()
+        }
+    }
+
     private fun renutVideoItems(c: GameConfig): List<MenuItem> {
         val list = ArrayList<MenuItem>()
+        if (RenutValidated.PRESETS) list += presetItem(c)
         val screen = com.dfdx047.zandatsu.data.ScreenInfo
         list += MToggle(
             s(R.string.resolution_screen),
@@ -558,20 +619,11 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
         return list
     }
 
-    /** Som e efeitos do jogo: no Renut as sombras e o brilho, ao vivo. */
+    /** No Renut: as sombras e o brilho, ao vivo (o volume e a vibracao estao na aba Pausa). */
     private fun effectItems(): List<MenuItem> {
         val c = cfg
-        if (c.useRenut) return listOf(
-            MStep(s(R.string.settings_volume), null, "${c.volume}%") { d ->
-                val next = (c.volume + d * 10).coerceIn(0, 100)
-                NativeGameState.setVolume(next)
-                saveAppOnly(c.copy(volume = next))
-            },
-            MToggle(s(R.string.settings_vibration), null, c.vibration) { v ->
-                set(c.copy(vibration = v), mapOf("vibration" to v.toString()))
-            },
-        ) + listOfNotNull(
-            // So as opcoes validadas no aparelho (RenutValidated).
+        if (!c.useRenut) return emptyList()
+        return listOfNotNull(
             MHeader(s(R.string.perf_effects_title)).takeIf { RenutValidated.PRESETS },
             choice(
                 s(R.string.q_shadows), s(R.string.renut_shadows_sub),
@@ -583,16 +635,6 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
                 listOf(true to s(R.string.on), false to s(R.string.off)), c.renutBloom,
             ) { v -> set(c.copy(renutBloom = v), mapOf("swordman_renut_bloom" to v.toString())) }
                 .takeIf { RenutValidated.BLOOM },
-        )
-        return listOf(
-            MStep(s(R.string.settings_volume), null, "${c.volume}%") { d ->
-                val next = (c.volume + d * 10).coerceIn(0, 100)
-                NativeGameState.setVolume(next)
-                saveAppOnly(c.copy(volume = next))
-            },
-            MToggle(s(R.string.settings_vibration), null, c.vibration) { v ->
-                set(c.copy(vibration = v), mapOf("vibration" to v.toString()))
-            },
         )
     }
 
@@ -687,6 +729,7 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
     private fun debugItems(): List<MenuItem> {
         val c = cfg
         return listOfNotNull(
+            MHeader(s(R.string.tab_debug)),
             MAction(s(R.string.menu_selftest), s(R.string.menu_selftest_help), s(R.string.menu_go)) {
                 selfTestRefused = !actions.startSelfTest()
             },
@@ -699,10 +742,6 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
             MToggle(s(R.string.settings_verbose_log), s(R.string.settings_verbose_log_sub), c.verboseLog) { v ->
                 set(c.copy(verboseLog = v), mapOf("log_level" to if (v) "debug" else "info"))
             },
-            MToggle(s(R.string.settings_safe_gpu), s(R.string.settings_safe_gpu_sub), c.safeGpu, restart = true) { v ->
-                saveAppOnly(c.copy(safeGpu = v))
-            },
-            MInfo(s(R.string.port_menu_restart_note)),
         )
     }
 
@@ -748,9 +787,7 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
         },
         exportStatus?.let { MInfo(it) },
         MInfo(s(R.string.err_dialog_discord_help)),
-        MHeader(s(R.string.menu_session)),
-        exitItem(),
-    )
+    ) + debugItems()
 
     private fun num(x: Double): String = String.format(java.util.Locale.ROOT, "%.4f", x)
 
@@ -761,6 +798,11 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
 
 // --------------------------------------------------------------------- ecra
 
+/*
+ * 12/11: painel lateral (antes era um quadro no meio da tela). Abre-se da direita, no tema da launcher (claro,
+ * escuro ou Material You), 4 abas com icone; a ajuda da linha escolhida aparece por baixo dela (o rodape fixo
+ * tapava a ultima linha da lista). Tocar fora do painel fecha o menu.
+ */
 @Composable
 fun AndroidGameMenu(model: MenuModel, controller: MenuController) {
     val tabs = model.tabs
@@ -770,136 +812,75 @@ fun AndroidGameMenu(model: MenuModel, controller: MenuController) {
         controller.items = items
         controller.ensureRow()
     }
-    val shape = RoundedCornerShape(22.dp)
+    val scheme = MaterialTheme.colorScheme
     val listState = rememberLazyListState()
     LaunchedEffect(controller.tab, controller.row) {
         if (controller.row >= 0) listState.animateScrollToItem((controller.row - 2).coerceAtLeast(0))
     }
+    val shown = remember { MutableTransitionState(false) }.apply { targetState = true }
 
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.55f)),
-        contentAlignment = Alignment.Center,
-    ) {
-        Column(
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val panelWidth = minOf(380.dp, maxWidth * 0.92f)
+        Box(
             Modifier
-                .padding(12.dp)
-                .widthIn(max = 780.dp)
-                .fillMaxHeight(0.94f)
-                .clip(shape)
-                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.97f))
-                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape),
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.35f))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                ) { controller.close() },
+        )
+        AnimatedVisibility(
+            visibleState = shown,
+            modifier = Modifier.align(Alignment.CenterEnd),
+            enter = slideInHorizontally(tween(180)) { it / 2 } + fadeIn(tween(180)),
         ) {
-            Row(
+            Column(
                 Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surfaceContainer)
-                    .padding(horizontal = 18.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                    .fillMaxHeight()
+                    .width(panelWidth)
+                    .clip(RoundedCornerShape(topStart = 20.dp, bottomStart = 20.dp))
+                    .background(scheme.surface)
+                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {}
+                    .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.End + WindowInsetsSides.Vertical)),
             ) {
-                Box(Modifier.size(width = 3.dp, height = 18.dp).background(MaterialTheme.colorScheme.primary))
-                Spacer(Modifier.width(10.dp))
-                Text(
-                    "ZANDATSU",
-                    style = LogoStyle.copy(fontSize = 16.sp),
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Spacer(Modifier.weight(1f))
-                Text(
-                    androidx.compose.ui.res.stringResource(R.string.ingame_paused),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                tabs.forEachIndexed { i, t ->
-                    val on = i == controller.tab
-                    Box(
-                        Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
-                            .clickable { controller.selectTab(i) }
-                            .padding(horizontal = 14.dp, vertical = 7.dp),
-                    ) {
-                        Text(
-                            t,
-                            style = MaterialTheme.typography.labelLarge,
-                            color = if (on) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
+                MenuHeader(controller)
+                MenuTabs(tabs, controller)
+                HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.5f))
+                LazyColumn(
+                    Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    state = listState,
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                ) {
+                    itemsIndexed(items) { i, item ->
+                        MenuRow(
+                            item,
+                            selected = i == controller.row,
+                            onClick = {
+                                controller.row = i
+                                controller.activate()
+                            },
+                            onAdjust = { d ->
+                                controller.row = i
+                                controller.adjust(d)
+                            },
                         )
                     }
                 }
-            }
-            LazyColumn(
-                Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
-                state = listState,
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-            ) {
-                itemsIndexed(items) { i, item ->
-                    MenuRow(
-                        item,
-                        selected = i == controller.row,
-                        onClick = {
-                            controller.row = i
-                            controller.activate()
-                        },
-                        onAdjust = { d ->
-                            controller.row = i
-                            controller.adjust(d)
-                        },
-                    )
-                }
-            }
-            val selected = items.getOrNull(controller.row)
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surfaceContainer)
-                    .padding(horizontal = 18.dp, vertical = 8.dp),
-            ) {
-                val help = listOfNotNull(
-                    selected?.help,
-                    if (selected?.restart == true) androidx.compose.ui.res.stringResource(R.string.menu_restart_needed) else null,
-                ).joinToString(" ")
-                Text(
-                    help,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.height(34.dp),
-                )
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                if (controller.padConnected) {
                     Text(
                         androidx.compose.ui.res.stringResource(R.string.menu_hints),
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.secondary,
-                        modifier = Modifier.weight(1f),
+                        color = scheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(scheme.surfaceContainer)
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
                     )
-                    Box(
-                        Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(MaterialTheme.colorScheme.primary)
-                            .clickable { controller.close() }
-                            .padding(horizontal = 14.dp, vertical = 6.dp),
-                    ) {
-                        Text(
-                            androidx.compose.ui.res.stringResource(R.string.ingame_resume),
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.onPrimary,
-                        )
-                    }
                 }
             }
         }
@@ -907,57 +888,153 @@ fun AndroidGameMenu(model: MenuModel, controller: MenuController) {
 }
 
 @Composable
+private fun MenuHeader(controller: MenuController) {
+    val scheme = MaterialTheme.colorScheme
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(start = 18.dp, end = 8.dp, top = 10.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(width = 3.dp, height = 16.dp).background(scheme.primary))
+        Spacer(Modifier.width(8.dp))
+        Column(Modifier.weight(1f)) {
+            Text("ZANDATSU", style = LogoStyle.copy(fontSize = 14.sp, letterSpacing = 3.sp), color = scheme.onSurface)
+            Text(
+                androidx.compose.ui.res.stringResource(R.string.ingame_paused),
+                style = MaterialTheme.typography.labelSmall,
+                color = scheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        IconButton(onClick = { controller.close() }) {
+            Icon(
+                Icons.Filled.Close,
+                contentDescription = androidx.compose.ui.res.stringResource(R.string.ingame_resume),
+                tint = scheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+private val TAB_ICONS = listOf(Icons.Filled.Pause, Icons.Filled.Tune, Icons.Filled.SportsEsports, Icons.Filled.Settings)
+
+@Composable
+private fun MenuTabs(tabs: List<String>, controller: MenuController) {
+    val scheme = MaterialTheme.colorScheme
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (controller.padConnected) PadHint("LB")
+        tabs.forEachIndexed { i, t ->
+            val on = i == controller.tab
+            Column(
+                Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (on) scheme.secondaryContainer else Color.Transparent)
+                    .clickable { controller.selectTab(i) }
+                    .padding(vertical = 6.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Icon(
+                    TAB_ICONS.getOrElse(i) { Icons.Filled.Settings },
+                    contentDescription = null,
+                    tint = if (on) scheme.onSecondaryContainer else scheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp),
+                )
+                Text(
+                    t,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (on) scheme.onSecondaryContainer else scheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        if (controller.padConnected) PadHint("RB")
+    }
+}
+
+@Composable
+private fun PadHint(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(6.dp))
+            .padding(horizontal = 5.dp, vertical = 2.dp),
+    )
+}
+
+@Composable
 private fun MenuRow(item: MenuItem, selected: Boolean, onClick: () -> Unit, onAdjust: (Int) -> Unit) {
+    val scheme = MaterialTheme.colorScheme
     when (item) {
         is MHeader -> Text(
-            item.label,
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(start = 8.dp, top = 12.dp, bottom = 4.dp),
+            item.label.uppercase(),
+            style = MaterialTheme.typography.labelMedium,
+            color = scheme.primary,
+            modifier = Modifier.padding(start = 10.dp, top = 14.dp, bottom = 4.dp),
         )
         is MInfo -> Text(
             item.label,
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+            color = scheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
         )
         else -> {
-            val scheme = MaterialTheme.colorScheme
-            val bg = if (selected) {
-                Brush.horizontalGradient(listOf(scheme.primary.copy(alpha = 0.35f), scheme.primary.copy(alpha = 0.05f)))
-            } else {
-                Brush.horizontalGradient(listOf(scheme.surfaceVariant.copy(alpha = 0.5f), Color.Transparent))
-            }
-            Row(
+            Column(
                 Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 2.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(bg)
+                    .padding(vertical = 1.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (selected) scheme.secondaryContainer else Color.Transparent)
                     .clickable(onClick = onClick)
-                    .padding(horizontal = 14.dp, vertical = 9.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                    .padding(horizontal = 12.dp, vertical = 7.dp),
             ) {
-                Column(Modifier.weight(1f).padding(end = 10.dp)) {
-                    Text(item.label, style = MaterialTheme.typography.bodyLarge, color = scheme.onSurface)
-                    if (item.restart) {
-                        Text(
-                            androidx.compose.ui.res.stringResource(R.string.menu_restart_badge),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = scheme.tertiary,
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        item.label,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (selected) scheme.onSecondaryContainer else scheme.onSurface,
+                        modifier = Modifier.weight(1f).padding(end = 8.dp),
+                    )
+                    when (item) {
+                        is MToggle -> TogglePill(item.value)
+                        is MChoice -> Stepper(item.options.getOrElse(item.index) { "-" }, onAdjust)
+                        is MStep -> Stepper(item.text, onAdjust)
+                        is MAction -> Text(
+                            item.actionText,
+                            style = MaterialTheme.typography.labelLarge,
+                            color = if (item.danger) scheme.error else scheme.primary,
                         )
+                        else -> Unit
                     }
                 }
-                when (item) {
-                    is MToggle -> TogglePill(item.value)
-                    is MChoice -> Stepper(item.options.getOrElse(item.index) { "-" }, onAdjust)
-                    is MStep -> Stepper(item.text, onAdjust)
-                    is MAction -> Text(
-                        item.actionText,
-                        style = MaterialTheme.typography.labelLarge,
-                        color = if (item.danger) scheme.error else scheme.primary,
+                val help = if (selected) {
+                    listOfNotNull(
+                        item.help,
+                        if (item.restart) androidx.compose.ui.res.stringResource(R.string.menu_restart_needed) else null,
+                    ).joinToString(" ")
+                } else if (item.restart) {
+                    androidx.compose.ui.res.stringResource(R.string.menu_restart_badge)
+                } else {
+                    ""
+                }
+                if (help.isNotEmpty()) {
+                    Text(
+                        help,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (selected) scheme.onSecondaryContainer.copy(alpha = 0.8f) else scheme.tertiary,
+                        modifier = Modifier.padding(top = 3.dp),
                     )
-                    else -> Unit
                 }
             }
         }
@@ -966,20 +1043,21 @@ private fun MenuRow(item: MenuItem, selected: Boolean, onClick: () -> Unit, onAd
 
 @Composable
 private fun TogglePill(on: Boolean) {
+    val scheme = MaterialTheme.colorScheme
     Box(
         Modifier
-            .size(width = 48.dp, height = 26.dp)
+            .size(width = 40.dp, height = 22.dp)
             .clip(RoundedCornerShape(50))
-            .background(if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
-            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(50))
+            .background(if (on) scheme.primary else scheme.surfaceVariant)
+            .border(1.dp, if (on) scheme.primary else scheme.outline, RoundedCornerShape(50))
             .padding(3.dp),
         contentAlignment = if (on) Alignment.CenterEnd else Alignment.CenterStart,
     ) {
         Box(
             Modifier
-                .size(20.dp)
+                .size(16.dp)
                 .clip(CircleShape)
-                .background(if (on) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant),
+                .background(if (on) scheme.onPrimary else scheme.outline),
         )
     }
 }
@@ -987,7 +1065,7 @@ private fun TogglePill(on: Boolean) {
 @Composable
 private fun Stepper(value: String, onAdjust: (Int) -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Arrow("◀") { onAdjust(-1) }
+        Arrow(Icons.AutoMirrored.Filled.KeyboardArrowLeft) { onAdjust(-1) }
         Text(
             value,
             style = MaterialTheme.typography.labelLarge,
@@ -995,22 +1073,21 @@ private fun Stepper(value: String, onAdjust: (Int) -> Unit) {
             textAlign = TextAlign.Center,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.widthIn(min = 92.dp, max = 220.dp).padding(horizontal = 6.dp),
+            modifier = Modifier.widthIn(min = 64.dp, max = 140.dp).padding(horizontal = 2.dp),
         )
-        Arrow("▶") { onAdjust(1) }
+        Arrow(Icons.AutoMirrored.Filled.KeyboardArrowRight) { onAdjust(1) }
     }
 }
 
 @Composable
-private fun Arrow(glyph: String, onClick: () -> Unit) {
+private fun Arrow(icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
     Box(
         Modifier
-            .size(32.dp)
+            .size(28.dp)
             .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.surfaceVariant)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Text(glyph, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelLarge)
+        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
     }
 }
