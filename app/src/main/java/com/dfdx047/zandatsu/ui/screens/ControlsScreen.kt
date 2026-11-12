@@ -7,6 +7,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.material.icons.filled.OpenWith
 
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxHeight
 
 import androidx.compose.foundation.border
 
@@ -277,17 +279,18 @@ private val LEGEND: List<Pair<Int?, String>> = listOf(
 @Composable
 private fun ControlsLegend() {
     val texts = androidx.compose.ui.res.stringArrayResource(R.array.controls_legend)
+    // 12/11: grade de cartoes lado a lado (icone, botao, nome e descricao curta), ~3 colunas em retrato, 5-6 deitado.
     androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val cols = if (maxWidth >= 560.dp) 2 else 1
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        val cols = (maxWidth / 112.dp).toInt().coerceIn(2, 6)
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             LEGEND.indices.chunked(cols).forEach { row ->
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.height(androidx.compose.foundation.layout.IntrinsicSize.Max)) {
                     row.forEach { i ->
                         val (icon, pad) = LEGEND[i]
                         val parts = texts.getOrElse(i) { "" }.split('|', limit = 2)
-                        LegendRow(icon, pad, parts[0], parts.getOrElse(1) { "" }, Modifier.weight(1f))
+                        LegendTile(icon, pad, parts[0], parts.getOrElse(1) { "" }, Modifier.weight(1f).fillMaxHeight())
                     }
-                    if (row.size < cols) Spacer(Modifier.weight(1f))
+                    repeat(cols - row.size) { Spacer(Modifier.weight(1f)) }
                 }
             }
         }
@@ -295,40 +298,52 @@ private fun ControlsLegend() {
 }
 
 @Composable
-private fun LegendRow(icon: Int?, pad: String, name: String, desc: String, modifier: Modifier) {
+private fun LegendTile(icon: Int?, pad: String, name: String, desc: String, modifier: Modifier) {
     val scheme = MaterialTheme.colorScheme
-    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+    val shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+    Column(
+        modifier
+            .background(scheme.surfaceContainerHigh, shape)
+            .padding(horizontal = 6.dp, vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
         androidx.compose.foundation.layout.Box(
             Modifier
-                .size(40.dp)
+                .size(34.dp)
                 .background(scheme.surfaceContainerHighest, androidx.compose.foundation.shape.CircleShape)
                 .border(1.dp, scheme.outlineVariant, androidx.compose.foundation.shape.CircleShape),
             contentAlignment = Alignment.Center,
         ) {
             if (icon != null) {
-                Icon(androidx.compose.ui.res.painterResource(icon), null, tint = scheme.onSurface, modifier = Modifier.size(22.dp))
+                Icon(androidx.compose.ui.res.painterResource(icon), null, tint = scheme.onSurface, modifier = Modifier.size(19.dp))
             } else {
-                Icon(Icons.Filled.OpenWith, null, tint = scheme.onSurface, modifier = Modifier.size(22.dp))
+                Icon(Icons.Filled.OpenWith, null, tint = scheme.onSurface, modifier = Modifier.size(19.dp))
             }
         }
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(name, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f, fill = false))
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    pad,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = padColor(pad) ?: scheme.onSurfaceVariant,
-                    softWrap = false,
-                    modifier = Modifier
-                        .background(scheme.surfaceVariant, androidx.compose.foundation.shape.RoundedCornerShape(6.dp))
-                        .padding(horizontal = 6.dp, vertical = 1.dp),
-                )
-            }
-            if (desc.isNotEmpty()) {
-                Text(desc, style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
-            }
+        Spacer(Modifier.height(5.dp))
+        Text(
+            pad,
+            style = MaterialTheme.typography.labelSmall,
+            color = padColor(pad) ?: scheme.onSurfaceVariant,
+            softWrap = false,
+            modifier = Modifier
+                .background(scheme.surfaceVariant, androidx.compose.foundation.shape.RoundedCornerShape(6.dp))
+                .padding(horizontal = 6.dp, vertical = 1.dp),
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            name,
+            style = MaterialTheme.typography.labelMedium,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            maxLines = 2,
+        )
+        if (desc.isNotEmpty()) {
+            Text(
+                desc,
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Normal),
+                color = scheme.onSurfaceVariant,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            )
         }
     }
 }
