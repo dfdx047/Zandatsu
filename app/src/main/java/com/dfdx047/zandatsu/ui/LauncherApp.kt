@@ -26,7 +26,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Save
-import androidx.compose.material.icons.filled.FastForward
+import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Gamepad
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
@@ -41,6 +43,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
+import androidx.compose.material3.NavigationRailItemDefaults
+import androidx.compose.material3.IconButton
+import androidx.activity.compose.BackHandler
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -70,7 +79,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.dfdx047.zandatsu.R
 import com.dfdx047.zandatsu.ui.screens.AboutScreen
-import com.dfdx047.zandatsu.ui.screens.CheatsScreen
 import com.dfdx047.zandatsu.ui.screens.ControlsScreen
 import com.dfdx047.zandatsu.ui.screens.DebugScreen
 import com.dfdx047.zandatsu.ui.screens.DriversScreen
@@ -79,20 +87,24 @@ import com.dfdx047.zandatsu.ui.screens.PerformanceScreen
 import com.dfdx047.zandatsu.ui.screens.SettingsScreen
 import com.dfdx047.zandatsu.ui.theme.DfColors
 
-enum class LauncherTab(@StringRes val title: Int, val icon: ImageVector) {
+/**
+ * 12/11: cinco destinos na barra (Inicio, Graficos, Controles, Drivers, Mais) em vez de oito icones sem nome; Sistema,
+ * Depuracao e Sobre ficam dentro de "Mais" ([main] = false) e o "Pular as logos" (a antiga aba Cheats) foi para o Inicio.
+ */
+enum class LauncherTab(@StringRes val title: Int, val icon: ImageVector, val main: Boolean = true) {
     HOME(R.string.tab_home, Icons.Filled.Home),
-    PERFORMANCE(R.string.tab_performance, Icons.Filled.Speed),
+    PERFORMANCE(R.string.tab_graphics, Icons.Filled.Tune),
     CONTROLS(R.string.tab_controls, Icons.Filled.Gamepad),
-    CHEATS(R.string.tab_cheats, Icons.Filled.FastForward),
     DRIVERS(R.string.tab_drivers, Icons.Filled.Memory),
-    DEBUG(R.string.tab_debug, Icons.Filled.BugReport),
-    SETTINGS(R.string.tab_settings, Icons.Filled.Settings),
-    ABOUT(R.string.tab_about, Icons.Filled.Info),
+    MORE(R.string.tab_more, Icons.Filled.MoreHoriz),
+    SETTINGS(R.string.tab_settings, Icons.Filled.Settings, main = false),
+    DEBUG(R.string.tab_debug, Icons.Filled.BugReport, main = false),
+    ABOUT(R.string.tab_about, Icons.Filled.Info, main = false),
 }
 
 /**
- * O launcher: o conteudo da aba por cima e a barra de navegacao em baixo (sete abas, so o
- * icone e o nome da aba selecionada para caberem nas telas pequenas dos portateis).
+ * O launcher. Retrato: o conteudo e a barra de navegacao em baixo, com o nome de cada destino. Paisagem (12/11, telas
+ * 20:9 deitadas tinham so ~400 dp de altura e a barra comia 80): um trilho a esquerda e o conteudo centrado.
  */
 @Composable
 fun LauncherApp(vm: LauncherViewModel) {
@@ -105,44 +117,81 @@ fun LauncherApp(vm: LauncherViewModel) {
         snackbar.showSnackbar(context.getString(m.res, *m.args.toTypedArray()))
         vm.message = null
     }
+    // Voltar: de Sistema/Depuracao/Sobre para "Mais"; de outro destino para o Inicio; no Inicio sai.
+    BackHandler(enabled = tab != LauncherTab.HOME) {
+        tab = if (!tab.main) LauncherTab.MORE else LauncherTab.HOME
+    }
 
     // Primeiro arranque: o jogador escolhe o perfil (nada pre-escolhido).
     if (vm.needsProfile) com.dfdx047.zandatsu.ui.screens.ProfilePicker(vm)
+
+    val config = LocalConfiguration.current
+    val rail = config.screenWidthDp > config.screenHeightDp && config.screenWidthDp >= 600
+    val current = if (tab.main) tab else LauncherTab.MORE
+    val mains = LauncherTab.entries.filter { it.main }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         contentWindowInsets = WindowInsets.safeDrawing,
         containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
-            NavigationBar(
-                containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                tonalElevation = 0.dp,
-            ) {
-                LauncherTab.entries.forEach { t ->
-                    NavigationBarItem(
-                        selected = t == tab,
-                        onClick = { tab = t },
-                        icon = { Icon(t.icon, null) },
-                        label = { Text(stringResource(t.title), maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                        alwaysShowLabel = false,
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = MaterialTheme.colorScheme.primary,
-                            selectedTextColor = MaterialTheme.colorScheme.primary,
-                            indicatorColor = MaterialTheme.colorScheme.surfaceVariant,
-                        ),
-                    )
+            if (!rail) {
+                NavigationBar(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                    tonalElevation = 0.dp,
+                ) {
+                    mains.forEach { t ->
+                        NavigationBarItem(
+                            selected = t == current,
+                            onClick = { tab = t },
+                            icon = { Icon(t.icon, null) },
+                            label = { Text(stringResource(t.title), maxLines = 1, softWrap = false) },
+                            alwaysShowLabel = true,
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = MaterialTheme.colorScheme.primary,
+                                selectedTextColor = MaterialTheme.colorScheme.primary,
+                                indicatorColor = MaterialTheme.colorScheme.surfaceVariant,
+                            ),
+                        )
+                    }
                 }
             }
         },
     ) { inner ->
-        Column(
+        Row(
             Modifier
                 .fillMaxSize()
                 .padding(inner)
                 .background(MaterialTheme.colorScheme.background),
         ) {
-            BusyBar(vm.busy)
-            TabContent(tab, vm) { tab = it }
+            if (rail) {
+                NavigationRail(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                    windowInsets = WindowInsets(0),
+                ) {
+                    Spacer(Modifier.weight(1f))
+                    mains.forEach { t ->
+                        NavigationRailItem(
+                            selected = t == current,
+                            onClick = { tab = t },
+                            icon = { Icon(t.icon, null) },
+                            label = { Text(stringResource(t.title), maxLines = 1, softWrap = false) },
+                            alwaysShowLabel = true,
+                            colors = NavigationRailItemDefaults.colors(
+                                selectedIconColor = MaterialTheme.colorScheme.primary,
+                                selectedTextColor = MaterialTheme.colorScheme.primary,
+                                indicatorColor = MaterialTheme.colorScheme.surfaceVariant,
+                            ),
+                        )
+                    }
+                    Spacer(Modifier.weight(1f))
+                }
+            }
+            Column(Modifier.weight(1f).fillMaxHeight()) {
+                BusyBar(vm.busy)
+                if (!tab.main) SubScreenHeader(tab) { tab = LauncherTab.MORE }
+                TabContent(tab, vm) { tab = it }
+            }
         }
     }
 
@@ -152,6 +201,22 @@ fun LauncherApp(vm: LauncherViewModel) {
     if (vm.showDiag) com.dfdx047.zandatsu.ui.screens.DiagnosticsScreen(vm)
     vm.diagPromptGpu?.let { if (!vm.showGpuNotice && !vm.showDiag) com.dfdx047.zandatsu.ui.screens.DiagPromptDialog(vm, it) }
     vm.errorReport?.let { ErrorDialog(vm, it, openTab = { t -> tab = t }) }
+}
+
+/** Titulo de Sistema / Depuracao / Sobre, com a seta para voltar a "Mais". */
+@Composable
+private fun SubScreenHeader(tab: LauncherTab, onBack: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(start = 4.dp, end = 16.dp, top = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = onBack) {
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.back))
+        }
+        Icon(tab.icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(10.dp))
+        Text(stringResource(tab.title), style = MaterialTheme.typography.titleLarge)
+    }
 }
 
 private fun mutableStateOfTab() = androidx.compose.runtime.mutableStateOf(LauncherTab.HOME)
@@ -183,16 +248,19 @@ private fun BusyBar(busy: Busy?) {
 
 @Composable
 private fun TabContent(tab: LauncherTab, vm: LauncherViewModel, goTo: (LauncherTab) -> Unit) {
-    Box(Modifier.fillMaxSize()) {
-        when (tab) {
-            LauncherTab.HOME -> HomeScreen(vm, goTo)
-            LauncherTab.PERFORMANCE -> PerformanceScreen(vm)
-            LauncherTab.CONTROLS -> ControlsScreen(vm)
-            LauncherTab.CHEATS -> CheatsScreen(vm)
-            LauncherTab.DRIVERS -> DriversScreen(vm)
-            LauncherTab.DEBUG -> DebugScreen(vm)
-            LauncherTab.SETTINGS -> SettingsScreen(vm)
-            LauncherTab.ABOUT -> AboutScreen(vm)
+    // Paisagem larga: o conteudo fica numa coluna de ate 920 dp, centrada (cartoes de 900 dp de largura liam-se mal).
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        Box(Modifier.fillMaxHeight().widthIn(max = 920.dp)) {
+            when (tab) {
+                LauncherTab.HOME -> HomeScreen(vm, goTo)
+                LauncherTab.PERFORMANCE -> PerformanceScreen(vm)
+                LauncherTab.CONTROLS -> ControlsScreen(vm)
+                LauncherTab.DRIVERS -> DriversScreen(vm)
+                LauncherTab.MORE -> com.dfdx047.zandatsu.ui.screens.MoreScreen(goTo)
+                LauncherTab.DEBUG -> DebugScreen(vm)
+                LauncherTab.SETTINGS -> SettingsScreen(vm)
+                LauncherTab.ABOUT -> AboutScreen(vm)
+            }
         }
     }
 }

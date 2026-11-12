@@ -116,7 +116,7 @@
     <string name="settings_touch_opacity">Opacity</string>
     <string name="settings_touch_haptics">Vibrate on touch</string>
     <string name="settings_touch_edit">Edit layout</string>
-    <string name="settings_touch_helpers_note">Combat layout: light/strong attack, jump and action in the diamond; Blade Mode (LT), Ninja Run (RT), lock-on (RB), sub-weapon (LB) and dodge (X+A) around it. Drag a free spot on the right side to move the camera; a quick tap centers it. In game, the gear (top left) opens these options with the game paused.</string>
+    <string name="settings_touch_helpers_note">In the game, the gear (top-left corner) opens these options with the game paused.</string>
     <string name="settings_touch_reset_title">Reset the layout?</string>
     <string name="settings_touch_reset_text">Every button goes back to the default place, size and opacity. Your macros are removed.</string>
     <string name="settings_physical_pad">Physical controller</string>
@@ -566,4 +566,44 @@
     <string name="diag_t_timestamps">GPU timestamps</string>
     <string name="diag_t_cpu_cores">CPU, core by core</string>
     <string name="diag_t_perf">Performance, 60 s (title screen)</string>
+    <string-array name="controls_legend">
+        <item>Walk|Left stick</item>
+        <item>Camera|Drag on the right side of the screen; a quick tap centers it (R3)</item>
+        <item>Light attack|With the stick toward the enemy: parry</item>
+        <item>Strong attack|</item>
+        <item>Jump|</item>
+        <item>Action|Zandatsu grab, open, interact</item>
+        <item>Blade Mode|Cut by swiping on the right side or with X/Y</item>
+        <item>Ninja Run|Hold to run and deflect bullets</item>
+        <item>Lock-on|Locks the camera on the enemy</item>
+        <item>Sub-weapon|</item>
+        <item>Dodge|X+A together, with a direction</item>
+        <item>Ripper Mode|L3+R3 with a full energy bar</item>
+        <item>Augment|AR vision (small cross ↑)</item>
+        <item>Switch weapon / item|Small cross ← →</item>
+        <item>Use item|Small cross ↓</item>
+        <item>Pause|Start</item>
+        <item>Codec|Back</item>
+    </string-array>
+    <string name="tab_graphics">Graphics</string>
+    <string name="tab_more">More</string>
+    <string name="more_settings_sub">Theme, language, saves, GPU test and logs</string>
+    <string name="more_debug_sub">Detailed log, frame capture and GPU optimizations</string>
+    <string name="more_about_sub">Version, updates, community and credits</string>
+    <string name="home_setup_title">Game setup</string>
+    <string name="home_setup_sub">Tap a tile to change it</string>
+    <string name="sum_profile">Profile</string>
+    <string name="sum_renderer">Renderer</string>
+    <string name="sum_resolution">Resolution</string>
+    <string name="sum_fps">FPS</string>
+    <string name="sum_image">Image</string>
+    <string name="sum_driver">Driver</string>
+    <string name="sum_custom">Custom</string>
+    <string name="sum_system">System</string>
+    <string name="sum_screen_res">Screen (%1$s)</string>
+    <string name="home_iso_in_use">ISO: %1$s</string>
+    <string name="home_folder_in_use">Imported folder (app storage)</string>
+    <string name="home_change_iso">Change .iso</string>
+    <string name="controls_legend_title">What each button does</string>
+    <string name="back">Back</string>
 </resources>

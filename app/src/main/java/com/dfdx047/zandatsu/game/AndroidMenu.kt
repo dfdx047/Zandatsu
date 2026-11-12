@@ -801,7 +801,7 @@ fun AndroidGameMenu(model: MenuModel, controller: MenuController) {
                 Box(Modifier.size(width = 3.dp, height = 18.dp).background(MaterialTheme.colorScheme.primary))
                 Spacer(Modifier.width(10.dp))
                 Text(
-                    "PROJECT SWORDMAN",
+                    "ZANDATSU",
                     style = LogoStyle.copy(fontSize = 16.sp),
                     color = MaterialTheme.colorScheme.onSurface,
                 )

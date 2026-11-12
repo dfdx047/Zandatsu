@@ -115,7 +115,7 @@
     <string name="settings_touch_opacity">Opacidad</string>
     <string name="settings_touch_haptics">Vibrar al tocar</string>
     <string name="settings_touch_edit">Editar diseño</string>
-    <string name="settings_touch_helpers_note">Diseño de combate: ataque ligero/fuerte, salto y acción en el rombo; Blade Mode (LT), Ninja Run (RT), fijar (RB), arma secundaria (LB) y esquiva (X+A) alrededor. Arrastra en un punto libre del lado derecho para mover la cámara; un toque rápido la centra. En el juego, el engranaje (arriba a la izquierda) abre estas opciones con el juego en pausa.</string>
+    <string name="settings_touch_helpers_note">En el juego, el engranaje (esquina superior izquierda) abre estas opciones con el juego en pausa.</string>
     <string name="settings_touch_reset_title">¿Restablecer el diseño?</string>
     <string name="settings_touch_reset_text">Todos los botones vuelven a su posición, tamaño y opacidad por defecto. Se eliminan tus macros.</string>
     <string name="settings_physical_pad">Mando físico</string>
@@ -565,4 +565,44 @@
     <string name="diag_t_timestamps">Timestamps de la GPU</string>
     <string name="diag_t_cpu_cores">CPU, núcleo a núcleo</string>
     <string name="diag_t_perf">Rendimiento, 60 s (pantalla de título)</string>
+    <string-array name="controls_legend">
+        <item>Caminar|Stick izquierdo</item>
+        <item>Cámara|Arrastra en el lado derecho de la pantalla; un toque rápido la centra (R3)</item>
+        <item>Ataque ligero|Con el stick hacia el enemigo: bloquear</item>
+        <item>Ataque fuerte|</item>
+        <item>Saltar|</item>
+        <item>Acción|Agarrar en el Zandatsu, abrir, interactuar</item>
+        <item>Blade Mode|Corta deslizando el dedo en el lado derecho o con X/Y</item>
+        <item>Ninja Run|Mantén para correr y desviar balas</item>
+        <item>Fijar|Fija la cámara en el enemigo</item>
+        <item>Arma secundaria|</item>
+        <item>Esquivar|X+A juntos, con una dirección</item>
+        <item>Ripper Mode|L3+R3 con la barra de energía llena</item>
+        <item>Augment|Visión AR (cruz pequeña ↑)</item>
+        <item>Cambiar arma / objeto|Cruz pequeña ← →</item>
+        <item>Usar objeto|Cruz pequeña ↓</item>
+        <item>Pausa|Start</item>
+        <item>Codec|Back</item>
+    </string-array>
+    <string name="tab_graphics">Gráficos</string>
+    <string name="tab_more">Más</string>
+    <string name="more_settings_sub">Tema, idioma, partidas, prueba de GPU y registros</string>
+    <string name="more_debug_sub">Registro detallado, captura de fotogramas y optimizaciones de la GPU</string>
+    <string name="more_about_sub">Versión, actualizaciones, comunidad y créditos</string>
+    <string name="home_setup_title">Configuración del juego</string>
+    <string name="home_setup_sub">Toca un elemento para cambiarlo</string>
+    <string name="sum_profile">Perfil</string>
+    <string name="sum_renderer">Renderizador</string>
+    <string name="sum_resolution">Resolución</string>
+    <string name="sum_fps">FPS</string>
+    <string name="sum_image">Imagen</string>
+    <string name="sum_driver">Driver</string>
+    <string name="sum_custom">Personalizado</string>
+    <string name="sum_system">Sistema</string>
+    <string name="sum_screen_res">Pantalla (%1$s)</string>
+    <string name="home_iso_in_use">ISO: %1$s</string>
+    <string name="home_folder_in_use">Carpeta importada (memoria de la app)</string>
+    <string name="home_change_iso">Cambiar .iso</string>
+    <string name="controls_legend_title">Qué hace cada botón</string>
+    <string name="back">Volver</string>
 </resources>

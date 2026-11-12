@@ -32,6 +32,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.dfdx047.zandatsu.BuildConfig
 import com.dfdx047.zandatsu.SwordManApp
 import com.dfdx047.zandatsu.R
@@ -40,6 +41,7 @@ import com.dfdx047.zandatsu.ui.UpdateState
 import com.dfdx047.zandatsu.ui.components.SectionCard
 import com.dfdx047.zandatsu.ui.theme.LogoStyle
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 
 @Composable
 fun AboutScreen(vm: LauncherViewModel) {
@@ -65,14 +67,15 @@ fun AboutScreen(vm: LauncherViewModel) {
                 tint = Color.Unspecified,
                 modifier = Modifier.fillMaxSize(),
             )
+            // O lancador do Android mostra o miolo de 72 dp dos 108 dp da camada da frente: a mesma escala aqui.
             Icon(
                 painterResource(R.drawable.ic_launcher_foreground),
                 null,
                 tint = Color.Unspecified,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().scale(1.5f),
             )
         }
-        Text("PROJECT SWORDMAN", style = LogoStyle, color = MaterialTheme.colorScheme.onBackground)
+        Text("ZANDATSU", style = LogoStyle.copy(fontSize = 30.sp), color = MaterialTheme.colorScheme.onBackground)
         Text(stringResource(R.string.game_title), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(stringResource(R.string.about_version, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE), style = MaterialTheme.typography.bodyMedium)
         Text(stringResource(R.string.about_developer, SwordManApp.DEVELOPER), style = MaterialTheme.typography.titleMedium)

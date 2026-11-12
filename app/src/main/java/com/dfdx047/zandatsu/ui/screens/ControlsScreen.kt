@@ -1,5 +1,17 @@
 package com.dfdx047.zandatsu.ui.screens
 
+import androidx.compose.foundation.layout.fillMaxWidth
+
+import androidx.compose.ui.Alignment
+
+import androidx.compose.material.icons.filled.OpenWith
+
+import androidx.compose.foundation.layout.size
+
+import androidx.compose.foundation.border
+
+import androidx.compose.foundation.background
+
 import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -167,7 +179,7 @@ fun ControlsScreen(vm: LauncherViewModel) {
             Icons.Filled.SportsEsports,
             subtitle = stringResource(R.string.controls_scheme_sub),
         ) {
-            Text(stringResource(R.string.controls_scheme_text), style = MaterialTheme.typography.bodySmall)
+            ControlsLegend()
         }
 
         // --------------------------------------------------------- comando fisico
@@ -235,4 +247,97 @@ private fun LayoutProfiles() {
             }) { Text(stringResource(R.string.profiles_delete)) }
         }
     }
+}
+
+
+/**
+ * Legenda dos botoes por toque (12/11; antes um paragrafo corrido): o icone que aparece no jogo, o botao do comando e
+ * o que faz. Os textos vem de R.array.controls_legend ("Nome|descricao"), pela ordem de LEGEND.
+ */
+private val LEGEND: List<Pair<Int?, String>> = listOf(
+    null to "L",
+    R.drawable.ic_btn_camera to "R",
+    R.drawable.ic_btn_light to "X",
+    R.drawable.ic_btn_heavy to "Y",
+    R.drawable.ic_btn_jump to "A",
+    R.drawable.ic_btn_action to "B",
+    R.drawable.ic_btn_blade to "LT",
+    R.drawable.ic_btn_run to "RT",
+    R.drawable.ic_btn_lock to "RB",
+    R.drawable.ic_btn_subweapon to "LB",
+    R.drawable.ic_btn_dodge to "X+A",
+    R.drawable.ic_btn_ripper to "L3+R3",
+    R.drawable.ic_btn_augment to "↑",
+    R.drawable.ic_btn_swap to "← →",
+    R.drawable.ic_btn_item to "↓",
+    R.drawable.ic_btn_start to "Start",
+    R.drawable.ic_btn_codec to "Back",
+)
+
+@Composable
+private fun ControlsLegend() {
+    val texts = androidx.compose.ui.res.stringArrayResource(R.array.controls_legend)
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val cols = if (maxWidth >= 560.dp) 2 else 1
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            LEGEND.indices.chunked(cols).forEach { row ->
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    row.forEach { i ->
+                        val (icon, pad) = LEGEND[i]
+                        val parts = texts.getOrElse(i) { "" }.split('|', limit = 2)
+                        LegendRow(icon, pad, parts[0], parts.getOrElse(1) { "" }, Modifier.weight(1f))
+                    }
+                    if (row.size < cols) Spacer(Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LegendRow(icon: Int?, pad: String, name: String, desc: String, modifier: Modifier) {
+    val scheme = MaterialTheme.colorScheme
+    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+        androidx.compose.foundation.layout.Box(
+            Modifier
+                .size(40.dp)
+                .background(scheme.surfaceContainerHighest, androidx.compose.foundation.shape.CircleShape)
+                .border(1.dp, scheme.outlineVariant, androidx.compose.foundation.shape.CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (icon != null) {
+                Icon(androidx.compose.ui.res.painterResource(icon), null, tint = scheme.onSurface, modifier = Modifier.size(22.dp))
+            } else {
+                Icon(Icons.Filled.OpenWith, null, tint = scheme.onSurface, modifier = Modifier.size(22.dp))
+            }
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(name, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f, fill = false))
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    pad,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = padColor(pad) ?: scheme.onSurfaceVariant,
+                    softWrap = false,
+                    modifier = Modifier
+                        .background(scheme.surfaceVariant, androidx.compose.foundation.shape.RoundedCornerShape(6.dp))
+                        .padding(horizontal = 6.dp, vertical = 1.dp),
+                )
+            }
+            if (desc.isNotEmpty()) {
+                Text(desc, style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+/** As cores dos botoes do comando de Xbox, como nos botoes por toque. */
+private fun padColor(pad: String): androidx.compose.ui.graphics.Color? = when (pad) {
+    "A" -> androidx.compose.ui.graphics.Color(0xFF5DBB46)
+    "B" -> androidx.compose.ui.graphics.Color(0xFFE5483C)
+    "X" -> androidx.compose.ui.graphics.Color(0xFF3B8CE8)
+    "Y" -> androidx.compose.ui.graphics.Color(0xFFF2C230)
+    else -> null
 }
