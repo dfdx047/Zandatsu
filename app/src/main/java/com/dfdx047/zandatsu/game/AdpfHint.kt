@@ -27,7 +27,15 @@ class AdpfHint(private val context: Context, private val targetNs: Long) {
     private val main = Handler(Looper.getMainLooper())
     private var session: PerformanceHintManager.Session? = null
     private var lastFrames = 0L
+    private var lastGpuUs = 0L
     private var lastTime = 0L
+    // Android 15+: o quadro reportado leva o tempo de GPU (WorkDuration). Desliga-se sozinho se o sistema recusar;
+    // o ficheiro "adpf-no-gpu" na pasta do app desliga-o para medir A/B.
+    private var gpuWork = try {
+        context.getExternalFilesDir(null)?.let { java.io.File(it, "adpf-no-gpu").isFile } != true
+    } catch (_: Throwable) {
+        true
+    }
     private var stopped = false
 
     fun start(delayMs: Long = 20_000) {
@@ -102,8 +110,11 @@ class AdpfHint(private val context: Context, private val targetNs: Long) {
             }
             lastTids = tids.toSet()
             AppLog.i("adpf", "sessao com ${tids.size} threads ${names(tids)}, alvo ${targetNs / 1000} us")
-            lastFrames = NativeGameState.gpuStats()[0]
+            NativeGameState.gpuStats().let { lastFrames = it[0]; lastGpuUs = it[1] }
             lastTime = SystemClock.elapsedRealtimeNanos()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+                AppLog.i("adpf", if (gpuWork) "quadros com o tempo de GPU (WorkDuration)" else "so o tempo do quadro (adpf-no-gpu)")
+            }
             main.postDelayed(report, REPORT_MS)
         } catch (t: Throwable) {
             AppLog.i("adpf", "falhou: ${t.message}")
@@ -114,17 +125,35 @@ class AdpfHint(private val context: Context, private val targetNs: Long) {
         override fun run() {
             val s = session ?: return
             if (stopped) return
-            val frames = NativeGameState.gpuStats()[0]
+            val stats = NativeGameState.gpuStats()
+            val frames = stats[0]
             val now = SystemClock.elapsedRealtimeNanos()
             val df = frames - lastFrames
             if (df > 0 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 val perFrame = (now - lastTime) / df
                 try {
-                    s.reportActualWorkDuration(perFrame)
-                } catch (_: Throwable) {
+                    // 12/11 (POCO X6 Pro): no Android 15+ o quadro vai com o tempo de GPU, para o sistema subir tambem o
+                    // clock da GPU (em 16:9 a GPU usava 12,6 ms dos 16,6 e o jogo ficava em 54 fps, sem nada saturado).
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM && gpuWork) {
+                        val gpuNs = ((stats[1] - lastGpuUs) * 1000L / df).coerceAtLeast(1L)
+                        val w = android.os.WorkDuration()
+                        w.workPeriodStartTimestampNanos = now - perFrame
+                        w.actualTotalDurationNanos = perFrame
+                        w.actualCpuDurationNanos = perFrame
+                        w.actualGpuDurationNanos = gpuNs
+                        s.reportActualWorkDuration(w)
+                    } else {
+                        s.reportActualWorkDuration(perFrame)
+                    }
+                } catch (e: Throwable) {
+                    if (gpuWork) {
+                        gpuWork = false
+                        AppLog.i("adpf", "WorkDuration com GPU recusado (${e.message}); so o tempo do quadro")
+                    }
                 }
             }
             lastFrames = frames
+            lastGpuUs = stats[1]
             lastTime = now
             main.postDelayed(this, REPORT_MS)
         }
