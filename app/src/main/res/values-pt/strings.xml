@@ -230,9 +230,9 @@
     <string name="about_gpu_notice">Dicas de desempenho</string>
     <string name="about_whats_new">Novidades</string>
     <string name="whats_new_title">Novidades da v%1$s</string>
-    <string name="whats_new_text">• Controle na tela: a troca entre menu e luta segue o modo do jogo e não fica mais trocando sozinha. Dá para desligar em Controles.\n• Blade Mode por toque: toque em LT para entrar e sair e deslize o dedo no lado direito da tela para cortar. Segurar LT continua como opção.\n• Perfis de layout e tamanho de todos os botões, em Controles.\n• Saves, em Sistema: exportar em zip, listar, restaurar com confirmação e backup automático antes de restaurar.\n• Controle externo, em Controles: teste ao vivo, mapeamento automático e remapeamento, salvos por controle.\n• Vibração: não fica mais presa vibrando sem parar.\n• Sundowner: corrigida a causa do crash ao começar a cortar. Ainda não testado nessa luta: se fechar, mande o log.\n• Modo mais estável: depois do primeiro travamento da GPU na Adreno 6xx com Turnip, o app liga sozinho um modo que evita esse travamento.\n• Mali-G57 MC2: o modo automático passa a usar o Emulado quando o nativo não funciona.\n• Desempenho: threads do jogo não ficam mais presas no mesmo núcleo, de 2 a 4 fps a mais nas lutas medidas.\n• Correções para a tela cortada em algumas Mali e para o fechamento com o driver do sistema em Snapdragon recentes, ainda sem teste nesses aparelhos: se continuar, mande o log.</string>
+    <string name="whats_new_text">• Menu do jogo novo: painel lateral pequeno no tema da launcher, 4 abas, só opções que valem na hora (com a predefinição gráfica). Funciona com toque, controle e o botão voltar dos portáteis.\n• DLC do Xbox 360: botão Importar DLC no Início. O jogo instala ao abrir.\n• Launcher reorganizada: Início, Gráficos, Controles, Drivers e Mais; em pé, nada cortado nem sobreposto.\n• APK de 224 MB para 77 MB.\n• Mali-G615: céu preto corrigido (#24, #35).\n• Lutas presas em 20 fps no começo: corrigido (50–55 fps desde o início no POCO X6 Pro).\n• Cutscenes e vídeos sem solavancos em telas de 90/120 Hz.\n• Ultrawide: sem piscadas em 16:9 e sem imagem repetida nos menus.\n• Pular as logos volta a funcionar no Nativo.</string>
     <string name="whats_new_known_title">Problemas conhecidos</string>
-    <string name="whats_new_known_text">• Ultrawide pode dar pequenas piscadas em alguns aparelhos: mande o log (menu do jogo ▸ Sistema ▸ Exportar logs).\n• Adreno 650 com o Turnip MrPurple: hang da GPU; o jogo volta ao launcher e o modo mais estável liga sozinho, é só tocar em JOGAR.\n• Mali-G615: alguns aparelhos não abrem o jogo; causa ainda não encontrada.</string>
+    <string name="whats_new_known_text">• Ultrawide: emenda a 4/5 da largura em alguns menus (escolher o save, pausa, MISSION FAILED).\n• DLC: por enquanto só os trajes funcionam. Sam\'s e Wolf\'s Side Story e as missões VR instalam, mas ainda não aparecem no jogo.\n• Mods do PC (Nexus Mods) ainda não funcionam: precisam de conversão.\n• Adreno 650 com Turnip: hang raro da GPU; o jogo volta à launcher e liga sozinho o modo mais estável, é só tocar em JOGAR.</string>
     <string name="import_iso">Importar .iso</string>
     <string name="import_folder">Importar pasta</string>
     <string name="busy_reading_disc">Lendo o disco</string>
@@ -612,6 +612,7 @@
     <string name="err_dlc_not_package">Não é um pacote do Xbox 360 (escolha os arquivos de Content/0000000000000000/4B4E080A/00000002, não um .zip ou pasta): %1$s</string>
     <string name="dlc_title">DLC (%1$d)</string>
     <string name="dlc_installed">Instalado</string>
+    <string name="dlc_damaged">Pacote danificado: o jogo não conseguiu instalar. Remova e importe uma cópia boa.</string>
     <string name="dlc_pending">Instala quando o jogo abrir</string>
     <string name="dlc_remove">Remover</string>
 </resources>

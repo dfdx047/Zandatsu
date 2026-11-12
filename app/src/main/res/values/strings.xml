@@ -231,9 +231,9 @@
     <string name="about_gpu_notice">Performance tips</string>
     <string name="about_whats_new">What\'s new</string>
     <string name="whats_new_title">What\'s new in v%1$s</string>
-    <string name="whats_new_text">• Touch controls: switching between menu and fight follows the game\'s mode and no longer flips on its own. You can turn it off in Controls.\n• Touch Blade Mode: tap LT to enter and leave, and swipe on the right side of the screen to cut. Holding LT is still an option.\n• Layout profiles and a size for all buttons, in Controls.\n• Saves, in System: export to zip, list, restore with confirmation and an automatic backup before restoring.\n• External controllers, in Controls: live test, automatic mapping and remapping, saved per controller.\n• Vibration: no longer gets stuck vibrating non-stop.\n• Sundowner: fixed the cause of the crash when you start cutting. Not tested in that fight yet: if it closes, please send the log.\n• More stable mode: after the first GPU hang on Adreno 6xx with Turnip, the app turns on a mode that avoids this hang.\n• Mali-G57 MC2: automatic mode now uses Emulated when Native doesn\'t work.\n• Performance: game threads no longer stay stuck on one core, 2 to 4 fps more in the measured fights.\n• Fixes for the cut-off screen on some Mali GPUs and for closing on the system driver on recent Snapdragons, not tested on those devices yet: if it still happens, please send the log.</string>
+    <string name="whats_new_text">• New in-game menu: a small side panel in the launcher\'s theme, 4 tabs, only options that apply right away (including the graphics preset). Works with touch, controllers and the back button of handhelds.\n• Xbox 360 DLC: Import DLC button on Home. The game installs them when it opens.\n• Reorganized launcher: Home, Graphics, Controls, Drivers and More; in portrait nothing is cut off or overlapping.\n• APK down from 224 MB to 77 MB.\n• Mali-G615: black sky fixed (#24, #35).\n• Fights stuck at 20 fps at the start: fixed (50–55 fps from the start on the POCO X6 Pro).\n• Smooth cutscenes and videos on 90/120 Hz screens.\n• Ultrawide: no 16:9 flashes and no repeated image in the menus.\n• Skip logos works again on Native.</string>
     <string name="whats_new_known_title">Known issues</string>
-    <string name="whats_new_known_text">• Ultrawide may flicker briefly on some devices: please send the log (game menu ▸ System ▸ Export logs).\n• Adreno 650 with Turnip MrPurple: GPU hang; the game goes back to the launcher and the more stable mode turns on by itself, just tap PLAY.\n• Mali-G615: some devices don\'t open the game; cause not found yet.</string>
+    <string name="whats_new_known_text">• Ultrawide: a seam at 4/5 of the width in some menus (save select, pause, MISSION FAILED).\n• DLC: only the costumes work for now. Sam\'s and Wolf\'s Side Story and the VR missions install but don\'t show up in the game yet.\n• PC mods (Nexus Mods) don\'t work yet: they need converting.\n• Adreno 650 with Turnip: rare GPU hang; the game goes back to the launcher and turns on the more stable mode by itself, just tap PLAY.</string>
     <string name="import_iso">Import .iso</string>
     <string name="import_folder">Import folder</string>
     <string name="busy_reading_disc">Reading the disc</string>
@@ -613,6 +613,7 @@
     <string name="err_dlc_not_package">Not an Xbox 360 package (pick the files from Content/0000000000000000/4B4E080A/00000002, not a .zip or folder): %1$s</string>
     <string name="dlc_title">DLC (%1$d)</string>
     <string name="dlc_installed">Installed</string>
+    <string name="dlc_damaged">Damaged package: the game couldn\'t install it. Remove it and import a good copy.</string>
     <string name="dlc_pending">Installs when the game starts</string>
     <string name="dlc_remove">Remove</string>
 </resources>

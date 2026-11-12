@@ -16,7 +16,8 @@ import java.io.RandomAccessFile
 object DlcFiles {
     const val TITLE_ID = "4B4E080A"
 
-    data class Package(val file: String, val name: String, val bytes: Long, val installed: Boolean)
+    /** [damaged]: o jogo nao conseguiu instalar o pacote (src/mgr_dlc.cpp deixa "<nome>.danificado"); o pacote saiu. */
+    data class Package(val file: String, val name: String, val bytes: Long, val installed: Boolean, val damaged: Boolean = false)
 
     val dir: File get() = File(AppPaths.appDir, "dlc")
     private val installRoot: File get() = File(AppPaths.appDir, "mgr/0000000000000000/$TITLE_ID/00000002")
@@ -26,9 +27,13 @@ object DlcFiles {
      * extrair, para um DLC de 1 GB nao ocupar 2 GB; a marca guarda o nome).
      */
     fun list(): List<Package> = (dir.listFiles() ?: emptyArray())
-        .filter { it.isFile && !it.name.endsWith(".part") }
+        .filter { it.isFile && !it.name.endsWith(".part") && !it.name.endsWith(INSTALLING) }
         .map { f ->
-            if (f.name.endsWith(MARKER)) {
+            if (f.name.endsWith(DAMAGED)) {
+                val file = f.name.removeSuffix(DAMAGED)
+                val name = runCatching { f.readText().trim() }.getOrNull().orEmpty().ifEmpty { file }
+                Package(file, name, 0, installed = false, damaged = true)
+            } else if (f.name.endsWith(MARKER)) {
                 val file = f.name.removeSuffix(MARKER)
                 val name = runCatching { f.readText().trim() }.getOrNull().orEmpty().ifEmpty { file }
                 Package(file, name, File(installRoot, file).walkBottomUp().filter { it.isFile }.sumOf { it.length() }, true)
@@ -100,6 +105,8 @@ object DlcFiles {
         val dest = File(dir, name)
         dest.delete()
         File(dir, name + MARKER).delete()  // um pacote novo com o mesmo nome volta a ser instalado
+        File(dir, name + DAMAGED).delete()
+        File(dir, name + INSTALLING).delete()
         File(installRoot, name).deleteRecursively()
         tmp.renameTo(dest)
         return Package(name, displayName(dest) ?: name, dest.length(), false)
@@ -109,9 +116,13 @@ object DlcFiles {
     fun remove(file: String) {
         File(dir, file).delete()
         File(dir, file + MARKER).delete()
+        File(dir, file + DAMAGED).delete()
+        File(dir, file + INSTALLING).delete()
         File(installRoot, file).deleteRecursively()
         File(installRoot.parentFile, "Headers/00000002/$file.header").delete()
     }
 
     private const val MARKER = ".instalado"
+    private const val DAMAGED = ".danificado"
+    private const val INSTALLING = ".a_instalar"
 }

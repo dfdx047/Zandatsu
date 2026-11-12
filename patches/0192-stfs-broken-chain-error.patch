@@ -1,0 +1,36 @@
+Zandatsu (12/11): pacote STFS danificado (tabela de hash ilegivel, ou proximo bloco fora do pacote) devolve erro
+em vez de seguir um ponteiro nulo. O DLC "Wolf's Side Story" de um RAR com 202 blocos estragados derrubava o jogo em
+todos os arranques.
+--- a/src/filesystem/devices/stfs_container_device.cpp
++++ b/src/filesystem/devices/stfs_container_device.cpp
+@@ -609,7 +609,19 @@
+           entry->block_list_.push_back({0, offset, block_size});
+           remaining_size -= block_size;
+           auto block_hash = GetBlockHash(block_index);
++          // Zandatsu (0192, 12/11): pacote danificado (tabela de hash ilegivel ou fora do ficheiro): erro em vez de
++          // seguir um ponteiro nulo (o jogo caia em todos os arranques com o DLC por instalar).
++          if (!block_hash) {
++            REXFS_ERROR("STFS: {}: cadeia de blocos partida no bloco {} (pacote danificado)", name, block_index);
++            return Error::kErrorReadError;
++          }
+           block_index = block_hash->level0_next_block();
++          if (remaining_size && block_index != kEndOfChain &&
++              block_index >= header_.metadata.volume_descriptor.stfs.total_block_count) {
++            REXFS_ERROR("STFS: {}: proximo bloco {} fora do pacote ({} blocos): pacote danificado", name,
++                        block_index, uint32_t(header_.metadata.volume_descriptor.stfs.total_block_count));
++            return Error::kErrorReadError;
++          }
+         }
+ 
+         if (remaining_size) {
+@@ -637,6 +649,10 @@
+     }
+ 
+     auto block_hash = GetBlockHash(table_block_index);
++    if (!block_hash) {  // Zandatsu (0192): tabela de ficheiros num bloco ilegivel
++      REXFS_ERROR("STFS: tabela de ficheiros partida no bloco {} (pacote danificado)", table_block_index);
++      return Error::kErrorReadError;
++    }
+     table_block_index = block_hash->level0_next_block();
+     if (table_block_index == kEndOfChain) {
+       break;

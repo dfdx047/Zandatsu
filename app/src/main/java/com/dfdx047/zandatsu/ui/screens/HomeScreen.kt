@@ -354,12 +354,20 @@ private fun GameFilesCard(vm: LauncherViewModel) {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.weight(1f)) {
                         Text(d.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
-                        Text(
-                            stringResource(if (d.installed) R.string.dlc_installed else R.string.dlc_pending) +
-                                " · " + (if (d.bytes < 1048576) "%d KB".format(d.bytes / 1024) else "%.1f MB".format(d.bytes / 1048576.0)),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                        if (d.damaged) {
+                            Text(
+                                stringResource(R.string.dlc_damaged),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        } else {
+                            Text(
+                                stringResource(if (d.installed) R.string.dlc_installed else R.string.dlc_pending) +
+                                    " · " + (if (d.bytes < 1048576) "%d KB".format((d.bytes + 1023) / 1024) else "%.1f MB".format(d.bytes / 1048576.0)),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                     IconButton(onClick = { vm.removeDlc(d.file) }, enabled = vm.busy == null) {
                         Icon(Icons.Filled.Delete, stringResource(R.string.dlc_remove))

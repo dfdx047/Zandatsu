@@ -6,12 +6,18 @@
 // jogo arrancar, cada pacote novo é instalado com o ContentManager do SDK (o "Install Content" do Xenia: monta o STFS
 // e extrai para <dados>/0000000000000000/<TitleID>/00000002/<nome>/, mais o .header com a licença do pacote). Uma
 // marca "<nome>.instalado" (com o nome do DLC) evita repetir e o pacote original é apagado (a cópia extraída chega).
+//
+// 12/11 (Odin 2 Mini): um pacote danificado (Wolf's Side Story de um RAR com 202 blocos estragados) derrubava o jogo
+// em todos os arranques. Agora: "<nome>.a_instalar" antes de instalar; se o jogo cair a meio, no arranque seguinte
+// essa marca ainda la esta e o pacote passa a "<nome>.danificado" (a launcher mostra-o) sem nova tentativa. Um erro
+// devolvido pelo SDK (patch 0192: cadeia de blocos partida) faz o mesmo logo.
 
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <string>
 #include <system_error>
+#include <vector>
 
 #include <rex/logging.h>
 #include <rex/system/kernel_state.h>
@@ -46,6 +52,18 @@ std::string PackageDisplayName(const std::filesystem::path& path) {
   return name.empty() ? path.filename().string() : name;
 }
 
+void WriteMarker(const std::filesystem::path& marker, const std::string& text) {
+  if (FILE* f = std::fopen(marker.c_str(), "w")) {
+    std::fputs(text.c_str(), f);
+    std::fclose(f);
+  }
+}
+
+std::filesystem::path WithSuffix(std::filesystem::path p, const char* suffix) {
+  p += suffix;
+  return p;
+}
+
 }  // namespace
 
 void SwordManInstallImportedDlc() {
@@ -62,36 +80,59 @@ void SwordManInstallImportedDlc() {
     REXLOG_WARN("dlc: sem ContentManager, pacotes por instalar ficam para a próxima");
     return;
   }
+  // Onde o ContentManager extrai: <app>/mgr/0000000000000000/<TitleID>/00000002/<pacote>/.
+  const std::filesystem::path extracted_root = dir.parent_path() / "mgr" / "0000000000000000" / "4B4E080A" / "00000002";
+  // Pacote que nao instala: marca "danificado" com o nome, sem o pacote nem o que ficou meio extraido.
+  auto give_up = [&](const std::filesystem::path& path, const std::string& name) {
+    WriteMarker(WithSuffix(path, ".danificado"), name);
+    std::filesystem::remove(WithSuffix(path, ".a_instalar"), ec);
+    std::filesystem::remove_all(extracted_root / path.filename(), ec);
+    std::filesystem::remove(extracted_root.parent_path() / "Headers" / "00000002" / WithSuffix(path.filename(), ".header"), ec);
+    std::filesystem::remove(path, ec);
+  };
   uint32_t installed = 0, skipped = 0, failed = 0;
+  std::vector<std::filesystem::path> packages;
   for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
     if (!entry.is_regular_file(ec)) continue;
     const auto& path = entry.path();
-    if (path.extension() == ".instalado") {  // instalado num arranque anterior (o pacote ja saiu)
+    const auto ext = path.extension();
+    if (ext == ".instalado") {  // instalado num arranque anterior (o pacote ja saiu)
       ++skipped;
       continue;
     }
-    if (path.extension() == ".part") continue;  // a launcher ainda a copiar
-    auto marker = path;
-    marker += ".instalado";
-    if (std::filesystem::exists(marker, ec)) continue;
-    if (!LooksLikeStfs(path)) {
-      REXLOG_WARN("dlc: {} não é um pacote do 360 (LIVE/PIRS/CON), ignorado", path.filename().string());
+    if (ext == ".part" || ext == ".a_instalar" || ext == ".danificado") continue;  // copia em curso / marcas
+    packages.push_back(path);
+  }
+  for (const auto& path : packages) {
+    if (std::filesystem::exists(WithSuffix(path, ".instalado"), ec)) continue;
+    const std::string name = PackageDisplayName(path);
+    if (std::filesystem::exists(WithSuffix(path, ".a_instalar"), ec)) {
+      // O arranque anterior caiu a instalar este pacote.
+      REXLOG_ERROR("dlc: {} ({}) fez o jogo fechar a instalar: marcado como danificado", path.filename().string(), name);
+      give_up(path, name);
       ++failed;
       continue;
     }
-    REXLOG_INFO("dlc: a instalar {} ({:.1f} MB)", path.filename().string(),
+    if (!LooksLikeStfs(path)) {
+      REXLOG_WARN("dlc: {} não é um pacote do 360 (LIVE/PIRS/CON), ignorado", path.filename().string());
+      give_up(path, path.filename().string());
+      ++failed;
+      continue;
+    }
+    REXLOG_INFO("dlc: a instalar {} ({}, {:.1f} MB)", path.filename().string(), name,
                 double(std::filesystem::file_size(path, ec)) / (1024.0 * 1024.0));
+    WriteMarker(WithSuffix(path, ".a_instalar"), name);
     const auto result = content->InstallContent(path);
     if (result != 0) {
-      REXLOG_ERROR("dlc: {} falhou (X_RESULT {:08X})", path.filename().string(), uint32_t(result));
+      REXLOG_ERROR("dlc: {} ({}) falhou (X_RESULT {:08X}): marcado como danificado", path.filename().string(), name,
+                   uint32_t(result));
+      give_up(path, name);
       ++failed;
       continue;
     }
     // A marca guarda o nome do DLC (a launcher mostra-o); o pacote sai, o jogo le o que foi extraido.
-    if (FILE* f = std::fopen(marker.c_str(), "w")) {
-      std::fputs(PackageDisplayName(path).c_str(), f);
-      std::fclose(f);
-    }
+    WriteMarker(WithSuffix(path, ".instalado"), name);
+    std::filesystem::remove(WithSuffix(path, ".a_instalar"), ec);
     std::filesystem::remove(path, ec);
     ++installed;
   }
