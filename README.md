@@ -6,13 +6,34 @@
   </picture>
 </p>
 
-<h1 align="center">Zandatsu v1.2.2</h1>
-
 <p align="center">
   <b>Metal Gear Rising: Revengeance</b> (Xbox 360) no Android · on Android · en Android
 </p>
 
-[Português (Brasil)](#português-brasil) · [English](#english) · [Español](#español)
+<p align="center">
+  <a href="https://github.com/dfdx047/Zandatsu/releases/latest"><img alt="Versão" src="https://img.shields.io/github/v/release/dfdx047/Zandatsu?style=for-the-badge&label=vers%C3%A3o&color=e5242b"></a>
+  <img alt="Android 11+" src="https://img.shields.io/badge/Android-11%2B-3DDC84?style=for-the-badge&logo=android&logoColor=white">
+  <img alt="ARM64" src="https://img.shields.io/badge/ARM64-ARMv8.0%2B-0091BD?style=for-the-badge&logo=arm&logoColor=white">
+  <img alt="Vulkan 1.3" src="https://img.shields.io/badge/Vulkan-1.3-AC162C?style=for-the-badge&logo=vulkan&logoColor=white">
+  <a href="LICENSE"><img alt="GPL-3.0" src="https://img.shields.io/badge/licen%C3%A7a-GPL--3.0-blue?style=for-the-badge"></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/dfdx047/Zandatsu/releases/latest"><img alt="Baixar APK · Download APK" src="https://img.shields.io/badge/Baixar%20APK%20%C2%B7%20Download-e5242b?style=for-the-badge&logo=android&logoColor=white" height="40"></a>
+  <a href="https://ko-fi.com/dfdx047"><img alt="Ko-fi" src="https://img.shields.io/badge/Ko--fi-apoiar%20%C2%B7%20support-13A8D8?style=for-the-badge&logo=kofi&logoColor=white" height="40"></a>
+  <a href="https://discord.gg/nXSANX9V6k"><img alt="Discord" src="https://img.shields.io/badge/Discord-comunidade-5865F2?style=for-the-badge&logo=discord&logoColor=white" height="40"></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/dfdx047/Zandatsu/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/dfdx047/Zandatsu/total?style=flat-square&label=downloads&color=e5242b"></a>
+  <a href="https://github.com/dfdx047/Zandatsu/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/dfdx047/Zandatsu?style=flat-square&color=f5c518"></a>
+  <a href="docs/CHANGELOG.md"><img alt="Changelog" src="https://img.shields.io/badge/changelog-novidades-555?style=flat-square"></a>
+  <a href="docs/KNOWN_ISSUES.md"><img alt="Known issues" src="https://img.shields.io/badge/problemas-conhecidos-555?style=flat-square"></a>
+</p>
+
+<p align="center">
+  <a href="#português-brasil">Português (Brasil)</a> · <a href="#english">English</a> · <a href="#español">Español</a>
+</p>
 
 > Nenhum arquivo do jogo está incluído. Projeto de fã, sem ligação com a Konami, a PlatinumGames ou a Microsoft.
 > No game files are included. Fan project, not affiliated with Konami, PlatinumGames or Microsoft.
@@ -20,156 +41,122 @@
 
 ## Imagens · Screenshots · Capturas
 
-### Novo na v1.2 · New in v1.2 · Nuevo en la v1.2
-
-| | |
-|---|---|
-| ![Blade Mode por toque](docs/assets/v1.2/blade-toque.jpg) | ![Tamanho dos botões](docs/assets/v1.2/tamanho-botoes.jpg) |
-| Blade Mode por toque · Touch Blade Mode · Blade Mode táctil | Tamanho de todos os botões: 60%, 100% e 150% · Size of all buttons · Tamaño de todos los botones |
-| ![Teste e mapeamento do controle](docs/assets/v1.2/mapeador.jpg) | ![Save manager](docs/assets/v1.2/saves.jpg) |
-| Controle externo: teste ao vivo e mapeamento · External controller: live test and mapping · Mando externo: prueba en vivo y mapeo | Saves: exportar, listar e restaurar · Saves: export, list and restore · Partidas: exportar, listar y restaurar |
-| ![Opções dos controles](docs/assets/v1.2/controles-opcoes.jpg) | |
-| Opções da aba Controles: tamanho dos botões, Blade Mode (Alterna ou Segurar) · Controls tab options: button size, Blade Mode (Toggle or Hold) · Opciones de la pestaña Controles: tamaño de los botones, Blade Mode (Alternar o Mantener) | |
-
-### Da v1.1 · From v1.1 · De la v1.1
-
-| | |
-|---|---|
-| ![Controle na tela, visual Sci-fi](docs/assets/v1.1/controles-scifi-luta.jpg) | ![Aba Controles do menu do jogo](docs/assets/v1.1/controles-menu-scifi.jpg) |
-| Controle na tela novo, visual Sci-fi · New touch controls, Sci-fi style · Controles táctiles nuevos, estilo Sci-fi | Aba Controles: modo, direcional, visual · Controls tab · Pestaña Controles |
-| ![Widescreen numa tela 20:9](docs/assets/v1.1/widescreen-20x9.jpg) | ![Original 16:9 numa tela 20:9](docs/assets/v1.1/original-16x9-em-20x9.jpg) |
-| Widescreen numa tela 20:9 (hor+) · Widescreen on a 20:9 screen · Panorámica en pantalla 20:9 | Original 16:9 na mesma tela, com barras · Original 16:9, with bars · Original 16:9, con barras |
-| ![Primeiro arranque](docs/assets/v1.1/primeiro-arranque.jpg) | ![Aba Desempenho](docs/assets/v1.1/desempenho.jpg) |
-| Primeiro arranque: GPU detectada e perfil sugerido · First launch · Primer arranque | Aba Desempenho: renderizador e perfis · Performance tab · Pestaña Rendimiento |
-| ![Medidor de FPS](docs/assets/v1.1/medidor-fps.jpg) | ![Aba Drivers](docs/assets/v1.1/drivers.jpg) |
-| Medidor de FPS completo (RP5, Renut 720p) · FPS meter · Medidor de FPS | Aba Drivers: o que o driver ativo suporta · Drivers tab · Pestaña Drivers |
+<table>
+  <tr>
+    <td width="50%"><img src="docs/assets/screens/luta.jpg" alt="Luta no Nativo"></td>
+    <td width="50%"><img src="docs/assets/screens/luta-ceu.jpg" alt="Luta no Nativo, controle na tela"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Luta no renderizador nativo · Combat on the native renderer · Combate en el renderizador nativo</sub></td>
+    <td align="center"><sub>Controle na tela · Touch controls · Controles táctiles</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/assets/screens/titulo.jpg" alt="Tela de título"></td>
+    <td><img src="docs/assets/screens/menu-jogo.jpg" alt="Menu do jogo"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Tela de título com medidor de FPS · Title screen with FPS meter · Pantalla de título con medidor de FPS</sub></td>
+    <td align="center"><sub>Menu do jogo, com o jogo pausado · In-game menu · Menú del juego</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/assets/screens/inicio.jpg" alt="Launcher, Início"></td>
+    <td><img src="docs/assets/screens/graficos.jpg" alt="Launcher, Gráficos"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Launcher: Início · Home · Inicio</sub></td>
+    <td align="center"><sub>Predefinições gráficas · Graphics presets · Perfiles gráficos</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/assets/screens/controles.jpg" alt="Launcher, Controles"></td>
+    <td><img src="docs/assets/screens/menu-jogo-claro.jpg" alt="Menu do jogo, tema Material You"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Controles · Controls · Controles</sub></td>
+    <td align="center"><sub>Tema Material You · Material You theme · Tema Material You</sub></td>
+  </tr>
+</table>
 
 ---
 
 ## Português (Brasil)
 
 ### O que é
+
 O Zandatsu é um port de Metal Gear Rising: Revengeance para Android, por recompilação estática do executável do Xbox
 360 ([ReXGlue SDK](https://github.com/rexglue/rexglue-sdk)). Não é um emulador do console inteiro: o código do jogo
 corre nativo em ARM64. Tem dois renderizadores:
 
-- **Nativo (Renut):** o Direct3D do jogo traduzido para Vulkan (do [mgr-nx-deko](https://github.com/tuancapoo/mgr-nx-deko)). Mais
-  rápido e mais nítido. Adreno 650 com o driver Turnip; Adreno 730 e mais novas com o driver do sistema ou o Turnip;
-  Mali G57 e mais novas com o driver do sistema.
+- **Nativo (Renut):** o Direct3D do jogo traduzido para Vulkan (do [mgr-nx-deko](https://github.com/tuancapoo/mgr-nx-deko)).
+  Mais rápido e mais nítido. Adreno 650 com o driver Turnip; Adreno 730 e mais novas com o driver do sistema ou o
+  Turnip; Mali G57 e mais novas com o driver do sistema.
 - **Emulado (Xenia):** a GPU do Xbox 360 emulada. Corre em mais aparelhos, mais lento.
 
 O APK não traz o jogo: o código do jogo vai encriptado e só abre com o `default.xex` do seu próprio disco.
 
+### O que tem
+
+- **Launcher** com 5 abas (Início, Gráficos, Controles, Drivers, Mais), tema escuro, claro ou Material You.
+- **Predefinições gráficas** de Mínimo a Ultra, sugeridas pela GPU no primeiro arranque, e ajuste à mão: resolução de
+  360p a 4K, AMD FSR 1 ou CAS, sombras, brilho, anisotrópico, 30/60 fps ou 120 interpolado.
+- **Proporção:** 16:9 original, Esticar ou Ultrawide (segue a proporção da sua tela).
+- **Menu do jogo** num painel lateral, com o jogo pausado, por toque ou controle.
+- **Controle na tela** com Blade Mode por deslize, perfis de layout e tamanho dos botões; **controle físico** com teste
+  ao vivo e mapeamento por controle.
+- **Drivers:** baixa e ativa o Turnip na própria app; PanVK como opção na Mali. O driver nunca é trocado sozinho.
+- **DLC do Xbox 360** (trajes), **saves** com exportar e restaurar, **medidor de FPS** e **teste de GPU** para mandar
+  num relato.
+
+O que mudou em cada versão: [CHANGELOG](docs/CHANGELOG.md) e [releases](https://github.com/dfdx047/Zandatsu/releases).
+
 ### Requisitos
+
 - A sua ISO de **Metal Gear Rising: Revengeance (USA, Europe)** do Xbox 360 (Title ID `4B4E080A`).
-- Android 11 ou mais novo, ARM64 (ARMv8.0 ou mais nova; nas CPUs ARMv8.0, como o Snapdragon 665, use o perfil Mínimo), Vulkan 1.3.
+- Android 11 ou mais novo, ARM64 (ARMv8.0 ou mais nova; nas CPUs ARMv8.0, como o Snapdragon 665, use o perfil
+  Mínimo), Vulkan 1.3.
 - Recomendado: Adreno 6xx com o driver **Turnip** (o app baixa e ativa na aba Drivers), Adreno 730 ou mais nova, ou
   Mali G57 e mais novas.
 - ~8 GB livres para a ISO.
 
 ### Instalar e importar a ISO
-1. Baixe `Zandatsu-v1.2.2.apk` da página de releases e instale. Quem tem a v1.2, a v1.1 ou a v1.0 instala por cima e mantém saves,
-   jogo e ajustes.
-2. Abra o app: ele detecta a GPU e sugere um perfil gráfico (Mínimo a Ultra, cada um com o aparelho-alvo e o fps
-   medido). Toque em **Aceitar** ou em **Escolher eu mesmo**; nada é aplicado antes disso.
-3. Em **Início ▸ Arquivos do jogo**, toque em **Importar .iso** e escolha a ISO. O app confere o `default.xex` e lê
-   a ISO no lugar, sem extrair (menos de 1 s). Não apague nem mova a ISO depois.
+
+1. Baixe o APK mais recente na página de [releases](https://github.com/dfdx047/Zandatsu/releases/latest) e instale.
+   Quem já tem uma versão anterior instala por cima e mantém saves, jogo e ajustes.
+2. Abra o app: ele detecta a GPU e sugere um perfil gráfico. Toque em **Aceitar** ou em **Escolher eu mesmo**; nada é
+   aplicado antes disso.
+3. Em **Início ▸ Arquivos do jogo**, toque em **Importar .iso** e escolha a ISO. O app confere o `default.xex` e lê a
+   ISO no lugar, sem extrair. Não apague nem mova a ISO depois.
 4. Se o app pedir um driver (Adreno 650 com o driver do sistema, por exemplo), baixe o Turnip indicado na aba
-   **Drivers** e ative-o. O driver nunca é trocado sozinho.
+   **Drivers** e ative-o.
 5. Toque em **JOGAR**.
 
-### Novidades da v1.2.2
-- **CPUs ARMv8.0** (Snapdragon 625 a 665 e 835, Helio P60/P70): o jogo abre. Um APK só, que escolhe a versão da sua CPU.
-- **Teste de GPU** (Sistema ▸ Diagnóstico): se o jogo tem problema no seu aparelho, rode e mande o zip.
-- Correções para Mali-G615, G710/G720/G925 e PowerVR, e menos travadas no Emulado (#41). Lista completa no CHANGELOG.
+### Perfis e aparelhos testados
 
-### Novidades da v1.2
-Tudo o que mudou: [docs/CHANGELOG.md](docs/CHANGELOG.md).
+| Perfil | Aparelho-alvo | Renut | Meta |
+|---|---|---|---|
+| Mínimo | Snapdragon 480+ (Adreno 619) | 540p FSR, sem sombras nem brilho | 30 fps |
+| Baixo | RG Cube (Mali-G57) | 540p FSR, sombras e brilho | 40 fps |
+| Médio | Retroid Pocket 5 (Adreno 650) | 720p (console), sombras e brilho | 60 fps |
+| Alto | AYN Thor / Odin 2 | 1080p, sombras e brilho | 60 fps |
+| Ultra | AYN Odin 3 (Adreno 830) | 2K FSR, anisotrópico 16x | 60 fps |
 
-- **Controle na tela:** a troca entre menu e luta segue o modo do jogo e não fica mais trocando sozinha (#15). Há uma
-  opção para desligá-la.
-- **Blade Mode por toque:** um toque em LT entra e outro sai, e deslizar o dedo no lado direito da tela corta, com a
-  direção do deslize como ângulo. "Segurar LT" continua como opção. O corte com o analógico ao mesmo tempo ainda precisa de mais teste.
-- **Perfis de layout e tamanho de todos os botões**, de 50% a 160%.
-- **Saves (Sistema ▸ Saves):** exportar em zip para uma pasta que você escolhe, listar, restaurar com confirmação e backup
-  automático antes de restaurar.
-- **Controle externo (Controles ▸ Testar e mapear controle):** teste ao vivo, mapeamento automático e remapeamento,
-  salvos por controle (#12).
-- **Vibração presa corrigida** (#8, #28).
-- **Crash ao cortar o Sundowner** (#16, #18, #31): causa corrigida, ainda não testada nessa luta.
-- **Mali-G57 MC2** (#16, #20, #25): o modo automático passa ao Emulado quando o nativo perde o dispositivo.
-- **Modo mais estável:** depois do primeiro hang da GPU em Adreno 6xx com Turnip, o app liga um modo que evita esse hang.
-- **Desempenho:** threads do jogo não ficam mais presas num só núcleo. Ganho pequeno: de 2 a 4 fps nas lutas medidas.
-- **Ainda sem teste nos aparelhos afetados:** imagem cortada em Mali-G710/G720 (#13, #23) e fechamento com o driver do
-  sistema em Snapdragon recentes.
-
-### Novidades da v1.1
-- **Renderizador nativo (Renut):** no Retroid Pocket 5 (Adreno 650) a 720p, perto de 60 fps na luta, com a GPU em
-  8–11 ms por frame (no Xenia, 45,9 fps). Agora também na Mali: no RG Cube, perfil Baixo, 51–56 fps parado na luta,
-  ~40 de média e até 50 jogando. Nos Adreno 730 e mais novos roda com o driver do sistema.
-- **Som corrigido:** os sons dos inimigos e os golpes dos combos que sumiam nas lutas voltam a tocar (#3, #5, #8, #9,
-  #11).
-- **Recuperação quando a GPU reinicia:** se a GPU travar (hang, `DEVICE_LOST` ou queda do driver), o jogo para de
-  desenhar e volta ao launcher com o aviso "A GPU reiniciou" e o botão JOGAR, em vez de fechar com erro.
-- **Primeiro arranque:** "Detectamos a sua GPU", com o perfil sugerido pela tabela de aparelhos testados ou pela
-  família da GPU. Nada é aplicado sem você aceitar.
-- **Avisos de driver pelo que o driver suporta:** o aviso vem do que o driver ativo roda, não de "ser Adreno". Adreno
-  650 com o driver do sistema: pede o Turnip MrPurple T19. Adreno 730 ou mais nova: o driver do sistema e o Turnip
-  funcionam, sem aviso. Adreno 710/720 com o driver do sistema (#9): cai para o modo Xenia em vez de fechar.
-- **Widescreen e proporção:** Original (16:9 com barras), Esticar ou Widescreen (experimental, só Renut: o jogo
-  desenha na proporção da tela, hor+; logos e vídeos ficam 16:9).
-- **FPS 30 / 60 e 120 interpolado:** limite de 30 ou 60 nos dois renderizadores; 120 interpolado (experimental) no
-  Renut, só em telas de 120 Hz, liberado em qualquer resolução com aviso de aquecimento a partir de 2K.
-- **Medidor de FPS** com rótulos (Jogo, Tela, ms, GPU, CPU, 1% low), em três níveis.
-- **Controle na tela novo:** as ações do próprio jogo (Blade Mode, Ninja Run, trocar alvo, subarma), troca sozinho
-  entre o layout de menu e o de luta, visual Sci-fi novo e editor de posição e tamanho.
-- **Importação da ISO:** lida no lugar, sem extrair; corrigido o falso erro de tamanho dos CPK (#5).
-- Corrigidos também: rotação em retrato (#1) e aviso de atualização em loop (#1).
-
-### Perfis e metas de desempenho
-Cada perfil tem um aparelho-alvo e só leva uma opção se ela não derrubar o fps do alvo abaixo da meta. fps de jogo na
-luta do prólogo.
-
-| Perfil | Aparelho-alvo | Renut | Meta | Medido |
+| Aparelho | GPU | Driver | Modo | Resultado |
 |---|---|---|---|---|
-| Mínimo | Snapdragon 480+ (Adreno 619) | 540p FSR, sem sombras nem brilho | 30 fps | acima de 30, até 50 (aparelho real, testado pelo autor) |
-| Baixo | RG Cube (Mali-G57) | 540p FSR, sombras e brilho | 40 fps | 51–56 parado; ~40 de média, até 50 jogando |
-| Médio | Retroid Pocket 5 (Adreno 650) | 720p (console), sombras e brilho | 60 fps | ~60 (GPU 8–11 ms) |
-| Alto | Retroid Pocket 5 1080p / AYN Thor | 1080p, sombras e brilho | 60 no Thor | Thor 60; RP5 56 |
-| Ultra | AYN Odin 3 (Adreno 830) | 2K FSR, anisotrópico 16x | 60 fps | 60 |
-
-Tudo também se ajusta à mão (Personalizado): resolução de 360p a 4K (1080p, 2K e 4K experimentais), filtro final
-bilinear, AMD FSR 1 ou AMD CAS, sombras, brilho, anisotrópico, proporção e FPS. No Xenia: 360p a 4K, FSR, FXAA, 30/60
-ou 120 interpolado. Também no menu do jogo (botão Voltar), com o jogo a correr.
-
-### Aparelhos testados
-
-| Aparelho | GPU | Driver recomendado | Modo | Resultado |
-|---|---|---|---|---|
-| Retroid Pocket 5 | Adreno 650 (SD865) | Turnip MrPurple T19 | Renut 720p, Médio | ~60 fps, GPU 8–11 ms (Xenia: 45,9 fps) |
-| Retroid Pocket 5 | Adreno 650 (SD865) | Turnip MrPurple T19 | Renut 1080p\*, Alto | 56 fps |
+| Retroid Pocket 5 | Adreno 650 | Turnip MrPurple | Renut 720p, Médio | ~60 fps |
+| AYN Odin 2 Mini | Adreno 740 | do sistema ou Turnip | Renut 1080p, Alto | 59–60 fps |
 | AYN Thor | Adreno 740 | do sistema ou Turnip | Renut 1080p FSR | 60 fps |
-| AYN Odin 3 | Adreno 830 (8 Elite) | do sistema ou Turnip Gen8 V38 | Renut 2K FSR, Ultra | 60 fps |
-| Honor (Snapdragon 8 Elite) | Adreno 830 | do sistema ou Turnip Gen8 V38 | Renut 1080p, 120 interpolado | 117 fps na tela (58 sem o 120) |
-| RG Cube | Mali-G57 (T770) | do sistema | Renut 540p FSR, Baixo | 51–56 fps parado; ~40 de média, até 50 jogando |
-| Aparelho Snapdragon 480+ | Adreno 619 | Turnip (Mesa) | Renut 540p FSR, Mínimo | acima de 30, até 50 fps |
+| AYN Odin 3 | Adreno 830 | do sistema ou Turnip | Renut 2K FSR, Ultra | 60 fps |
+| POCO X6 Pro | Mali-G615 MC6 | do sistema | Renut 720p | 59 fps |
+| RG Cube | Mali-G57 | do sistema | Renut 540p FSR, Baixo | ~40 fps de média, até 50 |
 
-\* experimental.
-
-### Problemas conhecidos
-- Mali-G615 (#22, #29): em alguns aparelhos o jogo fecha ao carregar o som. Causa não encontrada.
-- Mali-G57 MC2: só o modo Emulado no automático (o nativo perde o dispositivo).
-- Widescreen pode dar pequenas piscadas em alguns aparelhos: mande o log (como em
-  [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md)).
-- Adreno 650 com o Turnip MrPurple: hang raro da GPU; o jogo volta ao launcher com aviso em vez de fechar.
-
-Lista completa: [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md).
+Problemas conhecidos: [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md). Se o jogo tem problema no seu aparelho, rode
+**Mais ▸ Sistema ▸ Teste de GPU** e mande o zip numa [issue](https://github.com/dfdx047/Zandatsu/issues).
 
 ---
 
 ## English
 
 ### What it is
+
 Zandatsu is a port of Metal Gear Rising: Revengeance to Android, made by statically recompiling the Xbox 360
 executable ([ReXGlue SDK](https://github.com/rexglue/rexglue-sdk)). It is not a whole-console emulator: the game code
 runs natively on ARM64. There are two renderers:
@@ -182,116 +169,70 @@ runs natively on ARM64. There are two renderers:
 The APK does not contain the game: the game code ships encrypted and only opens with the `default.xex` from your own
 disc.
 
+### What's in it
+
+- **Launcher** with 5 tabs (Home, Graphics, Controls, Drivers, More), dark, light or Material You theme.
+- **Graphics presets** from Minimum to Ultra, suggested from your GPU on first launch, plus manual settings: 360p to
+  4K, AMD FSR 1 or CAS, shadows, bloom, anisotropic, 30/60 fps or 120 interpolated.
+- **Aspect ratio:** original 16:9, Stretch or Ultrawide (follows your screen's ratio).
+- **In-game menu** in a side panel, with the game paused, by touch or controller.
+- **Touch controls** with swipe Blade Mode, layout profiles and button size; **physical controllers** with a live test
+  and per-controller mapping.
+- **Drivers:** downloads and enables Turnip in the app; PanVK as an option on Mali. The driver is never changed for you.
+- **Xbox 360 DLC** (costumes), **saves** with export and restore, an **FPS meter** and a **GPU test** to attach to a
+  report.
+
+What changed in each version: [CHANGELOG](docs/CHANGELOG.md) and [releases](https://github.com/dfdx047/Zandatsu/releases).
+
 ### Requirements
+
 - Your own Xbox 360 ISO of **Metal Gear Rising: Revengeance (USA, Europe)** (Title ID `4B4E080A`).
-- Android 11 or newer, ARM64 (ARMv8.0 or newer; on ARMv8.0 CPUs such as the Snapdragon 665, use the Minimum profile), Vulkan 1.3.
+- Android 11 or newer, ARM64 (ARMv8.0 or newer; on ARMv8.0 CPUs such as the Snapdragon 665, use the Minimum profile),
+  Vulkan 1.3.
 - Recommended: Adreno 6xx with the **Turnip** driver (the app downloads and enables it in the Drivers tab), Adreno 730
   or newer, or Mali G57 and newer.
 - ~8 GB free for the ISO.
 
 ### Install and import the ISO
-1. Download `Zandatsu-v1.2.2.apk` from the releases page and install it. If you have v1.2, v1.1 or v1.0, install over it: your
-   saves, game and settings stay.
-2. Open the app: it detects your GPU and suggests a graphics profile (Minimum to Ultra, each with its target device
-   and measured fps). Tap **Accept** or **Choose myself**; nothing is applied before that.
+
+1. Download the latest APK from the [releases](https://github.com/dfdx047/Zandatsu/releases/latest) page and install
+   it. If you have an older version, install over it: your saves, game and settings stay.
+2. Open the app: it detects your GPU and suggests a graphics profile. Tap **Accept** or **Choose myself**; nothing is
+   applied before that.
 3. In **Home ▸ Game files**, tap **Import .iso** and pick the ISO. The app checks the `default.xex` and reads the ISO
-   in place, without extracting (under 1 s). Don't delete or move the ISO afterwards.
+   in place, without extracting. Don't delete or move the ISO afterwards.
 4. If the app asks for a driver (Adreno 650 on the system driver, for example), download the Turnip build it names in
-   the **Drivers** tab and enable it. The driver is never changed for you.
+   the **Drivers** tab and enable it.
 5. Tap **PLAY**.
 
-### What's new in v1.2.2
-- **ARMv8.0 CPUs** (Snapdragon 625 to 665 and 835, Helio P60/P70): the game starts. One APK that picks the build for your CPU.
-- **GPU test** (System ▸ Diagnostics): if the game has problems on your device, run it and send the zip.
-- Fixes for Mali-G615, G710/G720/G925 and PowerVR, and fewer stalls on Emulated (#41). Full list in the CHANGELOG.
+### Profiles and tested devices
 
-### What's new in v1.2
-Everything that changed: [docs/CHANGELOG.md](docs/CHANGELOG.md).
+| Profile | Target device | Renut | Goal |
+|---|---|---|---|
+| Minimum | Snapdragon 480+ (Adreno 619) | 540p FSR, no shadows or bloom | 30 fps |
+| Low | RG Cube (Mali-G57) | 540p FSR, shadows and bloom | 40 fps |
+| Medium | Retroid Pocket 5 (Adreno 650) | 720p (console), shadows and bloom | 60 fps |
+| High | AYN Thor / Odin 2 | 1080p, shadows and bloom | 60 fps |
+| Ultra | AYN Odin 3 (Adreno 830) | 2K FSR, 16x anisotropic | 60 fps |
 
-- **Touch controls:** switching between menu and fight follows the game's mode and no longer flips on its own (#15). You
-  can turn it off.
-- **Touch Blade Mode:** one tap on LT enters and another leaves, and swiping on the right side of the screen cuts, with
-  the swipe direction as the angle. Holding LT is still an option. Cutting while using the stick still needs more testing.
-- **Layout profiles and a size for all buttons**, from 50% to 160%.
-- **Saves (System ▸ Saves):** export to a zip in a folder you choose, list, restore with confirmation and an automatic
-  backup before restoring.
-- **External controllers (Controls ▸ Test and map controller):** live test, automatic mapping and remapping, saved per
-  controller (#12).
-- **Stuck vibration fixed** (#8, #28).
-- **Crash when cutting Sundowner** (#16, #18, #31): cause fixed, not tested in that fight yet.
-- **Mali-G57 MC2** (#16, #20, #25): automatic mode moves to Emulated when Native loses the device.
-- **More stable mode:** after the first GPU hang on Adreno 6xx with Turnip, the app turns on a mode that avoids this hang.
-- **Performance:** game threads no longer stay stuck on one core. A small gain: 2 to 4 fps in the measured fights.
-- **Not tested yet on the affected devices:** the cut-off picture on Mali-G710/G720 (#13, #23) and closing on the system
-  driver on recent Snapdragons.
-
-### What's new in v1.1
-- **Native renderer (Renut):** on the Retroid Pocket 5 (Adreno 650) at 720p, close to 60 fps in combat, with the GPU
-  at 8–11 ms a frame (45.9 fps on Xenia). Now on Mali too: on the RG Cube, Low profile, 51–56 fps standing still in a
-  fight, ~40 on average and up to 50 while playing. On Adreno 730 and newer it runs on the system driver.
-- **Sound fixed:** enemy sounds and combo hits that went missing in fights play again (#3, #5, #8, #9, #11).
-- **Recovery when the GPU restarts:** if the GPU hangs (hang, `DEVICE_LOST` or a driver crash), the game stops drawing
-  and goes back to the launcher with "The GPU restarted" and a PLAY button, instead of closing with an error.
-- **First launch:** "We detected your GPU", with the profile suggested from the tested-device table or the GPU family.
-  Nothing is applied until you accept.
-- **Driver warnings from what the driver supports:** the warning comes from what the active driver runs, not from
-  "being Adreno". Adreno 650 on the system driver: asks for Turnip MrPurple T19. Adreno 730 and newer: the system
-  driver and Turnip both work, no warning. Adreno 710/720 on the system driver (#9): falls back to Xenia mode instead of
-  closing.
-- **Widescreen and aspect ratio:** Original (16:9 with bars), Stretch or Widescreen (experimental, Renut only: the
-  game renders at the screen's shape, hor+; logos and movies stay 16:9).
-- **FPS 30 / 60 and 120 interpolated:** a 30 or 60 limit in both renderers; 120 interpolated (experimental) in Renut,
-  only on 120 Hz screens, allowed at any resolution with a heat warning from 2K.
-- **FPS meter** with labels (Game, Screen, ms, GPU, CPU, 1% low), in three levels.
-- **New touch controls:** the game's own actions (Blade Mode, Ninja Run, switch target, sub-weapon), switches on its
-  own between the menu and fight layouts, new Sci-fi style and a position/size editor.
-- **ISO import:** read in place, no extracting; fixed the false CPK size error (#5).
-- Also fixed: portrait rotation (#1) and the update prompt loop (#1).
-
-### Profiles and performance targets
-Each profile has a target device and only gets an option if it doesn't drop the target's fps below the goal. Game fps
-in the prologue fight.
-
-| Profile | Target device | Renut | Goal | Measured |
+| Device | GPU | Driver | Mode | Result |
 |---|---|---|---|---|
-| Minimum | Snapdragon 480+ (Adreno 619) | 540p FSR, no shadows or bloom | 30 fps | above 30, up to 50 (real device, tested by the author) |
-| Low | RG Cube (Mali-G57) | 540p FSR, shadows and bloom | 40 fps | 51–56 standing still; ~40 average, up to 50 playing |
-| Medium | Retroid Pocket 5 (Adreno 650) | 720p (console), shadows and bloom | 60 fps | ~60 (GPU 8–11 ms) |
-| High | Retroid Pocket 5 1080p / AYN Thor | 1080p, shadows and bloom | 60 on the Thor | Thor 60; RP5 56 |
-| Ultra | AYN Odin 3 (Adreno 830) | 2K FSR, 16x anisotropic | 60 fps | 60 |
-
-Everything can also be set by hand (Custom): resolution from 360p to 4K (1080p, 2K and 4K experimental), final filter
-bilinear, AMD FSR 1 or AMD CAS, shadows, bloom, anisotropic, aspect ratio and FPS. On Xenia: 360p to 4K, FSR, FXAA,
-30/60 or 120 interpolated. Also in the in-game menu (Back button), while the game runs.
-
-### Tested devices
-
-| Device | GPU | Recommended driver | Mode | Result |
-|---|---|---|---|---|
-| Retroid Pocket 5 | Adreno 650 (SD865) | Turnip MrPurple T19 | Renut 720p, Medium | ~60 fps, GPU 8–11 ms (Xenia: 45.9 fps) |
-| Retroid Pocket 5 | Adreno 650 (SD865) | Turnip MrPurple T19 | Renut 1080p\*, High | 56 fps |
+| Retroid Pocket 5 | Adreno 650 | Turnip MrPurple | Renut 720p, Medium | ~60 fps |
+| AYN Odin 2 Mini | Adreno 740 | system or Turnip | Renut 1080p, High | 59–60 fps |
 | AYN Thor | Adreno 740 | system or Turnip | Renut 1080p FSR | 60 fps |
-| AYN Odin 3 | Adreno 830 (8 Elite) | system or Turnip Gen8 V38 | Renut 2K FSR, Ultra | 60 fps |
-| Honor (Snapdragon 8 Elite) | Adreno 830 | system or Turnip Gen8 V38 | Renut 1080p, 120 interpolated | 117 fps on screen (58 without 120) |
-| RG Cube | Mali-G57 (T770) | system | Renut 540p FSR, Low | 51–56 fps standing still; ~40 average, up to 50 playing |
-| Snapdragon 480+ device | Adreno 619 | Turnip (Mesa) | Renut 540p FSR, Minimum | above 30, up to 50 fps |
+| AYN Odin 3 | Adreno 830 | system or Turnip | Renut 2K FSR, Ultra | 60 fps |
+| POCO X6 Pro | Mali-G615 MC6 | system | Renut 720p | 59 fps |
+| RG Cube | Mali-G57 | system | Renut 540p FSR, Low | ~40 fps average, up to 50 |
 
-\* experimental.
-
-### Known issues
-- Mali-G615 (#22, #29): on some devices the game closes while loading sound. Cause not found.
-- Mali-G57 MC2: Emulated mode only on automatic (Native loses the device).
-- Widescreen may flicker briefly on some devices: please send the log (see
-  [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md)).
-- Adreno 650 with Turnip MrPurple: rare GPU hang; the game goes back to the launcher with a message instead of closing.
-
-Full list: [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md).
+Known issues: [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md). If the game has problems on your device, run
+**More ▸ System ▸ GPU test** and attach the zip to an [issue](https://github.com/dfdx047/Zandatsu/issues).
 
 ---
 
 ## Español
 
 ### Qué es
+
 Zandatsu es un port de Metal Gear Rising: Revengeance para Android, hecho por recompilación estática del ejecutable
 de Xbox 360 ([ReXGlue SDK](https://github.com/rexglue/rexglue-sdk)). No es un emulador de toda la consola: el código
 del juego corre nativo en ARM64. Tiene dos renderizadores:
@@ -303,113 +244,63 @@ del juego corre nativo en ARM64. Tiene dos renderizadores:
 
 El APK no trae el juego: el código del juego va cifrado y solo se abre con el `default.xex` de tu propio disco.
 
+### Qué incluye
+
+- **Launcher** con 5 pestañas (Inicio, Gráficos, Controles, Drivers, Más), tema oscuro, claro o Material You.
+- **Perfiles gráficos** de Mínimo a Ultra, sugeridos por la GPU en el primer arranque, y ajuste manual: de 360p a 4K,
+  AMD FSR 1 o CAS, sombras, brillo, anisotrópico, 30/60 fps o 120 interpolado.
+- **Proporción:** 16:9 original, Estirar o Ultrawide (sigue la proporción de tu pantalla).
+- **Menú del juego** en un panel lateral, con el juego en pausa, con toque o mando.
+- **Controles táctiles** con Blade Mode deslizando, perfiles de diseño y tamaño de botones; **mando físico** con prueba
+  en vivo y mapeo por mando.
+- **Drivers:** descarga y activa Turnip en la app; PanVK como opción en Mali. El driver nunca se cambia solo.
+- **DLC de Xbox 360** (trajes), **partidas** con exportar y restaurar, **medidor de FPS** y **prueba de GPU** para
+  adjuntar a un reporte.
+
+Lo que cambió en cada versión: [CHANGELOG](docs/CHANGELOG.md) y [releases](https://github.com/dfdx047/Zandatsu/releases).
+
 ### Requisitos
+
 - Tu propia ISO de Xbox 360 de **Metal Gear Rising: Revengeance (USA, Europe)** (Title ID `4B4E080A`).
-- Android 11 o más reciente, ARM64 (ARMv8.0 o más nueva; en CPUs ARMv8.0, como el Snapdragon 665, usa el perfil Mínimo), Vulkan 1.3.
+- Android 11 o más reciente, ARM64 (ARMv8.0 o más nueva; en CPUs ARMv8.0, como el Snapdragon 665, usa el perfil
+  Mínimo), Vulkan 1.3.
 - Recomendado: Adreno 6xx con el driver **Turnip** (la app lo descarga y lo activa en la pestaña Drivers), Adreno 730
   o más nueva, o Mali G57 y más nuevas.
 - ~8 GB libres para la ISO.
 
 ### Instalar e importar la ISO
-1. Descarga `Zandatsu-v1.2.2.apk` de la página de releases e instálalo. Si tienes la v1.2, la v1.1 o la v1.0, instala encima: tus
-   partidas, el juego y los ajustes se mantienen.
-2. Abre la app: detecta tu GPU y sugiere un perfil gráfico (de Mínimo a Ultra, cada uno con su dispositivo objetivo y
-   los fps medidos). Toca **Aceptar** o **Elegir yo mismo**; no se aplica nada antes.
+
+1. Descarga el APK más reciente de la página de [releases](https://github.com/dfdx047/Zandatsu/releases/latest) e
+   instálalo. Si tienes una versión anterior, instala encima: tus partidas, el juego y los ajustes se mantienen.
+2. Abre la app: detecta tu GPU y sugiere un perfil gráfico. Toca **Aceptar** o **Elegir yo mismo**; no se aplica nada
+   antes.
 3. En **Inicio ▸ Archivos del juego**, toca **Importar .iso** y elige la ISO. La app comprueba el `default.xex` y lee
-   la ISO en su sitio, sin extraer (menos de 1 s). No borres ni muevas la ISO después.
+   la ISO en su sitio, sin extraer. No borres ni muevas la ISO después.
 4. Si la app pide un driver (Adreno 650 con el driver del sistema, por ejemplo), descarga en la pestaña **Drivers** el
-   Turnip que indica y actívalo. El driver nunca se cambia solo.
+   Turnip que indica y actívalo.
 5. Toca **JUGAR**.
 
-### Novedades de la v1.2.2
-- **CPUs ARMv8.0** (Snapdragon 625 a 665 y 835, Helio P60/P70): el juego abre. Un solo APK que elige la versión de tu CPU.
-- **Prueba de GPU** (Sistema ▸ Diagnóstico): si el juego tiene problemas en tu dispositivo, ejecútala y envía el zip.
-- Correcciones para Mali-G615, G710/G720/G925 y PowerVR, y menos tirones en Emulado (#41). Lista completa en el CHANGELOG.
+### Perfiles y dispositivos probados
 
-### Novedades de la v1.2
-Todo lo que cambió: [docs/CHANGELOG.md](docs/CHANGELOG.md).
+| Perfil | Dispositivo objetivo | Renut | Meta |
+|---|---|---|---|
+| Mínimo | Snapdragon 480+ (Adreno 619) | 540p FSR, sin sombras ni brillo | 30 fps |
+| Bajo | RG Cube (Mali-G57) | 540p FSR, sombras y brillo | 40 fps |
+| Medio | Retroid Pocket 5 (Adreno 650) | 720p (consola), sombras y brillo | 60 fps |
+| Alto | AYN Thor / Odin 2 | 1080p, sombras y brillo | 60 fps |
+| Ultra | AYN Odin 3 (Adreno 830) | 2K FSR, anisotrópico 16x | 60 fps |
 
-- **Controles táctiles:** el cambio entre menú y combate sigue el modo del juego y ya no cambia solo (#15). Se puede
-  desactivar.
-- **Blade Mode táctil:** un toque en LT entra y otro sale, y deslizar el dedo en el lado derecho de la pantalla corta, con
-  la dirección del deslizamiento como ángulo. Mantener LT sigue como opción. Cortar usando el stick a la vez aún necesita más pruebas.
-- **Perfiles de diseño y tamaño de todos los botones**, de 50% a 160%.
-- **Partidas (Sistema ▸ Partidas):** exportar a un zip en la carpeta que elijas, listar, restaurar con confirmación y copia
-  automática antes de restaurar.
-- **Mando externo (Controles ▸ Probar y mapear mando):** prueba en vivo, mapeo automático y reasignación, guardados por
-  mando (#12).
-- **Vibración sin parar corregida** (#8, #28).
-- **Cierre al cortar a Sundowner** (#16, #18, #31): causa corregida, aún sin probar en ese combate.
-- **Mali-G57 MC2** (#16, #20, #25): el modo automático pasa al Emulado cuando el nativo pierde el dispositivo.
-- **Modo más estable:** después del primer cuelgue de la GPU en Adreno 6xx con Turnip, la app activa un modo que evita ese
-  cuelgue.
-- **Rendimiento:** los hilos del juego ya no se quedan en un solo núcleo. Mejora pequeña: de 2 a 4 fps en los combates
-  medidos.
-- **Aún sin probar en los dispositivos afectados:** la imagen cortada en Mali-G710/G720 (#13, #23) y el cierre con el
-  driver del sistema en Snapdragon recientes.
-
-### Novedades de la v1.1
-- **Renderizador nativo (Renut):** en la Retroid Pocket 5 (Adreno 650) a 720p, cerca de 60 fps en combate, con la GPU
-  en 8–11 ms por fotograma (en Xenia, 45,9 fps). Ahora también en Mali: en la RG Cube, perfil Bajo, 51–56 fps quieto en
-  combate, ~40 de media y hasta 50 jugando. En las Adreno 730 y más nuevas funciona con el driver del sistema.
-- **Sonido corregido:** los sonidos de los enemigos y los golpes de los combos que desaparecían en los combates
-  vuelven a sonar (#3, #5, #8, #9, #11).
-- **Recuperación cuando la GPU se reinicia:** si la GPU se cuelga (hang, `DEVICE_LOST` o caída del driver), el juego
-  deja de dibujar y vuelve al launcher con el aviso "La GPU se reinició" y el botón JUGAR, en vez de cerrarse con error.
-- **Primer arranque:** "Detectamos tu GPU", con el perfil sugerido por la tabla de dispositivos probados o por la
-  familia de la GPU. No se aplica nada sin que aceptes.
-- **Avisos de driver según lo que soporta el driver:** el aviso sale de lo que ejecuta el driver activo, no de "ser
-  Adreno". Adreno 650 con el driver del sistema: pide Turnip MrPurple T19. Adreno 730 o más nueva: el driver del
-  sistema y Turnip funcionan, sin aviso. Adreno 710/720 con el driver del sistema (#9): pasa al modo Xenia en vez de
-  cerrarse.
-- **Panorámica y proporción:** Original (16:9 con barras), Estirar o Panorámica (experimental, solo Renut: el juego
-  dibuja con la forma de la pantalla, hor+; los logos y los vídeos quedan en 16:9).
-- **FPS 30 / 60 y 120 interpolado:** límite de 30 o 60 en los dos renderizadores; 120 interpolado (experimental) en
-  Renut, solo en pantallas de 120 Hz, disponible en cualquier resolución con aviso de calentamiento desde 2K.
-- **Medidor de FPS** con etiquetas (Juego, Pantalla, ms, GPU, CPU, 1% low), en tres niveles.
-- **Controles táctiles nuevos:** las acciones del propio juego (Blade Mode, Ninja Run, cambiar objetivo, subarma),
-  cambian solos entre el diseño de menú y el de combate, nuevo estilo Sci-fi y editor de posición y tamaño.
-- **Importación de la ISO:** se lee en su sitio, sin extraer; corregido el falso error de tamaño de los CPK (#5).
-- También corregidos: rotación en vertical (#1) y aviso de actualización en bucle (#1).
-
-### Perfiles y metas de rendimiento
-Cada perfil tiene un dispositivo objetivo y solo lleva una opción si no baja los fps del objetivo por debajo de la
-meta. fps de juego en el combate del prólogo.
-
-| Perfil | Dispositivo objetivo | Renut | Meta | Medido |
+| Dispositivo | GPU | Driver | Modo | Resultado |
 |---|---|---|---|---|
-| Mínimo | Snapdragon 480+ (Adreno 619) | 540p FSR, sin sombras ni brillo | 30 fps | más de 30, hasta 50 (dispositivo real, probado por el autor) |
-| Bajo | RG Cube (Mali-G57) | 540p FSR, sombras y brillo | 40 fps | 51–56 quieto; ~40 de media, hasta 50 jugando |
-| Medio | Retroid Pocket 5 (Adreno 650) | 720p (consola), sombras y brillo | 60 fps | ~60 (GPU 8–11 ms) |
-| Alto | Retroid Pocket 5 1080p / AYN Thor | 1080p, sombras y brillo | 60 en la Thor | Thor 60; RP5 56 |
-| Ultra | AYN Odin 3 (Adreno 830) | 2K FSR, anisotrópico 16x | 60 fps | 60 |
-
-Todo se puede ajustar también a mano (Personalizado): resolución de 360p a 4K (1080p, 2K y 4K experimentales), filtro
-final bilineal, AMD FSR 1 o AMD CAS, sombras, brillo, anisotrópico, proporción y FPS. En Xenia: 360p a 4K, FSR, FXAA,
-30/60 o 120 interpolado. También en el menú del juego (botón Atrás), con el juego en marcha.
-
-### Dispositivos probados
-
-| Dispositivo | GPU | Driver recomendado | Modo | Resultado |
-|---|---|---|---|---|
-| Retroid Pocket 5 | Adreno 650 (SD865) | Turnip MrPurple T19 | Renut 720p, Medio | ~60 fps, GPU 8–11 ms (Xenia: 45,9 fps) |
-| Retroid Pocket 5 | Adreno 650 (SD865) | Turnip MrPurple T19 | Renut 1080p\*, Alto | 56 fps |
+| Retroid Pocket 5 | Adreno 650 | Turnip MrPurple | Renut 720p, Medio | ~60 fps |
+| AYN Odin 2 Mini | Adreno 740 | del sistema o Turnip | Renut 1080p, Alto | 59–60 fps |
 | AYN Thor | Adreno 740 | del sistema o Turnip | Renut 1080p FSR | 60 fps |
-| AYN Odin 3 | Adreno 830 (8 Elite) | del sistema o Turnip Gen8 V38 | Renut 2K FSR, Ultra | 60 fps |
-| Honor (Snapdragon 8 Elite) | Adreno 830 | del sistema o Turnip Gen8 V38 | Renut 1080p, 120 interpolado | 117 fps en pantalla (58 sin el 120) |
-| RG Cube | Mali-G57 (T770) | del sistema | Renut 540p FSR, Bajo | 51–56 fps quieto; ~40 de media, hasta 50 jugando |
-| Dispositivo Snapdragon 480+ | Adreno 619 | Turnip (Mesa) | Renut 540p FSR, Mínimo | más de 30, hasta 50 fps |
+| AYN Odin 3 | Adreno 830 | del sistema o Turnip | Renut 2K FSR, Ultra | 60 fps |
+| POCO X6 Pro | Mali-G615 MC6 | del sistema | Renut 720p | 59 fps |
+| RG Cube | Mali-G57 | del sistema | Renut 540p FSR, Bajo | ~40 fps de media, hasta 50 |
 
-\* experimental.
-
-### Problemas conocidos
-- Mali-G615 (#22, #29): en algunos dispositivos el juego se cierra al cargar el sonido. Causa no encontrada.
-- Mali-G57 MC2: solo modo Emulado en automático (el nativo pierde el dispositivo).
-- La panorámica puede parpadear un poco en algunos dispositivos: envía el log (ver
-  [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md)).
-- Adreno 650 con Turnip MrPurple: cuelgue raro de la GPU; el juego vuelve al launcher con un aviso en vez de cerrarse.
-
-Lista completa: [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md).
+Problemas conocidos: [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md). Si el juego tiene problemas en tu dispositivo,
+ejecuta **Más ▸ Sistema ▸ Prueba de GPU** y adjunta el zip en una [issue](https://github.com/dfdx047/Zandatsu/issues).
 
 ---
 
