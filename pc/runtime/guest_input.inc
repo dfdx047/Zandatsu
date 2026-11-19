@@ -6,6 +6,9 @@ std::array<uint8_t,256> inputKeys{};
 std::atomic<bool> inputDrivingMode{false};
 std::array<uint8_t,8> inputMouseButtons{};
 int32_t inputMouseX{},inputMouseY{},inputMouseZ{};
+// Touch drives an absolute pointer; games that read the DirectInput mouse (MGR switches its menus to mouse mode on
+// movement) also need the relative motion, and a tap shorter than one poll keeps the button down until it is read.
+uint8_t inputMouseLatched=0;
 struct InputFormatObject {uint32_t offset,type,bytes=1,user=UINT32_MAX;};
 struct InputKeyEvent {uint64_t sequence;uint32_t scan,data,time;};
 struct InputBufferedEvent {uint32_t offset,data,time,sequence,user;};
@@ -382,9 +385,9 @@ void inputDispatch(){
         for(auto item:object.format){uint32_t index=(item.type>>8)&0xffff,category=item.type&0xff;
             if(kind==2){if(item.bytes==4)write32(arg(2)+item.offset,inputKeys[index]);else *static_cast<uint8_t*>(ptr(arg(2)+item.offset,1))=inputKeys[index];}
             else if(category&3){int32_t value=index==0?inputMouseX:index==1?inputMouseY:inputMouseZ;write32(arg(2)+item.offset,static_cast<uint32_t>(value));}
-            else *static_cast<uint8_t*>(ptr(arg(2)+item.offset,1))=inputMouseButtons[index];
+            else *static_cast<uint8_t*>(ptr(arg(2)+item.offset,1))=uint8_t(inputMouseButtons[index]|(index==0?inputMouseLatched:0));
         }
-        if(kind==3)inputMouseX=inputMouseY=inputMouseZ=0;
+        if(kind==3){inputMouseX=inputMouseY=inputMouseZ=0;inputMouseLatched=0;}
         ret(0,3);return;}
     case 10:{uint32_t bytes=arg(1),out=arg(2),count=arg(3),flags=arg(4);
         if(!object.bufferSize){ret(0x80040207,5);return;}if(!object.acquired){ret(diNotAcquired,5);return;}

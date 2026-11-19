@@ -4,7 +4,7 @@
 # Libraries go to the app's private files dir via run-as (never inside the APK). Log: build/lab/pc/runs/<serial>-<time>.log
 set -e
 S=$1; SECS=${2:-90}; shift 2 || true
-P=com.dfdx047.zandatsu.pclab; ROOT=$(cd "$(dirname "$0")/../.." && pwd); B=$ROOT/build/pc/android
+P=com.dfdx047.zandatsu.pclab; ROOT=$(cd "$(dirname "$0")/../.." && pwd); B=${MGR_BUILD:-$ROOT/build/pc/android}
 EXE=${MGR_EXE:-/storage/6A55-7C3B/MGRPC/METAL GEAR RISING REVENGEANCE.exe}
 adb -s "$S" shell am force-stop $P || true
 LIBDIR=${MGR_LIBDIR:-/storage/6A55-7C3B/MGRPC/lab}   # read into a memfd by the loader (internal storage is full)

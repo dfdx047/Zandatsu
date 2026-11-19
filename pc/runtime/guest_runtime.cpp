@@ -234,6 +234,21 @@ void yieldGuestMachine(unsigned milliseconds=0,std::chrono::steady_clock::time_p
     else if(milliseconds)std::this_thread::sleep_for(std::chrono::milliseconds(milliseconds));else std::this_thread::yield();
     machineLease->lock();saved.load();
 }
+// Waits on guest events, semaphores, mutexes and threads used to poll every 1 ms (yieldGuestMachine(1)). MGR's job
+// system hands work between ~8 threads many times per frame, so each handover cost >=1 ms of sleep on top of the work
+// (Odin 2 Mini, sd480p: 10.7 fps with no thread above 30% of a core). waitGuestSignal() sleeps on a condition variable
+// that every signalling call pokes (notifyGuestSignal), with the same 1 ms as a fallback. The sequence is read while
+// the machine is still held, so a signal given between the waiter's check and its sleep is never lost.
+std::mutex guestSignalMutex;std::condition_variable guestSignalCv;std::atomic<uint64_t> guestSignalSeq{0};
+void notifyGuestSignal(){{std::lock_guard<std::mutex> lock(guestSignalMutex);++guestSignalSeq;}guestSignalCv.notify_all();}
+void waitGuestSignal(){
+    if(!machineLease||!machineLease->owns_lock())throw GuestStop("Guest scheduler ownership missing");
+    {auto& trace=currentTrace();trace.func=g_cur_func;trace.esp=g_esp;}
+    uint64_t seen=guestSignalSeq.load();
+    State saved;saved.save();machineLease->unlock();
+    {std::unique_lock<std::mutex> lock(guestSignalMutex);guestSignalCv.wait_for(lock,std::chrono::milliseconds(1),[&]{return guestSignalSeq.load()!=seen;});}
+    machineLease->lock();saved.load();
+}
 thread_local bool renderThread=false;
 // Render-thread slice handovers and the time spent getting the machine back.
 uint64_t renderYields=0;std::chrono::nanoseconds renderWait{};
@@ -414,7 +429,7 @@ void testGuestScheduling(){
             if(g_eax!=0xaabbccdd||g_fs_base!=0xdead1000||g_st[0]!=-456.25||g_xmm[7].u64[0]!=0xfedcba9876543210ull||lastError!=222||tlsValues[1087]!=0xaa)
                 throw GuestStop("Guest worker context was not isolated");}}
         catch(const std::exception& error){failure=error.what();}
-        forgetThreadTrace();done=true;machineLease=nullptr;
+        forgetThreadTrace();done=true;notifyGuestSignal();machineLease=nullptr;
     });
     try{while(!done){checkGuestProgress();yieldGuestMachine(0,std::chrono::steady_clock::now()+std::chrono::milliseconds(1));
         if(g_eax!=0x11223344||g_fs_base!=0x21000000||g_st[0]!=123.5||g_xmm[7].u64[0]!=0x123456789abcdef0ull||lastError!=111||tlsValues[1087]!=0x55)
@@ -985,8 +1000,13 @@ void setGuestFrameLimit(unsigned framesPerSecond){
 void setGuestKey(unsigned scan,bool down){if(scan>=256)return;std::lock_guard<std::mutex> lock(inputMutex);if(bool(inputKeys[scan])==down)return;inputKeys[scan]=down?0x80:0;recordInputKey(scan,down);enqueueGuestKey(scan,down);}
 void clearGuestInput(){std::lock_guard<std::mutex> lock(inputMutex);for(unsigned scan=0;scan<256;++scan)if(inputKeys[scan]){recordInputKey(scan,false);enqueueGuestKey(scan,false);}inputKeys.fill(0);inputMouseButtons.fill(0);inputMouseX=inputMouseY=inputMouseZ=0;}
 void setGuestPointer(float x,float y,int phase){
-    guestPointerX=std::clamp(x,0.f,1.f);guestPointerY=std::clamp(y,0.f,1.f);
-    if(phase!=1){std::lock_guard<std::mutex> lock(inputMutex);inputMouseButtons[0]=phase==0?0x80:0;}
+    float nx=std::clamp(x,0.f,1.f),ny=std::clamp(y,0.f,1.f);
+    {std::lock_guard<std::mutex> lock(inputMutex);
+     // Relative motion in a 1280x720 frame, so a tap also "moves" the mouse (MGR leaves pad mode on mouse motion).
+     int32_t dx=int32_t((nx-guestPointerX.load())*1280.f),dy=int32_t((ny-guestPointerY.load())*720.f);
+     if(phase==0&&!dx&&!dy)dx=1;inputMouseX+=dx;inputMouseY+=dy;
+     if(phase!=1){inputMouseButtons[0]=phase==0?0x80:0;if(phase==0)inputMouseLatched=0x80;}}
+    guestPointerX=nx;guestPointerY=ny;
     enqueueGuestPointer(phase);
 }
 void typeGuestText(const std::vector<uint32_t>& characters){enqueueGuestText(characters);}

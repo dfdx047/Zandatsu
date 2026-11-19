@@ -1,7 +1,7 @@
 #!/bin/bash
 # Scripted input + screenshots against the running lab app (Odin 2 Mini).
 #   lab-seq.sh <serial> <outdir> step...    steps: w<sec>  k<KEYCODE suffix>  t<x>,<y> (tap, screen px)  s<name> (screenshot)
-#          p<file> (send a pilot file: stick/btn steps, see mgr_android_main.cpp)
+#          v<x1>,<y1>,<x2>,<y2> (swipe)  p<file> (send a pilot file: stick/btn steps, see mgr_android_main.cpp)
 #   example: lab-seq.sh $O runs/m2 w50 kBUTTON_START w4 sTitle kBUTTON_A
 S=$1; OUT=$2; shift 2; mkdir -p "$OUT"
 for step in "$@"; do
@@ -11,6 +11,7 @@ for step in "$@"; do
     k) adb -s "$S" shell input keyevent "KEYCODE_$arg" ;;
     t) adb -s "$S" shell input tap "${arg%,*}" "${arg#*,}" ;;
     p) adb -s "$S" push "$arg" /data/local/tmp/mgr_pilot.txt >/dev/null && adb -s "$S" shell "run-as com.dfdx047.zandatsu.pclab cp /data/local/tmp/mgr_pilot.txt files/mgr_pilot.txt" ;;
+    v) IFS=, read -r a b c d <<< "$arg"; adb -s "$S" shell input swipe $a $b $c $d 200 ;;   # v<x1>,<y1>,<x2>,<y2>
     s) adb -s "$S" exec-out screencap -p > "$OUT/$arg.png"; echo "$(TZ=Europe/Lisbon date +%T) $arg" ;;
   esac
 done
