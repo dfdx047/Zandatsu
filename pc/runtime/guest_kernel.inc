@@ -116,7 +116,7 @@ void moduleFileName() {
     if(capacity>count)*static_cast<char*>(ptr(out+count,1))=0;else lastError=122;
     ret(count,3);
 }
-void currentDirectory() {const std::string path="C:\\nfsu2"; uint32_t cap=arg(0),out=arg(1);if(cap<=path.size())ret(static_cast<uint32_t>(path.size()+1),2);else{std::memcpy(ptr(out,path.size()+1),path.c_str(),path.size()+1);ret(static_cast<uint32_t>(path.size()),2);}}
+void currentDirectory() {const std::string path=guestWorkingDirectory; uint32_t cap=arg(0),out=arg(1);if(cap<=path.size())ret(static_cast<uint32_t>(path.size()+1),2);else{std::memcpy(ptr(out,path.size()+1),path.c_str(),path.size()+1);ret(static_cast<uint32_t>(path.size()),2);}}
 void stdHandle() {uint32_t n=arg(0);ret(n>=0xfffffff4u&&n<=0xfffffff6u?0xf0000200u+(0xfffffff6u-n)*4:UINT32_MAX,1);}
 void consoleMode() {lastError=6;ret(0,2);}
 void currentProcess() {ret(UINT32_MAX,0);}

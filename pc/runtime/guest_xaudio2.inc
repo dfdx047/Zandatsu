@@ -77,12 +77,14 @@ void xaCreateSource(){
 }
 void xaCreateSubmix(){write32(arg(1),newVoice(false,arg(2),arg(3),0,0));ret(0,8);}
 void xaCreateMastering(){write32(arg(1),newVoice(false,arg(2)?arg(2):2,arg(3)?arg(3):48000,0,0));ret(0,7);}
-void xaStart(){
+// A new XAudio2 object is already started (Microsoft docs, IXAudio2::StartEngine): StartEngine only resumes after
+// StopEngine. CRI Mana (MGR cutscenes) never calls it and times the video from the audio voice it feeds.
+void xaStartClock(){
     xaRunning=true;xaLast=std::chrono::steady_clock::now();
     if(!xaTimer){static uint32_t tick=hostMethod(xaTick);xaTimer=startHostTimer(tick,10);
         NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"MGR","XAudio2 2.7 engine started (silent clock, timer %u)",xaTimer);}
-    ret(0,1);
 }
+void xaStart(){xaStartClock();ret(0,1);}
 void xaStop(){xaRunning=false;ret(0,1);}
 void xaCommit(){ret(0,2);}
 void xaPerformance(){std::memset(ptr(arg(1),64),0,64);ret(0,2);}
@@ -134,6 +136,7 @@ uint32_t createXAudio2(uint32_t out){
         for(auto fn:{sStart,sStop,sSubmit,sFlush,vOk1,sExitLoop,sGetState,sSetRatio,sGetRatio})xaSourceVtable.push_back(hostMethod(fn));
     }
     if(!xaEngine)xaEngine=guestObject(xaEngineVtable,0);
+    xaStartClock();
     if(out)write32(out,xaEngine);
     NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"MGR","XAudio2 2.7 created (silent)");return 0;
 }

@@ -183,7 +183,15 @@ void fileInformationByHandle(){
     uint64_t t=uint64_t(s.st_mtim.tv_sec)*10000000ull+116444736000000000ull;for(uint32_t f=4;f<=20;f+=8){write32(o+f,uint32_t(t));write32(o+f+4,uint32_t(t>>32));}
     write32(o+32,uint32_t(uint64_t(s.st_size)>>32));write32(o+36,uint32_t(s.st_size));write32(o+40,1);ret(1,2);
 }
-void setCurrentDirectoryA(){ret(1,1);}   // paths are resolved against the game root
+// MGR sets its current directory (Wwise opens "sound\\xxx.bnk" relative to it). Kept inside the game root.
+void setCurrentDirectoryA(){
+    std::string want=guestString(arg(0));auto path=gamePath(want);std::error_code error;
+    if(!std::filesystem::is_directory(path,error)){lastError=3;NFS_RUNTIME_LOG(ANDROID_LOG_WARN,"MGR","SetCurrentDirectoryA %s: not found",want.c_str());ret(0,1);return;}
+    auto relative=path.lexically_relative(std::filesystem::weakly_canonical(hostGameRoot)).string();
+    guestWorkingDirectory="C:\\nfsu2";if(relative!="."&&!relative.empty())guestWorkingDirectory+="\\"+relative;
+    std::replace(guestWorkingDirectory.begin(),guestWorkingDirectory.end(),'/','\\');
+    NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"MGR","SetCurrentDirectoryA %s -> %s",want.c_str(),guestWorkingDirectory.c_str());ret(1,1);
+}
 void createProcessA(){lastError=2;ret(0,10);}
 void exitCodeProcess(){lastError=6;ret(0,2);}
 void getModuleHandleA(){moduleHandle();}

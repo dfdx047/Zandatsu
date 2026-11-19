@@ -7,7 +7,7 @@ std::filesystem::path gamePath(std::string guest){
     if(normalized=="c:/nfsu2")guest.clear();
     else if(normalized.rfind("c:/nfsu2/",0)==0)guest=guest.substr(9);
     else if(guest.find(':')!=std::string::npos||guest.rfind("//",0)==0)throw GuestStop("Unsupported guest path: "+guest);
-    else {if(!guest.empty()&&guest.front()=='/')guest.erase(0,1);else{auto current=guestWorkingDirectory.substr(8);std::replace(current.begin(),current.end(),'\\','/');if(!current.empty())guest=current+"/"+guest;}}
+    else {if(!guest.empty()&&guest.front()=='/')guest.erase(0,1);else{auto current=guestWorkingDirectory.substr(8);std::replace(current.begin(),current.end(),'\\','/');while(!current.empty()&&current.front()=='/')current.erase(0,1);if(!current.empty())guest=current+"/"+guest;}}
     auto relative=std::filesystem::path(guest).lexically_normal();for(const auto& part:relative)if(part=="..")throw GuestStop("Guest path leaves nfsu2: "+guest);
     auto result=std::filesystem::path(hostGameRoot);
     for(const auto& part:relative){if(part==".")continue;std::error_code error;bool found=false;
@@ -46,7 +46,7 @@ void createFile(){
     bool existed=std::filesystem::exists(path);
     int descriptor=disposition==3&&!(access&0x40000000u)&&discCheckSwitch(path) ? ::open("/dev/null",O_RDONLY|O_CLOEXEC) : ::open(path.c_str(),options|O_CLOEXEC,0600);
     NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSU2","Guest file %s access=%x disposition=%u",path.filename().string().c_str(),access,disposition);
-    if(descriptor<0){lastError=fileError();ret(UINT32_MAX,7);return;}uint32_t handle=nextFileHandle++;fileHandles.emplace(handle,descriptor);lastError=(disposition==2||disposition==4)&&existed?183:0;ret(handle,7);
+    if(descriptor<0){lastError=fileError();{static unsigned logged=0;if(++logged<=40)NFS_RUNTIME_LOG(ANDROID_LOG_WARN,"NFSU2","Guest file open failed: %s (guest \"%s\", errno %d)",path.c_str(),guestString(arg(0)).c_str(),errno);}ret(UINT32_MAX,7);return;}uint32_t handle=nextFileHandle++;fileHandles.emplace(handle,descriptor);lastError=(disposition==2||disposition==4)&&existed?183:0;ret(handle,7);
 }
 void readFile(){
     auto file=fileHandles.find(arg(0));if(file==fileHandles.end()){lastError=6;ret(0,5);return;}if(uint32_t ovl=arg(4)){uint64_t off=uint64_t(read32(ovl+8))|(uint64_t(read32(ovl+12))<<32);auto* t=static_cast<uint8_t*>(ptr(arg(1),arg(2)));uint32_t got=0;
