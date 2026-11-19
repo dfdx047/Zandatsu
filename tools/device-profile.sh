@@ -70,6 +70,11 @@ profile_odin2mini() {
         # the A55; GPU at its lowest level. STARTING POINT 2026-10-27, not calibrated: the A715 does ~25% more per
         # clock than an A76 (2.2 / 1.25 = 1.79 GHz) and the A510 ~30% more than an A55 (1.9 / 1.3 = 1.46 GHz).
         # The A710 share policy3 with the A715, so they are switched off rather than slowed down.
+        # GPU CALIBRATION 2026-11-19 20:13 (Lisbon), 3DMark Wild Life 2.7.5093 with this profile applied: 2468 and 2474
+        # points (14.8 fps) at 124.8 MHz, with the GPU LLC slice on and off. Public reference for a real SD480+
+        # (Adreno 619): Moto G53 5G median 982 (Wild Life Unlimited 973), benchmarks.ul.com. So this GPU is ~2.5x a
+        # 619 even at its LOWEST level: frequency cannot calibrate it further. GPU-bound fps measured here must be read
+        # as ~2.5x what a real 480+ gets (multiply by 0.40); CPU-bound results are unaffected.
         sd480p) echo "3:0-4:1459200:1785600:0:124800000" ;;
         *) echo "unknown profile '$1' for the Odin 2 Mini (sd480p)" >&2; exit 1 ;;
     esac
