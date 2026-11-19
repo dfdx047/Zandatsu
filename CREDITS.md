@@ -17,3 +17,9 @@ graças a estes projetos:
 | [ARMSX2](https://github.com/ARMSX2/ARMSX2) | Banco de bugs de driver (0173), trava da cache de pipelines (0174), ADPF | GPL-3.0 |
 | [libadrenotools](https://github.com/bylaws/libadrenotools) | Carregar drivers Vulkan alternativos (Turnip) | BSD-2-Clause |
 | Turnip / Mesa e os seus distribuidores (K11MCH1, Mr. Purple, StevenMXZ, ARMSX2) | Drivers Vulkan para Adreno | MIT |
+
+## Port de PC (branch pc/main)
+- pcrecomp — https://github.com/sp00nznet/pcrecomp (MIT), commit 35548b8.
+- codepdbh/nfsu2-recompiled — https://github.com/codepdbh/nfsu2-recompiled (MIT, segundo o README): patches do pcrecomp
+  e `pc/tools/run_lift.py` adaptado de `scripts/run_lift.py`.
+- DXVK — https://github.com/doitsujin/dxvk (zlib).
