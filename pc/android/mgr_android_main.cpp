@@ -144,7 +144,7 @@ extern "C" __attribute__((visibility("default"))) void mgr_android_main(android_
     setenv("DXVK_LOG_PATH", "none", 0);
     setenv("DXVK_STATE_CACHE_PATH", files.c_str(), 0);
     loadEnv(files + "/mgr_env.txt");
-    std::string exe = firstLine(files + "/mgr_exe.txt");
+    std::string exe = getenv("MGR_EXE") ? getenv("MGR_EXE") : firstLine(files + "/mgr_exe.txt");
     if (exe.empty()) exe = "/storage/6A55-7C3B/MGRPC/METAL GEAR RISING REVENGEANCE.exe";
     Host host; app->userData = &host; app->onAppCmd = onCommand; app->onInputEvent = onInput;
     gamepad.setKeyEmulation(false);
@@ -163,7 +163,11 @@ extern "C" __attribute__((visibility("default"))) void mgr_android_main(android_
             setD3D9HostWindow(app->window);
             if (d3d9RequestsSurface()) acknowledgeD3D9Surface(true);
             setGuestPaused(false);
-            if (!host.sized) { host.sized = true; setGuestDisplaySize(unsigned(ANativeWindow_getWidth(app->window)), unsigned(ANativeWindow_getHeight(app->window))); }
+            if (!host.sized) {
+                // Free resolution (launcher MGR_RENDER_SIZE "WxH"): the window buffers get that size, the compositor scales.
+                unsigned rw = 0, rh = 0; const char* rs = getenv("MGR_RENDER_SIZE");
+                if (rs && sscanf(rs, "%ux%u", &rw, &rh) == 2 && rw && rh) { setD3D9RenderSize(rw, rh); __android_log_print(ANDROID_LOG_INFO, "MGRLAB", "render size %ux%u", rw, rh); }
+                host.sized = true; setGuestDisplaySize(unsigned(ANativeWindow_getWidth(app->window)), unsigned(ANativeWindow_getHeight(app->window))); }
             if (!host.started) { host.started = true; __android_log_print(ANDROID_LOG_INFO, "MGRLAB", "boot %s", exe.c_str()); worker.start(exe); }
             pilotLoad(files + "/mgr_pilot.txt");
             if (pilotTick()) publishPad();

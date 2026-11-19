@@ -41,7 +41,19 @@ void* openFromMemory(const std::string& path, const char* name, int flags) {
     close(mem);
     return handle;
 }
+void* openFd(int fd, const char* name, int flags) {
+    android_dlextinfo info{}; info.flags = ANDROID_DLEXT_USE_LIBRARY_FD; info.library_fd = fd;
+    void* handle = android_dlopen_ext(name, flags, &info);
+    __android_log_print(handle ? ANDROID_LOG_INFO : ANDROID_LOG_ERROR, "MGRLAB", "%s from launcher memfd %d: %s", name, fd, handle ? "loaded" : dlerror());
+    return handle;
+}
+std::string env(const char* name) { const char* v = getenv(name); return v ? v : ""; }
 void* openLibrary(const std::string& files, const char* name, int flags) {
+    // Launcher (app/.../pc/PcGameActivity.kt): the game library was decrypted into a memfd; DXVK ships in the APK.
+    if (!env("MGR_LIB_FD").empty()) {
+        if (std::string(name) == "libmgrpc.so") return openFd(atoi(env("MGR_LIB_FD").c_str()), name, flags);
+        return dlopen(name, flags);
+    }
     std::string local = files + "/" + name;
     if (access(local.c_str(), R_OK) == 0) return dlopen(local.c_str(), flags);
     std::string dir = firstLine(files + "/mgr_libdir.txt");
@@ -52,13 +64,15 @@ void* openLibrary(const std::string& files, const char* name, int flags) {
 void android_main(android_app* app) {
     std::string files = app->activity->internalDataPath ? app->activity->internalDataPath : "";
     void* dxvk = openLibrary(files, "libdxvk_android.so", RTLD_NOW | RTLD_GLOBAL);
-    std::string driver = firstLine(files + "/mgr_driver.txt");
+    if (!env("MGR_START_ERROR").empty()) __android_log_print(ANDROID_LOG_ERROR, "MGRLAB", "launcher: %s", env("MGR_START_ERROR").c_str());
+    std::string driver = env("MGR_DRIVER_NAME").empty() ? firstLine(files + "/mgr_driver.txt") : env("MGR_DRIVER_NAME");
     if (dxvk && !driver.empty()) {
         // Hook libraries ship in the APK's lib dir (extractNativeLibs=true): <data app dir>/lib/arm64.
         Dl_info self{}; dladdr(reinterpret_cast<void*>(&android_main), &self);
         std::string libDir = self.dli_fname ? std::string(self.dli_fname) : "";
         libDir = libDir.substr(0, libDir.find_last_of('/') + 1);
-        std::string driverDir = files + "/drivers/", temp = files + "/drvtmp/";
+        if (!env("MGR_HOOK_DIR").empty()) libDir = env("MGR_HOOK_DIR");
+        std::string driverDir = env("MGR_DRIVER_DIR").empty() ? files + "/drivers/" : env("MGR_DRIVER_DIR"), temp = files + "/drvtmp/";
         mkdir(temp.c_str(), 0700);
         void* vk = adrenotools_open_libvulkan(RTLD_NOW, ADRENOTOOLS_DRIVER_CUSTOM, temp.c_str(), libDir.c_str(),
             driverDir.c_str(), driver.c_str(), nullptr, nullptr);

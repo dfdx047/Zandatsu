@@ -617,4 +617,6 @@
     <string name="dlc_damaged">Pacote danificado: o jogo não conseguiu instalar. Remova e importe uma cópia boa.</string>
     <string name="dlc_pending">Instala quando o jogo abrir</string>
     <string name="dlc_remove">Remover</string>
+    <string name="tab_pc">PC (beta)</string>
+    <string name="more_pc_sub">Versão de PC do Metal Gear Rising: pasta do jogo, driver, resolução</string>
 </resources>

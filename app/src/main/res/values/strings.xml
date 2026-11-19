@@ -618,4 +618,6 @@
     <string name="dlc_damaged">Damaged package: the game couldn\'t install it. Remove it and import a good copy.</string>
     <string name="dlc_pending">Installs when the game starts</string>
     <string name="dlc_remove">Remove</string>
+    <string name="tab_pc">PC (beta)</string>
+    <string name="more_pc_sub">Metal Gear Rising PC version: game folder, driver, resolution</string>
 </resources>

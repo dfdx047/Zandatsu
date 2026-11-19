@@ -43,6 +43,8 @@ fun MoreScreen(goTo: (LauncherTab) -> Unit) {
         MoreEntry(LauncherTab.SETTINGS, stringResource(R.string.more_settings_sub), goTo)
         MoreEntry(LauncherTab.DEBUG, stringResource(R.string.more_debug_sub), goTo)
         MoreEntry(LauncherTab.ABOUT, stringResource(R.string.more_about_sub), goTo)
+        if (com.dfdx047.zandatsu.pc.PcGame.available(androidx.compose.ui.platform.LocalContext.current))
+            MoreEntry(LauncherTab.PC, stringResource(R.string.more_pc_sub), goTo)
     }
 }
 

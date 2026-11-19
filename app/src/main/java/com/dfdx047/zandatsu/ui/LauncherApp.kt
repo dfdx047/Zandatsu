@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.MoreHoriz
@@ -100,6 +101,7 @@ enum class LauncherTab(@StringRes val title: Int, val icon: ImageVector, val mai
     SETTINGS(R.string.tab_settings, Icons.Filled.Settings, main = false),
     DEBUG(R.string.tab_debug, Icons.Filled.BugReport, main = false),
     ABOUT(R.string.tab_about, Icons.Filled.Info, main = false),
+    PC(R.string.tab_pc, Icons.Filled.Computer, main = false),
 }
 
 /**
@@ -258,6 +260,7 @@ private fun TabContent(tab: LauncherTab, vm: LauncherViewModel, goTo: (LauncherT
                 LauncherTab.DRIVERS -> DriversScreen(vm)
                 LauncherTab.MORE -> com.dfdx047.zandatsu.ui.screens.MoreScreen(goTo)
                 LauncherTab.DEBUG -> DebugScreen(vm)
+                LauncherTab.PC -> com.dfdx047.zandatsu.ui.screens.PcScreen()
                 LauncherTab.SETTINGS -> SettingsScreen(vm)
                 LauncherTab.ABOUT -> AboutScreen(vm)
             }

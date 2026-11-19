@@ -110,6 +110,10 @@ android {
             java.srcDir("../external/rexglue-sdk/thirdparty/sdl3/android-project/app/src/main/java")
             // libgame.zdat + libgame.json: o codigo do jogo encriptado (tools/pack-libgame.py, chamado pelo CMake).
             assets.srcDir("build/zandatsu-assets")
+            // Port de PC (pc/): libmgrpc.zdat/json encriptados (pc/tools/pack-libmgr.py) e as .so sem codigo do jogo
+            // (carregador libmgrlab, DXVK). Gerados em build/pc/ fora do git; sem eles a app e so a do 360.
+            assets.srcDir("../build/pc/assets")
+            jniLibs.srcDir("../build/pc/jnilibs")
         }
     }
 
