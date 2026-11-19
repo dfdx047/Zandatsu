@@ -25,6 +25,20 @@ extern "C" void dxvkAndroidSetWindow(ANativeWindow* window);
 extern "C" HWND dxvkAndroidGetWindowHandle();
 extern "C" void dxvkAndroidSetRenderSize(uint32_t width,uint32_t height);
 void setD3D9RenderSize(unsigned width,unsigned height){dxvkAndroidSetRenderSize(width,height);}
+namespace {
+// Display modes offered to the game (its RESOLUTION option lists them). The DXVK Android WSI reports only a few
+// (MGR showed 800x600, 1024x768, 1920x1080), so offer 16:9 sizes from 480p to 1080p plus the launcher's free size
+// (MGR_RENDER_SIZE); the swapchain buffers take the chosen size and the compositor scales to the screen.
+std::vector<std::pair<unsigned,unsigned>> displayModes(){
+    std::vector<std::pair<unsigned,unsigned>> modes{{640,360},{800,450},{854,480},{960,540},{1024,576},{1152,648},{1280,720},
+        {1366,768},{1600,900},{1920,1080},{800,600},{1024,768}};
+    unsigned w=0,h=0;if(const char* s=std::getenv("MGR_RENDER_SIZE"))if(std::sscanf(s,"%ux%u",&w,&h)==2&&w>=320&&h>=200&&
+        std::find(modes.begin(),modes.end(),std::make_pair(w,h))==modes.end())modes.emplace_back(w,h);
+    std::sort(modes.begin(),modes.end(),[](auto a,auto b){return a.first*a.second<b.first*b.second||(a.first*a.second==b.first*b.second&&a.first<b.first);});
+    return modes;
+}
+bool modeFormat(D3DFORMAT f){return f==D3DFMT_X8R8G8B8||f==D3DFMT_A8R8G8B8||f==D3DFMT_R5G6B5||f==D3DFMT_X1R5G5B5;}
+}
 #ifndef __ANDROID__
 extern "C" ANativeWindow* dxvkCreateTestWindow();
 extern "C" void dxvkDestroyTestWindow(ANativeWindow* window);
@@ -283,8 +297,10 @@ uint32_t dispatchGuestD3D9(uint32_t token,const uint32_t* args,uint32_t* argumen
         case 3:*argumentCount=2;return D3DERR_NOTAVAILABLE;
         case 4:*argumentCount=1;return d3d->GetAdapterCount();
         case 5:*argumentCount=4;return d3d->GetAdapterIdentifier(args[1],args[2],static_cast<D3DADAPTER_IDENTIFIER9*>(pointer(args[3])));
-        case 6:*argumentCount=3;return d3d->GetAdapterModeCount(args[1],static_cast<D3DFORMAT>(args[2]));
-        case 7:*argumentCount=5;return d3d->EnumAdapterModes(args[1],static_cast<D3DFORMAT>(args[2]),args[3],static_cast<D3DDISPLAYMODE*>(pointer(args[4])));
+        case 6:*argumentCount=3;return modeFormat(static_cast<D3DFORMAT>(args[2]))?uint32_t(displayModes().size()):0;
+        case 7:{*argumentCount=5;auto modes=displayModes();auto* mode=static_cast<D3DDISPLAYMODE*>(pointer(args[4]));
+            if(!modeFormat(static_cast<D3DFORMAT>(args[2]))||args[3]>=modes.size()||!mode)return D3DERR_INVALIDCALL;
+            mode->Width=modes[args[3]].first;mode->Height=modes[args[3]].second;mode->RefreshRate=60;mode->Format=static_cast<D3DFORMAT>(args[2]);return D3D_OK;}
         case 8:*argumentCount=3;return d3d->GetAdapterDisplayMode(args[1],static_cast<D3DDISPLAYMODE*>(pointer(args[2])));
         case 9:*argumentCount=6;return d3d->CheckDeviceType(args[1],static_cast<D3DDEVTYPE>(args[2]),static_cast<D3DFORMAT>(args[3]),static_cast<D3DFORMAT>(args[4]),args[5]);
         case 10:{*argumentCount=7;auto format=static_cast<D3DFORMAT>(args[6]);auto type=static_cast<D3DRESOURCETYPE>(args[5]);

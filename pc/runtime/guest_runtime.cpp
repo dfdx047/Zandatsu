@@ -109,9 +109,13 @@ std::unique_ptr<GuestHeaps> heaps;
 // ring too late, and the mixer replayed stale data ("the sound loops"). The
 // same starvation made the Windows build stutter until native32 got a ticket
 // lock. Here every unlock hands the machine to the longest waiter.
+//
+// Each waiter sleeps on its own condition variable and unlock wakes only the next ticket (MGR, 2026-11-19): with one
+// shared cv and notify_all every handover woke all ~8 queued guest threads, which checked their ticket and slept again;
+// simpleperf on the Odin 2 Mini (sd480p) put 52% of the process CPU in the kernel, mostly futex wake-ups.
 class MachineMutex {
     std::mutex m_;
-    std::condition_variable cv_;
+    std::map<uint64_t,std::condition_variable*> waiting_;
     uint64_t next_=0,serving_=0;
     std::thread::id owner_{};
     unsigned depth_=0;
@@ -121,7 +125,11 @@ public:
         std::unique_lock<std::mutex> l(m_);
         if(owner_==me){++depth_;return;}
         const uint64_t ticket=next_++;
-        cv_.wait(l,[&]{return serving_==ticket;});
+        if(serving_!=ticket){
+            std::condition_variable cv;waiting_.emplace(ticket,&cv);
+            cv.wait(l,[&]{return serving_==ticket;});
+            waiting_.erase(ticket);
+        }
         owner_=me;depth_=1;acquired=std::chrono::steady_clock::now();
     }
     // When the current owner got the machine; only the owner reads it.
@@ -138,13 +146,12 @@ public:
         return next_>serving_+1; // the current owner already holds one ticket
     }
     void unlock(){
-        {
-            std::lock_guard<std::mutex> l(m_);
-            if(--depth_)return;
-            owner_={};++serving_;
-            if(next_==serving_)return;          // nobody waiting
-        }
-        cv_.notify_all();
+        std::lock_guard<std::mutex> l(m_);
+        if(--depth_)return;
+        owner_={};++serving_;
+        if(next_==serving_)return;          // nobody waiting
+        // Notify under m_: the waiter's cv lives on its stack until it leaves lock(), which needs m_.
+        auto next=waiting_.find(serving_);if(next!=waiting_.end())next->second->notify_one();
     }
 };
 MachineMutex machine;
