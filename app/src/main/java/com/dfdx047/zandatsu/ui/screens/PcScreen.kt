@@ -78,9 +78,44 @@ fun PcScreen() {
         }
         OutlinedTextField(size, { size = it; PcGame.setRenderSize(c, it) }, Modifier.fillMaxWidth(),
             label = { Text("Resolução livre (LxA)") }, singleLine = true)
+        if (found) GameGraphicOptions(exe)
         Text("Renderizador: DXVK (Direct3D 9 → Vulkan). OpenGL/gl4es não suporta o Direct3D 9 deste jogo.",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Button(onClick = { c.startActivity(Intent(c, PcGameActivity::class.java)) }, enabled = found && access,
             modifier = Modifier.fillMaxWidth()) { Text("JOGAR (PC)") }
     }
 }
+
+/** Opcoes graficas do jogo de PC (as mesmas do menu OPTIONS > GRAPHIC OPTIONS), gravadas no GraphicOption do jogo. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun GameGraphicOptions(exe: String) {
+    var v by remember(exe) { mutableStateOf(PcGame.readGraphicOptions(exe)) }
+    fun set(i: Int, x: Int) { v = v.copyOf().also { it[i] = x }; runCatching { PcGame.writeGraphicOptions(exe, v) } }
+    Text("Opções gráficas do jogo", style = MaterialTheme.typography.titleMedium)
+    Text("As mesmas do menu do jogo. Odin 2 Mini no perfil 480+, combate do prólogo: padrão 15,4 fps; «Desempenho» (= preset LOW do jogo) 16,8 fps.",
+        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    @Composable fun row(label: String, i: Int, options: List<Pair<Int, String>>) {
+        Text(label, style = MaterialTheme.typography.labelLarge)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            options.forEach { (x, l) -> FilterChip(v[i] == x, { set(i, x) }, { Text(l) }) }
+        }
+    }
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedButton(onClick = { v = PcGame.GRAPHIC_DEFAULT.copyOf(); runCatching { PcGame.writeGraphicOptions(exe, v) } }) { Text("Padrão do jogo") }
+        OutlinedButton(onClick = {
+            // O preset LOW do jogo, medido: MSAA off, aniso 2x, blur off, sombra e zangeki medios, zantime baixo.
+            v = v.copyOf().also { it[1] = 1; it[2] = 1; it[3] = 1; it[7] = 0; it[8] = 1; it[9] = 0 }
+            runCatching { PcGame.writeGraphicOptions(exe, v) }
+        }) { Text("Desempenho") }
+    }
+    row("Antialiasing", 7, listOf(0 to "Desligado", 1 to "MSAA x2"))
+    row("Filtro de textura", 1, listOf(0 to "Desligado", 1 to "Anisotrópico 2x", 2 to "Anisotrópico 4x"))
+    row("Blur", 2, listOf(0 to "Ligado", 1 to "Desligado"))
+    row("Sombra", 3, listOf(0 to "Baixa", 1 to "Média"))
+    row("Zangeki", 8, listOf(0 to "Baixo", 1 to "Médio"))
+    row("Zantime", 9, listOf(0 to "Baixo", 1 to "Médio"))
+    row("Janela", 6, listOf(0 to "Ecrã inteiro", 1 to "Janela"))
+    row("Brilho", 4, (0..10).map { it to "$it" })
+}
+

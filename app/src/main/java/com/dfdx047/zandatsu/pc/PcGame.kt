@@ -44,6 +44,26 @@ object PcGame {
     fun renderSize(c: Context): String = prefs(c).getString("render", "").orEmpty()
     fun setRenderSize(c: Context, size: String) = prefs(c).edit().putString("render", size).apply()
 
+    /**
+     * Opcoes graficas do proprio jogo: Documents/MGR/SaveData/GraphicOption na pasta do jogo, 12 x uint32 LE, lido no
+     * arranque. Formato descodificado em 19/11 (PCPorts gpu/README.md): 0 resolucao (indice na lista do jogo),
+     * 1 filtro (0 off, 1 aniso 2x, 2 aniso 4x), 2 blur (0 on, 1 off), 3 sombra, 4 brilho, 6 janela (1 janela),
+     * 7 MSAA (0 off, 1 x2), 8 zangeki, 9 zantime (0 low, 1 medium); 5, 10, 11 sem efeito visivel.
+     */
+    fun graphicOptionFile(exe: String) = File(File(exe).parentFile, "Documents/MGR/SaveData/GraphicOption")
+    val GRAPHIC_DEFAULT = intArrayOf(2, 2, 0, 1, 5, 0, 1, 1, 1, 1, 0, 0)   // o que o jogo grava no padrao (MEDIUM)
+    fun readGraphicOptions(exe: String): IntArray {
+        val f = graphicOptionFile(exe)
+        if (f.length() != 48L) return GRAPHIC_DEFAULT.copyOf()
+        val b = ByteBuffer.wrap(f.readBytes()).order(ByteOrder.LITTLE_ENDIAN)
+        return IntArray(12) { b.getInt(it * 4) }
+    }
+    fun writeGraphicOptions(exe: String, v: IntArray) {
+        val f = graphicOptionFile(exe); f.parentFile?.mkdirs()
+        val b = ByteBuffer.allocate(48).order(ByteOrder.LITTLE_ENDIAN); v.forEach { b.putInt(it) }
+        f.writeBytes(b.array())
+    }
+
     fun available(c: Context): Boolean = try { c.assets.open("libmgrpc.json").close(); true } catch (_: Exception) { false }
 
     /** Procura a pasta do jogo nos cartoes/armazenamento (lab: /storage/<sd>/MGRPC). */
