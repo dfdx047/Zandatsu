@@ -246,14 +246,26 @@ void yieldGuestMachine(unsigned milliseconds=0,std::chrono::steady_clock::time_p
 // (Odin 2 Mini, sd480p: 10.7 fps with no thread above 30% of a core). waitGuestSignal() sleeps on a condition variable
 // that every signalling call pokes (notifyGuestSignal), with the same 1 ms as a fallback. The sequence is read while
 // the machine is still held, so a signal given between the waiter's check and its sleep is never lost.
-std::mutex guestSignalMutex;std::condition_variable guestSignalCv;std::atomic<uint64_t> guestSignalSeq{0};
-void notifyGuestSignal(){{std::lock_guard<std::mutex> lock(guestSignalMutex);++guestSignalSeq;}guestSignalCv.notify_all();}
-void waitGuestSignal(){
+// Waiters register the handles they wait on (while still holding the machine, so a later signal is never lost) and a
+// signal wakes only the waiters of that handle (0 = everyone, e.g. a thread exit). Waking every waiter on every
+// SetEvent/ReleaseSemaphore made each of MGR's ~8 job threads take the machine just to sleep again.
+struct SignalWaiter{std::condition_variable cv;const uint32_t* handles=nullptr;unsigned count=0;bool woken=false;};
+std::mutex guestSignalMutex;std::vector<SignalWaiter*> guestSignalWaiters;
+void notifyGuestSignal(uint32_t handle=0){
+    std::lock_guard<std::mutex> lock(guestSignalMutex);
+    for(auto* w:guestSignalWaiters){
+        if(w->woken)continue;
+        if(!handle||!w->count||std::find(w->handles,w->handles+w->count,handle)!=w->handles+w->count){w->woken=true;w->cv.notify_one();}
+    }
+}
+void waitGuestSignal(const uint32_t* handles=nullptr,unsigned count=0){
     if(!machineLease||!machineLease->owns_lock())throw GuestStop("Guest scheduler ownership missing");
     {auto& trace=currentTrace();trace.func=g_cur_func;trace.esp=g_esp;}
-    uint64_t seen=guestSignalSeq.load();
+    SignalWaiter me;me.handles=handles;me.count=count;
+    {std::lock_guard<std::mutex> lock(guestSignalMutex);guestSignalWaiters.push_back(&me);}
     State saved;saved.save();machineLease->unlock();
-    {std::unique_lock<std::mutex> lock(guestSignalMutex);guestSignalCv.wait_for(lock,std::chrono::milliseconds(1),[&]{return guestSignalSeq.load()!=seen;});}
+    {std::unique_lock<std::mutex> lock(guestSignalMutex);me.cv.wait_for(lock,std::chrono::milliseconds(1),[&]{return me.woken;});
+        guestSignalWaiters.erase(std::find(guestSignalWaiters.begin(),guestSignalWaiters.end(),&me));}
     machineLease->lock();saved.load();
 }
 thread_local bool renderThread=false;

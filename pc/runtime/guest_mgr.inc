@@ -13,7 +13,7 @@ thread_local std::deque<GuestApc> pendingApcs;
 uint64_t overlappedOffset(uint32_t overlapped){return uint64_t(read32(overlapped+8))|(uint64_t(read32(overlapped+12))<<32);}
 void completeOverlapped(uint32_t overlapped,uint32_t error,uint32_t bytes){
     write32(overlapped,error?0xC0000011u:0);write32(overlapped+4,bytes);
-    if(uint32_t event=read32(overlapped+16)){auto found=eventHandles.find(event);if(found!=eventHandles.end()){found->second->signaled=true;notifyGuestSignal();}}
+    if(uint32_t event=read32(overlapped+16)){auto found=eventHandles.find(event);if(found!=eventHandles.end()){found->second->signaled=true;notifyGuestSignal(event);}}
 }
 bool transferAt(uint32_t handle,uint32_t buffer,uint32_t size,uint64_t offset,bool writing,uint32_t& done,uint32_t& error){
     done=0;error=0;auto file=fileHandles.find(handle);if(file==fileHandles.end()){error=6;return false;}
@@ -60,7 +60,7 @@ void createSemaphore(){
 void releaseSemaphore(){
     auto found=semaphoreHandles.find(arg(0));if(found==semaphoreHandles.end()){lastError=6;ret(0,3);return;}
     auto& s=*found->second;int32_t add=int32_t(arg(1));if(add<=0||s.count+add>s.maximum){lastError=298;ret(0,3);return;}
-    if(arg(2))write32(arg(2),uint32_t(s.count));s.count+=add;notifyGuestSignal();ret(1,3);
+    if(arg(2))write32(arg(2),uint32_t(s.count));s.count+=add;notifyGuestSignal(arg(0));ret(1,3);
 }
 void waitMultipleEx(){
     uint32_t count=arg(0),list=arg(1),timeout=arg(3);bool all=arg(2)!=0,alertable=arg(4)!=0;
@@ -74,7 +74,7 @@ void waitMultipleEx(){
         else for(uint32_t i=0;i<count;++i)if(waitableReady(handles[i])){ret((acquireWaitable(handles[i])?128:0)+i,5);return;}
         if(alertable&&runApcs()){ret(0xC0,5);return;}
         if(timeout!=UINT32_MAX&&std::chrono::steady_clock::now()>=deadline){ret(258,5);return;}
-        checkGuestProgress();waitGuestSignal();
+        checkGuestProgress();waitGuestSignal(handles.data(),count);
     }
 }
 

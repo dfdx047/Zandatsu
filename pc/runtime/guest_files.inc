@@ -51,7 +51,7 @@ void createFile(){
 void readFile(){
     auto file=fileHandles.find(arg(0));if(file==fileHandles.end()){lastError=6;ret(0,5);return;}if(uint32_t ovl=arg(4)){uint64_t off=uint64_t(read32(ovl+8))|(uint64_t(read32(ovl+12))<<32);auto* t=static_cast<uint8_t*>(ptr(arg(1),arg(2)));uint32_t got=0;
         while(got<arg(2)){ssize_t c=::pread(file->second,t+got,arg(2)-got,off_t(off+got));if(c<0){if(errno==EINTR)continue;lastError=fileError();ret(0,5);return;}if(!c)break;got+=uint32_t(c);}
-        write32(ovl,0);write32(ovl+4,got);if(uint32_t ev=read32(ovl+16)){auto e=eventHandles.find(ev);if(e!=eventHandles.end()){e->second->signaled=true;notifyGuestSignal();}}
+        write32(ovl,0);write32(ovl+4,got);if(uint32_t ev=read32(ovl+16)){auto e=eventHandles.find(ev);if(e!=eventHandles.end()){e->second->signaled=true;notifyGuestSignal(ev);}}
         if(arg(3))write32(arg(3),got);lastError=got||!arg(2)?0:38;ret(got||!arg(2)?1:0,5);return;}
     // ReadFile on a Windows disk file returns everything up to the end of the file;
     // read() on Android's shared storage (FUSE) may return less, and the game used the

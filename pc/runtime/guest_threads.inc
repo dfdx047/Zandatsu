@@ -41,7 +41,7 @@ void createMutex(){
 void releaseMutex(){
     auto value=mutexHandles.find(arg(0));if(value==mutexHandles.end()){lastError=6;ret(0,1);return;}
     if(value->second->owner!=guestThreadId){lastError=288;ret(0,1);return;}
-    if(!--value->second->depth){value->second->owner=0;notifyGuestSignal();}ret(1,1);
+    if(!--value->second->depth){value->second->owner=0;notifyGuestSignal(arg(0));}ret(1,1);
 }
 void createEvent(){
     auto name=guestString(arg(3));std::shared_ptr<GuestEvent> event;
@@ -51,7 +51,7 @@ void createEvent(){
     if(!event){event=std::make_shared<GuestEvent>(GuestEvent{arg(1)!=0,arg(2)!=0});if(!name.empty())namedEvents[name]=event;}
     uint32_t handle=nextEventHandle++;eventHandles.emplace(handle,event);ret(handle,4);
 }
-void setEvent(){auto event=eventHandles.find(arg(0));if(event==eventHandles.end()){lastError=6;ret(0,1);return;}event->second->signaled=true;notifyGuestSignal();ret(1,1);}
+void setEvent(){auto event=eventHandles.find(arg(0));if(event==eventHandles.end()){lastError=6;ret(0,1);return;}event->second->signaled=true;notifyGuestSignal(arg(0));ret(1,1);}
 void resetEvent(){auto event=eventHandles.find(arg(0));if(event==eventHandles.end()){lastError=6;ret(0,1);return;}event->second->signaled=false;ret(1,1);}
 // ExitThread unwinds the lifted frames back to guestThreadEntry.
 struct GuestThreadExit{uint32_t code;};
@@ -122,18 +122,18 @@ void waitThread(){
     auto mutexFound=mutexHandles.find(handle);
     if(mutexFound!=mutexHandles.end()){
         auto value=mutexFound->second;auto deadline=std::chrono::steady_clock::now()+std::chrono::milliseconds(timeout);
-        while(value->owner&&value->owner!=guestThreadId){if(timeout!=UINT32_MAX&&std::chrono::steady_clock::now()>=deadline){ret(258,2);return;}checkGuestProgress();waitGuestSignal();}
+        while(value->owner&&value->owner!=guestThreadId){if(timeout!=UINT32_MAX&&std::chrono::steady_clock::now()>=deadline){ret(258,2);return;}checkGuestProgress();waitGuestSignal(&handle,1);}
         value->owner=guestThreadId;++value->depth;bool abandoned=value->abandoned;value->abandoned=false;ret(abandoned?128:0,2);return;
     }
     if(semaphoreHandles.count(handle)){auto deadline=std::chrono::steady_clock::now()+std::chrono::milliseconds(timeout);
-        while(!waitableReady(handle)){if(timeout!=UINT32_MAX&&std::chrono::steady_clock::now()>=deadline){ret(258,2);return;}checkGuestProgress();waitGuestSignal();}
+        while(!waitableReady(handle)){if(timeout!=UINT32_MAX&&std::chrono::steady_clock::now()>=deadline){ret(258,2);return;}checkGuestProgress();waitGuestSignal(&handle,1);}
         acquireWaitable(handle);ret(0,2);return;}
     auto eventFound=eventHandles.find(handle);
     if(found==threadHandles.end()&&eventFound==eventHandles.end()){lastError=6;ret(UINT32_MAX,2);return;}
     auto thread=found==threadHandles.end()?nullptr:found->second;
     auto event=eventFound==eventHandles.end()?nullptr:eventFound->second;
     auto deadline=std::chrono::steady_clock::now()+std::chrono::milliseconds(timeout);
-    while(thread?!thread->done:!event->signaled){if(timeout!=UINT32_MAX&&std::chrono::steady_clock::now()>=deadline){ret(258,2);return;}checkGuestProgress();waitGuestSignal();}
+    while(thread?!thread->done:!event->signaled){if(timeout!=UINT32_MAX&&std::chrono::steady_clock::now()>=deadline){ret(258,2);return;}checkGuestProgress();waitGuestSignal(&handle,1);}
     if(event&&!event->manual)event->signaled=false;
     ret(0,2);
 }
@@ -170,7 +170,7 @@ void waitMultiple(){
             }
         }else for(uint32_t i=0;i<count;++i)if(waitableReady(handles[i])){ret((acquireWaitable(handles[i])?128:0)+i,4);return;}
         if(timeout!=UINT32_MAX&&std::chrono::steady_clock::now()>=deadline){ret(258,4);return;}
-        checkGuestProgress();waitGuestSignal();
+        checkGuestProgress();waitGuestSignal(handles.data(),unsigned(handles.size()));
     }
 }
 void joinGuestThreads(std::unique_lock<MachineMutex>& lease){
