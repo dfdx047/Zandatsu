@@ -91,7 +91,11 @@ def read_va_list(path):
     return out
 
 
-def cmd_lift(exe, catalog, outdir, split=400, names_path=None, prefix=""):
+ALIAS_LIFT_LIMIT = int(os.environ.get("ALIAS_LIFT_LIMIT", "1024"))
+
+
+def cmd_lift(exe, catalog, outdir, split=400, names_path=None, prefix="", shard=None):
+    """shard=(i, n): lift only the i-th of n contiguous slices into recomp_<i>_NNNN.c; `index` writes the tables."""
     import pefile
     from lift32 import Lifter
     info = analyze_pe(exe)
@@ -118,9 +122,16 @@ def cmd_lift(exe, catalog, outdir, split=400, names_path=None, prefix=""):
     lifter = Lifter(iat_map=iat, func_names={}, lifted=lifted, precise_carry=True,
                     hook_sites=set(hooks))
     os.makedirs(outdir, exist_ok=True)
+    tag = f"{shard[0]}_" if shard else ""
     for fn in os.listdir(outdir):
-        if fn.startswith(prefix + "recomp_") and fn.endswith((".c", ".h")):
+        if fn.startswith(prefix + "recomp_" + tag) and fn.endswith((".c", ".h")) and (shard or True):
+            if shard and not fn[len(prefix + "recomp_" + tag):][:4].isdigit():
+                continue
             os.remove(os.path.join(outdir, fn))
+    if shard:
+        i, n = shard
+        per = (len(fds) + n - 1) // n
+        fds = fds[i * per:(i + 1) * per]
 
     stats = collections.Counter()
     unimpl = collections.Counter()
@@ -134,7 +145,7 @@ def cmd_lift(exe, catalog, outdir, split=400, names_path=None, prefix=""):
         nonlocal chunk, idx, lines_total
         if not chunk:
             return
-        p = os.path.join(outdir, f"{prefix}recomp_{idx:04d}.c")
+        p = os.path.join(outdir, f"{prefix}recomp_{tag}{idx:04d}.c")
         with open(p, "w", newline="\n") as fh:
             fh.write(f"/* AUTO-GENERATED from {module} by run_lift.py (pcrecomp lift32). DO NOT EDIT, DO NOT COMMIT. */\n")
             fh.write(f'#define RECOMP_GENERATED_CODE\n#include "recomp_types.h"\n#include "{prefix}recomp_funcs.h"\n#include <math.h>\n#include <string.h>\n\n')
@@ -152,6 +163,13 @@ def cmd_lift(exe, catalog, outdir, split=400, names_path=None, prefix=""):
                         f"void sub_{a:08X}(void) {{ recomp_func_t _f = recomp_lookup_manual(0x{a:08X}u);"
                         f" if (_f) {{ _f(); return; }} RECOMP_UNIMPL(0x{a:08X}u, \"override missing\"); }}")
                 stats["overridden"] += 1
+            elif fd.get("entry_kind") == "alias" and sum(e - b for b, e, *_ in fd["blocks"]) > ALIAS_LIFT_LIMIT:
+                # A label inside another function's body, found through a data pointer: lifting it lifts the rest
+                # of the parent again (MGR: 25,221 aliases = 60% of the lifted bytes). Loud stub until a run proves
+                # one is a real entry (PCPorts ports/mgr-pc/PROBLEMAS.md).
+                code = (f"/* ALIAS of a larger body, not lifted ({sum(e - b for b, e, *_ in fd['blocks'])} bytes of blocks) */\n"
+                        f"void sub_{a:08X}(void) {{ RECOMP_UNIMPL(0x{a:08X}u, \"alias entry not lifted\"); }}")
+                stats["alias_stubs"] += 1
             elif a in excluded:
                 code = (f"/* EXCLUDED: {excluded[a]} */\n"
                         f"void sub_{a:08X}(void) {{ RECOMP_UNIMPL(0x{a:08X}u, \"excluded: not code\"); }}")
@@ -180,7 +198,18 @@ def cmd_lift(exe, catalog, outdir, split=400, names_path=None, prefix=""):
             el = time.time() - t0
             print(f"[*] {n + 1}/{len(fds)} lifted ({el:.0f}s)", flush=True)
     flush()
+    if shard:
+        out = {"functions": len(entries), "files": idx, "c_lines": lines_total, "lift_failures": len(failed),
+               "failures": failed[:200], "unimplemented_total": sum(unimpl.values()), "unimplemented": dict(unimpl.most_common()),
+               "unimplemented_sites": dict(unimpl_sites), "overridden": stats["overridden"], "excluded": stats["excluded"], "alias_stubs": stats["alias_stubs"],
+               "icall_sites": stats["icall_sites"], "itail_sites": stats["itail_sites"], "seconds": round(time.time() - t0)}
+        json.dump(out, open(os.path.join(outdir, f"{prefix}lift_stats_{shard[0]}.json"), "w"), indent=1)
+        print(json.dumps({k: v for k, v in out.items() if k not in ("failures", "unimplemented_sites", "unimplemented")}))
+        return
+    write_tables(outdir, prefix, entries, iat)
 
+
+def write_tables(outdir, prefix, entries, iat):
     with open(os.path.join(outdir, f"{prefix}recomp_funcs.h"), "w", newline="\n") as fh:
         fh.write("/* AUTO-GENERATED. DO NOT EDIT. */\n#pragma once\n#include <stdint.h>\n")
         for a in entries:
@@ -200,16 +229,13 @@ def cmd_lift(exe, catalog, outdir, split=400, names_path=None, prefix=""):
             fh.write(f'    {{ 0x{slot:08X}u, "{dll}!{nm}" }},\n')
         fh.write("    { 0, 0 } };\n")
 
-    out = {"functions": len(entries), "files": idx, "c_lines": lines_total,
-           "lift_failures": len(failed), "failures": failed[:200],
-           "unimplemented_total": sum(unimpl.values()),
-           "unimplemented": dict(unimpl.most_common()),
-           "unimplemented_sites": dict(unimpl_sites),
-           "overridden": stats["overridden"], "excluded": stats["excluded"],
-           "icall_sites": stats["icall_sites"], "itail_sites": stats["itail_sites"],
-           "seconds": round(time.time() - t0)}
-    json.dump(out, open(os.path.join(outdir, f"{prefix}lift_stats.json"), "w"), indent=1)
-    print(json.dumps({k: v for k, v in out.items() if k not in ("failures", "unimplemented_sites")}, indent=1))
+
+def cmd_index(exe, catalog, outdir, prefix=""):
+    info = analyze_pe(exe)
+    iat = build_iat_map(info)
+    entries = [fd["address"] for fd in json.load(open(catalog))["functions"]]
+    write_tables(outdir, prefix, entries, iat)
+    print(f"[*] tables for {len(entries)} functions")
 
 
 if __name__ == "__main__":
@@ -220,6 +246,9 @@ if __name__ == "__main__":
         split = int(a[a.index("--split") + 1]) if "--split" in a else 400
         names = a[a.index("--names") + 1] if "--names" in a else None
         prefix = a[a.index("--prefix") + 1] if "--prefix" in a else ""
-        cmd_lift(a[1], a[2], a[3], split, names, prefix)
+        shard = tuple(int(x) for x in a[a.index("--shard") + 1].split("/")) if "--shard" in a else None
+        cmd_lift(a[1], a[2], a[3], split, names, prefix, shard)
+    elif a and a[0] == "index":
+        cmd_index(a[1], a[2], a[3], a[a.index("--prefix") + 1] if "--prefix" in a else "")
     else:
         sys.exit(__doc__)
