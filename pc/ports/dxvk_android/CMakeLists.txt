@@ -1,0 +1,62 @@
+cmake_minimum_required(VERSION 3.22)
+project(DXVKAndroid C CXX)
+option(DXVK_HOST_HEADLESS "Build native query tests without a display surface" OFF)
+if(NOT DXVK_HOST_HEADLESS AND (NOT ANDROID OR NOT (ANDROID_ABI STREQUAL "arm64-v8a" OR ANDROID_ABI STREQUAL "armeabi-v7a")))
+  message(FATAL_ERROR "DXVK Android requires arm64-v8a or armeabi-v7a")
+endif()
+set(DXVK_SOURCE "" CACHE PATH "Source prepared by prepare.py")
+if(NOT EXISTS "${DXVK_SOURCE}/PINNED_REVISION")
+  message(FATAL_ERROR "Run prepare.py with the pinned DXVK native revision")
+endif()
+set(DXVK_PREPARE_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/prepare.py" CACHE FILEPATH "DXVK Android preparation recipe")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${DXVK_PREPARE_SCRIPT}" "${DXVK_SOURCE}/ANDROID_PREPARE_SHA256")
+file(SHA256 "${DXVK_PREPARE_SCRIPT}" DXVK_EXPECTED_PREPARE_SHA256)
+if(NOT EXISTS "${DXVK_SOURCE}/ANDROID_PREPARE_SHA256")
+  message(FATAL_ERROR "DXVK patches not verified: rerun ${DXVK_PREPARE_SCRIPT}")
+endif()
+file(READ "${DXVK_SOURCE}/ANDROID_PREPARE_SHA256" DXVK_ACTUAL_PREPARE_SHA256)
+string(STRIP "${DXVK_ACTUAL_PREPARE_SHA256}" DXVK_ACTUAL_PREPARE_SHA256)
+if(NOT DXVK_ACTUAL_PREPARE_SHA256 STREQUAL DXVK_EXPECTED_PREPARE_SHA256)
+  message(FATAL_ERROR "DXVK patches are stale: rerun ${DXVK_PREPARE_SCRIPT}")
+endif()
+file(GLOB UTIL "${DXVK_SOURCE}/src/util/*.cpp" "${DXVK_SOURCE}/src/util/com/*.cpp"
+  "${DXVK_SOURCE}/src/util/config/*.cpp" "${DXVK_SOURCE}/src/util/log/*.cpp"
+  "${DXVK_SOURCE}/src/util/sha1/*.c" "${DXVK_SOURCE}/src/util/sha1/*.cpp"
+  "${DXVK_SOURCE}/src/util/sync/*.cpp")
+list(FILTER UTIL EXCLUDE REGEX "util_gdi.cpp$")
+list(APPEND UTIL "${DXVK_SOURCE}/src/util/platform/util_env_linux.cpp"
+  "${DXVK_SOURCE}/src/util/platform/util_luid_linux.cpp"
+  "${DXVK_SOURCE}/src/util/platform/util_string_linux.cpp"
+  "${DXVK_SOURCE}/src/util/platform/thread_native.cpp")
+file(GLOB GRAPHICS "${DXVK_SOURCE}/src/dxso/*.cpp" "${DXVK_SOURCE}/src/spirv/*.cpp"
+  "${DXVK_SOURCE}/src/vulkan/*.cpp" "${DXVK_SOURCE}/src/dxvk/*.cpp"
+  "${DXVK_SOURCE}/src/dxvk/hud/*.cpp" "${DXVK_SOURCE}/src/d3d9/*.cpp")
+list(FILTER GRAPHICS EXCLUDE REGEX "dxvk_open(vr|xr).cpp$")
+option(DXVK_ANDROID_STATIC "Link backend into the application" OFF)
+if(DXVK_ANDROID_STATIC)
+  set(DXVK_LIBRARY_TYPE STATIC)
+else()
+  set(DXVK_LIBRARY_TYPE SHARED)
+endif()
+add_library(dxvk_android ${DXVK_LIBRARY_TYPE} ${UTIL} ${GRAPHICS} android_wsi.cpp)
+target_compile_features(dxvk_android PRIVATE cxx_std_17)
+target_compile_definitions(dxvk_android PRIVATE DXVK_NATIVE DXVK_PLATFORM_LINUX DXVK_WSI_ANDROID NOMINMAX)
+if(ANDROID)
+  target_compile_definitions(dxvk_android PRIVATE VK_USE_PLATFORM_ANDROID_KHR)
+endif()
+target_include_directories(dxvk_android PRIVATE "${DXVK_SOURCE}" "${DXVK_SOURCE}/include"
+  "${DXVK_SOURCE}/src/util"
+  "${DXVK_SOURCE}/include/native" "${DXVK_SOURCE}/include/native/windows"
+  "${DXVK_SOURCE}/include/native/directx" "${DXVK_SOURCE}/generated")
+target_compile_options(dxvk_android PRIVATE -O2 -Wno-deprecated-declarations)
+find_library(DXVK_VULKAN_LIBRARY NAMES vulkan libvulkan.so.1 REQUIRED)
+target_link_libraries(dxvk_android PRIVATE ${DXVK_VULKAN_LIBRARY})
+if(ANDROID)
+  target_link_libraries(dxvk_android PRIVATE android log)
+else()
+  find_library(DXVK_X11_LIBRARY NAMES X11 REQUIRED)
+  target_link_libraries(dxvk_android PRIVATE pthread ${DXVK_X11_LIBRARY})
+  add_executable(dxvk_query_check query_check.cpp)
+  target_include_directories(dxvk_query_check SYSTEM PRIVATE "${DXVK_SOURCE}/include/native/windows" "${DXVK_SOURCE}/include/native/directx")
+  target_link_libraries(dxvk_query_check PRIVATE dxvk_android)
+endif()
