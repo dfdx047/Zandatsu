@@ -113,21 +113,44 @@ std::unique_ptr<GuestHeaps> heaps;
 // Each waiter sleeps on its own condition variable and unlock wakes only the next ticket (MGR, 2026-11-19): with one
 // shared cv and notify_all every handover woke all ~8 queued guest threads, which checked their ticket and slept again;
 // simpleperf on the Odin 2 Mini (sd480p) put 52% of the process CPU in the kernel, mostly futex wake-ups.
+std::atomic<uint64_t> machineHandoffs{0},signalWakes{0};
+// lab counters, logged with the Present stats
+
+
 class MachineMutex {
+    struct Waiter{std::condition_variable cv;bool sleeping=false;};
     std::mutex m_;
-    std::map<uint64_t,std::condition_variable*> waiting_;
-    uint64_t next_=0,serving_=0;
+    std::map<uint64_t,Waiter*> waiting_;
+    uint64_t next_=0;
+    std::atomic<uint64_t> serving_{0};
     std::thread::id owner_{};
     unsigned depth_=0;
+    // The next thread in line spins this long before sleeping (MGR_SPIN_US, default 50): ~9400 handovers/s in MGR's
+    // fights, each a futex wake plus scheduler latency during which nobody runs guest code.
+    static std::chrono::microseconds spinTime(){static const auto t=std::chrono::microseconds(getenv("MGR_SPIN_US")?atoi(getenv("MGR_SPIN_US")):50);return t;}
 public:
+    std::atomic<uint64_t> spinHits{0};
     void lock(){
         const auto me=std::this_thread::get_id();
         std::unique_lock<std::mutex> l(m_);
         if(owner_==me){++depth_;return;}
         const uint64_t ticket=next_++;
-        if(serving_!=ticket){
-            std::condition_variable cv;waiting_.emplace(ticket,&cv);
-            cv.wait(l,[&]{return serving_==ticket;});
+        if(serving_.load()!=ticket){
+            Waiter w;waiting_.emplace(ticket,&w);
+            if(ticket==serving_.load()+1&&spinTime().count()>0){
+                l.unlock();
+                const auto until=std::chrono::steady_clock::now()+spinTime();
+                while(serving_.load(std::memory_order_acquire)!=ticket&&std::chrono::steady_clock::now()<until)
+#if defined(__aarch64__)
+                    asm volatile("yield");
+#else
+                    ;
+#endif
+                l.lock();
+                if(serving_.load()==ticket)spinHits.fetch_add(1,std::memory_order_relaxed);
+            }
+            w.sleeping=true;
+            w.cv.wait(l,[&]{return serving_.load()==ticket;});
             waiting_.erase(ticket);
         }
         owner_=me;depth_=1;acquired=std::chrono::steady_clock::now();
@@ -138,23 +161,25 @@ public:
         const auto me=std::this_thread::get_id();
         std::lock_guard<std::mutex> l(m_);
         if(owner_==me){++depth_;return true;}
-        if(next_!=serving_)return false;
+        if(next_!=serving_.load())return false;
         ++next_;owner_=me;depth_=1;acquired=std::chrono::steady_clock::now();return true;
     }
     bool hasWaiters(){
         std::lock_guard<std::mutex> lock(m_);
-        return next_>serving_+1; // the current owner already holds one ticket
+        return next_>serving_.load()+1; // the current owner already holds one ticket
     }
     void unlock(){
         std::lock_guard<std::mutex> l(m_);
         if(--depth_)return;
-        owner_={};++serving_;
-        if(next_==serving_)return;          // nobody waiting
+        owner_={};const uint64_t now=serving_.load()+1;serving_.store(now,std::memory_order_release);
+        if(next_==now)return;          // nobody waiting
         // Notify under m_: the waiter's cv lives on its stack until it leaves lock(), which needs m_.
-        auto next=waiting_.find(serving_);if(next!=waiting_.end())next->second->notify_one();
+        // A waiter still spinning sees serving_ change by itself.
+        auto next=waiting_.find(now);if(next!=waiting_.end()&&next->second->sleeping){next->second->cv.notify_one();machineHandoffs.fetch_add(1,std::memory_order_relaxed);}
     }
 };
 MachineMutex machine;
+extern "C" void mgrRuntimeCounters(uint64_t* handoffs,uint64_t* wakes,uint64_t* spins){*handoffs=machineHandoffs.load();*wakes=signalWakes.load();*spins=machine.spinHits.load();}
 thread_local std::unique_lock<MachineMutex>* machineLease=nullptr;
 thread_local uint32_t guestThreadId=1;
 std::vector<Import> imports;
@@ -255,7 +280,7 @@ void notifyGuestSignal(uint32_t handle=0){
     std::lock_guard<std::mutex> lock(guestSignalMutex);
     for(auto* w:guestSignalWaiters){
         if(w->woken)continue;
-        if(!handle||!w->count||std::find(w->handles,w->handles+w->count,handle)!=w->handles+w->count){w->woken=true;w->cv.notify_one();}
+        if(!handle||!w->count||std::find(w->handles,w->handles+w->count,handle)!=w->handles+w->count){w->woken=true;w->cv.notify_one();signalWakes.fetch_add(1,std::memory_order_relaxed);}
     }
 }
 void waitGuestSignal(const uint32_t* handles=nullptr,unsigned count=0){
@@ -291,7 +316,10 @@ void checkGuestProgress() {
     if((++checkpoints&63u)==0){
         auto now=std::chrono::steady_clock::now();
         if(now>bootDeadline)throw GuestStop("CRT bring-up time budget reached at "+hex(g_cur_func));
-        auto slice=renderThread?std::chrono::microseconds(3000):std::chrono::microseconds(500);
+        // MGR_SLICE_US / MGR_RENDER_SLICE_US (lab A/B): slice lengths without a rebuild.
+        static const auto otherSlice=std::chrono::microseconds(getenv("MGR_SLICE_US")?atoi(getenv("MGR_SLICE_US")):500);
+        static const auto renderSlice=std::chrono::microseconds(getenv("MGR_RENDER_SLICE_US")?atoi(getenv("MGR_RENDER_SLICE_US")):3000);
+        auto slice=renderThread?renderSlice:otherSlice;
         if(now-machine.acquired>=slice&&machine.hasWaiters()){
             yieldGuestMachine();
             if(renderThread){++renderYields;renderWait+=std::chrono::steady_clock::now()-now;}

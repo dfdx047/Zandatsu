@@ -24,6 +24,7 @@ extern "C" IDirect3D9* Direct3DCreate9(UINT sdk);
 extern "C" void dxvkAndroidSetWindow(ANativeWindow* window);
 extern "C" HWND dxvkAndroidGetWindowHandle();
 extern "C" void dxvkAndroidSetRenderSize(uint32_t width,uint32_t height);
+extern "C" void mgrRuntimeCounters(uint64_t* handoffs,uint64_t* wakes,uint64_t* spins);
 void setD3D9RenderSize(unsigned width,unsigned height){dxvkAndroidSetRenderSize(width,height);}
 namespace {
 // Display modes offered to the game (its RESOLUTION option lists them). The DXVK Android WSI reports only a few
@@ -174,7 +175,8 @@ void captureBackbuffer(IDirect3DDevice9* device,uint64_t frame){
 void countFrame(){
     using clock=std::chrono::steady_clock;static clock::time_point last=clock::now();static uint64_t lastFrame=0;
     uint64_t frame=++presentedFrames;auto now=clock::now();double seconds=std::chrono::duration<double>(now-last).count();
-    if(seconds>=5.0){NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"MGR","Present: frame %llu, %.1f fps over %.1f s",static_cast<unsigned long long>(frame),(frame-lastFrame)/seconds,seconds);last=now;lastFrame=frame;}
+    if(seconds>=5.0){uint64_t h=0,w=0,sp=0;mgrRuntimeCounters(&h,&w,&sp);static uint64_t lh=0,lw=0,lsp=0;
+        NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"MGR","Present: frame %llu, %.1f fps over %.1f s; machine futex handoffs %.0f/s, spin handoffs %.0f/s, signal wakes %.0f/s",static_cast<unsigned long long>(frame),(frame-lastFrame)/seconds,seconds,(h-lh)/seconds,(sp-lsp)/seconds,(w-lw)/seconds);lh=h;lw=w;lsp=sp;last=now;lastFrame=frame;}
 }
 }
 bool compressedFormat(D3DFORMAT format){return format>=D3DFMT_DXT1&&format<=D3DFMT_DXT5;}

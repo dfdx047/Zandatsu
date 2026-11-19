@@ -1,6 +1,7 @@
 #pragma once
 #include "guest_memory.h"
 #include <map>
+#include <set>
 #include <algorithm>
 #include <vector>
 
@@ -19,7 +20,13 @@ public:
     static constexpr uint32_t firstArena=0x01000000u,firstArenaEnd=0x1f000000u,secondArena=0x22000000u,secondArenaSize=0x1e000000u;
 #endif
 private:
-    std::map<uint32_t,uint32_t> free_{{firstArena,firstArenaEnd-firstArena},{secondArena,secondArenaSize}};
+    // Free ranges by address (coalescing) and by (size, address) for allocation. alloc was a first-fit linear scan of
+    // free_: with MGR's fragmented heap, std::map walks took ~25% of the guest CPU (simpleperf, Odin 2 Mini). Now best
+    // fit, lowest address among equal sizes, O(log n).
+    std::map<uint32_t,uint32_t> free_;
+    std::set<std::pair<uint32_t,uint32_t>> bySize_;
+    void addFree(uint32_t address,uint32_t size){free_[address]=size;bySize_.emplace(size,address);}
+    std::map<uint32_t,uint32_t>::iterator eraseFree(std::map<uint32_t,uint32_t>::iterator it){bySize_.erase({it->second,it->first});return free_.erase(it);}
     std::map<uint32_t,Heap> heaps_;
     uint32_t next_=0xf0000104u;
     void release(uint32_t address,uint32_t capacity) {
@@ -27,18 +34,21 @@ private:
         if (next!=free_.begin()) {
             auto before=std::prev(next);
             if (uint64_t(before->first)+before->second==address) {
-                address=before->first; capacity+=before->second; free_.erase(before);
+                address=before->first; capacity+=before->second; eraseFree(before);
             }
         }
         next=free_.lower_bound(address);
         if (next!=free_.end() && uint64_t(address)+capacity==next->first) {
-            capacity+=next->second; free_.erase(next);
+            capacity+=next->second; eraseFree(next);
         }
-        free_[address]=capacity;
+        addFree(address,capacity);
     }
 public:
     static constexpr uint32_t process=0xf0000100u;
-    explicit GuestHeaps(GuestMemory& memory):memory_(memory) { heaps_.emplace(process,Heap{0,0,0,{}}); }
+    explicit GuestHeaps(GuestMemory& memory):memory_(memory) {
+        addFree(firstArena,firstArenaEnd-firstArena); addFree(secondArena,secondArenaSize);
+        heaps_.emplace(process,Heap{0,0,0,{}});
+    }
     uint32_t create(uint32_t options,uint32_t initial,uint32_t maximum) {
         if (maximum && initial>maximum) return 0;
         uint32_t id=next_; next_+=4; heaps_.emplace(id,Heap{options,maximum,0,{}}); return id;
@@ -53,18 +63,18 @@ public:
         uint64_t capacity=(uint64_t(std::max(bytes,1u))+15)&~uint64_t(15);
         if (capacity>UINT32_MAX || (h->second.maximum &&
             (bytes>=0x7fff8u || h->second.live+capacity>h->second.maximum))) return 0;
-        auto slot=std::find_if(free_.begin(),free_.end(),[&](auto& s){return s.second>=capacity;});
-        if(slot==free_.end()) {
+        auto fit=bySize_.lower_bound({static_cast<uint32_t>(capacity),0u});
+        if(fit==bySize_.end()) {
             if ((flags|h->second.options)&4) throw std::bad_alloc();
             return 0;
         }
-        uint32_t address=slot->first, remaining=slot->second-static_cast<uint32_t>(capacity);
+        uint32_t address=fit->second, remaining=fit->first-static_cast<uint32_t>(capacity);
         // Windows heaps always leave committed memory after a block; game code
         // reads a little past string and file buffers (MW's localized-string
         // strncpy faulted at the next, uncommitted page on several phones).
         // Commit up to a page of the free space that follows as slack.
         memory_.commit(address,capacity+std::min<uint32_t>(remaining,4096u));
-        free_.erase(slot); if(remaining) free_[address+static_cast<uint32_t>(capacity)]=remaining;
+        eraseFree(free_.find(address)); if(remaining) addFree(address+static_cast<uint32_t>(capacity),remaining);
         h->second.blocks[address]={static_cast<uint32_t>(capacity),bytes}; h->second.live+=capacity;
         if(flags&8) std::memset(memory_.address(address,capacity),0,capacity);
         return address;
@@ -94,8 +104,8 @@ public:
         if(adjacent!=free_.end() && adjacent->second>=capacity-old.capacity &&
             (!h->second.maximum || h->second.live+capacity-old.capacity<=h->second.maximum)) {
             uint32_t remaining=adjacent->second-static_cast<uint32_t>(capacity-old.capacity);
-            memory_.commit(address,capacity+std::min<uint32_t>(remaining,4096u)); free_.erase(adjacent);
-            if(remaining) free_[address+static_cast<uint32_t>(capacity)]=remaining;
+            memory_.commit(address,capacity+std::min<uint32_t>(remaining,4096u)); eraseFree(adjacent);
+            if(remaining) addFree(address+static_cast<uint32_t>(capacity),remaining);
             if(flags&8) std::memset(memory_.address(address+old.requested,bytes-old.requested),0,bytes-old.requested);
             h->second.live+=capacity-old.capacity; b->second={static_cast<uint32_t>(capacity),bytes}; return address;
         }
