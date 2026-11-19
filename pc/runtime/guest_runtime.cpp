@@ -958,6 +958,7 @@ void setGuestPad(const float axes[6],uint32_t buttons,int hatX,int hatY){
     std::lock_guard<std::mutex> lock(inputMutex);
     for(unsigned i=0;i<6;++i)inputPad.axis[i]=std::max(-1.f,std::min(1.f,axes[i]));
     inputPad.buttons=buttons;inputPad.hatX=hatX;inputPad.hatY=hatY;
+    inputPadLatched|=buttons;if(hatX)inputHatLatchX=hatX;if(hatY)inputHatLatchY=hatY;
 }
 void setGuestPadConnected(bool connected){
     std::lock_guard<std::mutex> lock(inputMutex);

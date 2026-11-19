@@ -11,6 +11,9 @@ set(GEN "${CMAKE_CURRENT_SOURCE_DIR}/../../build/pc/gen" CACHE PATH "lifted C")
 set(PCRECOMP "${CMAKE_CURRENT_SOURCE_DIR}/../../build/lab/pc/pcrecomp-pinned/runtime" CACHE PATH "pcrecomp runtime")
 set(DXVK_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/../../build/lab/pc/dxvk-source" CACHE PATH "Prepared DXVK native source")
 set(GUEST_OPT "-O1" CACHE STRING "optimisation of the lifted code")
+# GUEST_FAST: the codepdbh/nfsu2-recompiled Android settings (validated there by difftest): guest registers in locals
+# (RECOMP_LOCAL_REGS), non-volatile guest memory, x87 sliding window (must be defined in every unit), hidden visibility.
+option(GUEST_FAST "codepdbh -O2 settings for the lifted code" OFF)
 set(MGR_LAB_INCLUDE "" CACHE FILEPATH "untracked lab include for guest_mgr.inc")
 
 add_library(native_app_glue STATIC "${ANDROID_NDK}/sources/android/native_app_glue/android_native_app_glue.c")
@@ -25,12 +28,19 @@ target_compile_definitions(mgr_guest PRIVATE RECOMP_STRICT_ICALL)
 target_compile_options(mgr_guest PRIVATE ${GUEST_OPT} -w -fwrapv -fno-strict-aliasing -ffp-contract=off -fexceptions
   -include "${RT}/arm64_guest.h")
 set_target_properties(mgr_guest PROPERTIES POSITION_INDEPENDENT_CODE ON)
+if(GUEST_FAST)
+  target_compile_definitions(mgr_guest PRIVATE RECOMP_LOCAL_REGS RECOMP_X87_WINDOW "RECOMP_MEM_QUAL=")
+  target_compile_options(mgr_guest PRIVATE -g0 -fvisibility=hidden)
+endif()
 
 add_library(mgrpc SHARED mgr_android_main.cpp "${RT}/guest_runtime.cpp" "${RT}/d3d9_bridge.cpp" "${RT}/overrides.c"
   $<TARGET_OBJECTS:mgr_guest>)
 target_include_directories(mgrpc PRIVATE "${RT}" "${PCRECOMP}/recomp32" "${PCRECOMP}/win32hle" "${GEN}"
   "${DXVK_SOURCE}/include" "${DXVK_SOURCE}/include/native/windows" "${DXVK_SOURCE}/include/native/directx")
 target_compile_definitions(mgrpc PRIVATE RECOMP_STRICT_ICALL NFS_D3D9_BACKEND)
+if(GUEST_FAST)
+  target_compile_definitions(mgrpc PRIVATE RECOMP_X87_WINDOW)
+endif()
 if(MGR_LAB_INCLUDE)
   target_compile_definitions(mgrpc PRIVATE "MGR_LAB_INCLUDE=\"${MGR_LAB_INCLUDE}\"")
 endif()

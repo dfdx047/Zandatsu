@@ -31,6 +31,8 @@ struct InputObject {
 // stick, Rz centred; buttons A B X Y LB RB Back Start LS RS; one POV hat.
 struct InputPad {float axis[6]{};uint32_t buttons=0;int hatX=0,hatY=0;};
 InputPad inputPad;bool inputPadConnected=false;
+// Presses shorter than one game poll (a tap, `adb input keyevent`) are held until the guest has read them once.
+uint32_t inputPadLatched=0;int inputHatLatchX=0,inputHatLatchY=0;
 std::atomic<int> inputPadAcquired{0};
 std::array<uint8_t,16> directInputGuid(uint32_t data1){
     std::array<uint8_t,16> guid={0,0,0,0,0xf3,0xc9,0xcf,0x11,0xbf,0xc7,0x44,0x45,0x53,0x54,0,0};

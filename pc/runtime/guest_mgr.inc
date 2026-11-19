@@ -304,8 +304,11 @@ XInputSnapshot gamepadSnapshot(){
     // guest_input.inc keeps the pad as DirectInput sees it: buttons A B X Y LB RB Back Start LS RS (bits 0-9), axes
     // X Y Z(triggers: LT negative, RT positive) Rx Ry Rz in -1..1, Y down positive; XInput wants Y up positive.
     static const uint16_t bit[10]={0x1000,0x2000,0x4000,0x8000,0x100,0x200,0x20,0x10,0x40,0x80};
-    XInputSnapshot s{};for(int i=0;i<10;++i)if(inputPad.buttons&(1u<<i))s.buttons|=bit[i];
-    if(inputPad.hatY<0)s.buttons|=1;if(inputPad.hatY>0)s.buttons|=2;if(inputPad.hatX<0)s.buttons|=4;if(inputPad.hatX>0)s.buttons|=8;
+    std::lock_guard<std::mutex> lock(inputMutex);
+    uint32_t held=inputPad.buttons|inputPadLatched;int hx=inputPad.hatX?inputPad.hatX:inputHatLatchX,hy=inputPad.hatY?inputPad.hatY:inputHatLatchY;
+    inputPadLatched=0;inputHatLatchX=inputHatLatchY=0;
+    XInputSnapshot s{};for(int i=0;i<10;++i)if(held&(1u<<i))s.buttons|=bit[i];
+    if(hy<0)s.buttons|=1;if(hy>0)s.buttons|=2;if(hx<0)s.buttons|=4;if(hx>0)s.buttons|=8;
     auto axis=[](float v,bool flip){v=std::clamp(flip?-v:v,-1.f,1.f);return int16_t(v*32767.f);};
     s.lx=axis(inputPad.axis[0],false);s.ly=axis(inputPad.axis[1],true);s.rx=axis(inputPad.axis[3],false);s.ry=axis(inputPad.axis[4],true);
     float z=inputPad.axis[2];s.leftTrigger=uint8_t(std::clamp(-z,0.f,1.f)*255.f);s.rightTrigger=uint8_t(std::clamp(z,0.f,1.f)*255.f);
@@ -315,6 +318,7 @@ uint32_t xinputPacket=0;
 void xinputGetState(){
     uint32_t user=arg(0),state=arg(1);if(user!=0||!gamepadConnected()){ret(1167,2);return;}   // ERROR_DEVICE_NOT_CONNECTED
     XInputSnapshot s=gamepadSnapshot();write32(state,++xinputPacket);
+    static uint16_t lastButtons=0xffff;if(s.buttons!=lastButtons){lastButtons=s.buttons;static int n=0;if(n++<60)NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"MGR","XInputGetState buttons %04x lx %d ly %d",s.buttons,s.lx,s.ly);}
     uint16_t buttons=s.buttons;std::memcpy(ptr(state+4,2),&buttons,2);
     uint8_t lt=s.leftTrigger,rt=s.rightTrigger;std::memcpy(ptr(state+6,1),&lt,1);std::memcpy(ptr(state+7,1),&rt,1);
     int16_t axes[4]={s.lx,s.ly,s.rx,s.ry};std::memcpy(ptr(state+8,8),axes,8);ret(0,2);
