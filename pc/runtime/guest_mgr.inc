@@ -342,6 +342,8 @@ void coCreateInstance(){
     auto clsid=guidString(arg(0));uint32_t out=arg(4);
     // XAudio2 2.7 (June 2010 SDK): CLSID_XAudio2 5A508685-A254-4FBA-9B82-9A24B00306AF, debug DB05EA35-0329-4D4B-A53A-6DEAD03D3852
     if(clsid=="5A508685-A254-4FBA-9B82-9A24B00306AF"||clsid=="DB05EA35-0329-4D4B-A53A-6DEAD03D3852"){ret(createXAudio2(out),5);return;}
+    // CLSID_DirectSound8 (Wwise's sink): uninitialized object, the guest calls IDirectSound8::Initialize next.
+    if(clsid=="3901CC3F-84B5-4FA4-BA35-AA8172B8A09B"&&out){write32(out,createSoundObject(1));ret(0,5);return;}
     NFS_RUNTIME_LOG(ANDROID_LOG_WARN,"MGR","CoCreateInstance %s iid %s: class not registered",clsid.c_str(),guidString(arg(3)).c_str());
     if(out)write32(out,0);ret(0x80040154u,5);
 }

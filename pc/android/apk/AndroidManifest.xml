@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- MGR:R PC port lab APK: NativeActivity + loader only (game library is pushed to the private files dir). -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.dfdx047.zandatsu.pclab" android:versionCode="1" android:versionName="0.1-lab">
+    <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="30" />
+    <uses-feature android:glEsVersion="0x00030000" />
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    <application android:label="Zandatsu PC (lab)" android:hasCode="false" android:debuggable="true"
+        android:extractNativeLibs="true" android:requestLegacyExternalStorage="true">
+        <activity android:name="android.app.NativeActivity" android:exported="true"
+            android:screenOrientation="sensorLandscape" android:configChanges="orientation|screenSize|keyboardHidden|keyboard|navigation|uiMode|screenLayout|smallestScreenSize"
+            android:theme="@android:style/Theme.NoTitleBar.Fullscreen">
+            <meta-data android:name="android.app.lib_name" android:value="mgrlab" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

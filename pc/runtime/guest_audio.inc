@@ -113,7 +113,10 @@ uint32_t createSoundObject(uint32_t kind,uint32_t flags=0){
 uint16_t soundRead16(uint32_t address){uint16_t value;std::memcpy(&value,ptr(address,2),2);return value;}
 bool soundFormat(uint32_t address,PcmVoice& voice){
     if(!address)return false;unsigned channels=soundRead16(address+2),rate=read32(address+4),bits=soundRead16(address+14);
-    if(soundRead16(address)!=1||(channels!=1&&channels!=2)||(bits!=8&&bits!=16)||rate<100||rate>200000)return false;
+    // WAVE_FORMAT_EXTENSIBLE (0xFFFE) with the PCM subformat is plain PCM for us (Wwise's DirectSound sink uses it).
+    uint16_t tag=soundRead16(address);
+    if(tag==0xfffe&&soundRead16(address+16)>=22&&read32(address+24)==1&&read32(address+28)==0x00100000u)tag=1;
+    if(tag!=1||(channels!=1&&channels!=2)||(bits!=8&&bits!=16)||rate<100||rate>200000)return false;
     if(soundRead16(address+12)!=channels*(bits/8)||read32(address+8)!=rate*channels*(bits/8))return false;
     voice.channels=channels;voice.rate=voice.frequency=rate;voice.bits=bits;return true;
 }
@@ -134,7 +137,10 @@ void soundDispatch(){
         const std::array<uint8_t,16> dsGuid={0x83,0xfa,0x9a,0x27,0x81,0x49,0xce,0x11,0xa5,0x21,0,0x20,0xaf,0x0b,0xe5,0x60};
         const std::array<uint8_t,16> bufferGuid={0x85,0xfa,0x9a,0x27,0x81,0x49,0xce,0x11,0xa5,0x21,0,0x20,0xaf,0x0b,0xe5,0x60};
         const std::array<uint8_t,16> unknown={0,0,0,0,0,0,0,0,0xc0,0,0,0,0,0,0,0x46};
-        if(!inputGuidEquals(arg(1),kind==1?dsGuid:bufferGuid)&&!inputGuidEquals(arg(1),unknown)){ret(0x80004002,3);return;}
+        // IDirectSound8 C50A7E93-F395-4834-9EF6-7FA99DE50966, IDirectSoundBuffer8 6825A449-7524-4D82-920F-50E36AB3AB1E
+        const std::array<uint8_t,16> ds8Guid={0x93,0x7e,0x0a,0xc5,0x95,0xf3,0x34,0x48,0x9e,0xf6,0x7f,0xa9,0x9d,0xe5,0x09,0x66};
+        const std::array<uint8_t,16> buffer8Guid={0x49,0xa4,0x25,0x68,0x24,0x75,0x82,0x4d,0x92,0x0f,0x50,0xe3,0x6a,0xb3,0xab,0x1e};
+        if(!inputGuidEquals(arg(1),kind==1?dsGuid:bufferGuid)&&!inputGuidEquals(arg(1),kind==1?ds8Guid:buffer8Guid)&&!inputGuidEquals(arg(1),unknown)){ret(0x80004002,3);return;}
         ++object.references;write32(arg(2),self);ret(0,3);return;
     }
     if(method==1){ret(++object.references,1);return;}
@@ -155,8 +161,12 @@ void soundDispatch(){
             // 0x147 omitted PRIMARY16BIT, SECONDARY16BIT and SECONDARYSTEREO.
             // A Windows DirectSound probe reports 0xF1F for the same formats.
             write32(out+4,0xf1f);write32(out+8,100);write32(out+12,200000);write32(out+16,1);ret(0,2);return;}
-        case 6:if(!windows.count(arg(1))||arg(2)<1||arg(2)>3){ret(0x80070057,3);return;}ret(0,3);return;
+        // SetCooperativeLevel: Wwise passes the window it got from GetForegroundWindow (or a null one); accept any.
+        case 6:if(!windows.count(arg(1)))NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"MGR","DirectSound SetCooperativeLevel hwnd=%08x level=%u (unknown window, accepted)",arg(1),arg(2));
+            if(arg(2)<1||arg(2)>3){ret(0x80070057,3);return;}ret(0,3);return;
         case 8:if(!arg(1)){ret(0x80004003,2);return;}write32(arg(1),4);ret(0,2);return; // Stereo speaker configuration.
+        case 9:ret(0,2);return; // SetSpeakerConfig: the mixer is stereo whatever the guest asks.
+        case 10:if(arg(1)){ret(0x88780078,2);return;}ret(startSoundStream()?0:0x88780078,2);return; // Initialize (CoCreateInstance path), default device only.
         default:throw GuestStop("DirectSound interface method pending: "+std::to_string(method));
     }}
     auto voice=object.voice;if(!voice)throw GuestStop("DirectSound buffer missing PCM voice");
