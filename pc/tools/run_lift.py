@@ -9,6 +9,7 @@ Adapted from codepdbh/nfsu2-recompiled scripts/run_lift.py (MIT); see CREDITS.md
       for the whole discovery again (about 4 minutes on the MGR:R exe).
 
   run_lift.py lift  <analysis.exe> <catalog.json> <outdir> [--split N] [--names names.json] [--prefix P]
+  run_lift.py patch <analysis.exe> <catalog.json> [--add VA,..] [--drop VA,..]  (plus pc/config/catalog_patch.txt)
       Lift every catalogued function with lift32.Lifter and write:
         recomp_NNNN.c          the functions, N per file
         recomp_funcs.h         declarations
@@ -61,6 +62,38 @@ def cmd_catalog(exe, seeds_path, out):
         })
     json.dump(doc, open(out, "w"))
     print(f"[*] wrote {out}")
+
+
+def fd_of(f):
+    return {"address": f.address, "end": f.end, "size": f.size,
+            "entry_kind": f.entry_kind, "is_thunk": f.is_thunk,
+            "jump_targets": sorted(f.jump_targets), "calls_to": sorted(f.calls_to),
+            "blocks": [[b.start, b.end, sorted(set(b.successors)), int(b.is_exit)]
+                       for b in sorted(f.blocks.values(), key=lambda b: b.start)]}
+
+
+def cmd_patch(exe, catalog, add, drop):
+    """Fix a catalog without a new sweep: drop false function starts (data decoded as code that swallowed a real
+    function) and add starts found at run time (ICALL unresolved), with their direct callees that are missing."""
+    info = analyze_pe(exe)
+    iat = build_iat_map(info)
+    dis = Disassembler(open(exe, "rb").read(), info.image_base, info.sections)
+    doc = json.load(open(catalog))
+    funcs = {fd["address"]: fd for fd in doc["functions"] if fd["address"] not in drop}
+    todo = [a for a in add if a not in funcs]
+    added = 0
+    while todo:
+        a = todo.pop()
+        if a in funcs or not (info.code_start <= a < info.code_end):
+            continue
+        f = dis.disassemble_function(a, iat)
+        if f is None:
+            print(f"[!] 0x{a:08X}: not disassembled"); continue
+        funcs[a] = fd_of(f); added += 1
+        todo += [c for c in f.calls_to if c not in funcs]
+    doc["functions"] = [funcs[a] for a in sorted(funcs)]
+    json.dump(doc, open(catalog, "w"))
+    print(f"[*] dropped {len(drop)}, added {added}: {len(funcs)} functions")
 
 
 def rebuild(md, img, base, fd):
@@ -248,6 +281,12 @@ if __name__ == "__main__":
         prefix = a[a.index("--prefix") + 1] if "--prefix" in a else ""
         shard = tuple(int(x) for x in a[a.index("--shard") + 1].split("/")) if "--shard" in a else None
         cmd_lift(a[1], a[2], a[3], split, names, prefix, shard)
+    elif a and a[0] == "patch":
+        lst = lambda flag: [int(x, 16) for x in a[a.index(flag) + 1].split(",") if x] if flag in a else []
+        cfg = read_va_list(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "config", "catalog_patch.txt"))
+        add = lst("--add") + [va for va, why in cfg.items() if why.startswith("add")]
+        drop = set(lst("--drop") + [va for va, why in cfg.items() if why.startswith("drop")])
+        cmd_patch(a[1], a[2], add, drop)
     elif a and a[0] == "index":
         cmd_index(a[1], a[2], a[3], a[a.index("--prefix") + 1] if "--prefix" in a else "")
     else:

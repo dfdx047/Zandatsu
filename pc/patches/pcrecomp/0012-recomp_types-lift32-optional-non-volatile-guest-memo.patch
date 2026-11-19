@@ -1,0 +1,114 @@
+From f3e752cc9a8c47326083f4b7b939be5b1220577a Mon Sep 17 00:00:00 2001
+From: sistemas3cecasem <paukarvv@gmail.com>
+Date: Fri, 9 Oct 2026 09:04:03 -0400
+Subject: [PATCH 12/14] recomp_types/lift32: optional non-volatile guest memory
+ (RECOMP_MEM_QUAL) and local registers (RECOMP_LOCAL_REGS) in lift_function
+
+- RECOMP_MEM_QUAL qualifies every MEMn access (default volatile, as before).
+  An optimising host defines it empty and builds with -fno-strict-aliasing;
+  non-x86 hosts get byte-aligned access types.
+- lift_function now emits RECOMP_REGS_LOCALS before RECOMP_ENTER and every
+  return as RECOMP_RETURN(), so RECOMP_LOCAL_REGS keeps the eight registers
+  in locals written back at calls and exits. Both macros are empty by default:
+  the default build is unchanged.
+
+Validated on 1,475 real NFSU2 function cases (clang -O2 -fwrapv
+-fno-strict-aliasing, non-volatile memory, local registers): identical
+results to the MSVC /O1 build.
+---
+ runtime/recomp32/recomp_types.h | 40 ++++++++++++++++++++++++++++-----
+ tools/lift/lift32.py            |  9 +++++++-
+ 2 files changed, 42 insertions(+), 7 deletions(-)
+
+diff --git a/runtime/recomp32/recomp_types.h b/runtime/recomp32/recomp_types.h
+index 97746b2..01c8569 100644
+--- a/runtime/recomp32/recomp_types.h
++++ b/runtime/recomp32/recomp_types.h
+@@ -108,6 +108,9 @@ extern const uint32_t recomp_dispatch_count;
+ #define RECOMP_REGS_OUT() ((void)0)
+ #define RECOMP_REGS_IN() ((void)0)
+ #endif
++/* The one way out of a lifted function body: the registers go back to the
++ * globals first when they are locals. */
++#define RECOMP_RETURN() do { RECOMP_REGS_OUT(); return; } while (0)
+ 
+ #if defined(RECOMP_GENERATED_CODE) && !defined(RECOMP_LOCAL_REGS)
+ #define eax g_eax
+@@ -177,12 +180,37 @@ extern uint32_t g_gs_base;
+ #define FS_BASE  g_fs_base
+ #define GS_BASE  g_gs_base
+ 
+-#define MEM8(addr)   (*(volatile uint8_t  *)ADDR(addr))
+-#define MEM16(addr)  (*(volatile uint16_t *)ADDR(addr))
+-#define MEM32(addr)  (*(volatile uint32_t *)ADDR(addr))
+-#define MEM64(addr)  (*(volatile uint64_t *)ADDR(addr))
+-#define MEMF(addr)   (*(volatile float    *)ADDR(addr))
+-#define MEMD(addr)   (*(volatile double   *)ADDR(addr))
++/* RECOMP_MEM_QUAL qualifies every guest memory access. `volatile` (the
++ * default) keeps each access exactly as the x86 performed it, which is safe
++ * and slow: no load is combined, kept in a register or reordered. A host that
++ * compiles the lifted code with optimisation can define it empty -- the
++ * lifted loops still make an opaque call per back-edge (RECOMP_BACKEDGE), so a
++ * guest spin-wait keeps reloading its flag -- and should then also build with
++ * -fno-strict-aliasing, since guest memory is one untyped byte array.
++ * Non-x86 hosts get byte-aligned access types: guest data is not aligned the
++ * way the host compiler would otherwise assume. */
++#ifndef RECOMP_MEM_QUAL
++#define RECOMP_MEM_QUAL volatile
++#endif
++#if (defined(__clang__) || defined(__GNUC__)) && !defined(__i386__) && !defined(__x86_64__)
++typedef uint16_t __attribute__((aligned(1))) recomp_u16_una;
++typedef uint32_t __attribute__((aligned(1))) recomp_u32_una;
++typedef uint64_t __attribute__((aligned(1))) recomp_u64_una;
++typedef float    __attribute__((aligned(1))) recomp_f32_una;
++typedef double   __attribute__((aligned(1))) recomp_f64_una;
++#else
++typedef uint16_t recomp_u16_una;
++typedef uint32_t recomp_u32_una;
++typedef uint64_t recomp_u64_una;
++typedef float    recomp_f32_una;
++typedef double   recomp_f64_una;
++#endif
++#define MEM8(addr)   (*(RECOMP_MEM_QUAL uint8_t        *)ADDR(addr))
++#define MEM16(addr)  (*(RECOMP_MEM_QUAL recomp_u16_una *)ADDR(addr))
++#define MEM32(addr)  (*(RECOMP_MEM_QUAL recomp_u32_una *)ADDR(addr))
++#define MEM64(addr)  (*(RECOMP_MEM_QUAL recomp_u64_una *)ADDR(addr))
++#define MEMF(addr)   (*(RECOMP_MEM_QUAL recomp_f32_una *)ADDR(addr))
++#define MEMD(addr)   (*(RECOMP_MEM_QUAL recomp_f64_una *)ADDR(addr))
+ 
+ /* Set 32-bit values in memory (for rep stosd) */
+ static inline void MEMSET32(void* dst, uint32_t val, uint32_t count) {
+diff --git a/tools/lift/lift32.py b/tools/lift/lift32.py
+index 0e03df1..839ac9a 100644
+--- a/tools/lift/lift32.py
++++ b/tools/lift/lift32.py
+@@ -7,6 +7,7 @@ PUSH32/POP32 macros, MEM* memory access, pattern-matched condition
+ generation from flag-setters to flag-consumers.
+ """
+ 
++import re
+ from dataclasses import dataclass, field
+ from typing import Optional
+ from capstone.x86 import (
+@@ -2154,6 +2155,9 @@ class Lifter:
+         lines.append(f"    /* _st[8]/_fp_top/_fpu_cw are GLOBAL (shared x87 stack) */")
+         # Records the VA of the function currently running, so a crash names it.
+         # A plain global store; the ring-buffer half only exists under -DRECOMP_TRACE.
++        # RECOMP_LOCAL_REGS keeps the eight registers in locals of this function
++        # (empty otherwise); declared before RECOMP_ENTER, which may call out.
++        lines.append(f"    RECOMP_REGS_LOCALS")
+         lines.append(f"    RECOMP_ENTER(0x{func.address:08X}u);")
+         lines.append(f"")
+ 
+@@ -2200,4 +2204,7 @@ class Lifter:
+             lines.append("")
+ 
+         lines.append("}")
+-        return '\n'.join(lines)
++        # Every exit writes local registers back (RECOMP_RETURN is a plain
++        # `return` unless RECOMP_LOCAL_REGS). Rewritten on the text so that no
++        # emitter of a `return;` can forget it.
++        return re.sub(r'\breturn;', 'RECOMP_RETURN();', '\n'.join(lines))
+-- 
+2.52.0.windows.1
+

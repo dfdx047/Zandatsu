@@ -98,7 +98,7 @@ void createThread(){
     if(!recomp_lookup(thread->start)){lastError=87;ret(0,6);return;}
     thread->stack=allocate(4u<<20);thread->tib=allocate(4096);
     write32(thread->tib,UINT32_MAX);write32(thread->tib+4,thread->stack+(4u<<20));write32(thread->tib+8,thread->stack);
-    write32(thread->tib+0x18,thread->tib);write32(thread->tib+0x20,1);write32(thread->tib+0x24,thread->id);
+    write32(thread->tib+0x18,thread->tib);write32(thread->tib+0x20,1);write32(thread->tib+0x24,thread->id);setupStaticTls(thread->tib);
     pthread_attr_t attributes;int error=pthread_attr_init(&attributes);
     if(!error){error=pthread_attr_setstacksize(&attributes,64u<<20);if(!error)error=pthread_create(&thread->native,&attributes,guestThreadEntry,thread.get());pthread_attr_destroy(&attributes);}
     if(error){heaps->free(GuestHeaps::process,thread->stack);heaps->free(GuestHeaps::process,thread->tib);lastError=8;ret(0,6);return;}
@@ -209,7 +209,7 @@ bool startTimerWorker(){
     auto thread=std::make_shared<GuestThread>();thread->id=nextThreadId++;thread->timer=true;
     thread->stack=allocate(4u<<20);thread->tib=allocate(4096);
     write32(thread->tib,UINT32_MAX);write32(thread->tib+4,thread->stack+(4u<<20));write32(thread->tib+8,thread->stack);
-    write32(thread->tib+0x18,thread->tib);write32(thread->tib+0x20,1);write32(thread->tib+0x24,thread->id);
+    write32(thread->tib+0x18,thread->tib);write32(thread->tib+0x20,1);write32(thread->tib+0x24,thread->id);setupStaticTls(thread->tib);
     pthread_attr_t attributes;int error=pthread_attr_init(&attributes);
     if(!error){error=pthread_attr_setstacksize(&attributes,64u<<20);if(!error)error=pthread_create(&thread->native,&attributes,guestThreadEntry,thread.get());pthread_attr_destroy(&attributes);}
     if(error){heaps->free(GuestHeaps::process,thread->stack);heaps->free(GuestHeaps::process,thread->tib);return false;}

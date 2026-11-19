@@ -8,7 +8,11 @@
 #undef None
 #undef Always
 #undef Status
+// Linux bench: display==nullptr means a VK_EXT_headless_surface (NFS_D3D9_HEADLESS=1), used where X11 presentation
+// is broken; frames are then seen only through the bridge's backbuffer capture.
 struct ANativeWindow {Display* display;Window window;uint32_t width,height;};
+#include <cstdlib>
+static bool headlessWsi(){return std::getenv("NFS_D3D9_HEADLESS")!=nullptr;}
 #endif
 #include <mutex>
 #include <vector>
@@ -85,11 +89,12 @@ extern "C" void dxvkAndroidSetWindow(ANativeWindow* window){
 }
 #ifndef __ANDROID__
 extern "C" ANativeWindow* dxvkCreateTestWindow(){
+    if(headlessWsi())return new ANativeWindow{nullptr,0,1280,720};
     XInitThreads();auto display=XOpenDisplay(nullptr);if(!display)return nullptr;
     Window window=XCreateSimpleWindow(display,DefaultRootWindow(display),0,0,1280,720,0,0,0);
     XMapWindow(display,window);XSync(display,False);return new ANativeWindow{display,window,1280,720};
 }
-extern "C" void dxvkDestroyTestWindow(ANativeWindow* window){if(!window)return;XDestroyWindow(window->display,window->window);XCloseDisplay(window->display);delete window;}
+extern "C" void dxvkDestroyTestWindow(ANativeWindow* window){if(!window)return;if(!window->display){delete window;return;}XDestroyWindow(window->display,window->window);XCloseDisplay(window->display);delete window;}
 #endif
 namespace dxvk {
 DxvkPlatformExts DxvkPlatformExts::s_instance;
@@ -98,7 +103,7 @@ DxvkNameSet DxvkPlatformExts::getInstanceExtensions(){DxvkNameSet names;names.ad
 #ifdef __ANDROID__
 names.add(VK_KHR_ANDROID_SURFACE_EXTENSION_NAME);
 #else
-names.add(VK_KHR_XLIB_SURFACE_EXTENSION_NAME);
+if(headlessWsi())names.add(VK_EXT_HEADLESS_SURFACE_EXTENSION_NAME);else names.add(VK_KHR_XLIB_SURFACE_EXTENSION_NAME);
 #endif
 return names;}
 DxvkNameSet DxvkPlatformExts::getDeviceExtensions(uint32_t){return {};}
@@ -117,6 +122,12 @@ VkResult createSurface(HWND window,const Rc<vk::InstanceFn>& instance,VkSurfaceK
     if(result==VK_SUCCESS){ANativeWindow_acquire(currentWindow);surfaceWindows.emplace_back(*surface,currentWindow);}
     return result;
 #else
+    if(!currentWindow->display){
+        auto headless=reinterpret_cast<PFN_vkCreateHeadlessSurfaceEXT>(vkGetInstanceProcAddr(instance->instance(),"vkCreateHeadlessSurfaceEXT"));
+        if(!headless)return VK_ERROR_EXTENSION_NOT_PRESENT;
+        VkHeadlessSurfaceCreateInfoEXT info{VK_STRUCTURE_TYPE_HEADLESS_SURFACE_CREATE_INFO_EXT};
+        return headless(instance->instance(),&info,nullptr,surface);
+    }
     auto create=reinterpret_cast<PFN_vkCreateXlibSurfaceKHR>(vkGetInstanceProcAddr(instance->instance(),"vkCreateXlibSurfaceKHR"));
     if(!create)return VK_ERROR_EXTENSION_NOT_PRESENT;
     VkXlibSurfaceCreateInfoKHR info{VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR};info.dpy=currentWindow->display;info.window=currentWindow->window;

@@ -154,6 +154,10 @@ std::vector<Import> imports;
 std::map<std::string,uint32_t> modules;
 thread_local uint32_t lastError=0;
 uint32_t imageBase{}, imageSize{}, entry{};
+// Static TLS (__declspec(thread)) from the PE TLS directory: template [tlsStart,tlsEnd) + zero fill, index at tlsIndexVa.
+// Each guest thread gets its block and TEB+0x2C (ThreadLocalStoragePointer) = array whose slot 0 points at it.
+uint32_t tlsStart{}, tlsEnd{}, tlsZeroFill{}, tlsIndexVa{};
+void setupStaticTls(uint32_t tib);
 uint32_t resourceRva{},resourceSize{};
 // Set and read under the machine lock with no yield in between (lookup -> call):
 // plain globals, not thread_local, which cost a TLS descriptor call per COM call.
@@ -345,6 +349,10 @@ void d3dDispatch(){
     std::chrono::steady_clock::time_point bridgeStart;if(timed)bridgeStart=std::chrono::steady_clock::now();uint32_t result;
     try{result=dispatchGuestD3D9(token,args,&count);}catch(...){
         NFS_RUNTIME_LOG(ANDROID_LOG_ERROR,"NFSU2","D3D9 guest caller=%08x stack=%08x token=%08x self=%08x",g_cur_func,g_esp,token,args[0]);throw;}
+    // Failed D3D9 calls (first 64): the game often treats one as "stop loading this pack" without saying so.
+    if(int32_t(result)<0&&token!=0x7e002110u){static uint32_t failures=0;if(failures++<64)
+        NFS_RUNTIME_LOG(ANDROID_LOG_WARN,"MGR","D3D9 call failed: token=%08x (slot %u) result=%08x caller=%08x args %08x %08x %08x %08x %08x %08x",
+            token,((token-0x7e000000u)/16u)&255u,result,g_cur_func,args[1],args[2],args[3],args[4],args[5],args[6]);}
     // Per method (kind*256+method), to name the calls that block the frame.
     static std::array<std::chrono::nanoseconds,4096> methodTime{};
     if(timed){auto spent=std::chrono::steady_clock::now()-bridgeStart;bridgeTime+=token==0x7e002110u?spent:spent*64;presentTime+=token==0x7e002110u?spent:std::chrono::nanoseconds{};
@@ -533,8 +541,8 @@ void loadImage(const char* path) {
         nt.FileHeader.SizeOfOptionalHeader<sizeof(pe_opt_header32)) throw GuestStop("Expected x86 PE32");
     auto opt=nt.OptionalHeader; imageBase=opt.ImageBase; imageSize=opt.SizeOfImage;
     resourceRva=opt.DataDirectory[2].VirtualAddress;resourceSize=opt.DataDirectory[2].Size;
-    if (imageBase!=0x400000 || imageSize!=0x532000 || opt.AddressOfEntryPoint!=0x35bcc7)
-        throw GuestStop("PE layout does not match generated NFSU2 code");
+    if (imageBase!=0x400000 || imageSize!=0x21df000 || opt.AddressOfEntryPoint!=0xbdeb47)
+        throw GuestStop("PE layout does not match the lifted MGR:R PC exe");
     memory->commit(imageBase,imageSize);
     imageRange(0,opt.SizeOfHeaders);
     if (opt.SizeOfHeaders>file.size()) throw GuestStop("Truncated PE headers");
@@ -547,12 +555,24 @@ void loadImage(const char* path) {
         std::memcpy(ptr(imageBase+sec.VirtualAddress,sec.SizeOfRawData),file.data()+sec.PointerToRawData,sec.SizeOfRawData);
     }
     entry=imageBase+opt.AddressOfEntryPoint;
+    if(auto tls=opt.DataDirectory[9];tls.VirtualAddress&&tls.Size>=24){
+        uint32_t d=imageBase+tls.VirtualAddress;tlsStart=read32(d);tlsEnd=read32(d+4);tlsIndexVa=read32(d+8);tlsZeroFill=read32(d+16);
+        if(read32(d+12)&&read32(read32(d+12)))throw GuestStop("PE TLS callbacks are not supported");
+        if(tlsIndexVa)write32(tlsIndexVa,0);
+        NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"MGR","Static TLS: template %08x-%08x zero fill %u, index at %08x",tlsStart,tlsEnd,tlsZeroFill,tlsIndexVa);
+    }
     // Guest VAs stay fixed; the 64-bit host base is ADDR's offset. No PE
     // relocation toward the host address and no executable x86 mapping.
     auto directory=opt.DataDirectory[PE_DIR_IMPORT];
     bindImports(imageBase,imageSize,directory.VirtualAddress,directory.Size);
     NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSU2","Guest PE mapped: base=%08x size=%08x entry=%08x; %zu imports bound; %u lifted functions",
         imageBase,imageSize,entry,imports.size(),recomp_dispatch_count);
+}
+void setupStaticTls(uint32_t tib){
+    if(!tlsIndexVa)return;
+    uint32_t size=tlsEnd-tlsStart,block=allocate(size+tlsZeroFill+16),array=allocate(16);
+    std::memcpy(ptr(block,size),ptr(tlsStart,size),size);if(tlsZeroFill)std::memset(ptr(block+size,tlsZeroFill),0,tlsZeroFill);
+    write32(array,block);write32(tib+0x2c,array);
 }
 uint32_t callGuest(uint32_t va, const uint32_t* args, size_t count, uint32_t cleanup, bool threadStart) {
     State saved; saved.save();
@@ -741,10 +761,11 @@ namespace {
 // open-addressing table (built once, read-only afterwards) instead of a binary
 // search over ~28k entries with a cache miss per step.
 struct DispatchHash {
-    static constexpr uint32_t slots=1u<<16;
+    // MGR:R PC: 130,891 lifted functions (NFSU2 had 27,742): 2^19 slots keeps the load under 1/4.
+    static constexpr uint32_t bits=19,slots=1u<<bits;
     std::unique_ptr<uint32_t[]> keys{new uint32_t[slots]()};
     std::unique_ptr<recomp_func_t[]> funcs{new recomp_func_t[slots]()};
-    static uint32_t slot(uint32_t va){return (va*0x9e3779b1u)>>16;}
+    static uint32_t slot(uint32_t va){return (va*0x9e3779b1u)>>(32-bits);}
     void add(const recomp_dispatch_entry_t* table,uint32_t count){
         for(uint32_t i=0;i<count;++i){
             uint32_t va=table[i].address,s=slot(va);
@@ -754,7 +775,7 @@ struct DispatchHash {
         }
     }
     DispatchHash(){
-        static_assert(slots>2*(27742+1531),"dispatch hash load factor");
+        if(recomp_dispatch_count*2>=slots)throw GuestStop("Dispatch hash too small for "+std::to_string(recomp_dispatch_count)+" functions");
         add(recomp_dispatch_table,recomp_dispatch_count);
 #ifdef NFS_SERVER_DLL
         add(server_recomp_dispatch_table,server_recomp_dispatch_count);
@@ -797,7 +818,11 @@ extern "C" recomp_func_t recomp_lookup_import(uint32_t va) {
     uint32_t index=(va-importBase)/16;
     if (index>=imports.size()) return nullptr;
     lastImport=va;
-    if(++imports[index].calls<=3)
+    // MGR_IMPORT_TRACE=1 logs every call with its first stack arguments (bench diagnostics; very verbose).
+    static const bool traceAll=std::getenv("MGR_IMPORT_TRACE")!=nullptr;
+    if(traceAll&&imports[index].calls>=3){++imports[index].calls;
+        NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"TRACE","%s from %08x args %08x %08x %08x %08x",imports[index].name.c_str(),g_cur_func,arg(0),arg(1),arg(2),arg(3));}
+    else if(++imports[index].calls<=3)
         NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSU2","Guest import %s from %08x",imports[index].name.c_str(),g_cur_func);
     return imports[index].function;
 }
@@ -883,14 +908,15 @@ std::string connectGuestRuntime(const char* executable) {
         memory->commit(stackBase,stackSize); memory->commit(tib,0x1000);
         State fresh; fresh.esp=stackBase+stackSize-64; fresh.fs=tib; fresh.load();
         write32(tib,0xffffffff); write32(tib+4,stackBase+stackSize); write32(tib+8,stackBase); write32(tib+0x18,tib);
-        testLiftedCopy();
+        setupStaticTls(tib);
+        // testLiftedCopy() calls NFSU2's memcpy at 0x401000: not valid for MGR:R
         testGuestScheduling();
         testGuestInput();
         testGuestSoundCaps();
-        testGuestTimers();
-        testGuestFileTime();
-        testGuestCriticalSections();
-        testGeneratedCallbacks();
+        // testGuestTimers() needs imports the MGR exe does not have
+        // testGuestFileTime() needs imports the MGR exe does not have
+        // testGuestCriticalSections() needs imports the MGR exe does not have
+        // testGeneratedCallbacks() depends on NFSU2 lifted code
         // Restore a clean CPU state before executing the real CRT entry.
         fresh.load();
         NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSU2","Entering actual lifted CRT entry %08x",entry);

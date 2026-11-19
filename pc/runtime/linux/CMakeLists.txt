@@ -19,7 +19,13 @@ add_executable(mgr_pc main.cpp "${PORT}/guest_runtime.cpp" "${PORT}/overrides.c"
 target_compile_features(mgr_pc PRIVATE cxx_std_17)
 target_compile_definitions(mgr_pc PRIVATE RECOMP_STRICT_ICALL NFS_D3D9_BACKEND)
 target_include_directories(mgr_pc PRIVATE "${PORT}" "${RT}/recomp32" "${RT}/win32hle" "${GEN}")
-target_include_directories(mgr_pc SYSTEM PRIVATE "${DXVK_SOURCE}/include/native/windows" "${DXVK_SOURCE}/include/native/directx")
+target_include_directories(mgr_pc SYSTEM PRIVATE "${DXVK_SOURCE}/include" "${DXVK_SOURCE}/include/native/windows" "${DXVK_SOURCE}/include/native/directx")
 add_library(native_d3d9 SHARED IMPORTED)
 set_target_properties(native_d3d9 PROPERTIES IMPORTED_LOCATION "${DXVK_LIBRARY}")
 target_link_libraries(mgr_pc PRIVATE native_d3d9 m pthread)
+
+# Local, untracked runtime additions (never in git), e.g. -DMGR_LAB_INCLUDE=/abs/path/lab.inc
+set(MGR_LAB_INCLUDE "" CACHE FILEPATH "untracked lab include for guest_mgr.inc")
+if(MGR_LAB_INCLUDE)
+  target_compile_definitions(mgr_pc PRIVATE "MGR_LAB_INCLUDE=\"${MGR_LAB_INCLUDE}\"")
+endif()

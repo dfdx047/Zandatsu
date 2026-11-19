@@ -4,8 +4,11 @@
 #include "recomp_types.h"
 #include "nfs_runtime.h"
 
+void mgr_game_log(void);   /* guest_mgr.inc */
+
 static const struct { uint32_t va; nfs_override_fn fn; } k_overrides[] = {
-    { 0u, 0 },
+    { 0x00DD5650u, mgr_game_log },   /* game debug print (empty in retail) */
+    { 0x00DD56A0u, mgr_game_log },   /* game debug print, second variant (empty in retail) */
 };
 
 nfs_override_fn nfs_override_lookup(uint32_t va) {
@@ -14,4 +17,4 @@ nfs_override_fn nfs_override_lookup(uint32_t va) {
     return 0;
 }
 
-int nfs_override_count(void) { return 0; }
+int nfs_override_count(void) { return (int)(sizeof k_overrides / sizeof k_overrides[0]); }

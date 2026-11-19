@@ -1,0 +1,71 @@
+From 82db28982b6c4552e06c02128b6ca0278678408f Mon Sep 17 00:00:00 2001
+From: lab <lab@local>
+Date: Thu, 19 Nov 2026 15:03:51 +0000
+Subject: [PATCH] lift32: xadd, cmpxchg, cmpxchg8b (backport from upstream
+ HEAD)
+
+---
+ tools/lift/lift32.py | 47 ++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 47 insertions(+)
+
+diff --git a/tools/lift/lift32.py b/tools/lift/lift32.py
+index 46f74de..aaa6c08 100644
+--- a/tools/lift/lift32.py
++++ b/tools/lift/lift32.py
+@@ -805,6 +805,53 @@ class Lifter:
+                 addr = self._fmt_lea(ops[1].mem)
+                 lines.append(f"{self._fmt_write(ops[0], addr)}; {comment}")
+ 
++        # Backport from upstream pcrecomp HEAD 621860a (MGR:R PC: 183 lock cmpxchg sites).
++        # xadd and cmpxchg, nearly always behind `lock`: the inlined
++        # InterlockedExchangeAdd / InterlockedCompareExchange of reference
++        # counts and spin locks. lift32 had neither, so a release never
++        # dropped its count (Tiberium Wars: 21 sites). Lifted code runs under
++        # one machine lock, so the plain read-modify-write is already atomic.
++        elif m == 'xadd' and len(ops) == 2:
++            a = self._fmt_read(ops[0])
++            b = self._fmt_read(ops[1])
++            lines.append(self._flag_capture(a, b, op_bits(ops[0])))
++            lines.append("_cf = (uint32_t)((uint32_t)(_flag_a + _flag_b) < (uint32_t)_flag_a);")
++            lines.append(f"{{ uint32_t _old = {a}, _sum = {a} + {b}; {self._fmt_write(ops[1], '_old')}; "
++                         f"{self._fmt_write(ops[0], '_sum')}; }} {comment}")
++            self._flag_state = ('add', "_flag_a, _flag_b")
++
++        elif m == 'cmpxchg' and len(ops) == 2:
++            # Compare the accumulator with the destination (flags as cmp);
++            # equal: the destination takes the source, else the accumulator
++            # takes the destination.
++            bits = op_bits(ops[0])
++            acc, acc_w = {32: ('eax', 'eax = _d'), 16: ('LO16(eax)', 'SET_LO16(eax, _d)'),
++                          8: ('LO8(eax)', 'SET_LO8(eax, _d)')}[bits]
++            d = self._fmt_read(ops[0])
++            lines.append(self._flag_capture(acc, d, bits))
++            lines.append("_cf = (uint32_t)((uint32_t)_flag_a < (uint32_t)_flag_b);")
++            lines.append(f"{{ uint32_t _d = {d}; if ({acc} == _d) {{ {self._fmt_write(ops[0], self._fmt_read(ops[1]))}; }} "
++                         f"else {{ {acc_w}; }} }} {comment}")
++            self._flag_state = ('cmp', "_flag_a, _flag_b")
++
++        elif m == 'cmpxchg8b' and len(ops) == 1 and ops[0].type == X86_OP_MEM:
++            # Compare edx:eax with the qword; equal: ZF=1 and it takes ecx:ebx,
++            # else ZF=0 and edx:eax takes it. Only ZF changes. Unlifted it was a
++            # no-op whose following `cmp eax, old` still passed, so a lock-free
++            # list (Rockall's heap, behind every allocation in Rise of Legends)
++            # believed each push and pop happened, and its share-lock count
++            # drifted until a claim spun forever.
++            # The flags freeze into a word and only ZF (0x40) is rewritten, as
++            # the rotates do with CF.
++            addr = self._fmt_mem_addr(ops[0].mem)
++            lines.append(f"{{ uint32_t _a = {addr}, _zf; uint64_t _q = MEM64(_a); "
++                         f"if (_q == (((uint64_t)edx << 32) | eax)) {{ "
++                         f"MEM64(_a) = ((uint64_t)ecx << 32) | ebx; _zf = 0x40u; }} "
++                         f"else {{ eax = (uint32_t)_q; edx = (uint32_t)(_q >> 32); _zf = 0; }} "
++                         f"_flag_a = (recomp_eflags(_flag_k, _flag_a, _flag_b, _cf, _df) & ~0x40u) | _zf; "
++                         f"_flag_b = 0; _flag_k = FK_EFLAGS; }} {comment}")
++            self._flag_state = None
++
+         elif m == 'xchg':
+             if len(ops) == 2:
+                 a = self._fmt_read(ops[0])
+-- 
+2.56.1
+

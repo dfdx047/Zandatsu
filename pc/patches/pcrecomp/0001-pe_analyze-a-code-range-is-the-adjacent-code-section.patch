@@ -1,0 +1,124 @@
+From 0764edd7c9c6727e3e4c480711cea2187974e4f0 Mon Sep 17 00:00:00 2001
+From: sistemas3cecasem <paukarvv@gmail.com>
+Date: Tue, 6 Oct 2026 12:22:10 -0400
+Subject: [PATCH 01/14] pe_analyze: a code range is the adjacent code sections
+ holding the entry point
+
+A dumped executable can end with a small executable section (a rebuilt
+import directory) past .rdata/.data. min..max over code sections then
+called all the data in between code. Seen on NFSU2's SPEED2.EXE.
+
+stdcall_argc: pick the newest SDK that has kernel32.lib; a partial SDK
+install sorted last and every lookup returned None.
+---
+ tools/pe/pe_analyze.py   | 55 +++++++++++++++++++++++++++++++++++++---
+ tools/pe/stdcall_argc.py |  6 ++++-
+ 2 files changed, 56 insertions(+), 5 deletions(-)
+
+diff --git a/tools/pe/pe_analyze.py b/tools/pe/pe_analyze.py
+index 65fb0df..b9b0fd5 100644
+--- a/tools/pe/pe_analyze.py
++++ b/tools/pe/pe_analyze.py
+@@ -27,6 +27,41 @@ from typing import Optional, List, Dict, Tuple
+ 
+ # ---------------------------------------------------------------------------
+ # Dataclasses
++
++def _code_range(info, code_sections):
++    """[start, end) of the code, as VAs.
++
++    min..max over every executable section is only right while those sections
++    are adjacent. A dumped/unpacked executable often ends with a small
++    executable section of its own (a rebuilt import directory, an unpacker
++    stub) far past the data, and min..max then spans .rdata/.data/.rsrc as if
++    they were code: NFS Underground 2's SPEED2.EXE has .text at 0x401000 and an
++    8 KB executable import section at 0x930000, which made 1.7 MB of data
++    "code" for every scan downstream.
++
++    So group the code sections into runs with no non-code section between
++    them, and take the run holding the entry point (the largest run if the
++    entry point is in none of them).
++    """
++    ordered = sorted(info.sections, key=lambda s: s.virtual_address)
++    runs, cur = [], []
++    for s in ordered:
++        if s in code_sections:
++            cur.append(s)
++        elif cur:
++            runs.append(cur); cur = []
++    if cur:
++        runs.append(cur)
++    ep = info.entry_point_rva
++    pick = None
++    for r in runs:
++        if r[0].virtual_address <= ep < r[-1].va_end:
++            pick = r
++    if pick is None:
++        pick = max(runs, key=lambda r: r[-1].va_end - r[0].virtual_address)
++    return (info.image_base + pick[0].virtual_address,
++            info.image_base + pick[-1].va_end)
++
+ # ---------------------------------------------------------------------------
+ 
+ @dataclass
+@@ -287,8 +322,7 @@ def _analyze_with_pefile(filepath: str, info: PEInfo, pefile) -> None:
+                      if s.is_data and s.name not in ('.rsrc', '.bind', '.reloc')]
+ 
+     if code_sections:
+-        info.code_start = info.image_base + min(s.virtual_address for s in code_sections)
+-        info.code_end = info.image_base + max(s.va_end for s in code_sections)
++        info.code_start, info.code_end = _code_range(info, code_sections)
+     if data_sections:
+         info.data_start = info.image_base + min(s.virtual_address for s in data_sections)
+         info.data_end = info.image_base + max(s.va_end for s in data_sections)
+@@ -496,8 +530,7 @@ def _analyze_with_struct(filepath: str, info: PEInfo) -> None:
+                      if s.is_data and s.name not in ('.rsrc', '.bind', '.reloc')]
+ 
+     if code_sections:
+-        info.code_start = info.image_base + min(s.virtual_address for s in code_sections)
+-        info.code_end = info.image_base + max(s.va_end for s in code_sections)
++        info.code_start, info.code_end = _code_range(info, code_sections)
+     if data_sections:
+         info.data_start = info.image_base + min(s.virtual_address for s in data_sections)
+         info.data_end = info.image_base + max(s.va_end for s in data_sections)
+@@ -703,6 +736,20 @@ def _selftest():
+     assert sec(0x41BD7C, 0x41BE00).is_code
+     assert not sec(0x100, 0x100).is_data
+ 
++    # A code range is the run of ADJACENT code sections holding the entry
++    # point: SPEED2.EXE (NFSU2) ends with an executable rebuilt-import section
++    # past .rdata/.data, and min..max over code sections called all of it code.
++    def mk(name, va, size, ch):
++        return Section(name=name, virtual_address=va, virtual_size=size,
++                       raw_offset=va, raw_size=size, characteristics=ch)
++    secs = [mk('.text', 0x1000, 0x382000, 0xE0000020),
++            mk('.rdata', 0x383000, 0x65000, 0xC0000040),
++            mk('.data', 0x3E8000, 0xD4000, 0xC0000040),
++            mk('', 0x530000, 0x2000, 0xE0000060)]
++    pi = PEInfo("t.exe", "t.exe", 0); pi.image_base = 0x400000; pi.entry_point_rva = 0x35BCC7
++    pi.sections = secs
++    assert _code_range(pi, [s for s in secs if s.is_code]) == (0x401000, 0x783000)
++
+     print("pe_analyze.py self-test OK")
+ 
+ 
+diff --git a/tools/pe/stdcall_argc.py b/tools/pe/stdcall_argc.py
+index 0b3ee59..ba7492a 100644
+--- a/tools/pe/stdcall_argc.py
++++ b/tools/pe/stdcall_argc.py
+@@ -308,7 +308,11 @@ class ArgcResolver:
+ 
+     @staticmethod
+     def _newest_sdk(pattern=DEFAULT_SDK_GLOB):
+-        dirs = sorted(glob.glob(pattern))
++        # Newest SDK that actually HAS the x86 import libraries. A partial
++        # install (10.0.28000.0 here: um\x86 holds a handful of libs and no
++        # kernel32.lib) sorts last and made every lookup return None.
++        dirs = sorted(d for d in glob.glob(pattern)
++                      if os.path.exists(os.path.join(d, "kernel32.lib")))
+         if not dirs:
+             raise RuntimeError(
+                 "no 32-bit Windows SDK library directory found under %s -- "
+-- 
+2.52.0.windows.1
+

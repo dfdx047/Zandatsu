@@ -1,0 +1,79 @@
+From e23dae85d31721cf0ece88452f3d6adefe23855f Mon Sep 17 00:00:00 2001
+From: lab <lab@local>
+Date: Thu, 19 Nov 2026 15:04:44 +0000
+Subject: [PATCH] lift32: fcomi family to EFLAGS, bsf/bsr (backport from
+ upstream HEAD)
+
+---
+ runtime/recomp32/recomp_types.h |  6 ++++++
+ tools/lift/lift32.py            | 31 ++++++++++++++++++++++++++-----
+ 2 files changed, 32 insertions(+), 5 deletions(-)
+
+diff --git a/runtime/recomp32/recomp_types.h b/runtime/recomp32/recomp_types.h
+index 5286bd3..ddbfab6 100644
+--- a/runtime/recomp32/recomp_types.h
++++ b/runtime/recomp32/recomp_types.h
+@@ -1204,4 +1204,10 @@ void recomp_dump_trace(const char* why);
+ void recomp_unimpl(uint32_t va, const char *what);
+ #define RECOMP_UNIMPL(va, what) recomp_unimpl((va), (what))
+ 
++
++/* x87 fcomi / SSE comiss result as EFLAGS (ZF PF CF): backport from upstream pcrecomp HEAD 621860a. */
++#ifndef SSE_COMI
++#define SSE_COMI(a, b) ((a) < (b) ? 0x01u : (a) > (b) ? 0x00u : (a) == (b) ? 0x40u : 0x45u)
++#endif
++
+ #endif /* RECOMP_TYPES_H */
+diff --git a/tools/lift/lift32.py b/tools/lift/lift32.py
+index aaa6c08..7af412b 100644
+--- a/tools/lift/lift32.py
++++ b/tools/lift/lift32.py
+@@ -805,6 +805,17 @@ class Lifter:
+                 addr = self._fmt_lea(ops[1].mem)
+                 lines.append(f"{self._fmt_write(ops[0], addr)}; {comment}")
+ 
++        # Backport from upstream pcrecomp HEAD 621860a: bsf/bsr.
++        elif m in ('bsf', 'bsr') and len(ops) == 2:
++            # The index of the lowest/highest set bit; ZF says the source was 0,
++            # and then the destination is left as it was (what CPUs do).
++            src = self._fmt_read(ops[1])
++            scan = ("for (_i = 0; !((_v >> _i) & 1u); _i++) ;" if m == 'bsf'
++                    else "for (_i = 31; !((_v >> _i) & 1u); _i--) ;")
++            lines.append(f"{{ uint32_t _v = {src}, _i; if (_v) {{ {scan} "
++                         f"{self._fmt_write(ops[0], '_i')}; }} _flag_a = _flag_b = _v; }} _cf = 0; {comment}")
++            self._flag_state = ('test', '_flag_a, _flag_b')
++            self._flag_seq += 1
+         # Backport from upstream pcrecomp HEAD 621860a (MGR:R PC: 183 lock cmpxchg sites).
+         # xadd and cmpxchg, nearly always behind `lock`: the inlined
+         # InterlockedExchangeAdd / InterlockedCompareExchange of reference
+@@ -1736,12 +1747,22 @@ class Lifter:
+         # compare never ran (so _fpu_cmp kept its last value) and its two pops
+         # never happened, leaking two x87 slots per call. The Movies has 3,244
+         # of them; its audio code read every position/length ratio as 1.0.
+-        elif m in ('fcomip', 'fucomip', 'fcompp', 'fucompp'):
++        # Backport from upstream pcrecomp HEAD 621860a (MGR:R PC: 449 fcomi/fcompi/fucompi sites unlifted).
++        # fcomi and friends compare st(0) with st(i) straight into EFLAGS (ZF PF
++        # CF, as comiss does); the x87 condition codes are left alone. Capstone
++        # spells the popping forms fcompi/fucompi, so the fcomip/fucomip names
++        # this used to match never came up: Tiberium Wars had 1,596 unlifted.
++        elif m in ('fcomi', 'fucomi', 'fcompi', 'fucompi', 'fcomip', 'fucomip'):
++            lines.append(f"_flag_a = SSE_COMI(_st[0], {self._fmt_fpu_src(ops)}); _flag_b = 0; "
++                         f"_cf = _flag_a & 1u; {comment}")
++            if m in ('fcompi', 'fucompi', 'fcomip', 'fucomip'):
++                lines.append("fp_pop();")
++            self._flag_state = ('eflags', '_flag_a, _flag_b')
++            self._flag_seq += 1
++
++        elif m in ('fcompp', 'fucompp'):
+             lines.append(f"_fpu_cmp = FPU_CMP(_st[0], _st[1]); {comment}")
+-            if m in ('fcompp', 'fucompp'):
+-                lines.append(f"fp_pop(); fp_pop();")
+-            else:
+-                lines.append(f"fp_pop();")
++            lines.append(f"fp_pop(); fp_pop();")
+             lines.append("_flag_a = (uint32_t)_fpu_cmp; _flag_b = 0;")
+             self._flag_state = ('fcom', '_fpu_cmp')
+             self._flag_seq += 1
+-- 
+2.56.1
+

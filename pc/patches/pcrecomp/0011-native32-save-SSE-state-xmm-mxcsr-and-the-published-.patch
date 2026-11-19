@@ -1,0 +1,69 @@
+From 8ad7463cdaaff983f1a9d42402c587796a16c095 Mon Sep 17 00:00:00 2001
+From: sistemas3cecasem <paukarvv@gmail.com>
+Date: Wed, 7 Oct 2026 15:24:15 -0400
+Subject: [PATCH 11/14] native32: save SSE state (xmm, mxcsr) and the published
+ flags per guest thread
+
+regs_t carried the integer, x87 and MMX registers only. A guest thread
+that yielded mid-loop or was switched out at a native call came back to
+another thread's xmm registers. g_xmm/g_mxcsr are now defined here with
+the rest of the register file.
+---
+ runtime/native32/native32.c | 13 +++++++++++++
+ 1 file changed, 13 insertions(+)
+
+diff --git a/runtime/native32/native32.c b/runtime/native32/native32.c
+index 539f58e..6cae03d 100644
+--- a/runtime/native32/native32.c
++++ b/runtime/native32/native32.c
+@@ -25,6 +25,8 @@ int       g_fp_top;
+ uint16_t  g_fpu_cw = 0x027F;
+ uint16_t  g_seg_cs, g_seg_ds, g_seg_es, g_seg_fs, g_seg_gs, g_seg_ss;
+ uint64_t  g_mm[8];
++V128      g_xmm[8];
++uint32_t  g_mxcsr = 0x1F80;
+ uint32_t  g_fs_base, g_gs_base;
+ ptrdiff_t g_mem_base = 0;
+ uint32_t  g_cur_func;
+@@ -48,6 +50,12 @@ typedef struct {
+     int      fp_top;
+     uint16_t fpu_cw;
+     uint64_t mm[8];
++    /* SSE state and the flags a function returns with. Without them a guest
++     * thread that yields mid-loop (RECOMP_BACKEDGE) or is preempted at a
++     * native call came back to another thread's xmm registers. */
++    V128     xmm[8];
++    uint32_t mxcsr;
++    uint32_t flag_k, flag_a, flag_b, flag_cf;
+ } regs_t;
+ 
+ static void regs_save(regs_t* r) {
+@@ -56,6 +64,8 @@ static void regs_save(regs_t* r) {
+     r->fs = g_fs_base; r->cur = g_cur_func;
+     memcpy(r->st, g_st, sizeof g_st); r->fp_top = g_fp_top; r->fpu_cw = g_fpu_cw;
+     memcpy(r->mm, g_mm, sizeof g_mm);
++    memcpy(r->xmm, g_xmm, sizeof g_xmm); r->mxcsr = g_mxcsr;
++    r->flag_k = g_flag_k; r->flag_a = g_flag_a; r->flag_b = g_flag_b; r->flag_cf = g_flag_cf;
+ }
+ 
+ static void regs_load(const regs_t* r) {
+@@ -64,6 +74,8 @@ static void regs_load(const regs_t* r) {
+     g_fs_base = r->fs; g_cur_func = r->cur;
+     memcpy(g_st, r->st, sizeof g_st); g_fp_top = r->fp_top; g_fpu_cw = r->fpu_cw;
+     memcpy(g_mm, r->mm, sizeof g_mm);
++    memcpy(g_xmm, r->xmm, sizeof g_xmm); g_mxcsr = r->mxcsr;
++    g_flag_k = r->flag_k; g_flag_a = r->flag_a; g_flag_b = r->flag_b; g_flag_cf = r->flag_cf;
+ }
+ 
+ /* ------------------------------------------------------------- machine lock */
+@@ -145,6 +157,7 @@ void mach_enter(void) {
+         m->r.esp = lo + GUEST_STACK - BRIDGE_SLOTS * 4 - 64;
+         m->r.fs = make_tib(lo, lo + GUEST_STACK);
+         m->r.fpu_cw = 0x027F;
++        m->r.mxcsr = 0x1F80;
+         TlsSetValue(g_mach_tls, m);
+     }
+     if (m->depth++ == 0) regs_load(&m->r);
+-- 
+2.52.0.windows.1
+

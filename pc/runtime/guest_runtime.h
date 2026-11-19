@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>
 #include <string>
 #include <vector>
 // Maps the owner's PE data, binds imports, tests lifted code and attempts CRT

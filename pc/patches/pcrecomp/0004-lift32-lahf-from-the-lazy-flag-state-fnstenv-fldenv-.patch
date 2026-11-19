@@ -1,0 +1,70 @@
+From 3fb2ae35fa6ed3f1deb89e6d586617fdcf2f3163 Mon Sep 17 00:00:00 2001
+From: sistemas3cecasem <paukarvv@gmail.com>
+Date: Tue, 6 Oct 2026 15:10:27 -0400
+Subject: [PATCH 04/14] lift32: lahf from the lazy flag state; fnstenv/fldenv
+ (CW, SW condition bits, empty tags)
+
+lahf was unimplemented; NFSU2's CPU probe at 0x6F5FC5 uses it. The
+MSVC CRT's x87 exception path saves its environment with fnstenv.
+difftest: 4 lahf cases, 246/246.
+---
+ tools/lift/difftest.py |  5 +++++
+ tools/lift/lift32.py   | 26 ++++++++++++++++++++++++++
+ 2 files changed, 31 insertions(+)
+
+diff --git a/tools/lift/difftest.py b/tools/lift/difftest.py
+index 5f42710..9a363df 100644
+--- a/tools/lift/difftest.py
++++ b/tools/lift/difftest.py
+@@ -644,6 +644,11 @@ CASES = [
+                'Lifter(precise_carry=True) derives it (off by default: Fury3)'),
+     Case('lock.inc', bytes.fromhex('f0ff06'),                       # lock inc dword [esi]
+          mem={SCRATCH: (41).to_bytes(4, 'little')}),
++    # lahf: AH from the lazy flag state (SF ZF AF PF CF, bit 1 set).
++    Case('lahf.after-cmp-below', bytes.fromhex('39c89f'), {'eax': 1, 'ecx': 2}),
++    Case('lahf.after-cmp-equal', bytes.fromhex('39c89f'), {'eax': 0x55, 'ecx': 0x55}),
++    Case('lahf.after-add-aux', bytes.fromhex('01c89f'), {'eax': 0x0F, 'ecx': 0x01}),
++    Case('lahf.after-stc', bytes.fromhex('f99f')),
+     # --- MMX / SSE / SSE2 (simd32.py): results stored to [edi] so memory compares them ---
+     Case('sse.mulps', bytes.fromhex('0f10060f104e100f59c10f11070f114f10'), mem=SIMD_MEM),
+     Case('sse.addps-mem', bytes.fromhex('0f10060f5846100f10c80f5c0e0f11070f114f10'), mem=SIMD_MEM),
+diff --git a/tools/lift/lift32.py b/tools/lift/lift32.py
+index 5fb94fd..96680fc 100644
+--- a/tools/lift/lift32.py
++++ b/tools/lift/lift32.py
+@@ -1745,6 +1745,32 @@ class Lifter:
+             # flags, so a following `sahf` (2 sites in Focom.exe) still finds
+             # the 'fcom' state and the unsigned jcc after it maps correctly.
+ 
++        elif m == 'lahf':
++            # AH <- SF:ZF:0:AF:0:PF:1:CF, derived from the lazy state. Bit 1
++            # reads as 1 on every x86. Flags are unchanged.
++            lines.append(f"SET_HI8(eax, (recomp_eflags(_flag_k, _flag_a, _flag_b, _cf, _df) & 0xD5u) | 2u); {comment}")
++
++        elif m in ('fnstenv', 'fstenv'):
++            # The 28-byte protected-mode environment: CW, SW, TW, then the last
++            # instruction/operand pointers. The model raises no x87 exceptions
++            # and keeps no tag word, so the tags say "empty" and the pointers
++            # are zero; CW and the condition bits of SW are real. The MSVC CRT
++            # saves the environment this way in its math error handlers.
++            addr = self._fmt_mem_addr(ops[0].mem)
++            sw = ("((_fpu_cmp >= 0x10000) ? (uint32_t)(_fpu_cmp & 0x4700) : "
++                  "_fpu_cmp == 2 ? 0x4500u : _fpu_cmp < 0 ? 0x0100u : "
++                  "_fpu_cmp == 0 ? 0x4000u : 0x0000u)")
++            lines.append(f"{{ uint32_t _e = {addr}; MEM32(_e) = 0xFFFF0000u | _fpu_cw; "
++                         f"MEM32(_e + 4) = 0xFFFF0000u | {sw}; MEM32(_e + 8) = 0xFFFFFFFFu; "
++                         f"MEM32(_e + 12) = 0; MEM32(_e + 16) = 0; MEM32(_e + 20) = 0; "
++                         f"MEM32(_e + 24) = 0xFFFF0000u; }} {comment}")
++            # fnstenv masks all exceptions, as the hardware does after storing.
++            lines.append(f"_fpu_cw |= 0x3Fu;")
++
++        elif m == 'fldenv':
++            addr = self._fmt_mem_addr(ops[0].mem)
++            lines.append(f"_fpu_cw = MEM16({addr}); {comment}")
++
+         elif m == 'sahf':
+             # SF ZF AF PF CF <- ah bits 7 6 4 2 0. This was a comment, so a
+             # `jp` after it read the parity of whatever compare came before:
+-- 
+2.52.0.windows.1
+

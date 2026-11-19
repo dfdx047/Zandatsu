@@ -1,0 +1,63 @@
+From abc3ca255f9c58305c6df8ac6234b48490faef70 Mon Sep 17 00:00:00 2001
+From: sistemas3cecasem <paukarvv@gmail.com>
+Date: Wed, 7 Oct 2026 15:22:02 -0400
+Subject: [PATCH 09/14] recomp_types: explicit sign tests for signed conditions
+ (MSVC /O1 miscompile)
+
+The lazy-flag conditions captured narrow operands left-aligned
+((uint16_t)x << 16) and tested them with (int32_t) casts. MSVC 19.51 /O1
+and /O2 compile the signed test of such a value as a zero-extended word
+test, dropping the sign: NFSU2's 'test bx,bx; jle' at 0x5E5223 let id
+0xFFFF through to a lookup that read NULL (the race-load crash).
+
+Signed comparisons now bias both operands into unsigned order and the
+sign/zero tests test bit 31 explicitly. tests/narrow_flags.c in
+nfsu2-recompiled: baseline 32,768 failures at /O1 and /O2; 0 after, at
+/Od, /O1 and /O2.
+
+Found and diagnosed by the project owner.
+---
+ runtime/recomp32/recomp_types.h | 20 ++++++++++++--------
+ 1 file changed, 12 insertions(+), 8 deletions(-)
+
+diff --git a/runtime/recomp32/recomp_types.h b/runtime/recomp32/recomp_types.h
+index 6fff83d..f1d9410 100644
+--- a/runtime/recomp32/recomp_types.h
++++ b/runtime/recomp32/recomp_types.h
+@@ -284,10 +284,14 @@ static inline uint16_t _pop16(uint32_t *sp) {
+ #define CMP_BE(a, b)   ((uint32_t)(a) <= (uint32_t)(b))     /* unsigned <= */
+ #define CMP_A(a, b)    ((uint32_t)(a) > (uint32_t)(b))      /* unsigned > */
+ #define CMP_AE(a, b)   ((uint32_t)(a) >= (uint32_t)(b))     /* unsigned >= */
+-#define CMP_L(a, b)    ((int32_t)(a) < (int32_t)(b))        /* signed < */
+-#define CMP_LE(a, b)   ((int32_t)(a) <= (int32_t)(b))       /* signed <= */
+-#define CMP_G(a, b)    ((int32_t)(a) > (int32_t)(b))        /* signed > */
+-#define CMP_GE(a, b)   ((int32_t)(a) >= (int32_t)(b))       /* signed >= */
++/* Bias unsigned operands to signed order. MSVC 19.51 /O1 miscompiles signed
++ * tests of left-aligned uint16_t values, dropping their sign bit (0xffff <<
++ * 16 becomes positive). Keep sign handling explicit, including narrow flags. */
++#define RECOMP_SIGNED_ORDER(v) ((uint32_t)(v) ^ 0x80000000u)
++#define CMP_L(a, b)    (RECOMP_SIGNED_ORDER(a) < RECOMP_SIGNED_ORDER(b))
++#define CMP_LE(a, b)   (RECOMP_SIGNED_ORDER(a) <= RECOMP_SIGNED_ORDER(b))
++#define CMP_G(a, b)    (RECOMP_SIGNED_ORDER(a) > RECOMP_SIGNED_ORDER(b))
++#define CMP_GE(a, b)   (RECOMP_SIGNED_ORDER(a) >= RECOMP_SIGNED_ORDER(b))
+ #define CMP_S(a, b)    ((int32_t)((uint32_t)(a) - (uint32_t)(b)) < 0)  /* sign flag */
+ #define CMP_NS(a, b)   ((int32_t)((uint32_t)(a) - (uint32_t)(b)) >= 0)
+ #define CMP_O(a, b)    0  /* TODO: overflow detection */
+@@ -298,10 +302,10 @@ static inline uint16_t _pop16(uint32_t *sp) {
+ /* Test-based conditions (from test a, b) */
+ #define TEST_Z(a, b)   (((uint32_t)(a) & (uint32_t)(b)) == 0)
+ #define TEST_NZ(a, b)  (((uint32_t)(a) & (uint32_t)(b)) != 0)
+-#define TEST_S(a, b)   ((int32_t)((uint32_t)(a) & (uint32_t)(b)) < 0)
+-#define TEST_NS(a, b)  ((int32_t)((uint32_t)(a) & (uint32_t)(b)) >= 0)
+-#define TEST_G(a, b)   ((int32_t)((uint32_t)(a) & (uint32_t)(b)) > 0)
+-#define TEST_LE(a, b)  ((int32_t)((uint32_t)(a) & (uint32_t)(b)) <= 0)
++#define TEST_S(a, b)   (((uint32_t)(a) & (uint32_t)(b) & 0x80000000u) != 0)
++#define TEST_NS(a, b)  (!TEST_S(a, b))
++#define TEST_G(a, b)   (TEST_NZ(a, b) && TEST_NS(a, b))
++#define TEST_LE(a, b)  (TEST_Z(a, b) || TEST_S(a, b))
+ 
+ /* Bit test (from bt) */
+ #define BT_CF(base, bit) (((uint32_t)(base) >> ((uint32_t)(bit) & 31)) & 1)
+-- 
+2.52.0.windows.1
+

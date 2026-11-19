@@ -1,4 +1,7 @@
 #include "guest_host_methods.inc"
+#include <iconv.h>
+#include <cctype>
+#include <cstring>
 // Win32 imports of the MGR:R PC executable that the base runtime (adapted from codepdbh/nfsu2-recompiled, MIT) did not
 // answer. Included inside the runtime namespace after guest_files.inc, guest_threads.inc and guest_kernel.inc.
 // Every shim follows the 32-bit stdcall contract: ret(value, argument count).
@@ -104,7 +107,7 @@ void createEventW(){write32(g_esp+16,arg(3)?ansiString(narrowFromWide(arg(3))):0
 void loadLibraryW(){write32(g_esp+4,ansiString(narrowFromWide(arg(0))));loadLibrary();}
 void moduleFileNameW(){
     // GetModuleFileNameW(module, buffer, size): the path of the exe, as UTF-16.
-    std::string path="C:\\MGR\\METAL GEAR RISING REVENGEANCE.exe";uint32_t size=arg(2),n=std::min<uint32_t>(uint32_t(path.size()),size?size-1:0);
+    std::string path="C:\\nfsu2\\METAL GEAR RISING REVENGEANCE.exe";uint32_t size=arg(2),n=std::min<uint32_t>(uint32_t(path.size()),size?size-1:0);
     for(uint32_t i=0;i<n;++i){uint16_t c=uint8_t(path[i]);std::memcpy(ptr(arg(1)+i*2,2),&c,2);}
     if(size){uint16_t z=0;std::memcpy(ptr(arg(1)+n*2,2),&z,2);}ret(n,3);
 }
@@ -142,6 +145,9 @@ void terminateProcess(){throw GuestStop("TerminateProcess("+std::to_string(arg(1
 void unhandledExceptionFilter(){ret(1,1);}   // EXCEPTION_EXECUTE_HANDLER
 void raiseException(){
     uint32_t code=arg(0),count=arg(2),list=arg(3);std::string info;
+    // 0x406D1388 (MS_VC_EXCEPTION): SetThreadName for a debugger, inside __try/__except(EXCEPTION_EXECUTE_HANDLER).
+    // With no debugger the handler swallows it; returning has the same effect. THREADNAME_INFO: type, name, thread id, flags.
+    if(code==0x406D1388u&&count>=3){NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"MGR","Thread name %08x = %s",read32(list+8),guestString(read32(list+4)).c_str());ret(0,4);return;}
     for(uint32_t i=0;i<std::min(count,4u);++i)info+=" "+hex(read32(list+i*4));
     throw GuestStop("RaiseException "+hex(code)+info+" from "+hex(g_cur_func)+" (guest C++/SEH exceptions not wired yet)");
 }
@@ -189,7 +195,13 @@ void getModuleHandleA(){moduleHandle();}
 void windowLongW(){getWindowLong();}
 void setWindowLongW(){setWindowLong();}
 void callWindowProcW(){ret(callGuest(arg(0),{arg(1),arg(2),arg(3),arg(4)}),5);}
-void destroyWindow(){ret(1,1);}
+// Guest return addresses on the stack (diagnostics): dwords in .text from esp upward.
+void logGuestStack(const char* why){
+    std::string line;uint32_t found=0;
+    uint32_t top=read32(g_fs_base+4);for(uint32_t a=g_esp;a+4<=top&&found<40;a+=4){uint32_t v=read32(a);if(v>=0x401000u&&v<0x15fd000u){char b[16];std::snprintf(b,sizeof b," %08x",v);line+=b;++found;}}
+    NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"MGR","%s: stack%s",why,line.c_str());
+}
+void destroyWindow(){logGuestStack("DestroyWindow");ret(1,1);}
 void unregisterClass(){ret(1,2);}
 void findWindowA(){ret(0,2);}   // the game looks for a running copy of itself
 void isIconic(){ret(0,1);}
@@ -225,9 +237,64 @@ const std::map<std::string,recomp_func_t> mgrWindowFunctions={
     {"RegisterDeviceNotificationW",registerDeviceNotification},{"UnregisterDeviceNotification",unregisterDeviceNotification},
 };
 
-// ---- steam_api (cdecl): Steam does not exist on Android. SteamAPI_Init answers false, which the game handles
-// (it logs "SteamAPI_Init() is failed" and carries on without achievements; see PCPorts ports/mgr-pc/ANALISE_EXE.md).
+
+// ---- The game's own debug print (0x00DD5650, 0x00DD56A0: `ret` in the retail exe, cdecl format + varargs). Overridden
+// (pc/config/overrides.txt) to print through our log: free diagnostics in the game's words (Shift-JIS, converted).
+std::string guestPrintf(uint32_t format,uint32_t args){
+    std::string out,fmt=guestString(format);
+    for(size_t i=0;i<fmt.size();++i){
+        if(fmt[i]!='%'){out+=fmt[i];continue;}
+        size_t j=i+1;std::string spec="%";
+        while(j<fmt.size()&&strchr("-+ #0",fmt[j]))spec+=fmt[j++];
+        while(j<fmt.size()&&(isdigit(uint8_t(fmt[j]))||fmt[j]=='.'||fmt[j]=='*')){if(fmt[j]=='*'){spec+=std::to_string(int32_t(read32(args)));args+=4;++j;}else spec+=fmt[j++];}
+        bool wide64=false;
+        while(j<fmt.size()&&strchr("hlLIwjzt346",fmt[j])){if(fmt.compare(j,3,"I64")==0||fmt.compare(j,2,"ll")==0){wide64=true;j+=fmt[j]=='I'?3:2;}else ++j;}
+        if(j>=fmt.size())break;char c=fmt[j];char buf[512];buf[0]=0;
+        switch(c){
+        case '%':out+='%';break;
+        case 'd':case 'i':case 'u':case 'x':case 'X':case 'o':case 'c':
+            if(wide64){uint64_t v=uint64_t(read32(args))|(uint64_t(read32(args+4))<<32);args+=8;std::snprintf(buf,sizeof buf,(spec+"ll"+c).c_str(),(long long)v);}
+            else{uint32_t v=read32(args);args+=4;std::snprintf(buf,sizeof buf,(spec+c).c_str(),c=='d'||c=='i'?int(int32_t(v)):int(v));}
+            out+=buf;break;
+        case 'p':std::snprintf(buf,sizeof buf,"%08x",read32(args));args+=4;out+=buf;break;
+        case 'f':case 'F':case 'e':case 'E':case 'g':case 'G':{double d;uint64_t v=uint64_t(read32(args))|(uint64_t(read32(args+4))<<32);args+=8;std::memcpy(&d,&v,8);
+            std::snprintf(buf,sizeof buf,(spec+c).c_str(),d);out+=buf;break;}
+        case 's':{uint32_t a=read32(args);args+=4;out+=a&&memory->readable(a,1)?guestString(a):std::string("(null)");break;}
+        default:out+=spec+c;break;
+        }
+        i=j;
+    }
+    return out;
+}
+std::string fromShiftJis(const std::string& text){
+#if defined(__ANDROID__) && __ANDROID_API__ < 28
+    return text;
+#else
+    iconv_t cd=iconv_open("UTF-8","CP932");if(cd==(iconv_t)-1)return text;
+    std::string out(text.size()*3+4,'\0');char* in=const_cast<char*>(text.data());size_t inLeft=text.size();char* o=out.data();size_t outLeft=out.size();
+    while(inLeft&&iconv(cd,&in,&inLeft,&o,&outLeft)==(size_t)-1){if(errno==EILSEQ||errno==EINVAL){if(outLeft){*o++='?';--outLeft;}++in;--inLeft;}else break;}
+    iconv_close(cd);out.resize(out.size()-outLeft);return out;
+#endif
+}
+extern "C" void mgr_game_log(void){
+    // The original body is a bare `ret`: pop the (dummy) return address, leave eax and everything else alone.
+    struct PopReturn{~PopReturn(){g_esp+=4;}} pop;
+    static uint32_t lines=0;if(lines>=5000)return;   // a log in a per-frame loop must not fill the disk
+    std::string text=fromShiftJis(guestPrintf(arg(0),g_esp+8));while(!text.empty()&&(text.back()=='\n'||text.back()==' '))text.pop_back();
+    for(auto& ch:text)if(ch=='\n')ch='|';
+    ++lines;NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"MGRGAME","%s",text.c_str());
+}
+// ---- steam_api (cdecl): Steam does not exist on Android. SteamAPI_Init answers false: the game logs "SteamAPI_Init() is
+// failed" and then leaves its main loop on the first frame (see below).
 void steamInit(){NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"MGR","SteamAPI_Init: Steam not available");ret(0,0);}
+// The game quits when SteamAPI_Init fails (0x00A530C8 sets the quit request 0x01BE8E3E). What the shipped port does about
+// it is the owner's decision (PCPorts drm-legal); a local, untracked build may supply its own Steam functions here.
+#ifdef MGR_LAB_INCLUDE
+#include MGR_LAB_INCLUDE
+#endif
+#ifndef MGR_STEAM_INIT
+#define MGR_STEAM_INIT steamInit
+#endif
 void steamVoid(){ret(0,0);}
 void steamNull(){ret(0,0);}
 // ---- XInput 1.3 by ordinal: #2 XInputGetState, #3 XInputSetState, #4 XInputGetCapabilities
@@ -285,7 +352,7 @@ void gdiGetObject(){ret(0,3);}
 void gdiDeviceCaps(){uint32_t i=arg(1),v=0;switch(i){case 8:v=1280;break;case 10:v=720;break;case 12:v=32;break;case 14:v=1;break;case 88:case 90:v=96;break;case 116:v=60;break;}ret(v,2);}
 
 const std::map<std::string,recomp_func_t> mgrSteam={
-    {"SteamAPI_Init",steamInit},{"SteamAPI_Shutdown",steamVoid},{"SteamAPI_RunCallbacks",steamVoid},{"SteamAPI_RegisterCallback",steamVoid},
+    {"SteamAPI_Init",MGR_STEAM_INIT},{"SteamAPI_Shutdown",steamVoid},{"SteamAPI_RunCallbacks",steamVoid},{"SteamAPI_RegisterCallback",steamVoid},
     {"SteamAPI_UnregisterCallback",steamVoid},{"SteamUser",steamNull},{"SteamUserStats",steamNull},{"SteamRemoteStorage",steamNull},{"SteamUtils",steamNull}};
 const std::map<std::string,recomp_func_t> mgrXInput={{"#2",xinputGetState},{"#3",xinputSetState},{"#4",xinputCaps},
     {"XInputGetState",xinputGetState},{"XInputSetState",xinputSetState},{"XInputGetCapabilities",xinputCaps}};

@@ -1,0 +1,52 @@
+From cd291b25dbae56294c8ba41cf45b4f63ffc1c290 Mon Sep 17 00:00:00 2001
+From: sistemas3cecasem <paukarvv@gmail.com>
+Date: Wed, 7 Oct 2026 10:49:34 -0400
+Subject: [PATCH 07/14] native32: pre-call hook (host may rewrite guest
+ argument slots before a native call)
+
+---
+ runtime/native32/native32.c | 4 ++++
+ runtime/native32/native32.h | 5 +++++
+ 2 files changed, 9 insertions(+)
+
+diff --git a/runtime/native32/native32.c b/runtime/native32/native32.c
+index ff10898..482660b 100644
+--- a/runtime/native32/native32.c
++++ b/runtime/native32/native32.c
+@@ -32,6 +32,7 @@ uint32_t  g_icall_trace_idx, g_icall_count;
+ 
+ int native32_trace_native, native32_trace_callbacks;
+ native32_post_hook_t native32_post_hook;
++native32_pre_hook_t  native32_pre_hook;
+ 
+ /* The last native calls, for a crash report: which import ran, from which
+  * lifted function, with what first arguments and what it returned. One
+@@ -251,6 +252,9 @@ static void native_bridge(void) {
+                 fprintf(stderr, " a%d=\"%.*s\"", k, (int)len, p);
+         }
+     }
++    /* The host may rewrite the guest's argument slots before the call (e.g.
++     * presentation parameters behind a pointer), still holding the machine. */
++    if (native32_pre_hook) native32_pre_hook(fn, src);
+     g_cur_import = native32_name(fn);
+     native32_call_rec_t* rec = &g_native_ring[g_native_ring_idx++ & (NATIVE32_RING - 1)];
+     rec->target = fn; rec->from = g_cur_func; rec->tid = GetCurrentThreadId();
+diff --git a/runtime/native32/native32.h b/runtime/native32/native32.h
+index e68a835..39ec227 100644
+--- a/runtime/native32/native32.h
++++ b/runtime/native32/native32.h
+@@ -84,6 +84,11 @@ int native32_in_guest(uint32_t va);
+ typedef void (*native32_post_hook_t)(uint32_t target, const uint32_t* args, uint32_t ret);
+ extern native32_post_hook_t native32_post_hook;
+ 
++/* Called before every bridged native call with the guest's argument slots,
++ * which it may modify (they are guest stack memory). */
++typedef void (*native32_pre_hook_t)(uint32_t target, uint32_t* args);
++extern native32_pre_hook_t native32_pre_hook;
++
+ /* Give a native address a name for traces and crash reports ("dll!fn"). */
+ void native32_add_name(uint32_t va, const char* dll, const char* fn);
+ 
+-- 
+2.52.0.windows.1
+

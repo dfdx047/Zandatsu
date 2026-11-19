@@ -1,0 +1,28 @@
+From 571f1d3b5c144a03bc85458604bfcded544eebf2 Mon Sep 17 00:00:00 2001
+From: lab <lab@local>
+Date: Thu, 19 Nov 2026 14:58:01 +0000
+Subject: [PATCH] lift32: repz/bnd ret is a plain ret (backport from upstream
+ HEAD)
+
+---
+ tools/lift/lift32.py | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/tools/lift/lift32.py b/tools/lift/lift32.py
+index 1cd9bf5..46f74de 100644
+--- a/tools/lift/lift32.py
++++ b/tools/lift/lift32.py
+@@ -759,6 +759,10 @@ class Lifter:
+             elif any(o.type == X86_OP_MEM and (o.mem.disp & 0xFFFFFFFF) == ph for o in ops_):
+                 self._patched_disp = (ph, expr)
+         m = insn.mnemonic
++        # `repz ret` (F3 C3) is a plain ret (AMD branch-prediction idiom, MSVC 2005+); `bnd ret` is MPX's.
++        # Backport of upstream pcrecomp lift32.py (HEAD 621860a); the MGR:R PC CRT entry needs it.
++        if m.split()[-1] in ('ret', 'retn') and m.split()[0] in ('rep', 'repz', 'repe', 'bnd'):
++            m = m.split()[-1]
+         # Capstone reports `lock inc dword ptr [x]` with mnemonic 'lock inc' (or
+         # plain 'lock' + op_str); the operands are decoded either way. Single-
+         # threaded semantics are exact here because the runtime runs lifted code
+-- 
+2.56.1
+

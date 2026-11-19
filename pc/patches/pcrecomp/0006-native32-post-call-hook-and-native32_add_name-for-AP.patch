@@ -1,0 +1,68 @@
+From f1525776dd6d95eca1c92e5b0e806bb13bba14a0 Mon Sep 17 00:00:00 2001
+From: sistemas3cecasem <paukarvv@gmail.com>
+Date: Tue, 6 Oct 2026 16:13:00 -0400
+Subject: [PATCH 06/14] native32: post-call hook and native32_add_name for API
+ tracing; record each native call's result
+
+---
+ runtime/native32/native32.c |  7 ++++++-
+ runtime/native32/native32.h | 11 +++++++++++
+ 2 files changed, 17 insertions(+), 1 deletion(-)
+
+diff --git a/runtime/native32/native32.c b/runtime/native32/native32.c
+index e682c1d..ff10898 100644
+--- a/runtime/native32/native32.c
++++ b/runtime/native32/native32.c
+@@ -31,6 +31,7 @@ uint32_t  g_icall_trace[ICALL_TRACE_SIZE], g_icall_from[ICALL_TRACE_SIZE];
+ uint32_t  g_icall_trace_idx, g_icall_count;
+ 
+ int native32_trace_native, native32_trace_callbacks;
++native32_post_hook_t native32_post_hook;
+ 
+ /* The last native calls, for a crash report: which import ran, from which
+  * lifted function, with what first arguments and what it returned. One
+@@ -203,7 +204,9 @@ const char* native32_name(uint32_t va) {
+     return NULL;
+ }
+ 
+-static void add_name(uint32_t va, const char* dll, const char* fn) {
++void native32_add_name(uint32_t va, const char* dll, const char* fn);
++static void add_name(uint32_t va, const char* dll, const char* fn) { native32_add_name(va, dll, fn); }
++void native32_add_name(uint32_t va, const char* dll, const char* fn) {
+     if (g_name_n < MAX_NAMES && !native32_name(va)) {
+         _snprintf(g_names[g_name_n].name, sizeof g_names[0].name - 1, "%s!%s", dll, fn);
+         g_names[g_name_n++].va = va;
+@@ -305,6 +308,8 @@ static void native_bridge(void) {
+     g_eax = r_eax;
+     g_edx = r_edx;
+     g_esp += 4 + purge;
++    rec->ret = r_eax; rec->done = 1;
++    if (native32_post_hook) native32_post_hook(fn, src, r_eax);
+     if (native32_trace_native) fprintf(stderr, " -> %08X\n", r_eax);
+     SetLastError(last_error);
+ }
+diff --git a/runtime/native32/native32.h b/runtime/native32/native32.h
+index 9d4fcb7..e68a835 100644
+--- a/runtime/native32/native32.h
++++ b/runtime/native32/native32.h
+@@ -76,6 +76,17 @@ extern int native32_trace_callbacks;  /* one line per Windows -> guest call */
+ /* Guest address ranges known to the runtime (for fault reports). */
+ int native32_in_guest(uint32_t va);
+ 
++/* Called after every native call made through the bridge (imports, COM
++ * methods, GetProcAddress results): the target, the guest's argument slots
++ * (args[0] is a COM method's `this`), and eax. For tracing an API surface --
++ * e.g. naming a COM vtable once the object that owns it is returned. Runs on
++ * the calling thread with the machine held; must not touch guest registers. */
++typedef void (*native32_post_hook_t)(uint32_t target, const uint32_t* args, uint32_t ret);
++extern native32_post_hook_t native32_post_hook;
++
++/* Give a native address a name for traces and crash reports ("dll!fn"). */
++void native32_add_name(uint32_t va, const char* dll, const char* fn);
++
+ /* Ring of the last native (import / COM / GetProcAddress) calls. */
+ #define NATIVE32_RING 64
+ typedef struct { uint32_t target, from, tid, a0, a1, a2, ret, done; } native32_call_rec_t;
+-- 
+2.52.0.windows.1
+

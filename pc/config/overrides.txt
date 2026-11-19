@@ -1,1 +1,3 @@
 # VA        reason
+0x00DD5650  game debug print (ret in retail) -> mgr_game_log
+0x00DD56A0  game debug print variant (ret in retail) -> mgr_game_log

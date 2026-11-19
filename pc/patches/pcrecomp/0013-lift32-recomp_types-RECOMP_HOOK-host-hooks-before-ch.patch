@@ -1,0 +1,66 @@
+From 081bc6646bbacc410e5d18d45c9fab23d9e8c06c Mon Sep 17 00:00:00 2001
+From: sistemas3cecasem <paukarvv@gmail.com>
+Date: Fri, 9 Oct 2026 10:46:30 -0400
+Subject: [PATCH 13/14] lift32/recomp_types: RECOMP_HOOK, host hooks before
+ chosen instructions (Lifter hook_sites)
+
+---
+ runtime/recomp32/recomp_types.h | 7 +++++++
+ tools/lift/lift32.py            | 9 ++++++++-
+ 2 files changed, 15 insertions(+), 1 deletion(-)
+
+diff --git a/runtime/recomp32/recomp_types.h b/runtime/recomp32/recomp_types.h
+index 01c8569..f72cee4 100644
+--- a/runtime/recomp32/recomp_types.h
++++ b/runtime/recomp32/recomp_types.h
+@@ -1126,6 +1126,13 @@ RECOMP_WEAK uint32_t g_backedges;
+         RECOMP_REGS_OUT(); recomp_yield_hook(); RECOMP_REGS_IN(); \
+     } } while (0)
+ 
++/* Host hook before the instruction at `va` (Lifter hook_sites). The host
++ * sees and may change the guest registers, memory and x87 stack; the lazy
++ * flags stay in the lifted function, so a hook must not change state that a
++ * pending flag consumer depends on. */
++void recomp_hook(uint32_t va);
++#define RECOMP_HOOK(va) do { RECOMP_REGS_OUT(); recomp_hook(va); RECOMP_REGS_IN(); } while (0)
++
+ /* Always-callable trace dump (no-op unless RECOMP_TRACE). */
+ void recomp_dump_trace(const char* why);
+ 
+diff --git a/tools/lift/lift32.py b/tools/lift/lift32.py
+index 839ac9a..1cd9bf5 100644
+--- a/tools/lift/lift32.py
++++ b/tools/lift/lift32.py
+@@ -235,7 +235,7 @@ class Lifter:
+     def __init__(self, iat_map: dict = None, func_names: dict = None,
+                  lifted: set = None, precise_sbb: bool = False,
+                  patch_sites: set = None, precise_carry: bool = False,
+-                 reloc=None):
++                 reloc=None, hook_sites: set = None):
+         """
+         iat_map: VA -> (dll, func_name) for import resolution
+         func_names: VA -> name for known function names
+@@ -264,6 +264,11 @@ class Lifter:
+         # instruction whose trailing imm32 sits on one of these is patched at
+         # runtime, so its constant in the file is a placeholder.
+         self.patch_sites = patch_sites or set()
++        # VAs where the host gets control before the instruction runs
++        # (RECOMP_HOOK): the place for a port to adjust guest state the way a
++        # PC mod's inline hook would, since patching x86 bytes no longer
++        # changes lifted code.
++        self.hook_sites = hook_sites or set()
+         self._patched_imm = None
+         self._patched_disp = None   # (placeholder, expr) for a patched disp32
+         self._labels = None        # block starts of the function being lifted
+@@ -2109,6 +2114,8 @@ class Lifter:
+                 tgt = insn.get_branch_target()
+                 if tgt is not None and tgt <= insn.address and tgt in self._labels:
+                     lines.append("    RECOMP_BACKEDGE();")
++            if insn.address in self.hook_sites:
++                lines.append(f"    RECOMP_HOOK(0x{insn.address:08X}u);")
+             lifted = self.lift_instruction(insn)
+             for line in lifted:
+                 lines.append(f"    {line}")
+-- 
+2.52.0.windows.1
+

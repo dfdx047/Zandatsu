@@ -1,0 +1,167 @@
+From 56297b6c68f0e9a90dcedfc585106e7a8bc78579 Mon Sep 17 00:00:00 2001
+From: sistemas3cecasem <paukarvv@gmail.com>
+Date: Wed, 7 Oct 2026 11:40:57 -0400
+Subject: [PATCH 08/14] lift32: fnstsw/fnstenv report x87 TOP; native32: fair
+ FIFO machine lock, hashed name lookup
+
+- TOP (status word bits 11-13) was missing; found by differential testing
+  real NFSU2 functions against Unicorn.
+- The CRITICAL_SECTION machine lock is not fair: the game thread re-took it
+  ahead of a waiting audio mixer thread at every native call and the sound
+  stuttered. A ticket lock hands it to the longest waiter.
+- native32_name ran a linear scan on every bridge crossing.
+---
+ runtime/native32/native32.c | 57 ++++++++++++++++++++++++++++++++-----
+ tools/lift/lift32.py        | 16 ++++++++---
+ 2 files changed, 62 insertions(+), 11 deletions(-)
+
+diff --git a/runtime/native32/native32.c b/runtime/native32/native32.c
+index 482660b..539f58e 100644
+--- a/runtime/native32/native32.c
++++ b/runtime/native32/native32.c
+@@ -11,6 +11,7 @@
+ #include "native32.h"
+ #include "image_loader.h"
+ #include "recomp_trace.h"
++#pragma comment(lib, "synchronization.lib")
+ 
+ #if !defined(_MSC_VER) || !defined(_M_IX86)
+ #error "native32 is MSVC x86 only: the bridge and the callback trampoline are inline asm"
+@@ -67,7 +68,37 @@ static void regs_load(const regs_t* r) {
+ 
+ /* ------------------------------------------------------------- machine lock */
+ 
+-static CRITICAL_SECTION g_mach;
++/* The machine lock is a FIFO ticket lock, recursive per thread.
++ *
++ * It was a CRITICAL_SECTION, which is not fair: a thread that releases it and
++ * asks again a moment later gets it back ahead of anyone already waiting. The
++ * game thread releases the machine around every native call -- tens of
++ * thousands of times a second in a D3D9 game -- and immediately re-takes it,
++ * so a guest audio mixer thread waiting for the machine starved and the sound
++ * stuttered (NFS Underground 2). A ticket lock hands the machine to the
++ * longest waiter at every release. */
++static volatile LONG g_tk_next, g_tk_serving;
++static volatile DWORD g_tk_owner;
++static int g_tk_depth;
++static void mach_lock(void) {
++    DWORD me = GetCurrentThreadId();
++    if (g_tk_owner == me) { g_tk_depth++; return; }
++    LONG t = InterlockedIncrement(&g_tk_next) - 1;
++    for (int spin = 0; g_tk_serving != t; spin++) {
++        LONG cur = g_tk_serving;
++        if (cur == t) break;
++        if (spin < 64) YieldProcessor();
++        else WaitOnAddress(&g_tk_serving, &cur, sizeof cur, 1);
++    }
++    g_tk_owner = me;
++    g_tk_depth = 1;
++}
++static void mach_unlock(void) {
++    if (--g_tk_depth) return;
++    g_tk_owner = 0;
++    InterlockedIncrement(&g_tk_serving);
++    WakeByAddressAll((void*)&g_tk_serving);
++}
+ static DWORD g_mach_tls = TLS_OUT_OF_INDEXES;
+ 
+ /* Argument slots copied per call. Reading past a callee's real arguments is
+@@ -96,7 +127,7 @@ typedef struct { regs_t r; int depth; } mstate;
+ /* Nests: a callback that arrives while this thread is inside a native call
+  * claims again, and only the outermost claim loads the saved state. */
+ void mach_enter(void) {
+-    EnterCriticalSection(&g_mach);
++    mach_lock();
+     mstate* m = (mstate*)TlsGetValue(g_mach_tls);
+     if (!m) {
+         /* Stack left for a fault handler after an overflow: without it the
+@@ -122,7 +153,7 @@ void mach_enter(void) {
+ void mach_leave(void) {
+     mstate* m = (mstate*)TlsGetValue(g_mach_tls);
+     if (--m->depth == 0) regs_save(&m->r);
+-    LeaveCriticalSection(&g_mach);
++    mach_unlock();
+ }
+ 
+ /* RECOMP_BACKEDGE's hand-over: let another guest thread take the machine.
+@@ -199,9 +230,18 @@ uint32_t native32_export(uint32_t base, const char* name) {
+ static struct { uint32_t va; char name[60]; } g_names[MAX_NAMES];
+ static int g_name_n;
+ 
++/* Open-addressed index over g_names: native32_name runs on every bridge
++ * crossing (g_cur_import), and a linear scan over thousands of COM method
++ * names was measurable in a D3D9 game's frame time. */
++#define NAME_HASH 16384
++static int16_t g_name_idx[NAME_HASH];   /* 0 = empty, else index + 1 */
++static uint32_t name_slot(uint32_t va) { return (va * 2654435761u) >> 18; }
+ const char* native32_name(uint32_t va) {
+-    for (int i = 0; i < g_name_n; i++)
+-        if (g_names[i].va == va) return g_names[i].name;
++    for (uint32_t h = name_slot(va), n = 0; n < NAME_HASH; h = (h + 1) & (NAME_HASH - 1), n++) {
++        int i = g_name_idx[h];
++        if (!i) return NULL;
++        if (g_names[i - 1].va == va) return g_names[i - 1].name;
++    }
+     return NULL;
+ }
+ 
+@@ -210,7 +250,11 @@ static void add_name(uint32_t va, const char* dll, const char* fn) { native32_ad
+ void native32_add_name(uint32_t va, const char* dll, const char* fn) {
+     if (g_name_n < MAX_NAMES && !native32_name(va)) {
+         _snprintf(g_names[g_name_n].name, sizeof g_names[0].name - 1, "%s!%s", dll, fn);
+-        g_names[g_name_n++].va = va;
++        g_names[g_name_n].va = va;
++        uint32_t h = name_slot(va);
++        while (g_name_idx[h]) h = (h + 1) & (NAME_HASH - 1);
++        g_name_idx[h] = (int16_t)(g_name_n + 1);
++        g_name_n++;
+     }
+ }
+ 
+@@ -490,7 +534,6 @@ static LONG CALLBACK native32_veh(EXCEPTION_POINTERS* ep) {
+ /* ---------------------------------------------------------------- setup */
+ 
+ void native32_init(void) {
+-    InitializeCriticalSection(&g_mach);
+     recomp_yield_hook = native32_yield;
+     g_mach_tls = TlsAlloc();
+     g_shim_page = (uint32_t)(uintptr_t)VirtualAlloc(NULL, 0x10000, MEM_RESERVE, PAGE_NOACCESS);
+diff --git a/tools/lift/lift32.py b/tools/lift/lift32.py
+index 327c6dd..0e03df1 100644
+--- a/tools/lift/lift32.py
++++ b/tools/lift/lift32.py
+@@ -1731,9 +1731,13 @@ class Lifter:
+             # An fxam result is carried as 0x10000 | its C3..C0 bits (tested as
+             # >= 0x10000: the fcom "less" state is -1, which has bit 16 set) and
+             # reported verbatim.
+-            sw = ("((_fpu_cmp >= 0x10000) ? (uint32_t)(_fpu_cmp & 0x4700) : "
++            # TOP (bits 11-13) comes from the stack depth: the model's stack
++            # starts empty with TOP = 0 and each push decrements TOP, so TOP is
++            # -depth mod 8. It was missing, and `fnstsw ax` handed code that
++            # keeps AH a value the CPU never produces (difftest_real on NFSU2).
++            sw = ("(((_fpu_cmp >= 0x10000) ? (uint32_t)(_fpu_cmp & 0x4700) : "
+                   "_fpu_cmp == 2 ? 0x4500u : _fpu_cmp < 0 ? 0x0100u : "
+-                  "_fpu_cmp == 0 ? 0x4000u : 0x0000u)")
++                  "_fpu_cmp == 0 ? 0x4000u : 0x0000u) | ((((uint32_t)-_fp_top) & 7u) << 11))")
+             if ops and ops[0].type == X86_OP_REG:
+                 lines.append(f"eax = (eax & 0xFFFF0000u) | {sw}; {comment}")
+             elif ops and ops[0].type == X86_OP_MEM:
+@@ -1757,9 +1761,13 @@ class Lifter:
+             # are zero; CW and the condition bits of SW are real. The MSVC CRT
+             # saves the environment this way in its math error handlers.
+             addr = self._fmt_mem_addr(ops[0].mem)
+-            sw = ("((_fpu_cmp >= 0x10000) ? (uint32_t)(_fpu_cmp & 0x4700) : "
++            # TOP (bits 11-13) comes from the stack depth: the model's stack
++            # starts empty with TOP = 0 and each push decrements TOP, so TOP is
++            # -depth mod 8. It was missing, and `fnstsw ax` handed code that
++            # keeps AH a value the CPU never produces (difftest_real on NFSU2).
++            sw = ("(((_fpu_cmp >= 0x10000) ? (uint32_t)(_fpu_cmp & 0x4700) : "
+                   "_fpu_cmp == 2 ? 0x4500u : _fpu_cmp < 0 ? 0x0100u : "
+-                  "_fpu_cmp == 0 ? 0x4000u : 0x0000u)")
++                  "_fpu_cmp == 0 ? 0x4000u : 0x0000u) | ((((uint32_t)-_fp_top) & 7u) << 11))")
+             lines.append(f"{{ uint32_t _e = {addr}; MEM32(_e) = 0xFFFF0000u | _fpu_cw; "
+                          f"MEM32(_e + 4) = 0xFFFF0000u | {sw}; MEM32(_e + 8) = 0xFFFFFFFFu; "
+                          f"MEM32(_e + 12) = 0; MEM32(_e + 16) = 0; MEM32(_e + 20) = 0; "
+-- 
+2.52.0.windows.1
+

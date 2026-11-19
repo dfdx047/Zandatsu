@@ -102,7 +102,7 @@ void dxQuaternionRotationMatrix(){
 
 // ---- textures. IDirect3DDevice9 slots: 23 CreateTexture, 25 CreateCubeTexture. Texture: 19 LockRect, 20 UnlockRect.
 // Cube texture: 19 LockRect(face, level, locked, rect, flags), 20 UnlockRect(face, level).
-struct DdsInfo {uint32_t width,height,mips,format,dataOffset;bool cube,compressed;uint32_t blockBytes,bytesPerPixel;};
+struct DdsInfo {uint32_t width,height,mips,format,dataOffset;bool cube,compressed;uint32_t blockBytes,bytesPerPixel;bool expand24=false;};
 bool parseDds(const uint8_t* d,uint32_t size,DdsInfo& o){
     if(size<128||std::memcmp(d,"DDS ",4))return false;
     auto u=[&](uint32_t off){uint32_t v;std::memcpy(&v,d+off,4);return v;};
@@ -135,14 +135,18 @@ uint32_t uploadLevels(uint32_t texture,const DdsInfo& info,uint32_t levels,const
         if(l<levels){
             uint32_t hr=cube?callMethod(texture,19,{face,l,locked,0,0}):callMethod(texture,19,{l,locked,0,0});
             if(!hr){int32_t dstPitch=int32_t(read32(locked));uint32_t bits=read32(locked+4);
-                for(uint32_t row=0;row<rows;++row)std::memcpy(ptr(bits+row*uint32_t(dstPitch),pitch),src+used+row*pitch,pitch);
+                if(info.expand24){   // R8G8B8 file -> X8R8G8B8 texture (D3DX's substitution, see d3dxFallbackFormat)
+                    for(uint32_t row=0;row<rows;++row){auto* d=static_cast<uint8_t*>(ptr(bits+row*uint32_t(dstPitch),w*4));const uint8_t* q=src+used+row*pitch;
+                        for(uint32_t x=0;x<w;++x){d[x*4]=q[x*3];d[x*4+1]=q[x*3+1];d[x*4+2]=q[x*3+2];d[x*4+3]=0xff;}}
+                }else for(uint32_t row=0;row<rows;++row)std::memcpy(ptr(bits+row*uint32_t(dstPitch),pitch),src+used+row*pitch,pitch);
                 if(cube)callMethod(texture,20,{face,l});else callMethod(texture,20,{l});}
         }
         used+=bytes;
     }
     heaps->free(GuestHeaps::process,locked);return used;
 }
-void writeImageInfo(uint32_t out,const DdsInfo& i){if(!out)return;write32(out,i.width);write32(out+4,i.height);write32(out+8,1);write32(out+12,i.mips);write32(out+16,i.format);write32(out+20,i.cube?5:3);write32(out+24,4);}
+void writeImageInfo(uint32_t out,const DdsInfo& i){if(!out)return;write32(out,i.width);write32(out+4,i.height);write32(out+8,1);write32(out+12,i.mips);write32(out+16,i.format);   // the file's format, as D3DX reports it
+   write32(out+20,i.cube?5:3);write32(out+24,4);}
 void dxCreateTextureFromFileInMemoryEx(){
     // (device, data, size, width, height, mips, usage, format, pool, filter, mipFilter, colorKey, srcInfo, palette, out)
     uint32_t device=arg(0),data=arg(1),size=arg(2),mips=arg(5),usage=arg(6),format=arg(7),pool=arg(8),out=arg(14);DdsInfo info;
@@ -150,7 +154,8 @@ void dxCreateTextureFromFileInMemoryEx(){
     if(!parseDds(bytes,size,info)||info.cube){NFS_RUNTIME_LOG(ANDROID_LOG_WARN,"MGR","D3DXCreateTextureFromFileInMemoryEx: not a 2D DDS (size %u, magic %08x)",size,read32(data));ret(0x88760B59u,15);return;}   // D3DXERR_INVALIDDATA
     uint32_t levels=(mips==0||mips==0xffffffffu||mips==0xfffffffdu)?info.mips:std::min(mips,info.mips);
     if(format&&format!=0xfffffffdu&&format!=info.format)NFS_RUNTIME_LOG(ANDROID_LOG_WARN,"MGR","D3DX texture asked format %u, file has %u: using the file's",format,info.format);
-    uint32_t hr=callMethod(device,23,{info.width,info.height,levels,usage,info.format,pool,out,0});
+    if(info.format==20)info.expand24=true;   // no device has R8G8B8 textures any more; D3DX converts to X8R8G8B8
+    uint32_t hr=callMethod(device,23,{info.width,info.height,levels,usage,info.expand24?22u:info.format,pool,out,0});
     if(hr){ret(hr,15);return;}
     uploadLevels(read32(out),info,levels,bytes+info.dataOffset,size-info.dataOffset,false,0);
     writeImageInfo(arg(12),info);ret(0,15);
@@ -161,29 +166,68 @@ void dxCreateCubeTextureFromFileInMemoryEx(){
     auto* bytes=static_cast<const uint8_t*>(ptr(data,size));
     if(!parseDds(bytes,size,info)||!info.cube){NFS_RUNTIME_LOG(ANDROID_LOG_WARN,"MGR","D3DXCreateCubeTextureFromFileInMemoryEx: not a cube DDS");ret(0x88760B59u,14);return;}
     uint32_t levels=(mips==0||mips==0xffffffffu||mips==0xfffffffdu)?info.mips:std::min(mips,info.mips);
-    uint32_t hr=callMethod(device,25,{info.width,levels,usage,info.format,pool,out,0});if(hr){ret(hr,14);return;}
+    if(info.format==20)info.expand24=true;
+    uint32_t hr=callMethod(device,25,{info.width,levels,usage,info.expand24?22u:info.format,pool,out,0});if(hr){ret(hr,14);return;}
     uint32_t off=info.dataOffset;for(uint32_t face=0;face<6&&off<size;++face)off+=uploadLevels(read32(out),info,levels,bytes+off,size-off,true,face);
     writeImageInfo(arg(11),info);ret(0,14);
 }
+// D3DXCheckTextureRequirements' substitution for formats the device lacks (DXVK, like most PC GPUs since ~2006, has no
+// 24-bit or 8-bit-palette formats). The game relies on it: pre_texture.wtb texture 3 is R8G8B8, and without the swap its
+// texture loop stops there and the UI later reads an unregistered texture (crash in cUIPrimWorkBase 0x00CCBA80).
+uint32_t d3dxFallbackFormat(uint32_t format){
+    switch(format){
+    case 20:return 22;   // R8G8B8 -> X8R8G8B8
+    case 27:return 23;   // R3G3B2 -> R5G6B5
+    case 29:return 21;   // A8R3G3B2 -> A8R8G8B8
+    case 52:return 51;   // A4L4 -> A8L8
+    case 41:case 40:return 21;   // P8, A8P8 -> A8R8G8B8
+    default:return 0;
+    }
+}
 void dxCreateTexture(){
-    // (device, width, height, mips, usage, format, pool, out): straight to IDirect3DDevice9::CreateTexture
-    uint32_t mips=arg(3);if(mips==0xffffffffu)mips=0;
-    ret(callMethod(arg(0),23,{arg(1),arg(2),mips,arg(4),arg(5),arg(6),arg(7),0}),8);
+    // (device, width, height, mips, usage, format, pool, out) -> IDirect3DDevice9::CreateTexture, with D3DX's format fallback
+    uint32_t mips=arg(3);if(mips==0xffffffffu)mips=0;uint32_t format=arg(5);
+    uint32_t hr=callMethod(arg(0),23,{arg(1),arg(2),mips,arg(4),format,arg(6),arg(7),0});
+    if(hr)if(uint32_t alt=d3dxFallbackFormat(format)){
+        static uint32_t notes=0;if(notes++<8)NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"MGR","D3DXCreateTexture %ux%u: format %u unsupported (%08x), using %u",arg(1),arg(2),format,hr,alt);
+        hr=callMethod(arg(0),23,{arg(1),arg(2),mips,arg(4),alt,arg(6),arg(7),0});
+    }
+    if(hr){static uint32_t fails=0;if(fails++<16)NFS_RUNTIME_LOG(ANDROID_LOG_WARN,"MGR","D3DXCreateTexture %ux%u mips %u usage %x format %u pool %u failed %08x",arg(1),arg(2),mips,arg(4),format,arg(6),hr);}
+    ret(hr,8);
 }
 
 // ---- ID3DXConstantTable from the CTAB comment of SM2/SM3 bytecode.
 struct CtabConstant {std::string name;uint32_t regSet,regIndex,regCount,cls,type,rows,columns,elements,bytes,defaultValue;};
-struct ConstantTable {uint32_t blob,blobSize,version,creator;std::vector<CtabConstant> constants;uint32_t descStrings=0;};
+struct ConstantTable {uint32_t blob,blobSize,version,creator;std::vector<CtabConstant> constants;uint32_t descStrings=0;
+    std::map<uint32_t,CtabConstant> elements;};   // array elements made on demand, keyed by handle
 std::map<uint32_t,ConstantTable> constantTables;uint32_t nextConstantTableId=1;
 std::vector<uint32_t> constantTableVtable;
 ConstantTable* tableOf(uint32_t self){auto f=constantTables.find(objectId(self));return f==constantTables.end()?nullptr:&f->second;}
-// A D3DXHANDLE for constant i is (table id << 16) | (i + 1); a name string handle is resolved by name.
+// A D3DXHANDLE is 0x7a000000 | (element+1) << 12 | (i+1) for element of constant i (element field 0 = the whole
+// constant); i < 4096, element < 4095. A handle that is not ours is a guest string: the name itself.
+uint32_t elementHandle(ConstantTable& t,uint32_t i,uint32_t element){
+    const auto& c=t.constants[i];uint32_t count=std::max<uint32_t>(1,c.elements);if(element>=count||element>=4095)return 0;
+    uint32_t handle=0x7a000000u|((element+1)<<12)|(i+1);
+    if(!t.elements.count(handle)){CtabConstant e=c;uint32_t per=std::max<uint32_t>(1,c.regCount/count);
+        e.name=c.name+"["+std::to_string(element)+"]";e.regIndex=c.regIndex+element*per;e.regCount=per;e.elements=1;e.bytes=c.bytes/count;
+        e.defaultValue=c.defaultValue?c.defaultValue+element*e.bytes:0;t.elements.emplace(handle,e);}
+    return handle;
+}
+// "name" or "name[i]" -> handle, 0 if absent (struct members "a.b" are not supported).
+uint32_t handleByName(ConstantTable& t,const std::string& name){
+    std::string base=name;uint32_t element=0;bool indexed=false;auto open=name.find('[');
+    if(open!=std::string::npos&&name.back()==']'){base=name.substr(0,open);element=uint32_t(std::strtoul(name.c_str()+open+1,nullptr,10));indexed=true;}
+    for(uint32_t i=0;i<t.constants.size()&&i<4095;++i)if(t.constants[i].name==base)return indexed?elementHandle(t,i,element):0x7a000000u|(i+1);
+    return 0;
+}
 const CtabConstant* constantOf(ConstantTable& t,uint32_t handle){
     if(!handle)return nullptr;
-    if((handle&0xffff0000u)==0x7a000000u){uint32_t i=handle&0xffff;return i>=1&&i<=t.constants.size()?&t.constants[i-1]:nullptr;}
-    // otherwise the handle is a guest string: the name itself
-    if(!memory->readable(handle,1))return nullptr;std::string name=guestString(handle);
-    for(auto& c:t.constants)if(c.name==name)return &c;return nullptr;
+    if((handle&0xff000000u)==0x7a000000u){
+        if(handle&0x00fff000u){auto f=t.elements.find(handle);return f==t.elements.end()?nullptr:&f->second;}
+        uint32_t i=handle&0xfff;return i>=1&&i<=t.constants.size()?&t.constants[i-1]:nullptr;
+    }
+    if(!memory->readable(handle,1))return nullptr;
+    uint32_t h=handleByName(t,guestString(handle));return h?constantOf(t,h):nullptr;
 }
 void ctQueryInterface(){if(arg(2))write32(arg(2),0);ret(0x80004002u,3);}
 void ctAddRef(){ret(2,1);}
@@ -201,12 +245,20 @@ void ctGetConstantDesc(){
     if(!c){ret(0x8876086Cu,4);return;}if(count){uint32_t n=read32(count);if(out&&n>=1)writeConstantDesc(out,*c);write32(count,1);}else if(out)writeConstantDesc(out,*c);ret(0,4);
 }
 void ctGetSamplerIndex(){auto* t=tableOf(arg(0));auto* c=t?constantOf(*t,arg(1)):nullptr;ret(c&&c->regSet==3?c->regIndex:0xffffffffu,2);}
-void ctGetConstant(){auto* t=tableOf(arg(0));if(!t||arg(1)){ret(0,3);return;}uint32_t i=arg(2);ret(i<t->constants.size()?0x7a000000u|(i+1):0,3);}
+void ctGetConstant(){auto* t=tableOf(arg(0));if(!t||arg(1)){ret(0,3);return;}uint32_t i=arg(2);ret(i<t->constants.size()&&i<4095?0x7a000000u|(i+1):0,3);}
 void ctGetConstantByName(){
     auto* t=tableOf(arg(0));if(!t||arg(1)){ret(0,3);return;}std::string name=guestString(arg(2));
-    for(uint32_t i=0;i<t->constants.size();++i)if(t->constants[i].name==name){ret(0x7a000000u|(i+1),3);return;}ret(0,3);
+    if(uint32_t h=handleByName(*t,name)){ret(h,3);return;}
+    static uint32_t misses=0;if(misses++<200){std::string all;for(auto& c:t->constants)all+=" "+c.name;
+        NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"MGR","ConstantTable %u: no '%s' among%s",objectId(arg(0)),name.c_str(),all.c_str());}
+    ret(0,3);
 }
-void ctGetConstantElement(){auto* t=tableOf(arg(0));auto* c=t?constantOf(*t,arg(1)):nullptr;ret(c&&arg(2)==0?arg(1):0,3);}
+void ctGetConstantElement(){
+    auto* t=tableOf(arg(0));uint32_t handle=arg(1),index=arg(2);if(!t){ret(0,3);return;}
+    if(!((handle&0xff000000u)==0x7a000000u))handle=handleByName(*t,memory->readable(handle,1)?guestString(handle):std::string());
+    uint32_t i=handle&0xfff;if(!handle||(handle&0x00fff000u)||!i||i>t->constants.size()){ret(0,3);return;}
+    ret(elementHandle(*t,i-1,index),3);
+}
 // Set* write the registers through the device: IDirect3DDevice9 slots 94 SetVertexShaderConstantF, 109 SetPixelShaderConstantF.
 void setFloats(uint32_t self,uint32_t device,uint32_t handle,const std::vector<float>& values){
     auto* t=tableOf(self);auto* c=t?constantOf(*t,handle):nullptr;if(!c||c->regSet!=2)return;
@@ -265,6 +317,7 @@ void dxGetShaderConstantTable(){
         }
         p+=4+((token>>24)&0xf)*4;   // instruction length in SM2+ (bits 24-27)
     }
+    NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"MGR","D3DXGetShaderConstantTable: no CTAB in shader %08x version %08x",function,version);
     write32(out,0);ret(0x8876086Cu,2);   // D3DERR_INVALIDCALL: no constant table
 }
 

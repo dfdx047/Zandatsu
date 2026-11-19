@@ -1,0 +1,3 @@
+# Catalog fixes applied by `run_lift.py patch` (no new sweep). VA, then add/drop and the reason.
+0x010EC000  drop: data (pointer table) decoded as a function start; it swallowed the real function at 0x010EC010
+0x010EC010  add: real function (55 8B EC), reached only through a pointer built at run time (ICALL unresolved from 0x0110F510)

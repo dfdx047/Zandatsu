@@ -1,0 +1,90 @@
+From 486a9a1898f4720b62436b6edc475be513f34419 Mon Sep 17 00:00:00 2001
+From: sistemas3cecasem <paukarvv@gmail.com>
+Date: Fri, 9 Oct 2026 11:36:22 -0400
+Subject: [PATCH 14/14] recomp_types: RECOMP_X87_WINDOW sliding-window FPU
+ stack to avoid O(N) shifts on push/pop
+
+---
+ runtime/recomp32/recomp_types.h | 51 +++++++++++++++++++++++++++++++++
+ 1 file changed, 51 insertions(+)
+
+diff --git a/runtime/recomp32/recomp_types.h b/runtime/recomp32/recomp_types.h
+index f72cee4..5286bd3 100644
+--- a/runtime/recomp32/recomp_types.h
++++ b/runtime/recomp32/recomp_types.h
+@@ -43,7 +43,27 @@ extern uint32_t g_ebx, g_esi, g_edi, g_ebp;
+  * like __ftol receive their argument on the FPU stack from the caller, and the
+  * control word persists across calls. A per-function local stack would make every
+  * cross-call FPU value read as 0. */
++#ifdef RECOMP_X87_WINDOW
++/* Opt-in: ST(0..7) are a window sliding over a buffer, so fp_push/fp_pop move
++ * one index instead of shifting all eight registers and their int64 shadows
++ * (~32 memory operations per push or pop in x87-heavy code). g_st and g_st_i64
++ * stay usable as arrays: g_st[i] is ST(i). Every translation unit of a program
++ * (lifted code and runtime) must agree on this macro; the header defines the
++ * storage (weak), so a runtime must not define g_st itself. */
++#define RECOMP_X87_SLOTS 256
++#if defined(_MSC_VER)
++#define RECOMP_X87_DATA __declspec(selectany)
++#else
++#define RECOMP_X87_DATA __attribute__((weak))
++#endif
++RECOMP_X87_DATA double  g_st_win[RECOMP_X87_SLOTS];
++RECOMP_X87_DATA int64_t g_st_i64_win[RECOMP_X87_SLOTS];
++RECOMP_X87_DATA int     g_fp_sp = RECOMP_X87_SLOTS / 2;
++#define g_st     (g_st_win + g_fp_sp)
++#define g_st_i64 (g_st_i64_win + g_fp_sp)
++#else
+ extern double   g_st[8];
++#endif
+ extern int      g_fp_top;
+ extern uint16_t g_fpu_cw;
+ 
+@@ -848,6 +868,36 @@ static inline uint64_t mmx_pcmpgtw(uint64_t a, uint64_t b) {
+ #else
+ #define RECOMP_SHARED_DATA __attribute__((weak))
+ #endif
++#ifdef RECOMP_X87_WINDOW
++/* Unbalanced code can walk the window to an end of the buffer; move the eight
++ * live registers back to the middle (rare: balanced code stays put). Slots
++ * past ST(7) keep stale values instead of the shift's zeros; x87 code cannot
++ * observe them without a stack fault. */
++static inline void fp_window_recentre(void) {
++    int to = RECOMP_X87_SLOTS / 2 - 4;
++    memmove(&g_st_win[to], &g_st_win[g_fp_sp], 8 * sizeof(double));
++    memmove(&g_st_i64_win[to], &g_st_i64_win[g_fp_sp], 8 * sizeof(int64_t));
++    g_fp_sp = to;
++}
++
++static inline void fp_push_impl(double* st, int* top, double val) {
++    (void)st;
++    if (g_fp_sp <= 8) fp_window_recentre();
++    --g_fp_sp;
++    g_st_win[g_fp_sp] = val;
++    g_st_i64_win[g_fp_sp] = 0;
++    (*top)++;
++}
++
++static inline double fp_pop_impl(double* st, int* top) {
++    (void)st;
++    double val = g_st_win[g_fp_sp];
++    ++g_fp_sp;
++    if (g_fp_sp > RECOMP_X87_SLOTS - 9) fp_window_recentre();
++    (*top)--;
++    return val;
++}
++#else
+ RECOMP_SHARED_DATA int64_t g_st_i64[8] = {0};
+ 
+ static inline void fp_push_impl(double* st, int* top, double val) {
+@@ -866,6 +916,7 @@ static inline double fp_pop_impl(double* st, int* top) {
+     (*top)--;
+     return val;
+ }
++#endif
+ 
+ #define fp_push(val) fp_push_impl(_st, &_fp_top, (val))
+ #define fp_pop()     fp_pop_impl(_st, &_fp_top)
+-- 
+2.52.0.windows.1
+

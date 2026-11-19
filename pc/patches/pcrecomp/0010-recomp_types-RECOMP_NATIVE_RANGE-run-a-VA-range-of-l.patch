@@ -1,0 +1,48 @@
+From 9a242d9fe5fecaec81e826b5b54029d78c544518 Mon Sep 17 00:00:00 2001
+From: sistemas3cecasem <paukarvv@gmail.com>
+Date: Wed, 7 Oct 2026 15:22:02 -0400
+Subject: [PATCH 10/14] recomp_types: RECOMP_NATIVE_RANGE, run a VA range of
+ lifted functions as the original code
+
+Bisection aid for a hybrid host: RECOMP_ENTER diverts functions in
+[g_native_lo, g_native_hi) to the host's recomp_run_native.
+---
+ runtime/recomp32/recomp_types.h | 17 ++++++++++++++++-
+ 1 file changed, 16 insertions(+), 1 deletion(-)
+
+diff --git a/runtime/recomp32/recomp_types.h b/runtime/recomp32/recomp_types.h
+index f1d9410..97746b2 100644
+--- a/runtime/recomp32/recomp_types.h
++++ b/runtime/recomp32/recomp_types.h
+@@ -1054,12 +1054,27 @@ void recomp_unresolved(const char *kind, uint32_t va, uint32_t from);
+  * useful for pinning a crash to a function without perturbing codegen. */
+ extern uint32_t g_cur_func;
+ 
++/* RECOMP_NATIVE_RANGE (bisection aid, see docs/HYBRID.md): a lifted function
++ * whose VA lies in [g_native_lo, g_native_hi) runs the ORIGINAL machine code
++ * instead, through recomp_run_native (host-provided). Everything it calls
++ * outside the range comes back to lifted code through the host's callback
++ * path. Halving the range until the symptom flips names the broken function. */
++#ifdef RECOMP_NATIVE_RANGE
++extern uint32_t g_native_lo, g_native_hi;
++void recomp_run_native(uint32_t va);
++#define RECOMP_NATIVE_CHECK(va)     if ((uint32_t)(va) - g_native_lo < g_native_hi - g_native_lo) { recomp_run_native(va); return; }
++#else
++#define RECOMP_NATIVE_CHECK(va)
++#endif
++
+ #ifdef RECOMP_TRACE
+ #define RECOMP_ENTER_SIZE 1024
+ extern uint32_t g_enter_trace[RECOMP_ENTER_SIZE];
+ extern uint32_t g_enter_idx;
+ void recomp_trace_enter(uint32_t va);
+-#define RECOMP_ENTER(va) do { g_cur_func = (va); RECOMP_FLAGS_IN(); recomp_trace_enter(va); } while (0)
++#define RECOMP_ENTER(va) do { g_cur_func = (va); RECOMP_NATIVE_CHECK(va) RECOMP_FLAGS_IN(); recomp_trace_enter(va); } while (0)
++#elif defined(RECOMP_NATIVE_RANGE)
++#define RECOMP_ENTER(va) do { g_cur_func = (va); RECOMP_NATIVE_CHECK(va) RECOMP_FLAGS_IN(); } while (0)
+ #else
+ #define RECOMP_ENTER(va) (g_cur_func = (va), RECOMP_FLAGS_IN())
+ #endif
+-- 
+2.52.0.windows.1
+

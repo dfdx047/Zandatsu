@@ -16,6 +16,9 @@
 #include <chrono>
 #include <thread>
 #include <cstdlib>
+#include <cstdio>
+#include <string>
+#include <vector>
 
 extern "C" IDirect3D9* Direct3DCreate9(UINT sdk);
 extern "C" void dxvkAndroidSetWindow(ANativeWindow* window);
@@ -123,6 +126,43 @@ D3DPRESENT_PARAMETERS presentation(uint32_t address){
     result.Windowed=p[8];result.EnableAutoDepthStencil=p[9];result.AutoDepthStencilFormat=static_cast<D3DFORMAT>(p[10]);result.Flags=p[11];result.FullScreen_RefreshRateInHz=p[12];result.PresentationInterval=D3DPRESENT_INTERVAL_IMMEDIATE;return result;
 }
 #include "d3d9_locks.inc"
+namespace {
+// Frame counter and optional backbuffer capture: NFS_D3D9_CAPTURE=<dir>[,<every N frames>] writes <dir>/frame_NNNNNN.ppm
+// (BGRA/XRGB backbuffers only). Proof for the headless Linux bench and GPU diagnostics; costs a GPU readback per capture.
+std::atomic<uint64_t> presentedFrames{0};
+void captureBackbuffer(IDirect3DDevice9* device,uint64_t frame){
+    static const char* spec=std::getenv("NFS_D3D9_CAPTURE");if(!spec||!*spec)return;
+    static std::string dir;static uint64_t every=0;
+    if(!every){std::string value=spec;auto comma=value.find(',');dir=value.substr(0,comma);every=comma==std::string::npos?120:std::max<uint64_t>(1,std::strtoull(value.c_str()+comma+1,nullptr,10));}
+    if(frame%every)return;
+    IDirect3DSurface9* back=nullptr;if(FAILED(device->GetBackBuffer(0,0,D3DBACKBUFFER_TYPE_MONO,&back))||!back)return;
+    D3DSURFACE_DESC desc{};back->GetDesc(&desc);IDirect3DSurface9* copy=nullptr;
+    if(desc.Format==D3DFMT_A8R8G8B8||desc.Format==D3DFMT_X8R8G8B8){
+        if(SUCCEEDED(device->CreateOffscreenPlainSurface(desc.Width,desc.Height,desc.Format,D3DPOOL_SYSTEMMEM,&copy,nullptr))&&
+           SUCCEEDED(device->GetRenderTargetData(back,copy))){
+            D3DLOCKED_RECT lock{};
+            if(SUCCEEDED(copy->LockRect(&lock,nullptr,D3DLOCK_READONLY))){
+                char name[64];std::snprintf(name,sizeof name,"/frame_%06llu.ppm",static_cast<unsigned long long>(frame));
+                if(FILE* out=std::fopen((dir+name).c_str(),"wb")){
+                    std::fprintf(out,"P6\n%u %u\n255\n",desc.Width,desc.Height);std::vector<uint8_t> row(desc.Width*3);
+                    for(uint32_t y=0;y<desc.Height;++y){auto src=static_cast<const uint8_t*>(lock.pBits)+size_t(y)*lock.Pitch;
+                        for(uint32_t x=0;x<desc.Width;++x){row[x*3]=src[x*4+2];row[x*3+1]=src[x*4+1];row[x*3+2]=src[x*4];}
+                        std::fwrite(row.data(),1,row.size(),out);}
+                    std::fclose(out);NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"MGR","Captured frame %llu to %s%s",static_cast<unsigned long long>(frame),dir.c_str(),name);
+                }
+                copy->UnlockRect();
+            }
+        }
+        if(copy)copy->Release();
+    }
+    back->Release();
+}
+void countFrame(){
+    using clock=std::chrono::steady_clock;static clock::time_point last=clock::now();static uint64_t lastFrame=0;
+    uint64_t frame=++presentedFrames;auto now=clock::now();double seconds=std::chrono::duration<double>(now-last).count();
+    if(seconds>=5.0){NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"MGR","Present: frame %llu, %.1f fps over %.1f s",static_cast<unsigned long long>(frame),(frame-lastFrame)/seconds,seconds);last=now;lastFrame=frame;}
+}
+}
 bool compressedFormat(D3DFORMAT format){return format>=D3DFMT_DXT1&&format<=D3DFMT_DXT5;}
 D3DFORMAT nativeTextureFormat(IDirect3DDevice9* device,D3DFORMAT format,DWORD usage,D3DRESOURCETYPE type){
     if(!compressedFormat(format)||(usage&(D3DUSAGE_RENDERTARGET|D3DUSAGE_DEPTHSTENCIL)))return format;
@@ -205,6 +245,7 @@ uint32_t dispatchGuestD3D9(uint32_t token,const uint32_t* args,uint32_t* argumen
         if(!window||deviceResetPending)return D3DERR_DEVICELOST;
         auto source=static_cast<const RECT*>(pointer(args[1])),destination=static_cast<const RECT*>(pointer(args[2]));
         auto dirty=static_cast<const RGNDATA*>(pointer(args[4]));
+        if(kind==2){countFrame();captureBackbuffer(static_cast<IDirect3DDevice9*>(object),presentedFrames.load());}
         return kind==2?static_cast<IDirect3DDevice9*>(object)->Present(source,destination,window,dirty):
             static_cast<IDirect3DSwapChain9*>(object)->Present(source,destination,window,dirty,args[5]);
     }

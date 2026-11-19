@@ -1,0 +1,58 @@
+From 876fc655b794c7be7870e74af61ca5fd8ac37ba9 Mon Sep 17 00:00:00 2001
+From: sistemas3cecasem <paukarvv@gmail.com>
+Date: Tue, 6 Oct 2026 12:43:13 -0400
+Subject: [PATCH 03/14] recomp_types: RECOMP_STRICT_ICALL routes unresolved
+ ICALL/ITAIL to a host hook
+
+The default prints and returns eax = 0, which lets a program continue
+with a null it never produced. A host that defines RECOMP_STRICT_ICALL
+supplies recomp_unresolved() to report the machine state and stop.
+---
+ runtime/recomp32/recomp_types.h | 17 +++++++++++++++--
+ 1 file changed, 15 insertions(+), 2 deletions(-)
+
+diff --git a/runtime/recomp32/recomp_types.h b/runtime/recomp32/recomp_types.h
+index 753974e..6fff83d 100644
+--- a/runtime/recomp32/recomp_types.h
++++ b/runtime/recomp32/recomp_types.h
+@@ -970,6 +970,19 @@ recomp_func_t recomp_lookup_import(uint32_t va);    /* import bridges */
+  * function whose first `je` tests the helper's ZF (Bunghole in One's ball
+  * never moved). */
+ 
++/* An indirect transfer to an address nothing lifted. By default it is printed
++ * and the call returns eax = 0 -- which lets a program limp on with a null it
++ * never produced, and the fault lands far from the cause. A host that defines
++ * RECOMP_STRICT_ICALL provides recomp_unresolved() instead and is expected to
++ * report the machine state and stop. */
++#ifdef RECOMP_STRICT_ICALL
++void recomp_unresolved(const char *kind, uint32_t va, uint32_t from);
++#define RECOMP_MISS(kind, va) recomp_unresolved((kind), (va), g_cur_func)
++#else
++#define RECOMP_MISS(kind, va) \
++    fprintf(stderr, "%s: unresolved VA 0x%08X from 0x%08X\n", (kind), (va), g_cur_func)
++#endif
++
+ /* Direct call to a known recompiled function */
+ #define RECOMP_CALL(func) do { \
+     uint32_t _caller = g_cur_func; \
+@@ -1004,7 +1017,7 @@ recomp_func_t recomp_lookup_import(uint32_t va);    /* import bridges */
+          * `esp += 4` here shifted the caller's stack by one slot per miss. \
+          * (Nocturne's CRT init runner lost its saved registers that way and \
+          * skipped ~90 static constructors after its first unlifted entry.) */ \
+-        fprintf(stderr, "ICALL: unresolved VA 0x%08X from 0x%08X\n", _va, g_cur_func); \
++        RECOMP_MISS("ICALL", _va); \
+         eax = 0; \
+     } \
+ } while(0)
+@@ -1022,7 +1035,7 @@ recomp_func_t recomp_lookup_import(uint32_t va);    /* import bridges */
+     if (_fn) { RECOMP_FLAGS_OUT(); RECOMP_REGS_OUT(); _fn(); RECOMP_REGS_IN(); } \
+     else if (_va == RECOMP_RETADDR) { /* setjmp and friends return by jumping \
+         to the saved return address; that is a return, not a missing target. */ } \
+-    else { fprintf(stderr, "ITAIL: unresolved VA 0x%08X from 0x%08X\n", _va, g_cur_func); } \
++    else { RECOMP_MISS("ITAIL", _va); } \
+ } while(0)
+ 
+ /* ============================================================
+-- 
+2.52.0.windows.1
+

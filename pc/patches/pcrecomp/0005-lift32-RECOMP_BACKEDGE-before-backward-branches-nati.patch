@@ -1,0 +1,94 @@
+From d544dafb52b4076a6450b36b85fd10af28e7fced Mon Sep 17 00:00:00 2001
+From: sistemas3cecasem <paukarvv@gmail.com>
+Date: Tue, 6 Oct 2026 15:50:39 -0400
+Subject: [PATCH 05/14] lift32: RECOMP_BACKEDGE before backward branches;
+ native32: ring of recent native calls, thread id in trace
+
+lift_function never emitted RECOMP_BACKEDGE (only generate.py did), so
+under native32's machine lock a lifted spin-wait could starve the other
+guest threads. native32 keeps the last 64 bridge crossings (target,
+caller, first args, result, thread) for crash reports.
+---
+ runtime/native32/native32.c | 12 +++++++++++-
+ runtime/native32/native32.h |  6 ++++++
+ tools/lift/lift32.py        | 10 ++++++++++
+ 3 files changed, 27 insertions(+), 1 deletion(-)
+
+diff --git a/runtime/native32/native32.c b/runtime/native32/native32.c
+index cf795cf..e682c1d 100644
+--- a/runtime/native32/native32.c
++++ b/runtime/native32/native32.c
+@@ -32,6 +32,13 @@ uint32_t  g_icall_trace_idx, g_icall_count;
+ 
+ int native32_trace_native, native32_trace_callbacks;
+ 
++/* The last native calls, for a crash report: which import ran, from which
++ * lifted function, with what first arguments and what it returned. One
++ * slot is written per bridge crossing; a racing writer on another thread can
++ * at worst garble one slot of a diagnostic. */
++native32_call_rec_t g_native_ring[NATIVE32_RING];
++volatile uint32_t   g_native_ring_idx;
++
+ typedef struct {
+     uint32_t eax, ecx, edx, esp, ebx, esi, edi, ebp, fs, cur;
+     double   st[8];
+@@ -226,7 +233,7 @@ static void native_bridge(void) {
+     const char* saved_import = g_cur_import;
+     if (native32_trace_native) {
+         const char* n = native32_name(fn);
+-        fprintf(stderr, "[native] %-32s (%08X %08X %08X %08X) from sub_%08X",
++        fprintf(stderr, "[native] t%-5lu %-32s (%08X %08X %08X %08X) from sub_%08X", GetCurrentThreadId(),
+                 n ? n : "?", src[0], src[1], src[2], src[3], g_cur_func);
+         if (!n) fprintf(stderr, " @%08X", fn);
+         for (int k = 0; k < 4; k++) {       /* arguments that are strings (gunman) */
+@@ -242,6 +249,9 @@ static void native_bridge(void) {
+         }
+     }
+     g_cur_import = native32_name(fn);
++    native32_call_rec_t* rec = &g_native_ring[g_native_ring_idx++ & (NATIVE32_RING - 1)];
++    rec->target = fn; rec->from = g_cur_func; rec->tid = GetCurrentThreadId();
++    rec->a0 = src[0]; rec->a1 = src[1]; rec->a2 = src[2]; rec->ret = 0xFFFFFFFFu; rec->done = 0;
+     if (!g_cur_import) g_cur_import = "(native)";
+     mach_leave();
+     SetLastError(guest_error);
+diff --git a/runtime/native32/native32.h b/runtime/native32/native32.h
+index fda6994..9d4fcb7 100644
+--- a/runtime/native32/native32.h
++++ b/runtime/native32/native32.h
+@@ -76,6 +76,12 @@ extern int native32_trace_callbacks;  /* one line per Windows -> guest call */
+ /* Guest address ranges known to the runtime (for fault reports). */
+ int native32_in_guest(uint32_t va);
+ 
++/* Ring of the last native (import / COM / GetProcAddress) calls. */
++#define NATIVE32_RING 64
++typedef struct { uint32_t target, from, tid, a0, a1, a2, ret, done; } native32_call_rec_t;
++extern native32_call_rec_t g_native_ring[NATIVE32_RING];
++extern volatile uint32_t   g_native_ring_idx;
++
+ /* Print the last indirect calls, newest first. */
+ void native32_dump_icalls(int n);
+ 
+diff --git a/tools/lift/lift32.py b/tools/lift/lift32.py
+index 96680fc..327c6dd 100644
+--- a/tools/lift/lift32.py
++++ b/tools/lift/lift32.py
+@@ -2090,6 +2090,16 @@ class Lifter:
+ 
+         emitted = 0
+         for insn in block.instructions:
++            # A branch back to an earlier instruction of this body is a loop:
++            # give other guest threads a turn now and then. generate.py did
++            # this and lift_function did not, so under native32's machine lock
++            # a lifted spin-wait on another guest thread's flag never let that
++            # thread run (NFSU2's main thread waiting on its loader thread).
++            if (insn.mnemonic.startswith('j') or insn.mnemonic.startswith('loop')) \
++                    and self._labels:
++                tgt = insn.get_branch_target()
++                if tgt is not None and tgt <= insn.address and tgt in self._labels:
++                    lines.append("    RECOMP_BACKEDGE();")
+             lifted = self.lift_instruction(insn)
+             for line in lifted:
+                 lines.append(f"    {line}")
+-- 
+2.52.0.windows.1
+
