@@ -5,6 +5,8 @@
 #include <d3d9.h>
 #include <algorithm>
 #include <map>
+#include <mutex>
+#include <cmath>
 #include <type_traits>
 #include <unordered_map>
 #include <cstring>
@@ -24,6 +26,46 @@ extern "C" IDirect3D9* Direct3DCreate9(UINT sdk);
 extern "C" void dxvkAndroidSetWindow(ANativeWindow* window);
 extern "C" HWND dxvkAndroidGetWindowHandle();
 extern "C" void dxvkAndroidSetRenderSize(uint32_t width,uint32_t height);
+namespace {
+std::mutex overlayMutex;std::vector<float> overlayCircles;
+// Draws the touch pad over the game's frame with fixed-function D3D9 (XYZRHW + DIFFUSE triangles), restoring all
+// device state (state block + render target) afterwards.
+void drawTouchOverlay(IDirect3DDevice9* d){
+    std::vector<float> c;{std::lock_guard<std::mutex> l(overlayMutex);c=overlayCircles;}
+    if(c.empty())return;
+    IDirect3DSurface9 *bb=nullptr,*rt=nullptr;if(FAILED(d->GetBackBuffer(0,0,D3DBACKBUFFER_TYPE_MONO,&bb)))return;
+    D3DSURFACE_DESC desc{};bb->GetDesc(&desc);const float W=float(desc.Width),H=float(desc.Height);
+    IDirect3DStateBlock9* sb=nullptr;d->CreateStateBlock(D3DSBT_ALL,&sb);d->GetRenderTarget(0,&rt);d->SetRenderTarget(0,bb);
+    D3DVIEWPORT9 vp{0,0,desc.Width,desc.Height,0.f,1.f};d->SetViewport(&vp);
+    d->BeginScene();
+    d->SetVertexShader(nullptr);d->SetPixelShader(nullptr);d->SetFVF(D3DFVF_XYZRHW|D3DFVF_DIFFUSE);d->SetTexture(0,nullptr);
+    const std::pair<D3DRENDERSTATETYPE,DWORD> rs[]={{D3DRS_ZENABLE,FALSE},{D3DRS_ZWRITEENABLE,FALSE},{D3DRS_ALPHABLENDENABLE,TRUE},{D3DRS_SRCBLEND,D3DBLEND_SRCALPHA},
+        {D3DRS_DESTBLEND,D3DBLEND_INVSRCALPHA},{D3DRS_BLENDOP,D3DBLENDOP_ADD},{D3DRS_CULLMODE,D3DCULL_NONE},{D3DRS_LIGHTING,FALSE},{D3DRS_ALPHATESTENABLE,FALSE},
+        {D3DRS_STENCILENABLE,FALSE},{D3DRS_SCISSORTESTENABLE,FALSE},{D3DRS_FOGENABLE,FALSE},{D3DRS_SRGBWRITEENABLE,FALSE},{D3DRS_COLORWRITEENABLE,0xF},
+        {D3DRS_SEPARATEALPHABLENDENABLE,FALSE},{D3DRS_FILLMODE,D3DFILL_SOLID},{D3DRS_MULTISAMPLEANTIALIAS,FALSE}};
+    for(auto& [k,v]:rs)d->SetRenderState(k,v);
+    d->SetTextureStageState(0,D3DTSS_COLOROP,D3DTOP_SELECTARG1);d->SetTextureStageState(0,D3DTSS_COLORARG1,D3DTA_DIFFUSE);
+    d->SetTextureStageState(0,D3DTSS_ALPHAOP,D3DTOP_SELECTARG1);d->SetTextureStageState(0,D3DTSS_ALPHAARG1,D3DTA_DIFFUSE);
+    d->SetTextureStageState(1,D3DTSS_COLOROP,D3DTOP_DISABLE);d->SetTextureStageState(1,D3DTSS_ALPHAOP,D3DTOP_DISABLE);
+    struct V{float x,y,z,w;DWORD c;};std::vector<V> v;const int seg=40;
+    for(size_t i=0;i+9<=c.size();i+=9){
+        float cx=c[i]*W,cy=c[i+1]*H,r=c[i+2]*H;auto col=[&](float a){return D3DCOLOR_ARGB(int(a*255),int(c[i+3]*255),int(c[i+4]*255),int(c[i+5]*255));};
+        bool filled=c[i+8]>0.5f;float inner=filled?0.f:r*0.82f;DWORD ring=col(c[i+6]),fill=col(c[i+6]*0.35f);
+        for(int k=0;k<seg;++k){
+            float a0=6.2831853f*k/seg,a1=6.2831853f*(k+1)/seg;
+            V o0{cx+r*std::cos(a0),cy+r*std::sin(a0),0,1,ring},o1{cx+r*std::cos(a1),cy+r*std::sin(a1),0,1,ring};
+            V i0{cx+inner*std::cos(a0),cy+inner*std::sin(a0),0,1,ring},i1{cx+inner*std::cos(a1),cy+inner*std::sin(a1),0,1,ring};
+            v.insert(v.end(),{o0,o1,i0,i0,o1,i1});
+            if(!filled){V m{cx,cy,0,1,fill},f0{i0.x,i0.y,0,1,fill},f1{i1.x,i1.y,0,1,fill};v.insert(v.end(),{m,f0,f1});}
+        }
+    }
+    if(!v.empty())d->DrawPrimitiveUP(D3DPT_TRIANGLELIST,UINT(v.size()/3),v.data(),sizeof(V));
+    d->EndScene();
+    d->SetRenderTarget(0,rt);if(rt)rt->Release();bb->Release();
+    if(sb){sb->Apply();sb->Release();}
+}
+}
+void setTouchOverlay(const float* circles,int count){std::lock_guard<std::mutex> l(overlayMutex);overlayCircles.assign(circles,circles+count*9);}
 extern "C" void mgrRuntimeCounters(uint64_t* handoffs,uint64_t* wakes,uint64_t* spins);
 void setD3D9RenderSize(unsigned width,unsigned height){dxvkAndroidSetRenderSize(width,height);}
 namespace {
@@ -261,6 +303,7 @@ uint32_t dispatchGuestD3D9(uint32_t token,const uint32_t* args,uint32_t* argumen
         if(!window||deviceResetPending)return D3DERR_DEVICELOST;
         auto source=static_cast<const RECT*>(pointer(args[1])),destination=static_cast<const RECT*>(pointer(args[2]));
         auto dirty=static_cast<const RGNDATA*>(pointer(args[4]));
+        if(kind==2)drawTouchOverlay(static_cast<IDirect3DDevice9*>(object));
         if(kind==2){countFrame();captureBackbuffer(static_cast<IDirect3DDevice9*>(object),presentedFrames.load());}
         return kind==2?static_cast<IDirect3DDevice9*>(object)->Present(source,destination,window,dirty):
             static_cast<IDirect3DSwapChain9*>(object)->Present(source,destination,window,dirty,args[5]);

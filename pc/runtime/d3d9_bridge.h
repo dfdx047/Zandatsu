@@ -11,3 +11,6 @@ bool d3d9RequestsSurface();
 void acknowledgeD3D9Surface(bool available);
 uint32_t createGuestD3D9(uint32_t sdk);
 uint32_t dispatchGuestD3D9(uint32_t token,const uint32_t* args,uint32_t* argumentCount);
+// On-screen pad overlay (Android touch, pc/android/mgr_android_main.cpp): circles drawn over the frame before Present.
+// Each circle: x, y (0..1 of the screen), radius (fraction of the screen height), RGBA (0..1), filled (0/1) = 9 floats.
+void setTouchOverlay(const float* circles,int count);

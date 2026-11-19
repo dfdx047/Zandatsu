@@ -73,8 +73,30 @@ bool pilotTick() {   // true when the pilot state changed
     if (!pilotSteps.empty()) { pilotNow = pilotSteps.front(); pilotSteps.pop_front(); pilotActive = true; pilotEnd = now + std::chrono::milliseconds(pilotNow.ms); }
     return was || pilotActive;
 }
+android_app* touchApp = nullptr;
+struct PadButton { const char* name; float x, y; float r, g, b; };
+const PadButton padButtons[] = {
+    {"A", 0.875f, 0.80f, 0.30f, 0.85f, 0.35f}, {"B", 0.945f, 0.64f, 0.90f, 0.30f, 0.30f},
+    {"X", 0.805f, 0.64f, 0.30f, 0.55f, 0.95f}, {"Y", 0.875f, 0.48f, 0.95f, 0.85f, 0.25f},
+    {"LT", 0.06f, 0.22f, 0.85f, 0.85f, 0.85f}, {"LB", 0.06f, 0.42f, 0.70f, 0.70f, 0.70f},
+    {"RT", 0.94f, 0.22f, 0.85f, 0.85f, 0.85f}, {"RB", 0.82f, 0.22f, 0.70f, 0.70f, 0.70f},
+};
+const float padButtonR = 0.065f, stickR = 0.15f, knobR = 0.065f;
+struct TouchPad {
+    bool on = false; int32_t stickId = -1; float ox = 0.15f, oy = 0.70f, sx = 0, sy = 0;
+    uint32_t pressed = 0; std::chrono::steady_clock::time_point lastUse{};
+} pad;
+float screenW() { return touchApp && touchApp->contentRect.right > 0 ? float(touchApp->contentRect.right) : touchApp && touchApp->window ? float(ANativeWindow_getWidth(touchApp->window)) : 1.f; }
+float screenH() { return touchApp && touchApp->contentRect.bottom > 0 ? float(touchApp->contentRect.bottom) : touchApp && touchApp->window ? float(ANativeWindow_getHeight(touchApp->window)) : 1.f; }
 void publishPad() {
     auto state = gamepad.padState();
+    if (pad.on) {
+        if (pad.stickId >= 0) { state.leftX = pad.sx; state.leftY = pad.sy; }
+        for (unsigned b = 0; b < std::size(padButtons); ++b) if ((pad.pressed >> b) & 1) {
+            float lt = 0, rt = 0; int hx = 0, hy = 0; state.buttons |= pilotButton(padButtons[b].name, lt, rt, hx, hy);
+            state.leftTrigger = std::fmax(state.leftTrigger, lt); state.rightTrigger = std::fmax(state.rightTrigger, rt);
+        }
+    }
     if (pilotActive) {
         if (pilotNow.kind == "stick") { state.leftX = pilotNow.x; state.leftY = pilotNow.y; }
         if (pilotNow.kind == "rstick") { state.rightX = pilotNow.x; state.rightY = pilotNow.y; }
@@ -87,7 +109,67 @@ void publishPad() {
 // Native touch for menus and story (MGR's PC menus are keyboard/pad driven: a mouse click does not pick an item,
 // build/lab/pc/runs/touch2): tap = A (confirm, skip), swipe = d-pad, two-finger tap = B (back). Each gesture becomes a
 // short pad press through the pilot queue, so it is never shorter than one game poll.
-struct Touch { float x = 0, y = 0; std::chrono::steady_clock::time_point at{}; int fingers = 0; bool active = false; } touch;
+struct Touch { float x = 0, y = 0; std::chrono::steady_clock::time_point at{}; int fingers = 0; bool active = false; int32_t id = -1; float lx = 0, ly = 0; } touch;
+
+// On-screen pad for fights (phase 5). Off in menus (gestures above); hold a finger ~300 ms on the left half to bring it
+// up, three-finger tap or 8 s without touching it hides it again. Left: floating stick. Right: A/B/X/Y diamond,
+// LT (blade mode), RT (ninja run), RB (lock-on switch), LB (sub-weapon), as on MGR's TYPE A controller screen.
+// Drawn by the D3D9 bridge (setTouchOverlay) as plain coloured circles.
+void padOverlay() {
+    std::vector<float> c;
+    auto circle = [&](float x, float y, float r, float cr, float cg, float cb, float a, bool fill) { c.insert(c.end(), {x, y, r, cr, cg, cb, a, 0.f, fill ? 1.f : 0.f}); };
+    if (pad.on) {
+        float aspect = screenH() / screenW();
+        circle(pad.ox, pad.oy, stickR, 0.9f, 0.9f, 0.9f, 0.45f, false);
+        circle(pad.ox + pad.sx * stickR * aspect, pad.oy + pad.sy * stickR, knobR, 0.9f, 0.9f, 0.9f, pad.stickId >= 0 ? 0.8f : 0.5f, true);
+        for (unsigned i = 0; i < std::size(padButtons); ++i) { auto& b = padButtons[i]; circle(b.x, b.y, padButtonR, b.r, b.g, b.b, (pad.pressed >> i) & 1 ? 0.9f : 0.55f, (pad.pressed >> i) & 1); }
+    }
+    setTouchOverlay(c.data(), int(c.size() / 9));
+}
+void padShow(bool on) {
+    if (pad.on == on) return;
+    pad = TouchPad{}; pad.on = on; pad.lastUse = std::chrono::steady_clock::now();
+    __android_log_print(ANDROID_LOG_INFO, "MGRLAB", "touch pad %s", on ? "on" : "off"); padOverlay();
+}
+// All pointers of the event (minus the one going up) decide the pad state.
+void padMotion(const AInputEvent* event) {
+    int32_t action = AMotionEvent_getAction(event), masked = action & AMOTION_EVENT_ACTION_MASK;
+    size_t upIndex = (action & AMOTION_EVENT_ACTION_POINTER_INDEX_MASK) >> AMOTION_EVENT_ACTION_POINTER_INDEX_SHIFT;
+    size_t count = AMotionEvent_getPointerCount(event);
+    if (masked == AMOTION_EVENT_ACTION_POINTER_DOWN && count >= 3) { padShow(false); return; }
+    const float W = screenW(), H = screenH();
+    uint32_t pressed = 0; bool stickSeen = false;
+    for (size_t i = 0; i < count; ++i) {
+        bool lifting = masked == AMOTION_EVENT_ACTION_UP || masked == AMOTION_EVENT_ACTION_CANCEL || (masked == AMOTION_EVENT_ACTION_POINTER_UP && i == upIndex);
+        if (lifting) continue;
+        int32_t id = AMotionEvent_getPointerId(event, i); float x = AMotionEvent_getX(event, i) / W, y = AMotionEvent_getY(event, i) / H;
+        if (id == pad.stickId) {
+            float dx = (x - pad.ox) * W / (stickR * H), dy = (y - pad.oy) / stickR; float len = std::sqrt(dx * dx + dy * dy);
+            if (len > 1) { dx /= len; dy /= len; }
+            pad.sx = dx; pad.sy = dy; stickSeen = true; continue;
+        }
+        bool hit = false;
+        for (unsigned b = 0; b < std::size(padButtons); ++b) {
+            float dx = (x - padButtons[b].x) * W, dy = (y - padButtons[b].y) * H;
+            if (std::sqrt(dx * dx + dy * dy) < padButtonR * H * 1.35f) { pressed |= 1u << b; hit = true; }
+        }
+        bool fresh = masked == AMOTION_EVENT_ACTION_DOWN || (masked == AMOTION_EVENT_ACTION_POINTER_DOWN && i == upIndex);
+        if (!hit && fresh && x < 0.5f && pad.stickId < 0) { pad.stickId = id; pad.ox = x; pad.oy = y; pad.sx = pad.sy = 0; stickSeen = true; }
+    }
+    if (!stickSeen) { pad.stickId = -1; pad.sx = pad.sy = 0; }
+    pad.pressed = pressed; pad.lastUse = std::chrono::steady_clock::now();
+    padOverlay(); publishPad();
+}
+// Main loop: a held finger on the left half turns the pad on; idle pad turns off.
+void padTick() {
+    auto now = std::chrono::steady_clock::now();
+    if (!pad.on && touch.active && touch.fingers <= 1 && touch.x / screenW() < 0.5f &&
+        std::hypot(touch.lx - touch.x, touch.ly - touch.y) < 60 && now - touch.at > std::chrono::milliseconds(300)) {
+        float x = touch.x / screenW(), y = touch.y / screenH(); int32_t id = touch.id;
+        touch.active = false; padShow(true); pad.stickId = id; pad.ox = x; pad.oy = y; padOverlay();
+    }
+    if (pad.on && pad.stickId < 0 && !pad.pressed && now - pad.lastUse > std::chrono::seconds(8)) padShow(false);
+}
 void touchPress(const char* names, int ms = 120) {
     PilotStep st; st.kind = "btn"; st.ms = ms; st.buttons = pilotButton(names, st.lt, st.rt, st.hx, st.hy);
     pilotSteps.push_back(st); PilotStep gap; gap.kind = "wait"; gap.ms = 60; pilotSteps.push_back(gap);
@@ -96,10 +178,12 @@ void touchGesture(const AInputEvent* event) {
     int32_t action = AMotionEvent_getAction(event) & AMOTION_EVENT_ACTION_MASK;
     int fingers = int(AMotionEvent_getPointerCount(event));
     if (action == AMOTION_EVENT_ACTION_DOWN) {
-        touch = Touch{AMotionEvent_getX(event, 0), AMotionEvent_getY(event, 0), std::chrono::steady_clock::now(), 1, true};
+        touch = Touch{AMotionEvent_getX(event, 0), AMotionEvent_getY(event, 0), std::chrono::steady_clock::now(), 1, true, AMotionEvent_getPointerId(event, 0)};
+        touch.lx = touch.x; touch.ly = touch.y;
         return;
     }
     if (!touch.active) return;
+    if (action == AMOTION_EVENT_ACTION_MOVE) { touch.lx = AMotionEvent_getX(event, 0); touch.ly = AMotionEvent_getY(event, 0); }
     if (action == AMOTION_EVENT_ACTION_POINTER_DOWN) touch.fingers = std::max(touch.fingers, fingers);
     if (action == AMOTION_EVENT_ACTION_CANCEL) { touch.active = false; return; }
     if (action != AMOTION_EVENT_ACTION_UP) return;
@@ -121,7 +205,7 @@ int32_t onInput(android_app* app, AInputEvent* event) {
         bool handled = gamepad.motion(event, false, setPadKey); if (handled) publishPad(); return handled ? 1 : 0;
     }
     if (type == AINPUT_EVENT_TYPE_MOTION && (AInputEvent_getSource(event) & AINPUT_SOURCE_CLASS_POINTER)) {
-        touchGesture(event);
+        if (pad.on) padMotion(event); else touchGesture(event);
         return 1;
     }
     if (type == AINPUT_EVENT_TYPE_KEY && gamepad.key(event, false, setPadKey)) { publishPad(); return 1; }
@@ -140,6 +224,7 @@ void loadEnv(const std::string& path) {
 }
 
 extern "C" __attribute__((visibility("default"))) void mgr_android_main(android_app* app) {
+    touchApp = app;
     std::string files = app->activity->internalDataPath ? app->activity->internalDataPath : "";
     setenv("DXVK_LOG_PATH", "none", 0);
     setenv("DXVK_STATE_CACHE_PATH", files.c_str(), 0);
@@ -171,6 +256,7 @@ extern "C" __attribute__((visibility("default"))) void mgr_android_main(android_
             if (!host.started) { host.started = true; __android_log_print(ANDROID_LOG_INFO, "MGRLAB", "boot %s", exe.c_str()); worker.start(exe); }
             pilotLoad(files + "/mgr_pilot.txt");
             if (pilotTick()) publishPad();
+            padTick();
             auto now = worker.status();
             if (now != status) { status = now; __android_log_print(ANDROID_LOG_INFO, "MGRLAB", "status: %s", status.c_str()); }
         } catch (const std::exception& e) {
