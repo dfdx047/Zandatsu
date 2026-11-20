@@ -51,7 +51,7 @@ void createEvent(){
     if(!event){event=std::make_shared<GuestEvent>(GuestEvent{arg(1)!=0,arg(2)!=0});if(!name.empty())namedEvents[name]=event;}
     uint32_t handle=nextEventHandle++;eventHandles.emplace(handle,event);ret(handle,4);
 }
-void setEvent(){auto event=eventHandles.find(arg(0));if(event==eventHandles.end()){lastError=6;ret(0,1);return;}event->second->signaled=true;notifyGuestSignal(arg(0));ret(1,1);}
+void setEvent(){auto event=eventHandles.find(arg(0));if(event==eventHandles.end()){lastError=6;ret(0,1);return;}event->second->signaled=true;unsigned woke=notifyGuestSignal(arg(0));ret(1,1);handoffAfterSignal(woke);}
 void resetEvent(){auto event=eventHandles.find(arg(0));if(event==eventHandles.end()){lastError=6;ret(0,1);return;}event->second->signaled=false;ret(1,1);}
 // ExitThread unwinds the lifted frames back to guestThreadEntry.
 struct GuestThreadExit{uint32_t code;};

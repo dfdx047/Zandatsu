@@ -60,7 +60,7 @@ void createSemaphore(){
 void releaseSemaphore(){
     auto found=semaphoreHandles.find(arg(0));if(found==semaphoreHandles.end()){lastError=6;ret(0,3);return;}
     auto& s=*found->second;int32_t add=int32_t(arg(1));if(add<=0||s.count+add>s.maximum){lastError=298;ret(0,3);return;}
-    if(arg(2))write32(arg(2),uint32_t(s.count));s.count+=add;notifyGuestSignal(arg(0));ret(1,3);
+    if(arg(2))write32(arg(2),uint32_t(s.count));s.count+=add;unsigned woke=notifyGuestSignal(arg(0));ret(1,3);handoffAfterSignal(woke);
 }
 void waitMultipleEx(){
     uint32_t count=arg(0),list=arg(1),timeout=arg(3);bool all=arg(2)!=0,alertable=arg(4)!=0;

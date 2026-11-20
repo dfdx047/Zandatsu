@@ -291,12 +291,20 @@ void yieldGuestMachine(unsigned milliseconds=0,std::chrono::steady_clock::time_p
 // SetEvent/ReleaseSemaphore made each of MGR's ~8 job threads take the machine just to sleep again.
 struct SignalWaiter{std::condition_variable cv;const uint32_t* handles=nullptr;unsigned count=0;std::atomic<bool> woken{false};};
 std::mutex guestSignalMutex;std::vector<SignalWaiter*> guestSignalWaiters;
-void notifyGuestSignal(uint32_t handle=0){
-    std::lock_guard<std::mutex> lock(guestSignalMutex);
+unsigned notifyGuestSignal(uint32_t handle=0){
+    std::lock_guard<std::mutex> lock(guestSignalMutex);unsigned woke=0;
     for(auto* w:guestSignalWaiters){
         if(w->woken)continue;
-        if(!handle||!w->count||std::find(w->handles,w->handles+w->count,handle)!=w->handles+w->count){w->woken=true;w->cv.notify_one();signalWakes.fetch_add(1,std::memory_order_relaxed);}
+        if(!handle||!w->count||std::find(w->handles,w->handles+w->count,handle)!=w->handles+w->count){w->woken=true;w->cv.notify_one();signalWakes.fetch_add(1,std::memory_order_relaxed);++woke;}
     }
+    return woke;
+}
+void yieldGuestMachine(unsigned milliseconds,std::chrono::steady_clock::time_point deadline);
+// Lab MGR_SIGNAL_HANDOFF=1: a SetEvent/ReleaseSemaphore that woke a waiter hands the machine over at once (the waiter,
+// spinning with MGR_SIGNAL_SPIN_US or just woken, takes it) instead of keeping it until the signaller's next wait/slice.
+void handoffAfterSignal(unsigned woke){
+    static const bool on=getenv("MGR_SIGNAL_HANDOFF")&&atoi(getenv("MGR_SIGNAL_HANDOFF"));
+    if(on&&woke)yieldGuestMachine(0,{});
 }
 void waitGuestSignal(const uint32_t* handles=nullptr,unsigned count=0){
     if(!machineLease||!machineLease->owns_lock())throw GuestStop("Guest scheduler ownership missing");
