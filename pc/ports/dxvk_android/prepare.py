@@ -147,4 +147,85 @@ replace("src/dxvk/dxvk_graphics.cpp", '''    if (m_vkd->vkCreateGraphicsPipeline
 shutil.copy2(pathlib.Path(__file__).parent / "pipeline_cache.cpp", args.output / "src/dxvk/dxvk_pipecache.cpp")
 shutil.copy2(pathlib.Path(__file__).parent / "pipeline_cache.h", args.output / "src/dxvk/dxvk_pipecache.h")
 replace("src/dxvk/dxvk_pipemanager.cpp", '    m_cache     (new DxvkPipelineCache(device->vkd())) {', '    m_cache     (new DxvkPipelineCache(device->vkd(), device->properties().core.properties)) {')
+# Present effects (fx/present_fx.h, compiled from the port dir): FSR 1 / CAS upscale and frame generation
+# in the D3D9 present, off unless DXVK_FSR / DXVK_FI are set. Hooks only; the code lives in fx/.
+replace("src/dxvk/dxvk_context.h", '''    void writeTimestamp(
+      const Rc<DxvkGpuQuery>&   query);
+''', '''    void writeTimestamp(
+      const Rc<DxvkGpuQuery>&   query);
+
+    /** Present effects (present_fx.cpp): a timestamp after the current render pass, not inside it. */
+    void writeTimestampOutsidePass(const Rc<DxvkGpuQuery>& query) {
+      this->spillRenderPass(true);
+      this->writeTimestamp(query);
+    }
+''')
+replace("src/dxvk/dxvk_swapchain_blitter.h", '  private:\n\n    enum BindingIds', '''    /** Present effects (present_fx.cpp): the gamma ramp texture, updated first; null without a ramp. */
+    Rc<DxvkImageView> presentFxGammaView(DxvkContext* ctx) {
+      if (m_gammaDirty)
+        this->updateGammaTexture(ctx);
+      return m_gammaView;
+    }
+
+  private:
+
+    enum BindingIds''')
+replace("src/d3d9/d3d9_swapchain.h", '#include "../dxvk/dxvk_swapchain_blitter.h"\n', '#include "../dxvk/dxvk_swapchain_blitter.h"\n#include "present_fx.h"\n')
+replace("src/d3d9/d3d9_swapchain.h", '    Rc<DxvkSwapchainBlitter>  m_blitter;\n', '    Rc<DxvkSwapchainBlitter>  m_blitter;\n    Rc<DxvkPresentFx>         m_presentFx;\n')
+replace("src/d3d9/d3d9_swapchain.cpp", '''    if (options->presentInterval >= 0)
+      presentInterval = options->presentInterval;
+''', '''    if (options->presentInterval >= 0)
+      presentInterval = options->presentInterval;
+
+    // Frame generation (present_fx.h) needs FIFO: the generated and the real frame get a vblank each.
+    if (DxvkPresentFx::forceVsync())
+      presentInterval = std::max(presentInterval, 1u);
+''')
+replace("src/d3d9/d3d9_swapchain.cpp", '''    // Bump our frame id.
+    ++m_frameId;
+
+    for (uint32_t i = 0; i < SyncInterval || i < 1; i++) {
+''', '''    // Bump our frame id.
+    ++m_frameId;
+
+    // Present effects (present_fx.h, env DXVK_FSR / DXVK_FI): FSR 1 or CAS instead of the plain blit and,
+    // with frame generation, a frame generated between the previous one and this one, presented first.
+    if (m_presentFx == nullptr)
+      m_presentFx = new DxvkPresentFx(m_device);
+    const bool fxGenerate = m_presentFx->beginFrame(swapImageView);
+    const uint32_t fxGenerated = fxGenerate ? m_presentFx->repeat() : 0;
+    const uint32_t fxPresents = fxGenerated + std::max(SyncInterval, 1u) * m_presentFx->repeat();
+    Rc<DxvkImageView> fxGeneratedView;
+
+    for (uint32_t i = 0; i < fxPresents; i++) {
+''')
+replace("src/d3d9/d3d9_swapchain.cpp", '''      m_blitter->presentImage(m_context.ptr(),
+        m_imageViews.at(imageIndex), dstRect,
+        swapImageView, srcRect);
+''', '''      Rc<DxvkImageView> fxSource = swapImageView;
+      if (i < fxGenerated) {
+        if (i == 0)
+          fxGeneratedView = m_presentFx->generate(m_context.ptr(), swapImageView);
+        fxSource = fxGeneratedView;
+      } else if (i == fxGenerated && !fxGenerate) {
+        m_presentFx->keepHistory(m_context.ptr(), swapImageView);
+      }
+
+      if (!m_presentFx->present(m_context.ptr(), m_blitter.ptr(),
+            m_imageViews.at(imageIndex), dstRect, fxSource, srcRect))
+        m_blitter->presentImage(m_context.ptr(),
+          m_imageViews.at(imageIndex), dstRect,
+          fxSource, srcRect);
+''')
+replace("src/d3d9/d3d9_swapchain.cpp", '''      if (i + 1 >= SyncInterval)
+        m_context->signal(m_frameLatencySignal, m_frameId);
+''', '''      if (i + 1 >= fxPresents)
+        m_context->signal(m_frameLatencySignal, m_frameId);
+''')
+replace("src/d3d9/d3d9_swapchain.cpp", '''    SyncFrameLatency();
+
+    // Rotate swap chain buffers''', '''    m_presentFx->endFrame();
+    SyncFrameLatency();
+
+    // Rotate swap chain buffers''')
 (args.output / "ANDROID_PREPARE_SHA256").write_text(hashlib.sha256(pathlib.Path(__file__).read_bytes()).hexdigest() + "\n", encoding="ascii")

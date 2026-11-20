@@ -38,6 +38,33 @@ Actual guest/surface bring-up: `bash tests/android_runtime/run_with_surface.sh`
 a strict incremental bring-up check, not a gameplay test; a time-budget stop
 returns failure and must be investigated.
 
+## Present effects (FSR 1 / CAS, frame generation)
+
+`fx/present_fx.cpp` replaces the swap chain blit when enabled by environment
+(the launcher sets these; all off by default, nothing changes without them):
+
+| Variable | Values | Effect |
+|---|---|---|
+| `DXVK_FSR` | 0, 1, 2 | off (DXVK blit), AMD FSR 1 (EASU + RCAS, two passes), CAS (sharpen + upscale, one pass) |
+| `DXVK_FSR_SHARPNESS` | 0..1 (0.8) | RCAS `2 * (1 - s)` stops; CAS `lerp(8, 5, s)` |
+| `DXVK_FSR_OUT` | 0, 720 | window buffers at the screen size, or 720 lines (the compositor scales the rest) |
+| `DXVK_FI` | 0, 1 | one generated frame before each game frame (30 -> 60), FIFO forced, +1 frame latency |
+| `DXVK_FI_QUALITY` | 0, 1, 2 | blend only, motion search (default), motion + neighbour vectors |
+| `DXVK_FI_HZ` | Hz (60) | display rate; each frame is presented `round(Hz / 60)` times |
+| `DXVK_FX_DUMP`, `DXVK_FX_DUMP_DIR` | frame, dir | lab: PPM dumps of that frame's input, generated and output images |
+
+With `DXVK_FSR` the WSI (`android_wsi.cpp`) gives the window the upscaler's
+output size instead of the render size. Frame generation is the 360 port's
+`patches/0092-frame-interpolation.patch` shader (block motion search on a luma
+pyramid, no game motion vectors) on the back buffer, before the upscale.
+Statistics go to logcat (tag `MGR`, `present-fx`) every 300 game frames: GPU ms
+per upscale and per generated frame, generated / not generated frames, cuts.
+
+Hooks are in `prepare.py`; the code and shaders are compiled from `fx/`.
+Shaders: `python3 fx/fx_shaders.py` regenerates `fx/generated/*.h` (committed).
+Host check (Linux GPU, headless): build with `-DDXVK_HOST_HEADLESS=ON`, run
+`DXVK_FSR=1 DXVK_FI=1 ./dxvk_fx_check`.
+
 ## Third-party notices
 
 - DXVK native: zlib license, retained in the prepared source's `LICENSE` and
@@ -49,6 +76,10 @@ returns failure and must be investigated.
 - Supplemental `vulkan_android.h` and `vulkan_xlib.h` are from Khronos
   Vulkan-Headers tag `v1.2.189`. They retain their Apache 2.0 notices.
 - Gradle wrapper launchers/JAR use Gradle's Apache 2.0 tooling license.
+- `fx/ffx/ffx_a.h` and `fx/ffx/ffx_fsr1.h` are AMD FidelityFX FSR 1
+  (v1.20210629, MIT, `fx/ffx/LICENSE-FidelityFX.txt`), unmodified; the
+  compiled SPIR-V in `fx/generated/` contains them. `fx/dxvk_cas.frag` follows
+  the CAS idea without AMD's header.
 
 The project's own adapter code is covered by the repository license. No EA
 game data or generated game C is distributed in this repository.

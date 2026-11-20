@@ -19,6 +19,7 @@ static bool headlessWsi(){return std::getenv("NFS_D3D9_HEADLESS")!=nullptr;}
 #include <atomic>
 #include <algorithm>
 #include <cstdint>
+#include <cstdlib>
 #include "src/wsi/wsi_presenter.h"
 #include "src/wsi/wsi_window.h"
 #include "src/wsi/wsi_monitor.h"
@@ -45,6 +46,20 @@ uint32_t bufferWidth=0,bufferHeight=0;
 std::vector<std::pair<VkSurfaceKHR,ANativeWindow*>> surfaceWindows;
 #endif
 HMONITOR monitor(){return reinterpret_cast<HMONITOR>(uintptr_t{1});}
+// Present effects (fx/present_fx.h): with an upscaler in DXVK (DXVK_FSR=1|2) the window buffers take its
+// output size, the screen or DXVK_FSR_OUT lines high (e.g. 720: the compositor scales that to the screen),
+// instead of the render size, so the upscale runs in DXVK and not as the compositor's bilinear.
+bool fsrOn(){static const bool on=[]{const char* s=std::getenv("DXVK_FSR");return s&&std::atoi(s)>0;}();return on;}
+// Window buffer size for a render size (screen* must be set): 0x0 = the window's own size (the screen).
+void bufferSizeFor(uint32_t rw,uint32_t rh,uint32_t& bw,uint32_t& bh){
+    bw=bh=0;
+    if(!rw||!rh||rw>=screenWidth||rh>=screenHeight)return;
+    if(!fsrOn()){bw=rw;bh=rh;return;}
+    const char* s=std::getenv("DXVK_FSR_OUT");uint32_t oh=s?uint32_t(std::atoi(s)):0;
+    if(oh<240||oh>=screenHeight)return;                       // the upscaler writes the whole screen
+    uint32_t ow=uint32_t((uint64_t(screenWidth)*oh/screenHeight+1)&~uint64_t(1));
+    if(rw<ow&&rh<oh){bw=ow;bh=oh;}else{bw=rw;bh=rh;}           // render already at least the output size: as without
+}
 // The Vulkan driver DXVK talks to: the linked system loader, or an imported
 // adrenotools driver chosen in the launcher (set before the device exists).
 std::atomic<PFN_vkGetInstanceProcAddr> instanceProcAddr{nullptr};
@@ -56,8 +71,8 @@ extern "C" PFN_vkGetInstanceProcAddr dxvkAndroidGetInstanceProcAddr(){
 extern "C" void dxvkAndroidSetRenderSize(uint32_t width,uint32_t height){std::lock_guard<std::mutex> guard(windowMutex);renderWidth=width;renderHeight=height;
 #ifdef __ANDROID__
     // Same as dxvkAndroidSetWindow when the window came first.
-    if(currentWindow&&!bufferWidth&&width&&height&&width<screenWidth&&height<screenHeight&&
-       ANativeWindow_setBuffersGeometry(currentWindow,width,height,0)==0){bufferWidth=width;bufferHeight=height;}
+    uint32_t bw,bh;bufferSizeFor(width,height,bw,bh);
+    if(currentWindow&&!bufferWidth&&bw&&ANativeWindow_setBuffersGeometry(currentWindow,bw,bh,0)==0){bufferWidth=bw;bufferHeight=bh;}
 #endif
 }
 #ifdef __ANDROID__
@@ -80,8 +95,9 @@ extern "C" void dxvkAndroidSetWindow(ANativeWindow* window){
     // Below native resolution, present at the render size and let the Android
     // compositor scale the surface: the swap chain blit no longer writes a
     // full-screen image every frame (Adreno 610: 2.5 MB per frame at 2340x1080).
-    if(window&&renderWidth&&renderHeight&&renderWidth<screenWidth&&renderHeight<screenHeight&&
-       ANativeWindow_setBuffersGeometry(window,renderWidth,renderHeight,0)==0){bufferWidth=renderWidth;bufferHeight=renderHeight;}
+    // With DXVK_FSR: the upscaler's output size instead (bufferSizeFor).
+    uint32_t bw,bh;bufferSizeFor(renderWidth,renderHeight,bw,bh);
+    if(window&&bw&&ANativeWindow_setBuffersGeometry(window,bw,bh,0)==0){bufferWidth=bw;bufferHeight=bh;}
     currentHandle=window?reinterpret_cast<HWND>(++windowGeneration):nullptr;
 #else
     currentHandle=window;
@@ -156,6 +172,12 @@ bool getDisplayMode(HMONITOR handle,uint32_t index,WsiMode* mode){
 void getWindowSize(HWND window,uint32_t* width,uint32_t* height){std::lock_guard<std::mutex> guard(windowMutex);bool valid=currentWindow&&window==currentHandle;if(width)*width=valid?(bufferWidth?bufferWidth:screenWidth):0;if(height)*height=valid?(bufferHeight?bufferHeight:screenHeight):0;}
 void resizeWindow(HWND window,DxvkWindowState*,uint32_t width,uint32_t height){std::lock_guard<std::mutex> guard(windowMutex);
 #ifdef __ANDROID__
+if(fsrOn()&&width<screenWidth&&height<screenHeight){
+    // D3D9 Reset to a render size below the screen: the window takes the upscaler's output size.
+    uint32_t bw,bh;bufferSizeFor(width,height,bw,bh);
+    if(currentWindow&&window==currentHandle&&ANativeWindow_setBuffersGeometry(currentWindow,bw,bh,0)==0){bufferWidth=bw;bufferHeight=bh;}
+    return;
+}
 if(currentWindow&&window==currentHandle&&ANativeWindow_setBuffersGeometry(currentWindow,width,height,0)==0){bufferWidth=width;bufferHeight=height;}
 #else
 (void)window;(void)width;(void)height;
