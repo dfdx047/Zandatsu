@@ -7,6 +7,8 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #include <map>
+#include <mutex>
+#include <shared_mutex>
 #include <algorithm>
 
 // The guest's virtual address space, independent of host pointer values.
@@ -25,6 +27,8 @@ private:
     void* base_ = MAP_FAILED;
     std::map<uint64_t,uint64_t> committed_;
     std::map<uint64_t,uint32_t> protection_;
+    // MGR_MT=1: lifted code checks readability (dynamic thunks) and heaps commit without the machine.
+    mutable std::shared_mutex lock_;
     uint64_t page_=static_cast<uint64_t>(sysconf(_SC_PAGESIZE));
     bool accessible(uint32_t va,uint64_t bytes,bool write)const{
         if(!bytes)return true;if(uint64_t(va)>=size||bytes>size-va)return false;
@@ -50,13 +54,14 @@ public:
     ~GuestMemory() { if (base_ != MAP_FAILED) munmap(base_, size_t(size)); }
     void* base() const { return base_; }
     bool readable(uint32_t va,uint64_t bytes)const{
-        return accessible(va,bytes,false);
+        std::shared_lock<std::shared_mutex> l(lock_);return accessible(va,bytes,false);
     }
-    bool writable(uint32_t va,uint64_t bytes)const{return accessible(va,bytes,true);}
+    bool writable(uint32_t va,uint64_t bytes)const{std::shared_lock<std::shared_mutex> l(lock_);return accessible(va,bytes,true);}
     // x86 execute permissions are guest metadata. ARM64 never executes these bytes.
     bool protect(uint32_t va,uint64_t bytes,uint32_t flags,uint32_t& previous){
         if(!bytes||uint64_t(va)>=size||bytes>size-va)return false;
         if(flags!=1&&flags!=2&&flags!=4&&flags!=8&&flags!=0x10&&flags!=0x20&&flags!=0x40&&flags!=0x80)return false;
+        std::unique_lock<std::shared_mutex> l(lock_);
         uint64_t start=uint64_t(va)/page_*page_,end=(uint64_t(va)+bytes+page_-1)/page_*page_;
         auto region=committed_.upper_bound(start);if(region==committed_.begin())return false;
         --region;if(end>region->second)return false;
@@ -74,6 +79,7 @@ public:
     void commit(uint32_t va, uint64_t bytes) {
         if (!bytes) throw std::invalid_argument("Empty guest commit");
         address(va, bytes);
+        std::unique_lock<std::shared_mutex> l(lock_);
         const uint64_t page = static_cast<uint64_t>(sysconf(_SC_PAGESIZE));
         const uint64_t start = uint64_t(va) / page * page;
         const uint64_t end = (uint64_t(va) + bytes + page - 1) / page * page;

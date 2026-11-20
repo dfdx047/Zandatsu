@@ -160,7 +160,7 @@ void localTime(){
 void heapSetInformation(){ret(1,4);}
 void heapQueryInformation(){if(arg(2)&&arg(3)>=4)write32(arg(2),2);if(arg(4))write32(arg(4),4);ret(1,5);}   // LFH
 void setCriticalSectionSpinCount(){ret(0,2);}
-void interlockedExchangeAdd(){uint32_t target=arg(0),old=read32(target);write32(target,old+arg(1));ret(old,2);}
+void interlockedExchangeAdd(){ret(__atomic_fetch_add(atomicGuest32(arg(0)),arg(1),__ATOMIC_SEQ_CST),2);}
 void setThreadAffinityMask(){ret(1,2);}
 void setThreadIdealProcessor(){ret(0,2);}
 void openThread(){auto found=std::find_if(threadHandles.begin(),threadHandles.end(),[&](auto& e){return e.second->id==arg(2);});ret(found==threadHandles.end()?0:found->first,3);}

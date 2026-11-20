@@ -63,6 +63,7 @@ void exitThread(){
 void* guestThreadEntry(void* context){
     stayOnPerformanceCores();
     registerGuestTid();
+    ensureGuestCpu();
     insideGuestThread=true;
     auto& thread=*static_cast<GuestThread*>(context);
     std::unique_lock<MachineMutex> lease(machine);machineLease=&lease;guestThreadId=thread.id;

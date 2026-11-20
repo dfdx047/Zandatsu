@@ -4,13 +4,15 @@
 #include <set>
 #include <algorithm>
 #include <vector>
+#include <mutex>
 
 // Guest heap addresses and opaque handles never depend on host malloc pointers.
-// Calls are serialized by the guest machine lock.
+// Own lock: with MGR_MT=1 HeapAlloc/HeapFree run without the guest machine lock.
 class GuestHeaps {
     struct Block { uint32_t capacity, requested; };
     struct Heap { uint32_t options, maximum; uint64_t live{}; std::map<uint32_t,Block> blocks; };
     GuestMemory& memory_;
+    mutable std::recursive_mutex mutex_;  // realloc -> alloc/free
 public:
 #if UINTPTR_MAX > 0xffffffffu
     static constexpr uint32_t firstArena=0x10000000u,firstArenaEnd=0x1f000000u,secondArena=0x30000000u,secondArenaSize=0x40000000u;
@@ -50,15 +52,18 @@ public:
         heaps_.emplace(process,Heap{0,0,0,{}});
     }
     uint32_t create(uint32_t options,uint32_t initial,uint32_t maximum) {
+        std::lock_guard<std::recursive_mutex> l(mutex_);
         if (maximum && initial>maximum) return 0;
         uint32_t id=next_; next_+=4; heaps_.emplace(id,Heap{options,maximum,0,{}}); return id;
     }
     bool destroy(uint32_t heap) {
+        std::lock_guard<std::recursive_mutex> l(mutex_);
         auto h=heaps_.find(heap); if (h==heaps_.end() || heap==process) return false;
         for (auto& b:h->second.blocks) release(b.first,b.second.capacity);
         heaps_.erase(h); return true;
     }
     uint32_t alloc(uint32_t heap,uint32_t flags,uint32_t bytes) {
+        std::lock_guard<std::recursive_mutex> l(mutex_);
         auto h=heaps_.find(heap); if(h==heaps_.end()) return 0;
         uint64_t capacity=(uint64_t(std::max(bytes,1u))+15)&~uint64_t(15);
         if (capacity>UINT32_MAX || (h->second.maximum &&
@@ -80,16 +85,19 @@ public:
         return address;
     }
     bool free(uint32_t heap,uint32_t address) {
+        std::lock_guard<std::recursive_mutex> l(mutex_);
         auto h=heaps_.find(heap); if(h==heaps_.end()) return false;
         if(!address) return true;
         auto b=h->second.blocks.find(address); if(b==h->second.blocks.end()) return false;
         release(address,b->second.capacity); h->second.live-=b->second.capacity; h->second.blocks.erase(b); return true;
     }
     uint32_t size(uint32_t heap,uint32_t address) const {
+        std::lock_guard<std::recursive_mutex> l(mutex_);
         auto h=heaps_.find(heap); if(h==heaps_.end()) return UINT32_MAX;
         auto b=h->second.blocks.find(address); return b==h->second.blocks.end()?UINT32_MAX:b->second.capacity;
     }
     uint32_t realloc(uint32_t heap,uint32_t flags,uint32_t address,uint32_t bytes) {
+        std::lock_guard<std::recursive_mutex> l(mutex_);
         auto h=heaps_.find(heap); if(h==heaps_.end()) return 0;
         auto b=h->second.blocks.find(address); if(b==h->second.blocks.end()) return 0;
         auto old=b->second;

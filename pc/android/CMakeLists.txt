@@ -14,6 +14,9 @@ set(GUEST_OPT "-O1" CACHE STRING "optimisation of the lifted code")
 # GUEST_FAST: the codepdbh/nfsu2-recompiled Android settings (validated there by difftest): guest registers in locals
 # (RECOMP_LOCAL_REGS), non-volatile guest memory, x87 sliding window (must be defined in every unit), hidden visibility.
 option(GUEST_FAST "codepdbh -O2 settings for the lifted code" OFF)
+# MGR_MT: per-thread guest CPU state (pcrecomp RECOMP_MT) and real atomics for LOCK/xchg; the runtime then lets guest
+# threads run lifted code in parallel when the game starts with MGR_MT=1 (default stays the single machine).
+option(MGR_MT "parallel-capable guest build (RECOMP_MT)" OFF)
 set(MGR_LAB_INCLUDE "" CACHE FILEPATH "untracked lab include for guest_mgr.inc")
 
 add_library(native_app_glue STATIC "${ANDROID_NDK}/sources/android/native_app_glue/android_native_app_glue.c")
@@ -40,6 +43,10 @@ target_include_directories(mgrpc PRIVATE "${RT}" "${PCRECOMP}/recomp32" "${PCREC
 target_compile_definitions(mgrpc PRIVATE RECOMP_STRICT_ICALL NFS_D3D9_BACKEND)
 if(GUEST_FAST)
   target_compile_definitions(mgrpc PRIVATE RECOMP_X87_WINDOW)
+endif()
+if(MGR_MT)
+  target_compile_definitions(mgr_guest PRIVATE RECOMP_MT)
+  target_compile_definitions(mgrpc PRIVATE RECOMP_MT)
 endif()
 if(MGR_LAB_INCLUDE)
   target_compile_definitions(mgrpc PRIVATE "MGR_LAB_INCLUDE=\"${MGR_LAB_INCLUDE}\"")

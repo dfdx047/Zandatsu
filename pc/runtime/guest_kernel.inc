@@ -34,39 +34,57 @@ void tlsAlloc() {
 void tlsFree() { uint32_t i=arg(0); bool ok=i<tlsUsed.size() && tlsUsed[i]; if(ok){tlsUsed[i]=false; tlsValues[i]=0;} else lastError=87; ret(ok,1); }
 void tlsGet() {uint32_t i=arg(0); if(i>=tlsUsed.size()||!tlsUsed[i]){lastError=87;ret(0,1);}else{lastError=0;ret(tlsValues[i],1);}}
 void tlsSet() {uint32_t i=arg(0); if(i>=tlsUsed.size()||!tlsUsed[i]){lastError=87;ret(0,2);}else{tlsValues[i]=arg(1);ret(1,2);}}
+// The table of guest critical sections has its own lock: in MT mode Enter/LeaveCriticalSection run without the machine
+// (~45k calls/s in MGR's scenes), while Initialize/Delete still come through the machine.
+std::mutex criticalTableMutex;
 void initCritical(uint32_t address,uint32_t spin) {
+    {std::lock_guard<std::mutex> table(criticalTableMutex);
     if(criticalSections.count(address)&&read32(address+8))throw GuestStop("Reinitializing active critical section");
     pendingCriticalDeletes.erase(address);
-    criticalSections[address]=std::make_shared<std::recursive_mutex>();
+    criticalSections[address]=std::make_shared<std::recursive_mutex>();}
     std::memset(ptr(address,24),0,24); write32(address+4,UINT32_MAX); write32(address+20,spin);
 }
 void initializeCritical() {initCritical(arg(0),0);ret(0,1);}
 void initializeCriticalSpin() {initCritical(arg(0),arg(1));ret(1,2);}
+std::shared_ptr<std::recursive_mutex> findCritical(uint32_t address){
+    std::lock_guard<std::mutex> table(criticalTableMutex);auto cs=criticalSections.find(address);
+    return cs==criticalSections.end()?nullptr:cs->second;
+}
 void enterCritical() {
-    uint32_t address=arg(0); auto cs=criticalSections.find(address);
-    if(cs==criticalSections.end()) throw GuestStop("EnterCriticalSection without initialization");
-    auto mutex=cs->second;
+    uint32_t address=arg(0); auto mutex=findCritical(address);
+    if(!mutex) throw GuestStop("EnterCriticalSection without initialization");
     // Contended: hand the machine over (the fair lock gives it to the waiting
     // owner) instead of sleeping 1 ms per attempt; sleep only if it persists.
     if(!mutex->try_lock()){
         WaitScope scope("EnterCriticalSection",address);
+        if(mtMode()){
+            // MT: the owner runs without the machine, so sleep on the mutex itself (futex), never holding the machine.
+            {auto& trace=currentTrace();trace.func=g_cur_func;trace.esp=g_esp;}
+            if(machine.ownedByMe()){
+                if(!machineLease||!machineLease->owns_lock())throw GuestStop("Guest scheduler ownership missing");
+                State saved;saved.save();machineLease->unlock();
+                mutex->lock();
+                machineLease->lock();saved.load();
+            }else mutex->lock();
+        }else
         for(unsigned spins=0;!mutex->try_lock();++spins){checkGuestProgress();yieldGuestMachine(spins<64?0:1);}
     }
-    cs=criticalSections.find(address);
-    if(cs==criticalSections.end()||cs->second!=mutex){mutex->unlock();throw GuestStop("Critical section deleted while waiting");}
+    if(findCritical(address)!=mutex){mutex->unlock();throw GuestStop("Critical section deleted while waiting");}
     auto count=read32(address+8)+1; write32(address+8,count); write32(address+4,count-1); write32(address+12,guestThreadId);
     if(count==1)currentTrace().hold(address);
     ret(0,1);
 }
 void leaveCritical() {
-    uint32_t address=arg(0); auto cs=criticalSections.find(address); uint32_t count=read32(address+8);
-    if(cs==criticalSections.end()||!count||read32(address+12)!=guestThreadId) throw GuestStop("Unbalanced LeaveCriticalSection");
-    write32(address+8,--count);write32(address+4,count-1);if(!count){write32(address+12,0);currentTrace().release(address);}cs->second->unlock();
-    if(!count&&pendingCriticalDeletes.erase(address))criticalSections.erase(cs);
+    uint32_t address=arg(0); auto mutex=findCritical(address); uint32_t count=read32(address+8);
+    if(!mutex||!count||read32(address+12)!=guestThreadId) throw GuestStop("Unbalanced LeaveCriticalSection");
+    write32(address+8,--count);write32(address+4,count-1);if(!count){write32(address+12,0);currentTrace().release(address);}
+    if(!count){std::lock_guard<std::mutex> table(criticalTableMutex);if(pendingCriticalDeletes.erase(address))criticalSections.erase(address);}
+    mutex->unlock();
     ret(0,1);
 }
 void deleteCritical() {
     uint32_t address=arg(0);
+    std::lock_guard<std::mutex> table(criticalTableMutex);
     if(read32(address+8)){
         NFS_RUNTIME_LOG(ANDROID_LOG_WARN,"NFSU2","Deferring deletion of active guest critical section %08x owner=%u count=%u",address,read32(address+12),read32(address+8));
         pendingCriticalDeletes[address]=true;
@@ -417,10 +435,12 @@ const std::map<std::string,recomp_func_t> windowFunctions={
     {"GetClientRect",clientRect},{"GetCursorPos",cursorPosition},{"GetSystemMetrics",systemMetrics}
 };
 // Guest threads run one at a time under the machine lock, so plain accesses are atomic to them.
-void interlockedExchange(){uint32_t target=arg(0),old=read32(target);write32(target,arg(1));ret(old,2);}
-void interlockedIncrement(){uint32_t target=arg(0),value=read32(target)+1;write32(target,value);ret(value,1);}
-void interlockedDecrement(){uint32_t target=arg(0),value=read32(target)-1;write32(target,value);ret(value,1);}
-void interlockedCompareExchange(){uint32_t target=arg(0),old=read32(target);if(old==arg(2))write32(target,arg(1));ret(old,3);}
+// Host atomics on guest memory: with MGR_MT=1 lifted `lock cmpxchg`/`lock xadd` on other threads race with these.
+uint32_t* atomicGuest32(uint32_t va){return static_cast<uint32_t*>(ptr(va,4));}
+void interlockedExchange(){ret(__atomic_exchange_n(atomicGuest32(arg(0)),arg(1),__ATOMIC_SEQ_CST),2);}
+void interlockedIncrement(){ret(__atomic_add_fetch(atomicGuest32(arg(0)),1u,__ATOMIC_SEQ_CST),1);}
+void interlockedDecrement(){ret(__atomic_sub_fetch(atomicGuest32(arg(0)),1u,__ATOMIC_SEQ_CST),1);}
+void interlockedCompareExchange(){uint32_t expect=arg(2);__atomic_compare_exchange_n(atomicGuest32(arg(0)),&expect,arg(1),false,__ATOMIC_SEQ_CST,__ATOMIC_SEQ_CST);ret(expect,3);}
 const std::map<std::string,recomp_func_t> kernelFunctions={
     {"IsBadReadPtr",isBadReadPtr},{"IsBadWritePtr",isBadWritePtr},{"VirtualProtect",virtualProtect},
     {"CreateMutexA",createMutex},{"ReleaseMutex",releaseMutex},

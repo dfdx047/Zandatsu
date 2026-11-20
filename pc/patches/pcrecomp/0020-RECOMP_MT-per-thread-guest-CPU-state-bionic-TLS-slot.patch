@@ -1,0 +1,421 @@
+From f03dc84f219a54d70bf3848211b31013166ca327 Mon Sep 17 00:00:00 2001
+From: dfdevx2 <viniciuseugenio47@gmail.com>
+Date: Fri, 20 Nov 2026 22:07:11 +0000
+Subject: [PATCH] RECOMP_MT: per-thread guest CPU state (bionic TLS slot) and
+ real atomics for lock/xchg
+
+---
+ runtime/recomp32/recomp_simd.h  |   6 +-
+ runtime/recomp32/recomp_types.h | 165 ++++++++++++++++++++++++++++++++
+ tools/lift/lift32.py            |  73 ++++++++++++--
+ 3 files changed, 236 insertions(+), 8 deletions(-)
+
+diff --git a/runtime/recomp32/recomp_simd.h b/runtime/recomp32/recomp_simd.h
+index a4518ba..db6fc2d 100644
+--- a/runtime/recomp32/recomp_simd.h
++++ b/runtime/recomp32/recomp_simd.h
+@@ -28,8 +28,12 @@ typedef union {
+     int64_t  i64[2];
+ } V128;
+ 
++#ifdef RECOMP_MT
++#define g_xmm ((V128 *)recomp_cpu()->xmm)
++#else
+ extern V128     g_xmm[8];
+-extern uint32_t g_mxcsr;          /* only the rounding field (bits 13-14) is honoured */
++extern uint32_t g_mxcsr;
++#endif          /* only the rounding field (bits 13-14) is honoured */
+ 
+ static inline V128 v128_q(uint64_t q) { V128 v; v.u64[0] = q; v.u64[1] = 0; return v; }
+ static inline V128 v128_d(uint32_t d) { V128 v; memset(&v, 0, sizeof v); v.u32[0] = d; return v; }
+diff --git a/runtime/recomp32/recomp_types.h b/runtime/recomp32/recomp_types.h
+index ada5c47..6eb0796 100644
+--- a/runtime/recomp32/recomp_types.h
++++ b/runtime/recomp32/recomp_types.h
+@@ -21,6 +21,98 @@
+ #include <intrin.h>
+ #endif
+ 
++/* ============================================================
++ * RECOMP_MT: guest threads run in parallel (MGR, 2026-11-20)
++ *
++ * Without it every register, flag and FPU/SSE value below is one global, and the
++ * host has to serialise all guest threads behind one machine lock. With it the
++ * whole CPU state lives in a per-thread recomp_cpu_t and the g_* names below are
++ * macros into the current thread's copy. Guest memory stays shared.
++ *
++ * Finding the copy must be cheap: lifted code touches registers on every entry,
++ * call and return. On Android arm64 the pointer sits in a fixed slot of the
++ * thread's TCB (bionic TLS_SLOT_APP, index 2, reserved for apps since Android 10;
++ * it held errno in 9 and earlier), so it is two instructions (mrs tpidr_el0; ldr)
++ * and, declared const in lifted code, the compiler loads it once per function.
++ * Elsewhere it is an ordinary __thread variable. The host allocates one per
++ * thread that runs lifted code and sets it with recomp_cpu_set() before the
++ * first call. RECOMP_MT needs RECOMP_X87_WINDOW (the x87 stack lives in the
++ * struct as a window too).
++ * ============================================================ */
++#ifdef RECOMP_MT
++#ifndef RECOMP_X87_WINDOW
++#error "RECOMP_MT needs RECOMP_X87_WINDOW"
++#endif
++#define RECOMP_X87_SLOTS 256
++typedef struct recomp_cpu {
++    uint32_t r_eax, r_ecx, r_edx, r_esp, r_ebx, r_esi, r_edi, r_ebp;   /* r_: eax etc. are macros in lifted code */
++    uint32_t flag_k, flag_a, flag_b, flag_cf;
++    uint32_t cur_func, fs_base, gs_base, mxcsr;
++    uint32_t backedges;
++    int fp_top, fp_sp;
++    uint16_t fpu_cw, seg_cs, seg_ds, seg_es, seg_fs, seg_gs, seg_ss;
++    _Alignas(16) uint8_t xmm[8][16];
++    uint64_t mm[8];
++    double st_win[RECOMP_X87_SLOTS];
++    int64_t st_i64_win[RECOMP_X87_SLOTS];
++    void *host;                    /* the host's own per-thread data */
++} recomp_cpu_t;
++#if defined(__ANDROID__) && defined(__aarch64__)
++#define RECOMP_CPU_SLOT 2          /* bionic TLS_SLOT_APP */
++#ifdef RECOMP_GENERATED_CODE
++/* Not volatile, no memory clobber: the compiler sees a pure value it may compute once per function and keep in a
++ * register (lifted code never changes the slot). A plain load would be redone after every guest memory store. */
++__attribute__((always_inline)) static inline recomp_cpu_t *recomp_cpu(void) {
++    recomp_cpu_t *c; __asm__("mrs %0, tpidr_el0\n\tldr %0, [%0, #16]" : "=r"(c)); return c; }
++#else
++__attribute__((always_inline))
++static inline recomp_cpu_t *recomp_cpu(void) { return (recomp_cpu_t *)((void * volatile *)__builtin_thread_pointer())[RECOMP_CPU_SLOT]; }
++#endif
++static inline void recomp_cpu_set(recomp_cpu_t *c) { ((void * volatile *)__builtin_thread_pointer())[RECOMP_CPU_SLOT] = c; }
++#else
++extern __thread recomp_cpu_t *recomp_cpu_tls;
++#ifdef RECOMP_GENERATED_CODE
++__attribute__((const))
++#endif
++static inline recomp_cpu_t *recomp_cpu(void) { return recomp_cpu_tls; }
++static inline void recomp_cpu_set(recomp_cpu_t *c) { recomp_cpu_tls = c; }
++#endif
++#define g_eax      (recomp_cpu()->r_eax)
++#define g_ecx      (recomp_cpu()->r_ecx)
++#define g_edx      (recomp_cpu()->r_edx)
++#define g_esp      (recomp_cpu()->r_esp)
++#define g_ebx      (recomp_cpu()->r_ebx)
++#define g_esi      (recomp_cpu()->r_esi)
++#define g_edi      (recomp_cpu()->r_edi)
++#define g_ebp      (recomp_cpu()->r_ebp)
++#define g_flag_k   (recomp_cpu()->flag_k)
++#define g_flag_a   (recomp_cpu()->flag_a)
++#define g_flag_b   (recomp_cpu()->flag_b)
++#define g_flag_cf  (recomp_cpu()->flag_cf)
++#define g_cur_func (recomp_cpu()->cur_func)
++#define g_fs_base  (recomp_cpu()->fs_base)
++#define g_gs_base  (recomp_cpu()->gs_base)
++#define g_mxcsr    (recomp_cpu()->mxcsr)
++#define g_backedges (recomp_cpu()->backedges)
++#define g_fp_top   (recomp_cpu()->fp_top)
++#define g_fp_sp    (recomp_cpu()->fp_sp)
++#define g_fpu_cw   (recomp_cpu()->fpu_cw)
++#define g_seg_cs   (recomp_cpu()->seg_cs)
++#define g_seg_ds   (recomp_cpu()->seg_ds)
++#define g_seg_es   (recomp_cpu()->seg_es)
++#define g_seg_fs   (recomp_cpu()->seg_fs)
++#define g_seg_gs   (recomp_cpu()->seg_gs)
++#define g_seg_ss   (recomp_cpu()->seg_ss)
++#define g_mm       (recomp_cpu()->mm)
++#define g_st_win   (recomp_cpu()->st_win)
++#define g_st_i64_win (recomp_cpu()->st_i64_win)
++/* A fresh thread's state: the x87 window in the middle, default control words. */
++static inline void recomp_cpu_init(recomp_cpu_t *c) {
++    memset(c, 0, sizeof *c);
++    c->fp_sp = RECOMP_X87_SLOTS / 2; c->fpu_cw = 0x027F; c->mxcsr = 0x1F80;
++}
++#endif /* RECOMP_MT */
++
+ /* ============================================================
+  * Global Register Model
+  *
+@@ -29,7 +121,9 @@
+  * ============================================================ */
+ 
+ /* Volatile (caller-saved) registers */
++#ifndef RECOMP_MT
+ extern uint32_t g_eax, g_ecx, g_edx, g_esp;
++#endif
+ 
+ /* Callee-saved registers (also global for implicit parameter passing).
+  * ebp is global too, not a per-function local: MSVC's __EH_prolog sets its
+@@ -37,7 +131,9 @@ extern uint32_t g_eax, g_ecx, g_edx, g_esp;
+  * would discard it and every C++ EH function would then address off zero.
+  * Real x86 has one ebp; FPO functions that never touch it simply pass the
+  * caller's through, which is exactly the behaviour we want. */
++#ifndef RECOMP_MT
+ extern uint32_t g_ebx, g_esi, g_edi, g_ebp;
++#endif
+ 
+ /* The x87 FPU stack is GLOBAL (8 shared registers), not per-function: helpers
+  * like __ftol receive their argument on the FPU stack from the caller, and the
+@@ -50,22 +146,28 @@ extern uint32_t g_ebx, g_esi, g_edi, g_ebp;
+  * stay usable as arrays: g_st[i] is ST(i). Every translation unit of a program
+  * (lifted code and runtime) must agree on this macro; the header defines the
+  * storage (weak), so a runtime must not define g_st itself. */
++#ifndef RECOMP_MT
+ #define RECOMP_X87_SLOTS 256
++#endif
+ #if defined(_MSC_VER)
+ #define RECOMP_X87_DATA __declspec(selectany)
+ #else
+ #define RECOMP_X87_DATA __attribute__((weak))
+ #endif
++#ifndef RECOMP_MT
+ RECOMP_X87_DATA double  g_st_win[RECOMP_X87_SLOTS];
+ RECOMP_X87_DATA int64_t g_st_i64_win[RECOMP_X87_SLOTS];
+ RECOMP_X87_DATA int     g_fp_sp = RECOMP_X87_SLOTS / 2;
++#endif
+ #define g_st     (g_st_win + g_fp_sp)
+ #define g_st_i64 (g_st_i64_win + g_fp_sp)
+ #else
+ extern double   g_st[8];
+ #endif
++#ifndef RECOMP_MT
+ extern int      g_fp_top;
+ extern uint16_t g_fpu_cw;
++#endif
+ 
+ /* The arithmetic flags a function RETURNS with. The lazy flag state is local
+  * to each lifted function, but assembly and the CRT return results in flags:
+@@ -80,12 +182,16 @@ extern uint16_t g_fpu_cw;
+ #else
+ #define RECOMP_WEAK __attribute__((weak))
+ #endif
++#ifndef RECOMP_MT
+ RECOMP_WEAK uint32_t g_flag_k, g_flag_a, g_flag_b, g_flag_cf;
++#endif
+ #define RECOMP_FLAGS_OUT() (g_flag_k = _flag_k, g_flag_a = _flag_a, g_flag_b = _flag_b, g_flag_cf = _cf)
+ #define RECOMP_FLAGS_IN()  (_flag_k = g_flag_k, _flag_a = g_flag_a, _flag_b = g_flag_b, _cf = g_flag_cf)
+ 
+ /* Segment registers (flat mode Win32 - effectively unused) */
++#ifndef RECOMP_MT
+ extern uint16_t g_seg_cs, g_seg_ds, g_seg_es, g_seg_fs, g_seg_gs, g_seg_ss;
++#endif
+ 
+ /* Function pointer type for recompiled functions */
+ typedef void (*recomp_func_t)(void);
+@@ -195,8 +301,10 @@ extern ptrdiff_t g_mem_base;
+ /* Thread-relative segment bases. In Win32, fs: points at the TIB/TEB; gs is
+  * unused on x86. The lifter emits fs:/gs: accesses as FS_BASE/GS_BASE + addr,
+  * so the runtime points g_fs_base at a simulated TIB (VA). cs/ds/es/ss are flat. */
++#ifndef RECOMP_MT
+ extern uint32_t g_fs_base;
+ extern uint32_t g_gs_base;
++#endif
+ #define FS_BASE  g_fs_base
+ #define GS_BASE  g_gs_base
+ 
+@@ -700,7 +808,9 @@ static inline uint32_t recomp_eflags_setcf(uint32_t kind, uint32_t a, uint32_t b
+  * wants them thread-local instead.
+  * ============================================================ */
+ 
++#ifndef RECOMP_MT
+ extern uint64_t g_mm[8];
++#endif
+ 
+ #define MM_W(v, i)  ((int16_t)((uint64_t)(v) >> ((i) * 16)))
+ #define MM_D(v, i)  ((int32_t)((uint64_t)(v) >> ((i) * 32)))
+@@ -1026,7 +1136,9 @@ static inline void CPUID_impl(uint32_t eax_val, uint32_t ebx_val, uint32_t ecx_v
+ 
+ /* The VA of the function currently executing (see RECOMP_ENTER below); an
+  * unresolved dispatch is far more useful with its caller named. */
++#ifndef RECOMP_MT
+ extern uint32_t g_cur_func;
++#endif
+ 
+ /* ICALL trace ring buffer for crash diagnostics.
+  *
+@@ -1147,7 +1259,9 @@ void recomp_unresolved(const char *kind, uint32_t va, uint32_t from);
+ /* Always-on: the VA of the function currently executing. A plain global store
+  * (no call), so unlike the ring tracer below it doesn't force register reloads --
+  * useful for pinning a crash to a function without perturbing codegen. */
++#ifndef RECOMP_MT
+ extern uint32_t g_cur_func;
++#endif
+ 
+ /* RECOMP_NATIVE_RANGE (bisection aid, see docs/HYBRID.md): a lifted function
+  * whose VA lies in [g_native_lo, g_native_hi) runs the ORIGINAL machine code
+@@ -1173,6 +1287,55 @@ void recomp_trace_enter(uint32_t va);
+ #else
+ #define RECOMP_ENTER(va) (g_cur_func = (va), RECOMP_FLAGS_IN())
+ #endif
++
++/* ============================================================
++ * LOCK-prefixed read-modify-write and xchg with memory (lift32 emits these).
++ *
++ * Without RECOMP_MT one machine lock serialises the guest, so a plain
++ * read-modify-write is already atomic. With RECOMP_MT they are real host
++ * atomics, sequentially consistent (an x86 locked instruction is a full
++ * barrier). A misaligned locked access (an x86 "split lock", rare) falls back
++ * to one global spinlock: atomic against other locked accesses only.
++ * Each returns the value memory held before.
++ * ============================================================ */
++#ifdef RECOMP_MT
++#define RECOMP_ATOMIC_DEF(bits, T)                                                              \
++static inline T recomp_lock_cas##bits(uint32_t va, T expect, T desire) {                         \
++    T *p = (T *)ADDR(va);                                                                       \
++    if (((uintptr_t)p & (sizeof(T) - 1)) == 0) {                                                \
++        __atomic_compare_exchange_n(p, &expect, desire, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST); \
++        return expect; }                                                                        \
++    recomp_split_lock(1); T o; memcpy(&o, p, sizeof o); if (o == expect) memcpy(p, &desire, sizeof desire); \
++    recomp_split_lock(0); return o; }                                                           \
++static inline T recomp_lock_add##bits(uint32_t va, T v) {                                        \
++    T *p = (T *)ADDR(va);                                                                       \
++    if (((uintptr_t)p & (sizeof(T) - 1)) == 0) return __atomic_fetch_add(p, v, __ATOMIC_SEQ_CST); \
++    recomp_split_lock(1); T o, n; memcpy(&o, p, sizeof o); n = (T)(o + v); memcpy(p, &n, sizeof n); \
++    recomp_split_lock(0); return o; }                                                           \
++static inline T recomp_lock_xchg##bits(uint32_t va, T v) {                                       \
++    T *p = (T *)ADDR(va);                                                                       \
++    if (((uintptr_t)p & (sizeof(T) - 1)) == 0) return __atomic_exchange_n(p, v, __ATOMIC_SEQ_CST); \
++    recomp_split_lock(1); T o; memcpy(&o, p, sizeof o); memcpy(p, &v, sizeof v);                \
++    recomp_split_lock(0); return o; }
++static inline void recomp_split_lock(int take) {
++    static volatile int lock;
++    if (take) { while (__atomic_exchange_n(&lock, 1, __ATOMIC_ACQUIRE)) { } }
++    else __atomic_store_n(&lock, 0, __ATOMIC_RELEASE);
++}
++#else
++#define RECOMP_ATOMIC_DEF(bits, T)                                                              \
++static inline T recomp_lock_cas##bits(uint32_t va, T expect, T desire) {                         \
++    T o; memcpy(&o, (const void *)ADDR(va), sizeof o); if (o == expect) memcpy((void *)ADDR(va), &desire, sizeof desire); return o; } \
++static inline T recomp_lock_add##bits(uint32_t va, T v) {                                        \
++    T o, n; memcpy(&o, (const void *)ADDR(va), sizeof o); n = (T)(o + v); memcpy((void *)ADDR(va), &n, sizeof n); return o; } \
++static inline T recomp_lock_xchg##bits(uint32_t va, T v) {                                       \
++    T o; memcpy(&o, (const void *)ADDR(va), sizeof o); memcpy((void *)ADDR(va), &v, sizeof v); return o; }
++#endif
++RECOMP_ATOMIC_DEF(8, uint8_t)
++RECOMP_ATOMIC_DEF(16, uint16_t)
++RECOMP_ATOMIC_DEF(32, uint32_t)
++RECOMP_ATOMIC_DEF(64, uint64_t)
++
+ /* A backward branch in lifted code: a loop. Every RECOMP_YIELD_EVERY of them,
+  * hand the machine to other guest threads if the host has a way to
+  * (native32_yield). A lifted spin-wait makes no native call, and native32
+@@ -1183,7 +1346,9 @@ void recomp_trace_enter(uint32_t va);
+  * all a native call does. The counter is global and unsynchronised on purpose:
+  * only the thread holding the machine runs lifted code. */
+ RECOMP_WEAK void (*recomp_yield_hook)(void);
++#ifndef RECOMP_MT
+ RECOMP_WEAK uint32_t g_backedges;
++#endif
+ #ifndef RECOMP_YIELD_EVERY
+ #define RECOMP_YIELD_EVERY 0x10000u
+ #endif
+diff --git a/tools/lift/lift32.py b/tools/lift/lift32.py
+index a635820..649793a 100644
+--- a/tools/lift/lift32.py
++++ b/tools/lift/lift32.py
+@@ -767,6 +767,7 @@ class Lifter:
+         # plain 'lock' + op_str); the operands are decoded either way. Single-
+         # threaded semantics are exact here because the runtime runs lifted code
+         # under one machine lock.
++        locked = m.startswith('lock')
+         if m.startswith('lock'):
+             m = m[4:].strip() or (insn.op_str.split() or [''])[0]
+         ops = insn.operands if insn.operands else []
+@@ -822,6 +823,16 @@ class Lifter:
+         # counts and spin locks. lift32 had neither, so a release never
+         # dropped its count (Tiberium Wars: 21 sites). Lifted code runs under
+         # one machine lock, so the plain read-modify-write is already atomic.
++        elif m == 'xadd' and len(ops) == 2 and locked and ops[0].type == X86_OP_MEM and op_bits(ops[0]) in (8, 16, 32):
++            bits = op_bits(ops[0])
++            addr = self._fmt_mem_addr(ops[0].mem)
++            lines.append(f"{{ uint32_t _v = (uint32_t)({self._fmt_read(ops[1])}); "
++                         f"uint32_t _old = recomp_lock_add{bits}({addr}, (uint{bits}_t)_v); {comment}")
++            lines.append("  " + self._flag_capture("_old", "_v", bits))
++            lines.append("  _cf = (uint32_t)((uint32_t)(_flag_a + _flag_b) < (uint32_t)_flag_a);")
++            lines.append(f"  {self._fmt_write(ops[1], '_old')}; }}")
++            self._flag_state = ('add', "_flag_a, _flag_b")
++
+         elif m == 'xadd' and len(ops) == 2:
+             a = self._fmt_read(ops[0])
+             b = self._fmt_read(ops[1])
+@@ -831,6 +842,19 @@ class Lifter:
+                          f"{self._fmt_write(ops[0], '_sum')}; }} {comment}")
+             self._flag_state = ('add', "_flag_a, _flag_b")
+ 
++        elif m == 'cmpxchg' and len(ops) == 2 and locked and ops[0].type == X86_OP_MEM:
++            # lock cmpxchg [m], r: one host compare-and-swap; flags as cmp acc, old.
++            bits = op_bits(ops[0])
++            acc, acc_w = {32: ('eax', 'eax = _d'), 16: ('LO16(eax)', 'SET_LO16(eax, _d)'),
++                          8: ('LO8(eax)', 'SET_LO8(eax, _d)')}[bits]
++            addr = self._fmt_mem_addr(ops[0].mem)
++            lines.append(f"{{ uint32_t _acc = (uint32_t)({acc}); uint32_t _d = recomp_lock_cas{bits}({addr}, "
++                         f"(uint{bits}_t)_acc, (uint{bits}_t)({self._fmt_read(ops[1])})); {comment}")
++            lines.append("  " + self._flag_capture("_acc", "_d", bits))
++            lines.append("  _cf = (uint32_t)((uint32_t)_flag_a < (uint32_t)_flag_b);")
++            lines.append(f"  if (_acc != _d) {{ {acc_w}; }} }}")
++            self._flag_state = ('cmp', "_flag_a, _flag_b")
++
+         elif m == 'cmpxchg' and len(ops) == 2:
+             # Compare the accumulator with the destination (flags as cmp);
+             # equal: the destination takes the source, else the accumulator
+@@ -855,13 +879,32 @@ class Lifter:
+             # The flags freeze into a word and only ZF (0x40) is rewritten, as
+             # the rotates do with CF.
+             addr = self._fmt_mem_addr(ops[0].mem)
+-            lines.append(f"{{ uint32_t _a = {addr}, _zf; uint64_t _q = MEM64(_a); "
+-                         f"if (_q == (((uint64_t)edx << 32) | eax)) {{ "
+-                         f"MEM64(_a) = ((uint64_t)ecx << 32) | ebx; _zf = 0x40u; }} "
+-                         f"else {{ eax = (uint32_t)_q; edx = (uint32_t)(_q >> 32); _zf = 0; }} "
+-                         f"_flag_a = (recomp_eflags(_flag_k, _flag_a, _flag_b, _cf, _df) & ~0x40u) | _zf; "
+-                         f"_flag_b = 0; _flag_k = FK_EFLAGS; }} {comment}")
+-            self._flag_state = None
++            if locked:
++                # lock cmpxchg8b: one 64-bit host compare-and-swap (lock-free lists, Rockall/MGR heaps).
++                lines.append(f"{{ uint32_t _a = {addr}, _zf; uint64_t _e = ((uint64_t)edx << 32) | eax; "
++                             f"uint64_t _q = recomp_lock_cas64(_a, _e, ((uint64_t)ecx << 32) | ebx); "
++                             f"if (_q == _e) {{ _zf = 0x40u; }} "
++                             f"else {{ eax = (uint32_t)_q; edx = (uint32_t)(_q >> 32); _zf = 0; }} "
++                             f"_flag_a = (recomp_eflags(_flag_k, _flag_a, _flag_b, _cf, _df) & ~0x40u) | _zf; "
++                             f"_flag_b = 0; _flag_k = FK_EFLAGS; }} {comment}")
++                self._flag_state = None
++            else:
++                lines.append(f"{{ uint32_t _a = {addr}, _zf; uint64_t _q = MEM64(_a); "
++                             f"if (_q == (((uint64_t)edx << 32) | eax)) {{ "
++                             f"MEM64(_a) = ((uint64_t)ecx << 32) | ebx; _zf = 0x40u; }} "
++                             f"else {{ eax = (uint32_t)_q; edx = (uint32_t)(_q >> 32); _zf = 0; }} "
++                             f"_flag_a = (recomp_eflags(_flag_k, _flag_a, _flag_b, _cf, _df) & ~0x40u) | _zf; "
++                             f"_flag_b = 0; _flag_k = FK_EFLAGS; }} {comment}")
++                self._flag_state = None
++
++        elif m == 'xchg' and len(ops) == 2 and any(o.type == X86_OP_MEM for o in ops) and op_bits(ops[0]) in (8, 16, 32):
++            # xchg with memory is always locked on x86: one host atomic exchange (recomp_lock_xchgN; a plain
++            # read and write when RECOMP_MT is off and one machine lock serialises the guest).
++            mem, reg = (ops[0], ops[1]) if ops[0].type == X86_OP_MEM else (ops[1], ops[0])
++            bits = op_bits(mem)
++            addr = self._fmt_mem_addr(mem.mem)
++            lines.append(f"{{ uint32_t _tmp = recomp_lock_xchg{bits}({addr}, (uint{bits}_t)({self._fmt_read(reg)})); {comment}")
++            lines.append(f"  {self._fmt_write(reg, '_tmp')}; }}")
+ 
+         elif m == 'xchg':
+             if len(ops) == 2:
+@@ -933,6 +976,22 @@ class Lifter:
+             self._flag_state = None
+ 
+         # --- Arithmetic ---
++        elif locked and m in ('add', 'sub', 'inc', 'dec') and ops and ops[0].type == X86_OP_MEM and op_bits(ops[0]) in (8, 16, 32):
++            # lock add/sub/inc/dec [m]: one atomic fetch-add, flags from the old value and the operand.
++            bits = op_bits(ops[0])
++            addr = self._fmt_mem_addr(ops[0].mem)
++            b = self._fmt_read(ops[1]) if m in ('add', 'sub') else "1"
++            neg = "-" if m in ('sub', 'dec') else ""
++            lines.append(f"{{ uint32_t _v = (uint32_t)({b}); uint32_t _o = recomp_lock_add{bits}({addr}, (uint{bits}_t)({neg}_v)); {comment}")
++            lines.append("  " + self._flag_capture("_o", "_v", bits))
++            if m == 'add':
++                lines.append("  _cf = (uint32_t)((uint32_t)(_flag_a + _flag_b) < (uint32_t)_flag_a); }")
++            elif m == 'sub':
++                lines.append("  _cf = (uint32_t)CMP_B(_flag_a, _flag_b); }")
++            else:
++                lines.append("}")
++            self._flag_state = (m, "_flag_a, _flag_b")
++
+         elif m == 'add':
+             if len(ops) == 2:
+                 a = self._fmt_read(ops[0])
+-- 
+2.56.1
+

@@ -46,6 +46,7 @@ extern "C" {
 #include "pe_format.h"
 #include "nfs_runtime.h"
 
+#ifndef RECOMP_MT
 uint32_t g_eax, g_ecx, g_edx, g_esp, g_ebx, g_esi, g_edi, g_ebp;
 #ifndef RECOMP_X87_WINDOW
 double g_st[8];
@@ -57,7 +58,9 @@ uint64_t g_mm[8];
 V128 g_xmm[8];
 uint32_t g_mxcsr = 0x1f80;
 uint32_t g_fs_base, g_gs_base, g_cur_func;
+#endif
 ptrdiff_t g_mem_base;
+recomp_func_t lookupImport(uint32_t va);  // import resolution without the MT machine lock (callGuest)
 uint32_t g_icall_trace[ICALL_TRACE_SIZE], g_icall_from[ICALL_TRACE_SIZE];
 uint32_t g_icall_trace_idx, g_icall_count;
 }
@@ -98,7 +101,22 @@ struct State {
         std::memcpy(g_mm,mm,sizeof mm); std::memcpy(g_xmm,xmm,sizeof xmm);
     }
 };
-struct Import { std::string name; recomp_func_t function{}; uint64_t calls{}; };
+struct Import { std::string name; recomp_func_t function{}; uint64_t calls{}; bool machineFree{}; };
+// MT mode: imports that touch only their arguments, guest memory and thread-local state run without the machine (in
+// MGR's loading and fights ~85k imports/s, 60% D3DX math, and taking the machine for each was 50k handoffs/s, 5 fps).
+bool importIsMachineFree(const std::string& full){
+    static const std::set<std::string> exact={"kernel32.dll!GetCurrentThreadId","kernel32.dll!InterlockedIncrement",
+        "kernel32.dll!InterlockedDecrement","kernel32.dll!InterlockedExchange","kernel32.dll!InterlockedCompareExchange",
+        "kernel32.dll!GetLastError","kernel32.dll!SetLastError","kernel32.dll!GetTickCount","winmm.dll!timeGetTime",
+        "kernel32.dll!QueryPerformanceCounter","kernel32.dll!QueryPerformanceFrequency",
+        "kernel32.dll!EnterCriticalSection","kernel32.dll!LeaveCriticalSection",   // own table lock (guest_kernel.inc)
+        "kernel32.dll!HeapAlloc","kernel32.dll!HeapFree","kernel32.dll!HeapReAlloc","kernel32.dll!HeapSize",   // own lock (guest_heap.h)
+        "kernel32.dll!GetProcessHeap","kernel32.dll!TlsGetValue","kernel32.dll!TlsSetValue"};   // thread-local values
+    if(exact.count(full))return true;
+    for(const char* prefix:{"d3dx9_43.dll!D3DXMatrix","d3dx9_43.dll!D3DXVec","d3dx9_43.dll!D3DXQuaternion"})
+        if(!full.compare(0,std::strlen(prefix),prefix))return true;
+    return false;
+}
 std::unique_ptr<GuestMemory> memory;
 std::unique_ptr<GuestHeaps> heaps;
 // The guest machine lock: FIFO by ticket and recursive per thread, with the
@@ -118,6 +136,20 @@ std::atomic<uint64_t> machineHandoffs{0},signalWakes{0};
 // lab counters, logged with the Present stats
 
 
+// Lab MGR_XRAY=1 (20/11): where each guest thread's wall time goes: waiting for the machine (ticket), waiting for a
+// guest signal (event/semaphore/mutex/thread), sleeping (Sleep/pacer), and the rest (running guest code, imports and the
+// D3D9 bridge while holding the machine). Plus how long the machine was held at all. Logged with the Present stats.
+struct XrayThread{uint32_t id=0;std::atomic<int64_t> machineNs{0},signalNs{0},sleepNs{0};std::atomic<bool> render{false};
+    std::chrono::steady_clock::time_point born=std::chrono::steady_clock::now();};
+bool xrayOn(){static const bool on=getenv("MGR_XRAY")&&atoi(getenv("MGR_XRAY"));return on;}
+std::mutex xrayMutex;std::vector<std::shared_ptr<XrayThread>> xrayThreads;std::atomic<int64_t> machineHeldNs{0};
+thread_local std::shared_ptr<XrayThread> xrayMe;
+XrayThread* xrayThread(){
+    if(!xrayMe){xrayMe=std::make_shared<XrayThread>();std::lock_guard<std::mutex> l(xrayMutex);xrayThreads.push_back(xrayMe);}
+    return xrayMe.get();
+}
+inline int64_t xrayNs(std::chrono::steady_clock::time_point a,std::chrono::steady_clock::time_point b){return std::chrono::duration_cast<std::chrono::nanoseconds>(b-a).count();}
+
 class MachineMutex {
     struct Waiter{std::condition_variable cv;bool sleeping=false;};
     std::mutex m_;
@@ -125,6 +157,9 @@ class MachineMutex {
     uint64_t next_=0;
     std::atomic<uint64_t> serving_{0};
     std::thread::id owner_{};
+public:
+    std::atomic<int> ownerTid{0};  // stall dump: native tid of the holder
+private:
     unsigned depth_=0;
     // The next thread in line spins this long before sleeping (MGR_SPIN_US, default 50): ~9400 handovers/s in MGR's
     // fights, each a futex wake plus scheduler latency during which nobody runs guest code.
@@ -137,6 +172,7 @@ public:
         if(owner_==me){++depth_;return;}
         const uint64_t ticket=next_++;
         if(serving_.load()!=ticket){
+            const bool xr=xrayOn();const auto waitFrom=xr?std::chrono::steady_clock::now():std::chrono::steady_clock::time_point{};
             Waiter w;waiting_.emplace(ticket,&w);
             if(ticket==serving_.load()+1&&spinTime().count()>0){
                 l.unlock();
@@ -153,8 +189,9 @@ public:
             w.sleeping=true;
             w.cv.wait(l,[&]{return serving_.load()==ticket;});
             waiting_.erase(ticket);
+            if(xr)xrayThread()->machineNs+=xrayNs(waitFrom,std::chrono::steady_clock::now());
         }
-        owner_=me;depth_=1;acquired=std::chrono::steady_clock::now();
+        owner_=me;ownerTid=gettid();depth_=1;acquired=std::chrono::steady_clock::now();
     }
     // When the current owner got the machine; only the owner reads it.
     std::chrono::steady_clock::time_point acquired{};
@@ -163,8 +200,13 @@ public:
         std::lock_guard<std::mutex> l(m_);
         if(owner_==me){++depth_;return true;}
         if(next_!=serving_.load())return false;
-        ++next_;owner_=me;depth_=1;acquired=std::chrono::steady_clock::now();return true;
+        ++next_;owner_=me;ownerTid=gettid();depth_=1;acquired=std::chrono::steady_clock::now();return true;
     }
+    // MT mode (MGR_MT=1): a thread leaving the machine to run lifted code gives up every recursion level at once and
+    // takes them back afterwards.
+    bool ownedByMe(){std::lock_guard<std::mutex> l(m_);return owner_==std::this_thread::get_id();}
+    unsigned releaseAll(){unsigned d;{std::lock_guard<std::mutex> l(m_);d=depth_;depth_=1;}unlock();return d;}
+    void reacquire(unsigned d){lock();std::lock_guard<std::mutex> l(m_);depth_=d;}
     bool hasWaiters(){
         std::lock_guard<std::mutex> lock(m_);
         return next_>serving_.load()+1; // the current owner already holds one ticket
@@ -172,7 +214,8 @@ public:
     void unlock(){
         std::lock_guard<std::mutex> l(m_);
         if(--depth_)return;
-        owner_={};const uint64_t now=serving_.load()+1;serving_.store(now,std::memory_order_release);
+        if(xrayOn())machineHeldNs+=xrayNs(acquired,std::chrono::steady_clock::now());
+        owner_={};ownerTid=0;const uint64_t now=serving_.load()+1;serving_.store(now,std::memory_order_release);
         if(next_==now)return;          // nobody waiting
         // Notify under m_: the waiter's cv lives on its stack until it leaves lock(), which needs m_.
         // A waiter still spinning sees serving_ change by itself.
@@ -180,6 +223,35 @@ public:
     }
 };
 MachineMutex machine;
+
+// ---- MT mode (MGR, 2026-11-20) ----
+// Built with RECOMP_MT, every thread that runs lifted code has its own recomp_cpu_t (registers, flags, x87, SSE).
+// MGR_MT=1 then lets guest threads run lifted code at the same time: the machine lock is held only inside imports
+// (the HLE runtime: heaps, handles, files, D3D9 bridge, audio), which recomp_lookup_import enters and its thunk leaves,
+// and callGuest gives it up while lifted code runs. MGR_MT=0 (default) keeps the old single machine, so the same
+// build can be A/B tested.
+#ifdef RECOMP_MT
+bool mtMode(){static const bool on=getenv("MGR_MT")&&atoi(getenv("MGR_MT"));return on;}
+recomp_cpu_t* ensureGuestCpu(){
+    if(auto* c=recomp_cpu())return c;
+    auto* c=new recomp_cpu_t;recomp_cpu_init(c);recomp_cpu_set(c);return c;
+}
+#else
+constexpr bool mtMode(){return false;}
+inline void ensureGuestCpu(){}
+#endif
+thread_local recomp_func_t mtPendingImport=nullptr;
+void mtImportThunk(){
+    recomp_func_t fn=mtPendingImport;mtPendingImport=nullptr;
+    struct Leave{~Leave(){machine.unlock();}} leave;
+    fn();
+}
+// Lifted code leaves the machine while it runs (MT mode); taken back even when it unwinds (ExitThread, GuestStop).
+struct MtRelease{
+    unsigned depth=0;
+    MtRelease(){if(mtMode()&&machine.ownedByMe())depth=machine.releaseAll();}
+    ~MtRelease(){if(depth)machine.reacquire(depth);}
+};
 extern "C" void mgrRuntimeCounters(uint64_t* handoffs,uint64_t* wakes,uint64_t* spins){*handoffs=machineHandoffs.load();*wakes=signalWakes.load();*spins=machine.spinHits.load();}
 thread_local std::unique_lock<MachineMutex>* machineLease=nullptr;
 thread_local uint32_t guestThreadId=1;
@@ -194,7 +266,7 @@ void setupStaticTls(uint32_t tib);
 uint32_t resourceRva{},resourceSize{};
 // Set and read under the machine lock with no yield in between (lookup -> call):
 // plain globals, not thread_local, which cost a TLS descriptor call per COM call.
-uint32_t lastImport{};
+thread_local uint32_t lastImport{};
 std::string hostGameRoot;
 std::string guestLanguage="Spanish";
 bool guestWidescreen=false;
@@ -210,7 +282,7 @@ uint32_t read32(uint32_t va);
 // Stall diagnostics: where each guest thread last handed the machine over and
 // what it was waiting for, dumped when the game stops presenting frames.
 struct GuestThreadTrace {
-    std::atomic<uint32_t> func{0},handle{0},esp{0};std::atomic<const char*> wait{nullptr};
+    std::atomic<uint32_t> func{0},handle{0},esp{0};std::atomic<const char*> wait{nullptr};int tid=gettid();
     std::array<std::atomic<uint32_t>,8> held{};  // critical sections this thread owns (outermost entries)
     void hold(uint32_t cs){for(auto& slot:held){uint32_t empty=0;if(slot.compare_exchange_strong(empty,cs))return;}}
     void release(uint32_t cs){for(auto& slot:held){uint32_t value=cs;if(slot.compare_exchange_strong(value,0))return;}}
@@ -232,13 +304,13 @@ int64_t steadyMs(){return std::chrono::duration_cast<std::chrono::milliseconds>(
 void startStallWatch(){
     static std::once_flag started;
     std::call_once(started,[]{std::thread([]{
-        int64_t reportedFor=0;
+        int64_t reportedFor=-1;  // -1: also report a stall before the first frame (MT boot hangs)
         while(!stopRequested.load()){
             std::this_thread::sleep_for(std::chrono::seconds(2));
             int64_t last=lastPresentMs.load(),idle=steadyMs()-last;
             if(guestPaused.load()||idle<12000||reportedFor==last)continue;
             reportedFor=last;
-            NFS_RUNTIME_LOG(ANDROID_LOG_WARN,"NFSU2","Guest stall: no frame for %lld s; guest threads:",static_cast<long long>(idle/1000));
+            NFS_RUNTIME_LOG(ANDROID_LOG_WARN,"NFSU2","Guest stall: no frame for %lld s; machine held by tid %d; guest threads:",static_cast<long long>(idle/1000),machine.ownerTid.load());
             std::lock_guard<std::mutex> lock(threadTracesMutex);
             for(auto& [id,trace]:threadTraces){
                 const char* wait=trace->wait.load();uint32_t handle=trace->handle.load();
@@ -253,7 +325,7 @@ void startStallWatch(){
                     uint32_t value=read32(esp+i*4);
                     if(value>=0x401000u&&value<0x75d000u&&recomp_lookup(value)==nullptr){callers+=" "+hex(value);++found;}
                 }
-                NFS_RUNTIME_LOG(ANDROID_LOG_WARN,"NFSU2","  thread %u at %08x %s %08x%s; holds:%s; stack:%s",id,trace->func.load(),
+                NFS_RUNTIME_LOG(ANDROID_LOG_WARN,"NFSU2","  thread %u (tid %d) at %08x %s %08x%s; holds:%s; stack:%s",id,trace->tid,trace->func.load(),
                     wait?wait:"running",wait?handle:0u,detail.c_str(),held.empty()?" none":held.c_str(),callers.c_str());
             }
         }
@@ -277,8 +349,10 @@ void yieldGuestMachine(unsigned milliseconds=0,std::chrono::steady_clock::time_p
     countMachineRelease(deadline!=std::chrono::steady_clock::time_point{}?2:milliseconds?1:0);
     {auto& trace=currentTrace();trace.func=g_cur_func;trace.esp=g_esp;}
     State saved;saved.save();machineLease->unlock();
+    const auto sleepFrom=std::chrono::steady_clock::now();
     if(deadline!=std::chrono::steady_clock::time_point{})std::this_thread::sleep_until(deadline);
     else if(milliseconds)std::this_thread::sleep_for(std::chrono::milliseconds(milliseconds));else std::this_thread::yield();
+    if(xrayOn())xrayThread()->sleepNs+=xrayNs(sleepFrom,std::chrono::steady_clock::now());
     machineLease->lock();saved.load();
 }
 // Waits on guest events, semaphores, mutexes and threads used to poll every 1 ms (yieldGuestMachine(1)). MGR's job
@@ -313,6 +387,7 @@ void waitGuestSignal(const uint32_t* handles=nullptr,unsigned count=0){
     SignalWaiter me;me.handles=handles;me.count=count;
     {std::lock_guard<std::mutex> lock(guestSignalMutex);guestSignalWaiters.push_back(&me);}
     State saved;saved.save();machineLease->unlock();
+    const auto signalFrom=std::chrono::steady_clock::now();
     // Lab MGR_SIGNAL_SPIN_US: spin (WFE-friendly yield) this long for the signal before sleeping on the futex; the
     // job system hands work over ~9000 times/s in fights and each futex sleep/wake adds scheduler latency.
     static const auto spin=std::chrono::microseconds(getenv("MGR_SIGNAL_SPIN_US")?atoi(getenv("MGR_SIGNAL_SPIN_US")):0);
@@ -326,12 +401,20 @@ void waitGuestSignal(const uint32_t* handles=nullptr,unsigned count=0){
     }
     {std::unique_lock<std::mutex> lock(guestSignalMutex);me.cv.wait_for(lock,std::chrono::milliseconds(1),[&]{return me.woken.load();});
         guestSignalWaiters.erase(std::find(guestSignalWaiters.begin(),guestSignalWaiters.end(),&me));}
+    if(xrayOn())xrayThread()->signalNs+=xrayNs(signalFrom,std::chrono::steady_clock::now());
     machineLease->lock();saved.load();
 }
 thread_local bool renderThread=false;
 // Render-thread slice handovers and the time spent getting the machine back.
 uint64_t renderYields=0;std::chrono::nanoseconds renderWait{};
 void checkGuestProgress() {
+    if(mtMode()&&!machine.ownedByMe()){
+        // Back edge of lifted code running without the machine: only pause, stop and faults.
+        while(guestPaused.load()&&!stopRequested.load())std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        if(stopRequested.load())throw GuestStop("Guest execution cancelled");
+        if(!guestThreadFault.empty())throw GuestStop(guestThreadFault);
+        return;
+    }
     while(guestPaused.load()&&!stopRequested.load())yieldGuestMachine(20);
     if(stopRequested.load())throw GuestStop("Guest execution cancelled");
     // Imports and lifted back edges can reach this hook many times per frame.
@@ -355,7 +438,7 @@ void checkGuestProgress() {
         static const auto otherSlice=std::chrono::microseconds(getenv("MGR_SLICE_US")?atoi(getenv("MGR_SLICE_US")):500);
         static const auto renderSlice=std::chrono::microseconds(getenv("MGR_RENDER_SLICE_US")?atoi(getenv("MGR_RENDER_SLICE_US")):3000);
         auto slice=renderThread?renderSlice:otherSlice;
-        if(now-machine.acquired>=slice&&machine.hasWaiters()){
+        if(!mtMode()&&now-machine.acquired>=slice&&machine.hasWaiters()){
             yieldGuestMachine();
             if(renderThread){++renderYields;renderWait+=std::chrono::steady_clock::now()-now;}
         }
@@ -431,11 +514,16 @@ void heapDestroy() { ret(heaps->destroy(arg(0)),1); }
 void getProcessHeap() { ret(GuestHeaps::process,0); }
 void getProcAddress();
 #if defined(__ANDROID__) || defined(NFS_D3D9_BACKEND)
-uint32_t d3dToken{};
+thread_local uint32_t d3dToken{};
 void direct3DCreate(){ret(createGuestD3D9(arg(0)),1);}
 void freeD3DGuest(uint32_t address){heaps->free(GuestHeaps::process,address);}
 void serviceGuestSound();
+// MT mode: the D3D9 bridge (DXVK device, guest COM objects) has its own lock instead of the machine: the thread that
+// records MGR's draw calls makes ~160k bridge calls/s in fights and took the machine for each one (20/11). Recursive:
+// D3DX imports reach the bridge again through callMethod.
+std::recursive_mutex d3dMutex;
 void d3dDispatch(){
+    std::unique_lock<std::recursive_mutex> d3dLock(d3dMutex,std::defer_lock);if(mtMode())d3dLock.lock();
     // The arguments are read in place on the guest stack (one bounds check)
     // instead of copying 128 bytes for each of the ~40k calls of a race frame.
     const uint32_t* args=static_cast<const uint32_t*>(ptr(g_esp+4,128));uint32_t count=0;uint32_t token=d3dToken;
@@ -466,11 +554,13 @@ void d3dDispatch(){
         // The renderer has returned; guest audio/streaming workers can use the
         // machine while this thread waits. Late frames incur no extra delay.
         renderThread=true;
-        if(deadline>now)yieldGuestMachine(0,deadline);
+        if(mtMode()&&!machine.ownedByMe()){if(deadline>now)std::this_thread::sleep_until(deadline);}
+        else if(deadline>now)yieldGuestMachine(0,deadline);
         else if(machine.hasWaiters()){auto before=std::chrono::steady_clock::now();yieldGuestMachine();++renderYields;renderWait+=std::chrono::steady_clock::now()-before;}
         frameBegan=std::chrono::steady_clock::now();
         static unsigned frames=0;static auto since=std::chrono::steady_clock::now();
-        if(++frames==120){serviceGuestSound();auto now=std::chrono::steady_clock::now();double seconds=std::chrono::duration<double>(now-since).count();
+        if(++frames==120){
+            if(mtMode()&&!machine.ownedByMe()){std::lock_guard<MachineMutex> m(machine);serviceGuestSound();}else serviceGuestSound();auto now=std::chrono::steady_clock::now();double seconds=std::chrono::duration<double>(now-since).count();
             NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSU2","Guest D3D9 presentation %.1f FPS over %.2f seconds; bridge ~%.2f ms/frame (present %.2f), %.0f calls/frame",
                 frames/seconds,seconds,double(bridgeTime.count())/1e6/frames,double(presentTime.count())/1e6/frames,double(bridgeCalls)/frames);
             std::array<unsigned,5> top{};
@@ -481,6 +571,22 @@ void d3dDispatch(){
                 used+=std::snprintf(detail+used,sizeof detail-used," %u.%u=%.2f",slot/256u,slot%256u,double(methodTime[slot].count())/1e6/frames);
             NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSU2","Bridge ms/frame by kind.method:%s; render handovers %.1f/frame, waiting %.2f ms/frame",used?detail:" none",
                 double(renderYields)/frames,double(renderWait.count())/1e6/frames);
+            if(xrayOn()){
+                xrayThread()->render=true;
+                static auto xraySince=std::chrono::steady_clock::now();auto xnow=std::chrono::steady_clock::now();int64_t wall=xrayNs(xraySince,xnow);xraySince=xnow;
+                std::string line;char one[96];
+                std::lock_guard<std::mutex> l(xrayMutex);
+                for(auto it=xrayThreads.begin();it!=xrayThreads.end();){
+                    auto& t=**it;int64_t w=std::min<int64_t>(wall,xrayNs(t.born,xnow));
+                    int64_t m=t.machineNs.exchange(0),g=t.signalNs.exchange(0),z=t.sleepNs.exchange(0);
+                    if(it->use_count()==1){it=xrayThreads.erase(it);continue;}
+                    ++it;if(w<=0||m+g+z<w/50&&!t.render)continue;
+                    std::snprintf(one,sizeof one," [%s run%.0f mach%.0f sig%.0f slp%.0f]",t.render?"R":"j",100.0*(w-m-g-z)/w,100.0*m/w,100.0*g/w,100.0*z/w);line+=one;
+                    if(t.render)NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"MGR","xray render ms/frame: run %.2f (bridge %.2f) machine %.2f signal %.2f sleep %.2f",
+                        (w-m-g-z)/1e6/frames,double(bridgeTime.count())/1e6/frames,m/1e6/frames,g/1e6/frames,z/1e6/frames);
+                }
+                NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"MGR","xray machine held %.0f%%; threads %%:%s",100.0*machineHeldNs.exchange(0)/wall,line.c_str());
+            }
             renderYields=0;renderWait=std::chrono::nanoseconds{};
             methodTime.fill(std::chrono::nanoseconds{});
             frames=0;since=now;bridgeTime=presentTime=std::chrono::nanoseconds{};bridgeCalls=0;}
@@ -504,6 +610,7 @@ void testGuestScheduling(){
     lastError=111;tlsValues[1087]=0x55;
     bool done=false;std::string failure;
     std::thread worker([&]{
+        ensureGuestCpu();
         std::unique_lock<MachineMutex> lease(machine);machineLease=&lease;guestThreadId=9000;
         State fresh;fresh.eax=0xaabbccdd;fresh.fs=0xdead1000;fresh.st[0]=-456.25;fresh.xmm[7].u64[0]=0xfedcba9876543210ull;fresh.load();
         lastError=222;tlsValues[1087]=0xaa;
@@ -581,7 +688,8 @@ void getProcAddress() {
     auto fn=resolveFunction(found->first,name);
     if(fn==unsupported) { lastError=127; ret(0,2); return; }
     uint32_t va=importBase+uint32_t(imports.size())*16;
-    imports.push_back({full,fn}); ret(va,2);
+    if(imports.size()>=imports.capacity()){lastError=8;ret(0,2);return;}  // MT: other threads read the table unlocked
+    imports.push_back({full,fn});imports.back().machineFree=importIsMachineFree(full); ret(va,2);
 }
 
 template<class T> T fileStruct(const std::vector<unsigned char>& file, uint64_t offset) {
@@ -621,7 +729,8 @@ void bindImports(uint32_t base, uint32_t size, uint32_t directoryRva, uint32_t d
             else { moduleRange(size,thunk,3); name=moduleString(base,size,thunk+2); }
             if (imports.size()>=4096) throw GuestStop("Too many PE imports");
             uint32_t va=importBase+uint32_t(imports.size())*16;
-            imports.push_back({dll+"!"+name,resolveFunction(dll,name)});
+            imports.reserve(8192);  // never reallocated afterwards (MT readers without the machine)
+            imports.push_back({dll+"!"+name,resolveFunction(dll,name)});imports.back().machineFree=importIsMachineFree(imports.back().name);
             write32(base+uint32_t(iatRva),va);
         }
     }
@@ -675,11 +784,15 @@ uint32_t callGuest(uint32_t va, const uint32_t* args, size_t count, uint32_t cle
     State saved; saved.save();
     try {
         recomp_func_t fn=recomp_lookup_manual(va);if(!fn)fn=recomp_lookup(va);
-        if (!fn) fn=recomp_lookup_import(va);
+        // A host target (import, COM method: D3DXCreateTexture -> IDirect3DDevice9::CreateTexture) runs with the machine
+        // we already hold. MT: not through recomp_lookup_import, whose lock MtRelease would drop before the call, so the
+        // import ran without the machine and its thunk's unlock left the caller owning it (boot hang, 20/11).
+        bool host=false;
+        if (!fn) {fn=lookupImport(va);host=fn!=nullptr;}
         if (!fn) throw GuestStop("No guest function at " + hex(va));
         for (size_t i=count;i--;) { g_esp-=4; write32(g_esp,args[i]); }
         g_esp-=4; write32(g_esp,RECOMP_RETADDR);
-        fn(); g_esp+=cleanup;
+        if(host)fn();else{MtRelease running;fn();} g_esp+=cleanup;
         if (g_esp!=saved.esp&&!(threadStart&&g_esp+4u*uint32_t(count)==saved.esp)) throw GuestStop("Guest call stack imbalance at " + hex(va));
         uint32_t result=g_eax; saved.load(); return result;
     } catch (...) { saved.load(); throw; }
@@ -751,7 +864,7 @@ void testGuestCriticalSections(){
     if(!okay)throw GuestStop("Guest critical-section retirement self-check failed");
     NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSU2","Guest critical sections passed recursion, owner, guards, deferred retirement and reinitialization");
 }
-uint32_t dynamicThunkAddress{};
+thread_local uint32_t dynamicThunkAddress{};
 void generatedTestCallback(){++generatedTestCalls;ret(read32(arg(0)),0);}
 void dynamicThunk(){
     uint32_t start=dynamicThunkAddress,pc=start;
@@ -904,6 +1017,44 @@ extern "C" recomp_func_t recomp_lookup_manual(uint32_t va) {
     return nfs_override_lookup(va);
 }
 extern "C" recomp_func_t recomp_lookup_import(uint32_t va) {
+    if(!mtMode())return lookupImport(va);
+    // Lifted code never holds the machine in MT mode: if it does, the previous import (or a host hook) leaked it.
+    static thread_local uint32_t prevImport=0;static std::atomic<int> leakReports{0};
+    if(g_cur_func&&machine.ownedByMe()&&leakReports.fetch_add(1)<8)  // g_cur_func 0: runtime self-tests (legit)
+        NFS_RUNTIME_LOG(ANDROID_LOG_WARN,"MGR","MT leak: import %08x entered from %08x with the machine held; previous import %08x (last %08x)",
+            va,g_cur_func,prevImport,lastImport);
+    prevImport=va;
+#if defined(__ANDROID__) || defined(NFS_D3D9_BACKEND)
+    if(va>=0x7e001000u&&va<0x7e010000u&&!(va%16)){checkGuestProgress();d3dToken=va;return d3dDispatch;}  // own lock (d3dMutex)
+#endif
+    if(va>=importBase&&!((va-importBase)%16)){
+        uint32_t index=(va-importBase)/16;
+        if(index<imports.size()&&imports[index].machineFree){checkGuestProgress();lastImport=va;return imports[index].function;}
+    }
+    machine.lock();
+    recomp_func_t fn;
+    try{fn=lookupImport(va);}catch(...){machine.unlock();throw;}
+    if(!fn){machine.unlock();return nullptr;}
+    // Lab MGR_IMPORT_STATS=1: imports per second (they take the machine in MT mode), top 14 every 5 s. Under the machine.
+    static const int stats=getenv("MGR_IMPORT_STATS")?atoi(getenv("MGR_IMPORT_STATS")):0;  // 2: by guest thread, not caller
+    if(stats){
+        static std::unordered_map<uint64_t,uint64_t> counts;static auto last=std::chrono::steady_clock::now();static uint64_t total=0;
+        ++counts[(uint64_t(stats==2?guestThreadId:g_cur_func)<<32)|va];++total;
+        auto now=std::chrono::steady_clock::now();double sec=std::chrono::duration<double>(now-last).count();
+        if(sec>=5){
+            std::vector<std::pair<uint64_t,uint64_t>> v(counts.begin(),counts.end());
+            std::sort(v.begin(),v.end(),[](auto& x,auto& y){return x.second>y.second;});
+            std::string line;char one[128];
+            for(size_t i=0;i<v.size()&&i<14;i++){
+                uint32_t iva=uint32_t(v[i].first),from=uint32_t(v[i].first>>32);std::string n=hex(iva);
+                if(iva>=importBase&&!((iva-importBase)%16)&&(iva-importBase)/16<imports.size())n=imports[(iva-importBase)/16].name;
+                std::snprintf(one,sizeof one,stats==2?" %s@t%u=%.0f":" %s@%08x=%.0f",n.c_str(),from,v[i].second/sec);line+=one;}
+            NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"MGR","import-stats %.0f/s:%s",total/sec,line.c_str());counts.clear();total=0;last=now;
+        }
+    }
+    mtPendingImport=fn;return mtImportThunk;
+}
+recomp_func_t lookupImport(uint32_t va) {
     checkGuestProgress();
     if(va>=soundMethodBase+0x1000&&va<soundMethodBase+0x3000&&!(va%16)){soundToken=va;return soundDispatch;}
     if(va>=inputMethodBase+0x1000&&va<inputMethodBase+0x5000&&!(va%16)){inputToken=va;return inputDispatch;}
@@ -975,7 +1126,9 @@ extern "C" int nfs_android_resolution(){
 
 std::string connectGuestRuntime(const char* executable) {
     stayOnPerformanceCores();
+    ensureGuestCpu();
     std::unique_lock<MachineMutex> guard(machine);machineLease=&guard;
+    if(mtMode())startStallWatch();  // MT: report boot hangs too (normally armed by the first Present)
     if (memory) return "Runtime guest ya inicializado";
     State original; original.save();
     try {

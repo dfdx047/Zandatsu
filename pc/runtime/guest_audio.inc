@@ -12,7 +12,7 @@ struct SoundObject {
 };
 std::map<uint32_t,SoundObject> soundObjects;
 std::map<uint32_t,uint32_t> soundMethodCalls;
-uint32_t soundToken{};
+thread_local uint32_t soundToken{};
 #ifdef __ANDROID__
 AAudioStream* soundStream=nullptr;
 int32_t soundLastXruns=0;
