@@ -17,6 +17,7 @@
 #include "d3d9_bridge.h"
 #include "gamepad_input.h"
 
+void mgrPosProbe(int stage);   // d3d9_bridge.cpp, lab position probe
 namespace {
 struct Host { bool resumed = false, started = false, sized = false; };
 void setPadKey(unsigned scan, bool down);
@@ -60,7 +61,9 @@ void pilotLoad(const std::string& path) {
         std::stringstream in(line); PilotStep st; in >> st.kind;
         if (st.kind == "stick" || st.kind == "rstick") in >> st.x >> st.y >> st.ms;
         else if (st.kind == "btn") { std::string b; in >> b >> st.ms; st.buttons = pilotButton(b, st.lt, st.rt, st.hx, st.hy); }
-        else if (st.kind == "wait") in >> st.ms; else continue;
+        else if (st.kind == "wait") in >> st.ms;
+        else if (st.kind == "probe") { in >> st.hx; st.ms = 1; }   // lab position probe stage (d3d9_bridge.cpp)
+        else continue;
         pilotSteps.push_back(st); ++n;
     }
     f.close(); std::remove(path.c_str());
@@ -70,7 +73,8 @@ bool pilotTick() {   // true when the pilot state changed
     auto now = std::chrono::steady_clock::now();
     if (pilotActive && now < pilotEnd) return false;
     bool was = pilotActive; pilotActive = false; pilotNow = PilotStep{};
-    if (!pilotSteps.empty()) { pilotNow = pilotSteps.front(); pilotSteps.pop_front(); pilotActive = true; pilotEnd = now + std::chrono::milliseconds(pilotNow.ms); }
+    if (!pilotSteps.empty()) { pilotNow = pilotSteps.front(); pilotSteps.pop_front(); pilotActive = true; pilotEnd = now + std::chrono::milliseconds(pilotNow.ms);
+        if (pilotNow.kind == "probe") { mgrPosProbe(pilotNow.hx); pilotNow.hx = 0; } }
     return was || pilotActive;
 }
 android_app* touchApp = nullptr;

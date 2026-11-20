@@ -266,9 +266,42 @@ void memorySnapshot(uint64_t frame){
     if(FILE* out=std::fopen((dir+name).c_str(),"wb")){std::fwrite(pointer(0x01880000u),1,0xB6FA30u,out);std::fclose(out);
         NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"MGR","Memory snapshot %s",name);}
 }
+// Lab position probe (pilot step "probe N"): a Cheat-Engine style search for the player's position, to measure the
+// physics bug (characters above the ground) as a number. Candidates are 16-byte aligned vec4 with w = 1 in the guest
+// heap arenas (an object's position, or the translation row of a bone matrix). 0 = collect (standing), 1 = keep the
+// unchanged (standing), 2 = keep the changed (after walking), 3 = keep the unchanged (standing), 4 = keep the changed,
+// 9 = log the first survivors every frame ("pos-watch"), 10 = stop. Lab only: nothing runs without the pilot step.
+struct PosCand{uint32_t va;float x,y,z;};
+std::vector<PosCand> posCands;std::atomic<bool> posWatching{false};std::mutex posLock;
+bool posRead(uint32_t va,float* v){std::memcpy(v,pointer(va),16);
+    return v[3]==1.0f&&std::isfinite(v[0])&&std::isfinite(v[1])&&std::isfinite(v[2])&&std::fabs(v[0])<1e5f&&std::fabs(v[1])<1e5f&&
+        std::fabs(v[2])<1e5f&&(v[0]!=0.f||v[1]!=0.f||v[2]!=0.f);}
+void posProbeStage(int stage){
+    std::lock_guard<std::mutex> g(posLock);size_t before=posCands.size();
+    if(stage==0){posCands.clear();
+        const uint32_t ranges[2][2]={{0x10000000u,0x1f000000u},{0x30000000u,0x70000000u}};
+        for(auto& r:ranges)for(uint32_t va=r[0];va<r[1];va+=16){float v[4];if(posRead(va,v))posCands.push_back({va,v[0],v[1],v[2]});}
+    }else if(stage>=1&&stage<=4){bool keepChanged=stage==2||stage==4;std::vector<PosCand> out;out.reserve(posCands.size());
+        for(auto c:posCands){float v[4];if(!posRead(c.va,v))continue;
+            float dx=v[0]-c.x,dy=v[1]-c.y,dz=v[2]-c.z;bool same=dx==0.f&&dy==0.f&&dz==0.f;
+            bool moved=std::fmax(std::fabs(dx),std::fabs(dz))>0.2f&&std::fabs(dx)<100.f&&std::fabs(dy)<100.f&&std::fabs(dz)<100.f;
+            if(keepChanged?moved:same)out.push_back({c.va,v[0],v[1],v[2]});}
+        posCands.swap(out);
+    }else if(stage==9)posWatching=true;else if(stage==10)posWatching=false;
+    NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"MGR","pos-probe stage %d: %zu -> %zu candidates",stage,before,posCands.size());
+    if(stage==3||stage==4)for(size_t i=0;i<posCands.size()&&i<48;i++)
+        NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"MGR","pos-cand %08X %.3f %.3f %.3f",posCands[i].va,posCands[i].x,posCands[i].y,posCands[i].z);
+}
+void posWatchFrame(uint64_t frame){
+    if(!posWatching.load(std::memory_order_relaxed))return;std::lock_guard<std::mutex> g(posLock);
+    char line[1024];int n=std::snprintf(line,sizeof line,"pos-watch %llu",static_cast<unsigned long long>(frame));
+    for(size_t i=0;i<posCands.size()&&i<12&&n<900;i++){float v[4];std::memcpy(v,pointer(posCands[i].va),16);
+        n+=std::snprintf(line+n,sizeof line-n," %08X:%.3f,%.3f,%.3f",posCands[i].va,v[0],v[1],v[2]);}
+    NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"MGR","%s",line);
+}
 void countFrame(){
     using clock=std::chrono::steady_clock;static clock::time_point last=clock::now();static uint64_t lastFrame=0;
-    uint64_t frame=++presentedFrames;memorySnapshot(frame);logPixelShaderStats(frame);auto now=clock::now();double seconds=std::chrono::duration<double>(now-last).count();
+    uint64_t frame=++presentedFrames;memorySnapshot(frame);posWatchFrame(frame);logPixelShaderStats(frame);auto now=clock::now();double seconds=std::chrono::duration<double>(now-last).count();
     if(seconds>=5.0){uint64_t h=0,w=0,sp=0;mgrRuntimeCounters(&h,&w,&sp);static uint64_t lh=0,lw=0,lsp=0;
         NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"MGR","Present: frame %llu, %.1f fps over %.1f s; machine futex handoffs %.0f/s, spin handoffs %.0f/s, signal wakes %.0f/s",static_cast<unsigned long long>(frame),(frame-lastFrame)/seconds,seconds,(h-lh)/seconds,(sp-lsp)/seconds,(w-lw)/seconds);lh=h;lw=w;lsp=sp;last=now;lastFrame=frame;}
 }
@@ -494,3 +527,5 @@ uint32_t dispatchGuestD3D9(uint32_t token,const uint32_t* args,uint32_t* argumen
 #include "d3d9_resource_methods.inc"
     throw std::runtime_error("D3D9 guest method pending: kind="+std::to_string(kind)+" slot="+std::to_string(method));
 }
+// Pilot entry (mgr_android_main.cpp, step "probe N").
+void mgrPosProbe(int stage){posProbeStage(stage);}
