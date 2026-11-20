@@ -88,14 +88,34 @@ Medida = 3 × 30 s no combate do CONTINUE do prólogo, GraphicOption "mobile", a
 - Girar gasta os 4 núcleos fracos que o thread do jogo precisava (CPU 144 → 167%, fps −30%).
 - O crash do handoff foi o do CONTINUE (F41B10), não do handoff.
 
+## Extra (17:00–17:30) — x86diff completo, para o bug da física
+
+- 5187 funções float × 3 entradas, PC (C do lift) contra x86 (Unicorn), em lotes de 600 com timeout de 10 min.
+  7 de 9 lotes terminaram (06 e 07 estouraram o tempo).
+- 152 funções com alguma diferença: 113 só em `st0`–`st7`. São restos de registos x87 já vazios depois de uma pilha
+  equilibrada (o Unicorn mostra o valor antigo, o lift mostra 0): ruído do harness.
+- Ficam 37 com diferenças em memória/registos. A maioria começa a meio de outra função (`fnstsw`, `fxch`, `ja` com
+  flags do chamador), por isso as entradas são lixo.
+- Verificado à mão: `ucomiss`/`comiss` → `lahf` → `test ah, 0x44` → `jp/jnp` (teste de igualdade de floats do MSVC)
+  dá as flags e a paridade certas.
+- Nenhum erro de lift novo confirmado. Candidatos por ver: `sub_00DB6C80` (bit 7 diferente numa escrita, 1 semente),
+  `sub_00CE7288/7344/7390`, `sub_00DDABA9`, `sub_01220181`, `sub_01228FAF`.
+
+## Odin no fim
+
+- O perfil sd480p **continua ativo**: a app helper `com.dfdx047.hlprofile` já não está instalada (os broadcasts
+  "completam" sem ninguém os receber) e o keeper corre como root (pid 17200). Repor exige a helper ou um reboot; não
+  reiniciei para não perder o adb por Wi-Fi.
+
 ## Pendências
 
 1. Causa raiz do crash do CONTINUE (estado `[0x1B7886C]` ainda 2 quando `sub_00F42590` anula `+0x1E70`): mitigado, não resolvido.
-2. Bug da física (altura do Raiden pelo ponteiro do jogador, com e sem 0018/0019): não feito.
+2. Bug da física: x86diff completo sem erro de lift novo confirmado (ver acima); altura do Raiden pelo ponteiro do jogador por fazer.
 3. FSR 1 e interpolação 30→60: "em breve" na aba Gráficos.
 4. CPU: reduzir a serialização da máquina única (jobs puros fora da máquina), já que girar/ADPF não ajudam.
 5. DXVK 2.7.1: portar pass timing / cache de pipelines / fallbacks antes de trocar.
 6. Toque = clique: no aviso de autosave o 1.º toque só realçou o OK.
+8. Odin ainda no perfil sd480p (helper hlprofile ausente, keeper root pid 17200).
 7. Disco do PC: `/home` a 100% por um `.part` de 141,9 GB em `~/Downloads` (não mexi).
 
 ## Commits (pc/perf-665, sem push)
