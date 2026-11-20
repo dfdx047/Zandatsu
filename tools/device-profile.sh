@@ -20,6 +20,9 @@
 # something resets them; restore stops it. Needed on the Odin 2 Mini after a reboot: the AYN pservice reapplies its
 # standard mode (scaling_min/max_freq) every 10 s ("cpu_init boot_completed cpugpumode=0" in logcat, 2026-11-13).
 # The loop checks five times a second, so a reset lasts at most about 0.2 s; it logs each fix to hl-keep.log.
+# HL_PIN=1 with HL_KEEP=1: the loop also holds scaling_min_freq at the cap (fixed clocks). Without it the governor and
+# the AYN pservice (performance_mode 0/1 rewrites the minimum every 10 s) move the clocks, and the same MGR PC build
+# measured 17.2 fps (performance_mode 0) or 23.9 fps (right after performance_mode 1) in the same fight, 2026-11-19.
 #
 # The frequencies below are STARTING POINTS, not a calibration: tune them until Geekbench 6 single/multi on the
 # limited device matches the target chip's public average (±5%), then write the final numbers here, with the date.
@@ -186,7 +189,8 @@ PROF
         [ "$P4" != 0 ] && caps="$caps policy$MID:$P4"
         [ "$P7" != 0 ] && [ "$(cat $C/cpu7/online)" = 1 ] && caps="$caps policy7:$P7"
         cat > /data/local/tmp/hl-keep.sh <<'KEEP'
-# hl-keep.sh "<policy>:<kHz> ...": puts each scaling_max_freq cap back (minimum first) when something resets it
+# hl-keep.sh "<policy>:<kHz> ..." [pin]: puts each scaling_max_freq cap back (minimum first) when something resets it;
+# pin=1 also holds scaling_min_freq at the cap
 F=/sys/devices/system/cpu/cpufreq
 n=0
 while :; do
@@ -199,14 +203,18 @@ while :; do
             echo "$want" > $F/$p/scaling_max_freq
             n=$((n + 1)); echo "$(date +%T) $p max $cur -> $want (fix $n)" >> /data/local/tmp/hl-keep.log
         fi
+        if [ "$2" = 1 ]; then
+            read low < $F/$p/scaling_min_freq
+            [ "$low" != "$want" ] && echo "$want" > $F/$p/scaling_min_freq
+        fi
     done
     sleep 0.2
 done
 KEEP
         rm -f /data/local/tmp/hl-keep.log
-        setsid nohup sh /data/local/tmp/hl-keep.sh "$caps" > /dev/null 2>&1 < /dev/null &
+        setsid nohup sh /data/local/tmp/hl-keep.sh "$caps" "${5:-0}" > /dev/null 2>&1 < /dev/null &
         echo $! > $KEEP_PID
-        echo "keeper started (pid $(cat $KEEP_PID)): $caps"
+        echo "keeper started (pid $(cat $KEEP_PID)): $caps pin=${5:-0}"
     fi
     ;;
 restore)
@@ -280,7 +288,7 @@ uid_check() {
 
 if [ "$cmd" = limit ] || [ "$cmd" = restore ]; then
     uid_check
-    as_root "$cmd" "${arg:-x}" "${HL_STOP_PERF:-0}" "${HL_KEEP:-0}" >/dev/null
+    as_root "$cmd" "${arg:-x}" "${HL_STOP_PERF:-0}" "${HL_KEEP:-0}" "${HL_PIN:-0}" >/dev/null
     "${adb[@]}" shell "cat /data/local/tmp/hl-profile.log" 2>/dev/null | tr -d '\r' || echo "(no log from the device)"
 else
     # list and status read the sysfs as the shell user: no root needed
