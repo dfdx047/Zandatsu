@@ -1,3 +1,4 @@
+#include <unordered_map>
 #ifdef __ANDROID__
 #include "game_log.h"
 #endif
@@ -258,8 +259,22 @@ void startStallWatch(){
         }
     }).detach();});
 }
+// Lab MGR_YIELD_STATS=1: who gives the machine away, by kind (0 yield, 1 sleep ms, 2 deadline, 3 signal wait) and
+// guest function; top entries every 5 s. Called only by the machine's owner, so a plain map is safe.
+void countMachineRelease(int kind){
+    static const bool on=getenv("MGR_YIELD_STATS")!=nullptr;if(!on)return;
+    static std::unordered_map<uint64_t,uint64_t> counts;static auto last=std::chrono::steady_clock::now();static uint64_t total=0;
+    ++counts[(uint64_t(kind)<<32)|g_cur_func];++total;
+    auto now=std::chrono::steady_clock::now();double sec=std::chrono::duration<double>(now-last).count();if(sec<5)return;
+    std::vector<std::pair<uint64_t,uint64_t>> v(counts.begin(),counts.end());
+    std::sort(v.begin(),v.end(),[](auto& a,auto& b){return a.second>b.second;});
+    std::string line;char one[48];
+    for(size_t i=0;i<v.size()&&i<14;i++){std::snprintf(one,sizeof one," k%u:%08x=%.0f",unsigned(v[i].first>>32),unsigned(v[i].first),v[i].second/sec);line+=one;}
+    NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"MGR","yield-stats %.0f/s:%s",total/sec,line.c_str());counts.clear();total=0;last=now;
+}
 void yieldGuestMachine(unsigned milliseconds=0,std::chrono::steady_clock::time_point deadline={}) {
     if(!machineLease||!machineLease->owns_lock())throw GuestStop("Guest scheduler ownership missing");
+    countMachineRelease(deadline!=std::chrono::steady_clock::time_point{}?2:milliseconds?1:0);
     {auto& trace=currentTrace();trace.func=g_cur_func;trace.esp=g_esp;}
     State saved;saved.save();machineLease->unlock();
     if(deadline!=std::chrono::steady_clock::time_point{})std::this_thread::sleep_until(deadline);
@@ -285,6 +300,7 @@ void notifyGuestSignal(uint32_t handle=0){
 }
 void waitGuestSignal(const uint32_t* handles=nullptr,unsigned count=0){
     if(!machineLease||!machineLease->owns_lock())throw GuestStop("Guest scheduler ownership missing");
+    countMachineRelease(3);
     {auto& trace=currentTrace();trace.func=g_cur_func;trace.esp=g_esp;}
     SignalWaiter me;me.handles=handles;me.count=count;
     {std::lock_guard<std::mutex> lock(guestSignalMutex);guestSignalWaiters.push_back(&me);}

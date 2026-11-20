@@ -6,6 +6,8 @@
 #include <algorithm>
 #include <map>
 #include <mutex>
+#include <sys/uio.h>
+#include <unistd.h>
 #include <cmath>
 #include <type_traits>
 #include <unordered_map>
@@ -273,14 +275,34 @@ void memorySnapshot(uint64_t frame){
 // 9 = log the first survivors every frame ("pos-watch"), 10 = stop. Lab only: nothing runs without the pilot step.
 struct PosCand{uint32_t va;float x,y,z;};
 std::vector<PosCand> posCands;std::atomic<bool> posWatching{false};std::mutex posLock;
-bool posRead(uint32_t va,float* v){std::memcpy(v,pointer(va),16);
+// Reads go through process_vm_readv on our own pid: a page the guest decommits or protects meanwhile returns an error
+// instead of SIGSEGV (the plain-memcpy version crashed twice, SEGV_ACCERR in mapped guest ranges).
+bool posSafeRead(const void* src,void* dst,size_t n){iovec l{dst,n},r{const_cast<void*>(src),n};
+    return process_vm_readv(getpid(),&l,1,&r,1,0)==static_cast<ssize_t>(n);}
+bool posCheck(const float* v){
     return v[3]==1.0f&&std::isfinite(v[0])&&std::isfinite(v[1])&&std::isfinite(v[2])&&std::fabs(v[0])<1e5f&&std::fabs(v[1])<1e5f&&
         std::fabs(v[2])<1e5f&&(v[0]!=0.f||v[1]!=0.f||v[2]!=0.f);}
+bool posRead(uint32_t va,float* v){return posSafeRead(pointer(va),v,16)&&posCheck(v);}
 void posProbeStage(int stage){
     std::lock_guard<std::mutex> g(posLock);size_t before=posCands.size();
     if(stage==0){posCands.clear();
-        const uint32_t ranges[2][2]={{0x10000000u,0x1f000000u},{0x30000000u,0x70000000u}};
-        for(auto& r:ranges)for(uint32_t va=r[0];va<r[1];va+=16){float v[4];if(posRead(va,v))posCands.push_back({va,v[0],v[1],v[2]});}
+        // Only readable mappings: arena pages are reserved PROT_NONE until the guest commits them.
+        const uint64_t base=reinterpret_cast<uint64_t>(pointer(0));
+        const uint32_t ranges[1][2]={{0x02000000u,0xfff00000u}};   // every readable guest mapping above the image
+        if(FILE* maps=std::fopen("/proc/self/maps","r")){char line[512];
+            while(std::fgets(line,sizeof line,maps)){unsigned long long lo=0,hi=0;char perm[5]={};
+                if(std::sscanf(line,"%llx-%llx %4s",&lo,&hi,perm)!=3||perm[0]!='r'||hi<=base||lo>=base+0x100000000ull)continue;
+                for(auto& r:ranges){uint64_t a=std::max<uint64_t>(lo,base+r[0]),b=std::min<uint64_t>(hi,base+r[1]);
+                    static std::vector<float> buf(16384);
+                    for(uint64_t h=(a+15)&~15ull;h<b;h+=65536){size_t n=static_cast<size_t>(std::min<uint64_t>(65536,b-h))&~size_t(15);
+                        if(!n)continue;
+                        for(size_t part=0;part<n;){   // whole chunk, else page by page
+                            size_t len=posSafeRead(reinterpret_cast<void*>(h+part),buf.data(),n-part)?n-part:std::min<size_t>(4096,n-part);
+                            if(len==4096&&!posSafeRead(reinterpret_cast<void*>(h+part),buf.data(),len)){part+=len;continue;}
+                            for(size_t o=0;o<len/4;o+=4)if(posCheck(&buf[o]))
+                                posCands.push_back({static_cast<uint32_t>(h+part-base+o*4),buf[o],buf[o+1],buf[o+2]});
+                            part+=len;}}}}
+            std::fclose(maps);}
     }else if(stage>=1&&stage<=4){bool keepChanged=stage==2||stage==4;std::vector<PosCand> out;out.reserve(posCands.size());
         for(auto c:posCands){float v[4];if(!posRead(c.va,v))continue;
             float dx=v[0]-c.x,dy=v[1]-c.y,dz=v[2]-c.z;bool same=dx==0.f&&dy==0.f&&dz==0.f;
@@ -295,7 +317,7 @@ void posProbeStage(int stage){
 void posWatchFrame(uint64_t frame){
     if(!posWatching.load(std::memory_order_relaxed))return;std::lock_guard<std::mutex> g(posLock);
     char line[1024];int n=std::snprintf(line,sizeof line,"pos-watch %llu",static_cast<unsigned long long>(frame));
-    for(size_t i=0;i<posCands.size()&&i<12&&n<900;i++){float v[4];std::memcpy(v,pointer(posCands[i].va),16);
+    for(size_t i=0;i<posCands.size()&&i<12&&n<900;i++){float v[4]={};posSafeRead(pointer(posCands[i].va),v,16);
         n+=std::snprintf(line+n,sizeof line-n," %08X:%.3f,%.3f,%.3f",posCands[i].va,v[0],v[1],v[2]);}
     NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"MGR","%s",line);
 }
