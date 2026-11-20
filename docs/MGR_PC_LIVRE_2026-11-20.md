@@ -81,3 +81,28 @@ Pendências do MT:
   origem (o loop principal a correr durante o teardown), não de mais guardas.
 - `MGR_MT` continua desligado por defeito; o build MT (`-DMGR_MT=ON`) não é o do launcher ainda.
 - FSR/interpolação (branch `worktree-agent-a15e8a5b9f3fbd060`) ainda por integrar e testar no aparelho.
+
+## Eventos/semáforos com lock próprio (20/11, 22:45–23:35, depois do 2.º reboot do PC)
+
+Eventos, semáforos, mutexes e handles de thread passam a ter o lock `guestSyncMutex` (ordem: máquina → guestSyncMutex
+→ guestSignalMutex). No MT, `SetEvent`, `ResetEvent`, `ReleaseSemaphore`, `ReleaseMutex`, `WaitForSingleObject` e
+`WaitForMultipleObjects` correm sem a máquina; quem espera verifica e regista-se sob o lock, e o sinal nunca se perde.
+`WaitForMultipleObjectsEx` continua com a máquina (as APCs chamam código do jogo).
+
+| Corrida | MGR_MT | fps | imports com máquina | máquina ocupada | jobs: espera máquina |
+|---|---|---|---|---|---|
+| ab1-1..3 (antes) | 1 | 19,9 / 26,4 / 18,9 | ~17 mil/s | 17–22% | 9–14% |
+| sy1-1 | 1 | **27,7** | 1,8 mil/s | 1% | 0% |
+| sy1-2 | 1 | **26,9** | 1,8 mil/s | 2% | 0% |
+| sy1-3 | 1 | — (a navegação não entrou na luta; jogo a correr na rua, sem travar) | | | |
+
+0 crashes e 0 paragens. Os imports que ainda tomam a máquina são `InterlockedExchangeAdd`, XInput, Sleep e COM.
+
+MT=0 caiu para 2,4 fps, mas com o HEAD sem a mudança também deu 2,6: **o Odin estava com 1% de bateria** (na tomada),
+com os núcleos 5–7 desligados, e as corridas foram para os núcleos pequenos 0–2. Repetir o A/B MT=0 com a bateria
+carregada.
+
+Atenção: o `deploy-lab.sh` envia `libmgrpc.stripped.so`, que o ninja não regenera. Depois do ninja, gerar com
+`llvm-strip --strip-debug -o libmgrpc.stripped.so libmgrpc.so` (a primeira rodada sy correu com a lib antiga).
+
+Próximo: `InterlockedExchangeAdd` sem máquina (atómico como os outros Interlocked); A/B MT=0 com bateria cheia.

@@ -36,9 +36,10 @@ void createMutex(){
     if(!name.empty()&&namedEvents.count(name)&&!namedEvents[name].expired()){lastError=6;ret(0,3);return;}
     lastError=value?183:0;
     if(!value){value=std::make_shared<GuestMutex>();if(arg(1)){value->owner=guestThreadId;value->depth=1;}if(!name.empty())namedMutexes[name]=value;}
-    uint32_t handle=nextMutexHandle++;mutexHandles.emplace(handle,value);ret(handle,3);
+    uint32_t handle=nextMutexHandle++;{std::lock_guard<std::mutex> sync(guestSyncMutex);mutexHandles.emplace(handle,value);}ret(handle,3);
 }
 void releaseMutex(){
+    std::lock_guard<std::mutex> sync(guestSyncMutex);
     auto value=mutexHandles.find(arg(0));if(value==mutexHandles.end()){lastError=6;ret(0,1);return;}
     if(value->second->owner!=guestThreadId){lastError=288;ret(0,1);return;}
     if(!--value->second->depth){value->second->owner=0;notifyGuestSignal(arg(0));}ret(1,1);
@@ -49,10 +50,14 @@ void createEvent(){
     if(!name.empty())event=namedEvents[name].lock();
     lastError=event?183:0;
     if(!event){event=std::make_shared<GuestEvent>(GuestEvent{arg(1)!=0,arg(2)!=0});if(!name.empty())namedEvents[name]=event;}
-    uint32_t handle=nextEventHandle++;eventHandles.emplace(handle,event);ret(handle,4);
+    uint32_t handle=nextEventHandle++;{std::lock_guard<std::mutex> sync(guestSyncMutex);eventHandles.emplace(handle,event);}ret(handle,4);
 }
-void setEvent(){auto event=eventHandles.find(arg(0));if(event==eventHandles.end()){lastError=6;ret(0,1);return;}event->second->signaled=true;unsigned woke=notifyGuestSignal(arg(0));ret(1,1);handoffAfterSignal(woke);}
-void resetEvent(){auto event=eventHandles.find(arg(0));if(event==eventHandles.end()){lastError=6;ret(0,1);return;}event->second->signaled=false;ret(1,1);}
+void setEvent(){
+    unsigned woke;{std::lock_guard<std::mutex> sync(guestSyncMutex);
+    auto event=eventHandles.find(arg(0));if(event==eventHandles.end()){lastError=6;ret(0,1);return;}event->second->signaled=true;woke=notifyGuestSignal(arg(0));ret(1,1);}
+    handoffAfterSignal(woke);
+}
+void resetEvent(){std::lock_guard<std::mutex> sync(guestSyncMutex);auto event=eventHandles.find(arg(0));if(event==eventHandles.end()){lastError=6;ret(0,1);return;}event->second->signaled=false;ret(1,1);}
 // ExitThread unwinds the lifted frames back to guestThreadEntry.
 struct GuestThreadExit{uint32_t code;};
 thread_local bool insideGuestThread=false;
@@ -81,8 +86,11 @@ void* guestThreadEntry(void* context){
         if(!stopRequested){guestThreadFault=error.what();NFS_RUNTIME_LOG(ANDROID_LOG_WARN,"NFSU2","Guest thread %u: %s",thread.id,error.what());}
     }catch(const std::exception& error){thread.exitCode=1;guestThreadFault=error.what();}
     heaps->free(GuestHeaps::process,thread.stack);heaps->free(GuestHeaps::process,thread.tib);
+    forgetThreadTrace();
+    {std::lock_guard<std::mutex> sync(guestSyncMutex);
     for(auto& value:mutexHandles)if(value.second->owner==thread.id){value.second->owner=0;value.second->depth=0;value.second->abandoned=true;}
-    forgetThreadTrace();thread.done=true;notifyGuestSignal();machineLease=nullptr;return nullptr;
+    thread.done=true;notifyGuestSignal();}
+    machineLease=nullptr;return nullptr;
 }
 void reapGuestThreads(){
     for(auto it=guestThreads.begin();it!=guestThreads.end();){
@@ -104,7 +112,7 @@ void createThread(){
     pthread_attr_t attributes;int error=pthread_attr_init(&attributes);
     if(!error){error=pthread_attr_setstacksize(&attributes,64u<<20);if(!error)error=pthread_create(&thread->native,&attributes,guestThreadEntry,thread.get());pthread_attr_destroy(&attributes);}
     if(error){heaps->free(GuestHeaps::process,thread->stack);heaps->free(GuestHeaps::process,thread->tib);lastError=8;ret(0,6);return;}
-    thread->started=true;guestThreads.push_back(thread);threadHandles.emplace(thread->handle,thread);
+    thread->started=true;guestThreads.push_back(thread);{std::lock_guard<std::mutex> sync(guestSyncMutex);threadHandles.emplace(thread->handle,thread);}
     if(idOut)write32(idOut,thread->id);
     NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSU2","Created guest thread %u at %08x suspended=%u",thread->id,thread->start,thread->suspended);
     ret(thread->handle,6);
@@ -118,28 +126,28 @@ void setThreadPriority(){
     thread->second->priority=priority;ret(1,2);
 }
 void threadExitCode(){auto thread=threadHandles.find(arg(0));if(thread==threadHandles.end()){lastError=6;ret(0,2);return;}write32(arg(1),thread->second->exitCode);ret(1,2);}
+// MT: runs without the machine; guestSyncMutex is held while handles are looked up, checked and taken, and released
+// for checkGuestProgress (which may yield the machine) and while sleeping.
 void waitThread(){
-    uint32_t handle=arg(0),timeout=arg(1);auto found=threadHandles.find(handle);
-    WaitScope scope(mutexHandles.count(handle)?"WaitForSingleObject(mutex)":eventHandles.count(handle)?"WaitForSingleObject(event)":"WaitForSingleObject(thread)",handle);
-    auto mutexFound=mutexHandles.find(handle);
-    if(mutexFound!=mutexHandles.end()){
-        auto value=mutexFound->second;auto deadline=std::chrono::steady_clock::now()+std::chrono::milliseconds(timeout);
-        while(value->owner&&value->owner!=guestThreadId){if(timeout!=UINT32_MAX&&std::chrono::steady_clock::now()>=deadline){ret(258,2);return;}checkGuestProgress();waitGuestSignal(&handle,1);}
-        value->owner=guestThreadId;++value->depth;bool abandoned=value->abandoned;value->abandoned=false;ret(abandoned?128:0,2);return;
+    uint32_t handle=arg(0),timeout=arg(1);auto deadline=std::chrono::steady_clock::now()+std::chrono::milliseconds(timeout);
+    const char* what;
+    {std::lock_guard<std::mutex> sync(guestSyncMutex);
+    if(mutexHandles.count(handle))what="WaitForSingleObject(mutex)";
+    else if(semaphoreHandles.count(handle))what="WaitForSingleObject(semaphore)";
+    else if(eventHandles.count(handle))what="WaitForSingleObject(event)";
+    else if(threadHandles.count(handle))what="WaitForSingleObject(thread)";
+    else{lastError=6;ret(UINT32_MAX,2);return;}}
+    WaitScope scope(what,handle);
+    for(;;){
+        checkGuestProgress();
+        std::unique_lock<std::mutex> sync(guestSyncMutex);
+        if(!mutexHandles.count(handle)&&!semaphoreHandles.count(handle)&&!eventHandles.count(handle)&&!threadHandles.count(handle)){lastError=6;ret(UINT32_MAX,2);return;}
+        if(waitableReady(handle)){bool abandoned=acquireWaitable(handle);ret(abandoned?128:0,2);return;}
+        if(timeout!=UINT32_MAX&&std::chrono::steady_clock::now()>=deadline){ret(258,2);return;}
+        waitGuestSignal(&handle,1,&sync);
     }
-    if(semaphoreHandles.count(handle)){auto deadline=std::chrono::steady_clock::now()+std::chrono::milliseconds(timeout);
-        while(!waitableReady(handle)){if(timeout!=UINT32_MAX&&std::chrono::steady_clock::now()>=deadline){ret(258,2);return;}checkGuestProgress();waitGuestSignal(&handle,1);}
-        acquireWaitable(handle);ret(0,2);return;}
-    auto eventFound=eventHandles.find(handle);
-    if(found==threadHandles.end()&&eventFound==eventHandles.end()){lastError=6;ret(UINT32_MAX,2);return;}
-    auto thread=found==threadHandles.end()?nullptr:found->second;
-    auto event=eventFound==eventHandles.end()?nullptr:eventFound->second;
-    auto deadline=std::chrono::steady_clock::now()+std::chrono::milliseconds(timeout);
-    while(thread?!thread->done:!event->signaled){if(timeout!=UINT32_MAX&&std::chrono::steady_clock::now()>=deadline){ret(258,2);return;}checkGuestProgress();waitGuestSignal(&handle,1);}
-    if(event&&!event->manual)event->signaled=false;
-    ret(0,2);
 }
-// WaitForMultipleObjects over the same thread, event and mutex objects as WaitForSingleObject.
+// WaitForMultipleObjects over the same thread, event and mutex objects as WaitForSingleObject (under guestSyncMutex).
 bool waitableReady(uint32_t handle){
     if(auto mutex=mutexHandles.find(handle);mutex!=mutexHandles.end())return !mutex->second->owner||mutex->second->owner==guestThreadId;
     if(auto event=eventHandles.find(handle);event!=eventHandles.end())return event->second->signaled;
@@ -158,13 +166,14 @@ void waitMultiple(){
     uint32_t count=arg(0),list=arg(1),timeout=arg(3);bool all=arg(2)!=0;
     if(!count||count>64||!list){lastError=87;ret(UINT32_MAX,4);return;}
     std::vector<uint32_t> handles(count);
-    for(uint32_t i=0;i<count;++i){
-        handles[i]=read32(list+i*4);
-        if(!mutexHandles.count(handles[i])&&!eventHandles.count(handles[i])&&!threadHandles.count(handles[i])&&!semaphoreHandles.count(handles[i])){lastError=6;ret(UINT32_MAX,4);return;}
-    }
+    for(uint32_t i=0;i<count;++i)handles[i]=read32(list+i*4);
+    auto known=[](uint32_t h){return mutexHandles.count(h)||eventHandles.count(h)||threadHandles.count(h)||semaphoreHandles.count(h);};
     auto deadline=std::chrono::steady_clock::now()+std::chrono::milliseconds(timeout);
     WaitScope scope(all?"WaitForMultipleObjects(all)":"WaitForMultipleObjects(any)",handles[0]);
     for(;;){
+        checkGuestProgress();
+        std::unique_lock<std::mutex> sync(guestSyncMutex);
+        if(!std::all_of(handles.begin(),handles.end(),known)){lastError=6;ret(UINT32_MAX,4);return;}
         if(all){
             if(std::all_of(handles.begin(),handles.end(),waitableReady)){
                 bool abandoned=false;for(uint32_t handle:handles)abandoned|=acquireWaitable(handle);
@@ -172,7 +181,7 @@ void waitMultiple(){
             }
         }else for(uint32_t i=0;i<count;++i)if(waitableReady(handles[i])){ret((acquireWaitable(handles[i])?128:0)+i,4);return;}
         if(timeout!=UINT32_MAX&&std::chrono::steady_clock::now()>=deadline){ret(258,4);return;}
-        checkGuestProgress();waitGuestSignal(handles.data(),unsigned(handles.size()));
+        waitGuestSignal(handles.data(),unsigned(handles.size()),&sync);
     }
 }
 void joinGuestThreads(std::unique_lock<MachineMutex>& lease){

@@ -111,7 +111,9 @@ bool importIsMachineFree(const std::string& full){
         "kernel32.dll!QueryPerformanceCounter","kernel32.dll!QueryPerformanceFrequency",
         "kernel32.dll!EnterCriticalSection","kernel32.dll!LeaveCriticalSection",   // own table lock (guest_kernel.inc)
         "kernel32.dll!HeapAlloc","kernel32.dll!HeapFree","kernel32.dll!HeapReAlloc","kernel32.dll!HeapSize",   // own lock (guest_heap.h)
-        "kernel32.dll!GetProcessHeap","kernel32.dll!TlsGetValue","kernel32.dll!TlsSetValue"};   // thread-local values
+        "kernel32.dll!GetProcessHeap","kernel32.dll!TlsGetValue","kernel32.dll!TlsSetValue",   // thread-local values
+        "kernel32.dll!SetEvent","kernel32.dll!ResetEvent","kernel32.dll!ReleaseSemaphore","kernel32.dll!ReleaseMutex",
+        "kernel32.dll!WaitForSingleObject","kernel32.dll!WaitForMultipleObjects"};   // own lock (guestSyncMutex)
     if(exact.count(full))return true;
     for(const char* prefix:{"d3dx9_43.dll!D3DXMatrix","d3dx9_43.dll!D3DXVec","d3dx9_43.dll!D3DXQuaternion"})
         if(!full.compare(0,std::strlen(prefix),prefix))return true;
@@ -365,6 +367,11 @@ void yieldGuestMachine(unsigned milliseconds=0,std::chrono::steady_clock::time_p
 // SetEvent/ReleaseSemaphore made each of MGR's ~8 job threads take the machine just to sleep again.
 struct SignalWaiter{std::condition_variable cv;const uint32_t* handles=nullptr;unsigned count=0;std::atomic<bool> woken{false};};
 std::mutex guestSignalMutex;std::vector<SignalWaiter*> guestSignalWaiters;
+// MT mode (21/11): events, semaphores, mutexes and thread handles have their own lock, so SetEvent/ResetEvent/
+// ReleaseSemaphore/ReleaseMutex/WaitForSingleObject/WaitForMultipleObjects run without the machine (MGR's job system:
+// ~17k/s in fights). Table changes (create/close) and state changes take it; lock order machine -> guestSyncMutex ->
+// guestSignalMutex. A waiter checks its handles and registers under guestSyncMutex, so a signal is never lost.
+std::mutex guestSyncMutex;
 unsigned notifyGuestSignal(uint32_t handle=0){
     std::lock_guard<std::mutex> lock(guestSignalMutex);unsigned woke=0;
     for(auto* w:guestSignalWaiters){
@@ -378,15 +385,18 @@ void yieldGuestMachine(unsigned milliseconds,std::chrono::steady_clock::time_poi
 // spinning with MGR_SIGNAL_SPIN_US or just woken, takes it) instead of keeping it until the signaller's next wait/slice.
 void handoffAfterSignal(unsigned woke){
     static const bool on=getenv("MGR_SIGNAL_HANDOFF")&&atoi(getenv("MGR_SIGNAL_HANDOFF"));
-    if(on&&woke)yieldGuestMachine(0,{});
+    if(on&&woke&&(!mtMode()||machine.ownedByMe()))yieldGuestMachine(0,{});
 }
-void waitGuestSignal(const uint32_t* handles=nullptr,unsigned count=0){
-    if(!machineLease||!machineLease->owns_lock())throw GuestStop("Guest scheduler ownership missing");
-    countMachineRelease(3);
+// sync: the caller's guestSyncMutex lock, released here once the waiter is registered (the caller takes it again).
+void waitGuestSignal(const uint32_t* handles=nullptr,unsigned count=0,std::unique_lock<std::mutex>* sync=nullptr){
+    const bool held=!mtMode()||machine.ownedByMe();
+    if(held&&(!machineLease||!machineLease->owns_lock()))throw GuestStop("Guest scheduler ownership missing");
+    if(held)countMachineRelease(3);
     {auto& trace=currentTrace();trace.func=g_cur_func;trace.esp=g_esp;}
     SignalWaiter me;me.handles=handles;me.count=count;
     {std::lock_guard<std::mutex> lock(guestSignalMutex);guestSignalWaiters.push_back(&me);}
-    State saved;saved.save();machineLease->unlock();
+    if(sync)sync->unlock();
+    State saved;if(held){saved.save();machineLease->unlock();}
     const auto signalFrom=std::chrono::steady_clock::now();
     // Lab MGR_SIGNAL_SPIN_US: spin (WFE-friendly yield) this long for the signal before sleeping on the futex; the
     // job system hands work over ~9000 times/s in fights and each futex sleep/wake adds scheduler latency.
@@ -402,7 +412,7 @@ void waitGuestSignal(const uint32_t* handles=nullptr,unsigned count=0){
     {std::unique_lock<std::mutex> lock(guestSignalMutex);me.cv.wait_for(lock,std::chrono::milliseconds(1),[&]{return me.woken.load();});
         guestSignalWaiters.erase(std::find(guestSignalWaiters.begin(),guestSignalWaiters.end(),&me));}
     if(xrayOn())xrayThread()->signalNs+=xrayNs(signalFrom,std::chrono::steady_clock::now());
-    machineLease->lock();saved.load();
+    if(held){machineLease->lock();saved.load();}
 }
 thread_local bool renderThread=false;
 // Render-thread slice handovers and the time spent getting the machine back.

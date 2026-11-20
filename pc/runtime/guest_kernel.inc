@@ -299,7 +299,8 @@ void processEntry(bool first){
 }
 void processFirst(){processEntry(true);}void processNext(){processEntry(false);}
 bool closeMapping(uint32_t handle);
-void closeHandle(){if(closeGuestFile(arg(0))||moduleSnapshots.erase(arg(0))||kernelHandleAliases.erase(arg(0))||threadHandles.erase(arg(0))||eventHandles.erase(arg(0))||mutexHandles.erase(arg(0))||semaphoreHandles.erase(arg(0))||closeMapping(arg(0))){ret(1,1);return;}lastError=6;ret(0,1);}
+bool closeSyncHandle(uint32_t h){std::lock_guard<std::mutex> sync(guestSyncMutex);return threadHandles.erase(h)||eventHandles.erase(h)||mutexHandles.erase(h)||semaphoreHandles.erase(h);}
+void closeHandle(){if(closeGuestFile(arg(0))||moduleSnapshots.erase(arg(0))||kernelHandleAliases.erase(arg(0))||closeSyncHandle(arg(0))||closeMapping(arg(0))){ret(1,1);return;}lastError=6;ret(0,1);}
 struct RegistryValue {uint32_t type;std::vector<uint8_t> bytes;};
 std::map<std::string,RegistryValue> gameRegistry;
 // The game keeps its video options in the registry (g_CarLodLevel,
