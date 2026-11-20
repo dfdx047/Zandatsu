@@ -4,10 +4,14 @@ import android.app.NativeActivity
 import android.os.Bundle
 import android.system.Os
 import android.util.Log
-import android.view.View
+import android.os.SystemClock
+import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import com.dfdx047.zandatsu.drivers.DriverRepository
+import com.dfdx047.zandatsu.game.GameOverlay
+import org.libsdl.app.SwordManPad
 import java.io.File
 
 /**
@@ -15,6 +19,11 @@ import java.io.File
  * pc/android/mgr_android_main.cpp, carregado pelo libmgrlab.so (so o carregador, sem codigo do jogo).
  * Antes do super.onCreate: desencripta o libgame para um memfd e passa tudo ao nativo por variaveis de ambiente
  * (MGR_LIB_FD, MGR_EXE, MGR_DRIVER_DIR/NAME, MGR_HOOK_DIR, MGR_RENDER_SIZE).
+ *
+ * Input (20/11): a fila de input fica com o Java (takeInputQueue(null)), para os controles por toque do 360
+ * (GameOverlay: skin, editor, Blade Mode por deslize, menu lateral) funcionarem por cima do jogo. Teclas e eixos do
+ * comando fisico vao para o nativo por JNI (nativeKey/nativeMotion, registados pelo mgr_android_main.cpp); o
+ * comando da tela chega pelo SwordManPad.Sink (nativeTouchPad); um toque curto fora dos controles = clique do rato.
  */
 class PcGameActivity : NativeActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -27,7 +36,9 @@ class PcGameActivity : NativeActivity() {
             Os.setenv("MGR_LIB_FD", fd.toString(), true)
             Os.setenv("MGR_EXE", exe.absolutePath, true)
             Os.setenv("MGR_HOOK_DIR", applicationInfo.nativeLibraryDir + "/", true)
+            if (PcGame.profile(this).isEmpty()) PcGame.applyProfile(this, exe.absolutePath, PcGame.defaultProfile())
             Os.setenv("MGR_RENDER_SIZE", PcGame.renderSize(this), true)
+            Os.setenv("MGR_FPS_CAP", PcGame.fpsCap(this).toString(), true)
             val drv = PcGame.driverDir(this)
             val installed = DriverRepository.installed().firstOrNull { it.dir.absolutePath == drv }
             if (installed != null) {
@@ -43,9 +54,98 @@ class PcGameActivity : NativeActivity() {
             Log.e(TAG, "nao arrancou", e)
             Os.setenv("MGR_START_ERROR", e.message ?: e.toString(), true)
         }
+        SwordManPad.setSink(pad)
         super.onCreate(savedInstanceState)
+        // Antes de a janela ser adicionada (onResume): a fila de input fica com as Views, nao com o nativo.
+        window.takeInputQueue(null)
         immersive()
+        overlay = GameOverlay(this, pcMode = true).also { it.onCreate() }
     }
+
+    private var overlay: GameOverlay? = null
+
+    /** Comando da tela (HelperEngine -> SwordManPad): estado completo enviado ao nativo a cada mudanca. */
+    private val pad = object : SwordManPad.Sink {
+        private var buttons = 0
+        private var hat = 0
+        private val axes = floatArrayOf(0f, 0f, 0f, 0f, 0f, 0f)
+        override fun button(keycode: Int, down: Boolean) {
+            synchronized(this) {
+                val bit = BUTTON_BITS[keycode]
+                if (bit != null) buttons = if (down) buttons or (1 shl bit) else buttons and (1 shl bit).inv()
+                val h = HAT_BITS[keycode]
+                if (h != null) hat = if (down) hat or h else hat and h.inv()
+                send()
+            }
+        }
+        override fun axis(axis: Int, value: Float) {
+            synchronized(this) {
+                if (axis !in 0..5) return
+                axes[axis] = if (axis >= 4) (value + 1f) / 2f else value   // gatilhos -1..1 -> 0..1
+                send()
+            }
+        }
+        private fun send() = try { nativeTouchPad(buttons, hat, axes) } catch (_: UnsatisfiedLinkError) {}
+    }
+
+    private external fun nativeKey(event: KeyEvent)
+    private external fun nativeMotion(event: MotionEvent)
+    private external fun nativeTouchPad(buttons: Int, hat: Int, axes: FloatArray)
+    private external fun nativePointer(x: Float, y: Float, phase: Int)
+
+    private fun toNative(block: () -> Unit): Boolean = try { block(); true } catch (_: UnsatisfiedLinkError) { false }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        overlay?.let { o ->
+            o.onPhysicalInput(event)
+            if (o.onMenuKeyEvent(event)) return true
+            if (event.keyCode == KeyEvent.KEYCODE_BACK) {
+                if (event.action == KeyEvent.ACTION_UP && !event.isCanceled) { if (o.isMenuOpen()) o.onBackPressed() else o.openMenu() }
+                return true
+            }
+        }
+        if (toNative { nativeKey(event) }) return true
+        return super.dispatchKeyEvent(event)
+    }
+
+    override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
+        overlay?.let { o ->
+            o.onPhysicalInput(event)
+            if (o.onMenuMotion(event)) return true
+        }
+        if (toNative { nativeMotion(event) }) return true
+        return super.dispatchGenericMotionEvent(event)
+    }
+
+    private var tapX = 0f
+    private var tapY = 0f
+    private var tapAt = 0L
+    private var tapping = false
+
+    /** Toque curto fora dos controles da tela = clique do rato nesse ponto (menus do jogo). */
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        val o = overlay
+        if (o != null && !o.isMenuOpen()) {
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    tapping = !o.touchOwnsPoint(event.x, event.y)
+                    tapX = event.x; tapY = event.y; tapAt = SystemClock.uptimeMillis()
+                }
+                MotionEvent.ACTION_POINTER_DOWN, MotionEvent.ACTION_CANCEL -> tapping = false
+                MotionEvent.ACTION_MOVE -> if (tapping && Math.hypot((event.x - tapX).toDouble(), (event.y - tapY).toDouble()) > 40) tapping = false
+                MotionEvent.ACTION_UP -> if (tapping && SystemClock.uptimeMillis() - tapAt < 450) {
+                    tapping = false
+                    val w = window.decorView.width.toFloat().coerceAtLeast(1f); val h = window.decorView.height.toFloat().coerceAtLeast(1f)
+                    toNative { nativePointer(tapX / w, tapY / h, 0); nativePointer(tapX / w, tapY / h, 2) }
+                }
+            }
+        }
+        return super.dispatchTouchEvent(event)
+    }
+
+    override fun onResume() { super.onResume(); overlay?.onResume() }
+    override fun onPause() { overlay?.onPause(); super.onPause() }
+    override fun onDestroy() { overlay?.onDestroy(); overlay = null; SwordManPad.setSink(null); super.onDestroy() }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
@@ -59,5 +159,18 @@ class PcGameActivity : NativeActivity() {
         }
     }
 
-    companion object { private const val TAG = "MGRPC" }
+    companion object {
+        private const val TAG = "MGRPC"
+        /** Bits do estado XInput do nativo (A B X Y LB RB BACK START LS RS, pilotButton em mgr_android_main.cpp). */
+        private val BUTTON_BITS = mapOf(
+            KeyEvent.KEYCODE_BUTTON_A to 0, KeyEvent.KEYCODE_BUTTON_B to 1, KeyEvent.KEYCODE_BUTTON_X to 2,
+            KeyEvent.KEYCODE_BUTTON_Y to 3, KeyEvent.KEYCODE_BUTTON_L1 to 4, KeyEvent.KEYCODE_BUTTON_R1 to 5,
+            KeyEvent.KEYCODE_BUTTON_SELECT to 6, KeyEvent.KEYCODE_BUTTON_START to 7,
+            KeyEvent.KEYCODE_BUTTON_THUMBL to 8, KeyEvent.KEYCODE_BUTTON_THUMBR to 9,
+        )
+        /** Cruz: 1 cima, 2 baixo, 4 esquerda, 8 direita. */
+        private val HAT_BITS = mapOf(
+            KeyEvent.KEYCODE_DPAD_UP to 1, KeyEvent.KEYCODE_DPAD_DOWN to 2, KeyEvent.KEYCODE_DPAD_LEFT to 4, KeyEvent.KEYCODE_DPAD_RIGHT to 8,
+        )
+    }
 }

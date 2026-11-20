@@ -12,6 +12,11 @@
 #include <cstdint>
 #include <cstdio>
 #include <string>
+#include <mutex>
+#include <vector>
+#include <cstdlib>
+#include <cerrno>
+#include <algorithm>
 
 inline long readCpuValue(unsigned cpu,const char* file){
     char path[96];std::snprintf(path,sizeof path,"/sys/devices/system/cpu/cpu%u/%s",cpu,file);
@@ -46,6 +51,21 @@ inline const cpu_set_t& performanceCores(bool* useful=nullptr){
     if(useful)*useful=any;
     return set;
 }
+// Every guest thread's tid, for the ADPF session (lab MGR_ADPF_ALL=1, lesson from the Naruto Storm 4 port: the
+// system raises the clocks for the threads that do the frame's work, not only the render thread).
+inline std::mutex& guestTidLock(){static std::mutex m;return m;}
+inline std::vector<int32_t>& guestTids(){static std::vector<int32_t> v;return v;}
+inline void registerGuestTid(){std::lock_guard<std::mutex> l(guestTidLock());guestTids().push_back(gettid());}
+// Lab MGR_AFFINITY_BIG=1: the calling thread (render/present) only on the fastest cluster.
+inline void stayOnFastestCores(){
+    static const bool on=std::getenv("MGR_AFFINITY_BIG")!=nullptr;if(!on)return;
+    constexpr unsigned maximum=32;long speed[maximum];long fastest=0;
+    for(unsigned cpu=0;cpu<maximum;++cpu){speed[cpu]=readCpuValue(cpu,"cpufreq/scaling_max_freq");fastest=std::max(fastest,speed[cpu]);}
+    cpu_set_t set;CPU_ZERO(&set);unsigned n=0;
+    for(unsigned cpu=0;cpu<maximum;++cpu)if(speed[cpu]>0&&speed[cpu]==fastest){CPU_SET(cpu,&set);++n;}
+    int r=n?sched_setaffinity(0,sizeof set,&set):-1;
+    NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSU2","render thread on the %u fastest cores (%ld kHz): %s",n,fastest,r==0?"ok":"refused");
+}
 inline void stayOnPerformanceCores(){
     bool useful=false;const cpu_set_t& set=performanceCores(&useful);
     if(useful&&sched_setaffinity(0,sizeof set,&set))
@@ -59,6 +79,8 @@ class FrameWorkHint {
     int (*report_)(Session*,int64_t)=nullptr;
     Session* session_=nullptr;
     bool tried_=false;
+    int (*setThreads_)(Session*,const int32_t*,size_t)=nullptr;
+    int32_t self_=0;bool all_=false;unsigned frames_=0;size_t sent_=1;
 public:
     void reportFrame(int64_t workNanoseconds,int64_t targetNanoseconds){
         if(!tried_){
@@ -67,10 +89,18 @@ public:
             auto getManager=library?reinterpret_cast<Manager*(*)()>(dlsym(library,"APerformanceHint_getManager")):nullptr;
             auto create=library?reinterpret_cast<Session*(*)(Manager*,const int32_t*,size_t,int64_t)>(dlsym(library,"APerformanceHint_createSession")):nullptr;
             report_=library?reinterpret_cast<int(*)(Session*,int64_t)>(dlsym(library,"APerformanceHint_reportActualWorkDuration")):nullptr;
-            int32_t self=gettid();
+            setThreads_=library?reinterpret_cast<int(*)(Session*,const int32_t*,size_t)>(dlsym(library,"APerformanceHint_setThreads")):nullptr;
+            int32_t self=gettid();self_=self;all_=std::getenv("MGR_ADPF_ALL")!=nullptr;
             Manager* manager=getManager?getManager():nullptr;
             if(manager&&create&&report_)session_=create(manager,&self,1,targetNanoseconds);
-            NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSU2","ADPF frame hints: %s",session_?"on":"not available");
+            NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSU2","ADPF frame hints: %s%s",session_?"on":"not available",all_?" (all guest threads)":"");
+            stayOnFastestCores();
+        }
+        if(all_&&session_&&setThreads_&&++frames_%120==1){
+            std::vector<int32_t> tids;{std::lock_guard<std::mutex> l(guestTidLock());tids=guestTids();}
+            if(std::find(tids.begin(),tids.end(),self_)==tids.end())tids.push_back(self_);
+            if(tids.size()!=sent_){int r=setThreads_(session_,tids.data(),tids.size());sent_=tids.size();
+                NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSU2","ADPF session threads: %zu (%s)",tids.size(),r==0?"ok":"refused");}
         }
         if(session_&&workNanoseconds>0)report_(session_,workNanoseconds);
     }

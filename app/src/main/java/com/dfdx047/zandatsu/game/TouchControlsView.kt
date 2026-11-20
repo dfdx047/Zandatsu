@@ -690,6 +690,10 @@ class TouchControlsView(context: Context) : View(context) {
     }
 
     @SuppressLint("ClickableViewAccessibility")
+    /** Um botao/analogico/D-pad neste ponto (a zona da camara nao conta), ou o Blade Mode ligado. */
+    fun ownsPoint(px: Float, py: Float): Boolean =
+        editMode || bladeId != null || pointers.isNotEmpty() || hit(px, py)?.let { it.kind != ElementKind.LOOK } == true
+
     override fun onTouchEvent(ev: MotionEvent): Boolean {
         if (editMode) return onEditTouch(ev)
         when (ev.actionMasked) {

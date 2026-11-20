@@ -51,7 +51,7 @@ import org.libsdl.app.SwordManPad
  *
  * Chamado pelo GameActivity (Java) nos eventos do ciclo de vida e de input.
  */
-class GameOverlay(private val activity: Activity) : InputManager.InputDeviceListener, InGameActions {
+class GameOverlay @JvmOverloads constructor(private val activity: Activity, override val pcMode: Boolean = false) : InputManager.InputDeviceListener, InGameActions {
     private val prefs = LauncherPrefs(activity)
     private val engine = HelperEngine()
     private val main = Handler(Looper.getMainLooper())
@@ -180,6 +180,7 @@ class GameOverlay(private val activity: Activity) : InputManager.InputDeviceList
         )
 
         // Engrenagem (canto de cima a esquerda): menu dos controles.
+        /** PC: toque fora dos controles vai para o jogo como clique (menus). */
         val g = roundButton(R.drawable.ic_btn_menu, R.string.ingame_title) { openMenuAt(menuModel.controlsTab) }
         gear = g
         activity.addContentView(
@@ -335,6 +336,9 @@ class GameOverlay(private val activity: Activity) : InputManager.InputDeviceList
     // ---------------------------------------------------------------- menus
 
     fun isMenuOpen(): Boolean = screen.value != InGameScreen.CLOSED
+
+    /** PC: ha um controle da tela (botao, analogico, D-pad) neste ponto, ou o Blade Mode por deslize esta ativo. */
+    fun touchOwnsPoint(x: Float, y: Float): Boolean = view?.let { it.visibility == View.VISIBLE && it.ownsPoint(x, y) } ?: false
 
     /** Botao Back com o jogo a correr: abre o menu. */
     fun openMenu() = openMenuAt(0)
@@ -536,10 +540,11 @@ class GameOverlay(private val activity: Activity) : InputManager.InputDeviceList
     private fun updateVisibility() {
         val v = view ?: return
         val menuOpen = isMenuOpen()
+        // PC: sempre a mostra no jogo (pedido do utilizador), menos se desligados de proposito.
         val show = !menuOpen && when (prefs.touchMode) {
             TouchMode.ON -> true
+            TouchMode.AUTO -> pcMode || autoShown
             TouchMode.OFF -> false
-            TouchMode.AUTO -> autoShown
         }
         if (!show) v.releaseAll()
         v.visibility = if (show) View.VISIBLE else View.GONE

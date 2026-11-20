@@ -289,7 +289,7 @@ void yieldGuestMachine(unsigned milliseconds=0,std::chrono::steady_clock::time_p
 // Waiters register the handles they wait on (while still holding the machine, so a later signal is never lost) and a
 // signal wakes only the waiters of that handle (0 = everyone, e.g. a thread exit). Waking every waiter on every
 // SetEvent/ReleaseSemaphore made each of MGR's ~8 job threads take the machine just to sleep again.
-struct SignalWaiter{std::condition_variable cv;const uint32_t* handles=nullptr;unsigned count=0;bool woken=false;};
+struct SignalWaiter{std::condition_variable cv;const uint32_t* handles=nullptr;unsigned count=0;std::atomic<bool> woken{false};};
 std::mutex guestSignalMutex;std::vector<SignalWaiter*> guestSignalWaiters;
 void notifyGuestSignal(uint32_t handle=0){
     std::lock_guard<std::mutex> lock(guestSignalMutex);
@@ -305,7 +305,18 @@ void waitGuestSignal(const uint32_t* handles=nullptr,unsigned count=0){
     SignalWaiter me;me.handles=handles;me.count=count;
     {std::lock_guard<std::mutex> lock(guestSignalMutex);guestSignalWaiters.push_back(&me);}
     State saved;saved.save();machineLease->unlock();
-    {std::unique_lock<std::mutex> lock(guestSignalMutex);me.cv.wait_for(lock,std::chrono::milliseconds(1),[&]{return me.woken;});
+    // Lab MGR_SIGNAL_SPIN_US: spin (WFE-friendly yield) this long for the signal before sleeping on the futex; the
+    // job system hands work over ~9000 times/s in fights and each futex sleep/wake adds scheduler latency.
+    static const auto spin=std::chrono::microseconds(getenv("MGR_SIGNAL_SPIN_US")?atoi(getenv("MGR_SIGNAL_SPIN_US")):0);
+    if(spin.count()>0){const auto until=std::chrono::steady_clock::now()+spin;
+        while(!me.woken.load(std::memory_order_acquire)&&std::chrono::steady_clock::now()<until)
+#if defined(__aarch64__)
+            asm volatile("yield");
+#else
+            ;
+#endif
+    }
+    {std::unique_lock<std::mutex> lock(guestSignalMutex);me.cv.wait_for(lock,std::chrono::milliseconds(1),[&]{return me.woken.load();});
         guestSignalWaiters.erase(std::find(guestSignalWaiters.begin(),guestSignalWaiters.end(),&me));}
     machineLease->lock();saved.load();
 }

@@ -64,6 +64,39 @@ object PcGame {
         f.writeBytes(b.array())
     }
 
+    /** Limite de fps (MGR_FPS_CAP): 0 = o do jogo (60). */
+    fun fpsCap(c: Context): Int = prefs(c).getInt("fps_cap", 0)
+    fun setFpsCap(c: Context, v: Int) = prefs(c).edit().putInt("fps_cap", v).apply()
+    /** Perfil escolhido ("" = ainda nenhum: o primeiro arranque usa o do SoC). */
+    fun profile(c: Context): String = prefs(c).getString("profile", "").orEmpty()
+    fun setProfile(c: Context, v: String) = prefs(c).edit().putString("profile", v).apply()
+
+    /**
+     * Perfis da launcher: GraphicOption do jogo + resolucao interna + limite de fps. Medidos no Odin 2 Mini com o
+     * perfil sd480p (combate do prologo): FRACO 18,1 fps, MEDIO 16,9 (o combate esta preso na CPU).
+     */
+    class Profile(val id: String, val label: String, val render: String, val fps: Int, val opts: Map<Int, Int>)
+    val PROFILES = listOf(
+        Profile("fraco", "Fraco (SD665/480+)", "854x480", 30, mapOf(1 to 0, 2 to 1, 3 to 0, 7 to 0, 8 to 0, 9 to 0)),
+        Profile("baixo", "Baixo", "960x540", 30, mapOf(1 to 1, 2 to 1, 3 to 0, 7 to 0, 8 to 0, 9 to 0)),
+        Profile("medio", "Médio", "1280x720", 0, mapOf(1 to 1, 2 to 0, 3 to 1, 7 to 0, 8 to 1, 9 to 0)),
+        Profile("alto", "Alto", "", 0, mapOf(1 to 2, 2 to 0, 3 to 1, 7 to 1, 8 to 1, 9 to 1)),
+    )
+    /** SoCs fracos (SD665, SD680, SD480+, Helio G-series...): o perfil de omissao e o FRACO. */
+    fun defaultProfile(): String {
+        val soc = (android.os.Build.SOC_MODEL ?: "").uppercase()
+        val weak = listOf("SM6115", "SM6125", "SM6225", "SM4350", "SM4375", "SM4450", "MT67", "MT68", "UMS", "T6", "T7")
+        return if (weak.any { soc.startsWith(it) } || Runtime.getRuntime().availableProcessors() <= 6) "fraco" else "medio"
+    }
+    /** Aplica um perfil: grava o GraphicOption do jogo e as opcoes da launcher. */
+    fun applyProfile(c: Context, exe: String, id: String) {
+        val p = PROFILES.firstOrNull { it.id == id } ?: return
+        setProfile(c, id); setRenderSize(c, p.render); setFpsCap(c, p.fps)
+        if (exe.isNotEmpty()) runCatching {
+            val v = readGraphicOptions(exe); p.opts.forEach { (i, x) -> v[i] = x }; writeGraphicOptions(exe, v)
+        }
+    }
+
     fun available(c: Context): Boolean = try { c.assets.open("libmgrpc.json").close(); true } catch (_: Exception) { false }
 
     /** Procura a pasta do jogo nos cartoes/armazenamento (lab: /storage/<sd>/MGRPC). */

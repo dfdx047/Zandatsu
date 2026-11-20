@@ -54,6 +54,8 @@ interface InGameActions {
     fun startSelfTest(): Boolean = false
     /** Taxa da tela para a taxa de quadros escolhida (60 ou 120 Hz, patch 0092). */
     fun setDisplayRate(hz: Int) {}
+    /** Jogo de PC (PcGameActivity): o menu lateral so tem Pausa e Controles (o resto e o menu OPTIONS do jogo). */
+    val pcMode: Boolean get() = false
 }
 
 /** O menu do jogo (AndroidMenu.kt) ou o editor dos controles por cima do jogo pausado. */

@@ -27,6 +27,14 @@ public final class SwordManPad {
 
     private static boolean sAttached;
 
+    /** Jogo de PC (sem SDL): os botoes e eixos vao para este destino em vez do SDL. */
+    public interface Sink {
+        void button(int keycode, boolean down);
+        void axis(int axis, float value);
+    }
+    private static volatile Sink sSink;
+    public static void setSink(Sink sink) { sSink = sink; }
+
     private SwordManPad() {}
 
     public static synchronized boolean isAttached() {
@@ -36,6 +44,10 @@ public final class SwordManPad {
     /** Liga o comando virtual. Chamar depois do SDL arrancar (o jogo ja a correr). */
     public static synchronized boolean attach() {
         if (sAttached) {
+            return true;
+        }
+        if (sSink != null) {
+            sAttached = true;
             return true;
         }
         try {
@@ -63,6 +75,10 @@ public final class SwordManPad {
         if (!sAttached) {
             return;
         }
+        if (sSink != null) {
+            sAttached = false;
+            return;
+        }
         try {
             SDLControllerManager.nativeRemoveJoystick(DEVICE_ID);
         } catch (UnsatisfiedLinkError ignored) {
@@ -74,6 +90,11 @@ public final class SwordManPad {
         if (!sAttached) {
             return;
         }
+        Sink sink = sSink;
+        if (sink != null) {
+            sink.button(keycode, down);
+            return;
+        }
         if (down) {
             SDLControllerManager.onNativePadDown(DEVICE_ID, keycode, 0);
         } else {
@@ -83,6 +104,11 @@ public final class SwordManPad {
 
     public static void axis(int axis, float value) {
         if (!sAttached) {
+            return;
+        }
+        Sink sink = sSink;
+        if (sink != null) {
+            sink.axis(axis, value);
             return;
         }
         SDLControllerManager.onNativeJoy(DEVICE_ID, axis, value);

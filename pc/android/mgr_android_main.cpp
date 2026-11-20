@@ -3,6 +3,10 @@
 // Lab knobs: <files>/mgr_exe.txt (path of the player's exe), <files>/mgr_env.txt (KEY=VALUE lines set before boot).
 #include <android_native_app_glue.h>
 #include <android/log.h>
+#include <android/input.h>
+#include <jni.h>
+#include <dlfcn.h>
+#include <mutex>
 #include <fstream>
 #include <cmath>
 #include <algorithm>
@@ -92,8 +96,22 @@ struct TouchPad {
 } pad;
 float screenW() { return touchApp && touchApp->contentRect.right > 0 ? float(touchApp->contentRect.right) : touchApp && touchApp->window ? float(ANativeWindow_getWidth(touchApp->window)) : 1.f; }
 float screenH() { return touchApp && touchApp->contentRect.bottom > 0 ? float(touchApp->contentRect.bottom) : touchApp && touchApp->window ? float(ANativeWindow_getHeight(touchApp->window)) : 1.f; }
+// Launcher (PcGameActivity, 20/11): the 360 touch controls send their whole pad state here (nativeTouchPad); merged
+// on top of the real pad like the pilot. Java input arrives on the UI thread: hostInput serializes it with the loop.
+struct JavaPad { uint32_t buttons = 0; int hat = 0; float axes[6] = {}; } javaPad;
+bool javaInput = false;
+std::recursive_mutex hostInput;
 void publishPad() {
     auto state = gamepad.padState();
+    if (javaInput) {
+        state.buttons |= javaPad.buttons;
+        const float* a = javaPad.axes;
+        if (std::fabs(a[0]) > 0.02f || std::fabs(a[1]) > 0.02f) { state.leftX = a[0]; state.leftY = a[1]; }
+        if (std::fabs(a[2]) > 0.02f || std::fabs(a[3]) > 0.02f) { state.rightX = a[2]; state.rightY = a[3]; }
+        state.leftTrigger = std::fmax(state.leftTrigger, a[4]); state.rightTrigger = std::fmax(state.rightTrigger, a[5]);
+        if (javaPad.hat & 1) state.hatY = -1; if (javaPad.hat & 2) state.hatY = 1;
+        if (javaPad.hat & 4) state.hatX = -1; if (javaPad.hat & 8) state.hatX = 1;
+    }
     if (pad.on) {
         if (pad.stickId >= 0) { state.leftX = pad.sx; state.leftY = pad.sy; }
         for (unsigned b = 0; b < std::size(padButtons); ++b) if ((pad.pressed >> b) & 1) {
@@ -215,6 +233,47 @@ int32_t onInput(android_app* app, AInputEvent* event) {
     if (type == AINPUT_EVENT_TYPE_KEY && gamepad.key(event, false, setPadKey)) { publishPad(); return 1; }
     return 0;
 }
+int32_t onInputLocked(android_app* app, AInputEvent* event) { std::lock_guard<std::recursive_mutex> l(hostInput); return onInput(app, event); }
+// JNI from PcGameActivity (registered on its class at start: this code is in the memfd lib, invisible to the class
+// loader's name lookup). A*Event_fromJava is API 31: looked up at run time.
+using FromJava = const AInputEvent* (*)(JNIEnv*, jobject);
+void jniEvent(JNIEnv* env, jobject event, const char* name) {
+    static FromJava key = reinterpret_cast<FromJava>(dlsym(RTLD_DEFAULT, "AKeyEvent_fromJava"));
+    static FromJava motion = reinterpret_cast<FromJava>(dlsym(RTLD_DEFAULT, "AMotionEvent_fromJava"));
+    static auto release = reinterpret_cast<void (*)(const AInputEvent*)>(dlsym(RTLD_DEFAULT, "AInputEvent_release"));
+    FromJava from = name[0] == 'k' ? key : motion;
+    if (!from || !touchApp) return;
+    const AInputEvent* e = from(env, event); if (!e) return;
+    onInputLocked(touchApp, const_cast<AInputEvent*>(e));
+    if (release) release(e);
+}
+void JNICALL jniKey(JNIEnv* env, jobject, jobject event) { jniEvent(env, event, "key"); }
+void JNICALL jniMotion(JNIEnv* env, jobject, jobject event) { jniEvent(env, event, "motion"); }
+void JNICALL jniTouchPad(JNIEnv* env, jobject, jint buttons, jint hat, jfloatArray axes) {
+    std::lock_guard<std::recursive_mutex> l(hostInput);
+    javaPad.buttons = uint32_t(buttons); javaPad.hat = hat;
+    if (axes && env->GetArrayLength(axes) >= 6) env->GetFloatArrayRegion(axes, 0, 6, javaPad.axes);
+    publishPad();
+}
+void JNICALL jniPointer(JNIEnv*, jobject, jfloat x, jfloat y, jint phase) {
+    setGuestPointer(x, y, phase);
+    __android_log_print(ANDROID_LOG_INFO, "MGRLAB", "touch click %.3f %.3f phase %d", x, y, phase);
+}
+JNIEnv* registerJava(android_app* app) {
+    JNIEnv* env = nullptr;
+    if (app->activity->vm->AttachCurrentThread(&env, nullptr) != JNI_OK || !env) return nullptr;
+    jclass cls = env->GetObjectClass(app->activity->clazz);
+    const JNINativeMethod m[] = {
+        {"nativeKey", "(Landroid/view/KeyEvent;)V", reinterpret_cast<void*>(jniKey)},
+        {"nativeMotion", "(Landroid/view/MotionEvent;)V", reinterpret_cast<void*>(jniMotion)},
+        {"nativeTouchPad", "(II[F)V", reinterpret_cast<void*>(jniTouchPad)},
+        {"nativePointer", "(FFI)V", reinterpret_cast<void*>(jniPointer)},
+    };
+    javaInput = env->RegisterNatives(cls, m, 4) == JNI_OK;
+    if (env->ExceptionCheck()) env->ExceptionClear();   // lab activity: no such methods
+    __android_log_print(ANDROID_LOG_INFO, "MGRLAB", "java input %s", javaInput ? "on (launcher overlay)" : "off");
+    return env;
+}
 std::string firstLine(const std::string& path) { std::ifstream f(path); std::string s; std::getline(f, s); return s; }
 void loadEnv(const std::string& path) {
     std::ifstream f(path); std::string line;
@@ -237,7 +296,8 @@ extern "C" __attribute__((visibility("default"))) void mgr_android_main(android_
     if (const char* cap = getenv("MGR_FPS_CAP")) setGuestFrameLimit(unsigned(atoi(cap)));
     std::string exe = getenv("MGR_EXE") ? getenv("MGR_EXE") : firstLine(files + "/mgr_exe.txt");
     if (exe.empty()) exe = "/storage/6A55-7C3B/MGRPC/METAL GEAR RISING REVENGEANCE.exe";
-    Host host; app->userData = &host; app->onAppCmd = onCommand; app->onInputEvent = onInput;
+    Host host; app->userData = &host; app->onAppCmd = onCommand; app->onInputEvent = onInputLocked;
+    JNIEnv* jni = registerJava(app);
     gamepad.setKeyEmulation(false);
     // The game polls XInput only while it saw a pad at start (later it waits for WM_DEVICECHANGE): handhelds have a
     // built-in pad, so report it connected before the boot.
@@ -261,8 +321,9 @@ extern "C" __attribute__((visibility("default"))) void mgr_android_main(android_
                 host.sized = true; setGuestDisplaySize(unsigned(ANativeWindow_getWidth(app->window)), unsigned(ANativeWindow_getHeight(app->window))); }
             if (!host.started) { host.started = true; __android_log_print(ANDROID_LOG_INFO, "MGRLAB", "boot %s", exe.c_str()); worker.start(exe); }
             pilotLoad(files + "/mgr_pilot.txt");
-            if (pilotTick()) publishPad();
-            padTick();
+            { std::lock_guard<std::recursive_mutex> l(hostInput);
+              if (pilotTick()) publishPad();
+              if (!javaInput) padTick(); }
             auto now = worker.status();
             if (now != status) { status = now; __android_log_print(ANDROID_LOG_INFO, "MGRLAB", "status: %s", status.c_str()); }
         } catch (const std::exception& e) {
@@ -270,4 +331,5 @@ extern "C" __attribute__((visibility("default"))) void mgr_android_main(android_
         }
     }
     acknowledgeD3D9Surface(false); setD3D9HostWindow(nullptr);
+    if (jni) app->activity->vm->DetachCurrentThread();
 }

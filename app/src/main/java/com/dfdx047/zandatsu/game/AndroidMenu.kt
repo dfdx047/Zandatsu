@@ -351,7 +351,7 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
     private fun appearance() = actions.applyAppearance()
 
     val tabs: List<String>
-        get() = listOf(
+        get() = if (actions.pcMode) listOf(s(R.string.menu_tab_pause), s(R.string.tab_controls)) else listOf(
             s(R.string.menu_tab_pause),
             s(R.string.menu_tab_video),
             s(R.string.tab_controls),
@@ -359,10 +359,13 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
         )
 
     /** Indice da aba dos controles (a engrenagem abre nela). */
-    val controlsTab = 2
+    val controlsTab get() = if (actions.pcMode) 1 else 2
 
     // 12/11 (painel lateral): 4 abas, so o que se muda com o jogo a correr.
-    fun items(tab: Int): List<MenuItem> = when (tab) {
+    fun items(tab: Int): List<MenuItem> = if (actions.pcMode) {
+        // PC: video, efeitos e sistema sao do 360 (cvars); no PC estao no menu OPTIONS do jogo e na launcher.
+        if (tab == 0) pauseItems().filterNot { it is MToggle } else controlItems()
+    } else when (tab) {
         0 -> pauseItems()
         1 -> videoItems() + effectItems()
         2 -> controlItems()

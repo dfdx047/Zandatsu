@@ -70,15 +70,41 @@ fun PcScreen() {
                 FilterChip(driver == d.dir.absolutePath, { driver = d.dir.absolutePath; PcGame.setDriverDir(c, driver) }, { Text(d.name) })
             }
         }
-        Text("Resolução (o ecrã escala)", style = MaterialTheme.typography.titleMedium)
+        Text("Gráficos", style = MaterialTheme.typography.titleLarge)
+        var profile by remember { mutableStateOf(PcGame.profile(c).ifEmpty { PcGame.defaultProfile() }) }
+        var fps by remember { mutableStateOf(PcGame.fpsCap(c)) }
+        var optsVersion by remember { mutableStateOf(0) }
+        fun custom() { profile = "custom"; PcGame.setProfile(c, "custom") }
+        Text("Perfil", style = MaterialTheme.typography.titleMedium)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf("" to "Nativa", "1920x1080" to "1080p", "1600x900" to "900p", "1280x720" to "720p", "960x540" to "540p", "854x480" to "480p").forEach { (v, l) ->
-                FilterChip(size == v, { size = v; PcGame.setRenderSize(c, v) }, { Text(l) })
+            PcGame.PROFILES.forEach { p ->
+                FilterChip(profile == p.id, {
+                    PcGame.applyProfile(c, exe, p.id); profile = p.id; size = p.render; fps = p.fps; optsVersion++
+                }, { Text(p.label) })
+            }
+            FilterChip(profile == "custom", { custom() }, { Text("Personalizado") })
+        }
+        Text("Recomendado para este aparelho: " + PcGame.PROFILES.first { it.id == PcGame.defaultProfile() }.label,
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("Resolução interna (o ecrã escala)", style = MaterialTheme.typography.titleMedium)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("" to "Nativa", "1280x720" to "720p", "960x540" to "540p", "854x480" to "480p").forEach { (v, l) ->
+                FilterChip(size == v, { size = v; PcGame.setRenderSize(c, v); custom() }, { Text(l) })
             }
         }
-        OutlinedTextField(size, { size = it; PcGame.setRenderSize(c, it) }, Modifier.fillMaxWidth(),
-            label = { Text("Resolução livre (LxA)") }, singleLine = true)
-        if (found) GameGraphicOptions(exe)
+        Text("Limite de fps", style = MaterialTheme.typography.titleMedium)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(0 to "60 (jogo)", 45 to "45", 30 to "30").forEach { (v, l) ->
+                FilterChip(fps == v, { fps = v; PcGame.setFpsCap(c, v); custom() }, { Text(l) })
+            }
+        }
+        Text("Upscaling e interpolação", style = MaterialTheme.typography.titleMedium)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(true, {}, { Text("Escala do ecrã (bilinear)") })
+            FilterChip(false, {}, { Text("FSR 1 (em breve)") }, enabled = false)
+            FilterChip(false, {}, { Text("Interpolação 30→60 (em breve)") }, enabled = false)
+        }
+        if (found) androidx.compose.runtime.key(optsVersion) { GameGraphicOptions(exe) { custom() } }
         Text("Renderizador: DXVK (Direct3D 9 → Vulkan). OpenGL/gl4es não suporta o Direct3D 9 deste jogo.",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Button(onClick = { c.startActivity(Intent(c, PcGameActivity::class.java)) }, enabled = found && access,
@@ -89,25 +115,17 @@ fun PcScreen() {
 /** Opcoes graficas do jogo de PC (as mesmas do menu OPTIONS > GRAPHIC OPTIONS), gravadas no GraphicOption do jogo. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun GameGraphicOptions(exe: String) {
+private fun GameGraphicOptions(exe: String, onChange: () -> Unit) {
     var v by remember(exe) { mutableStateOf(PcGame.readGraphicOptions(exe)) }
-    fun set(i: Int, x: Int) { v = v.copyOf().also { it[i] = x }; runCatching { PcGame.writeGraphicOptions(exe, v) } }
+    fun set(i: Int, x: Int) { v = v.copyOf().also { it[i] = x }; runCatching { PcGame.writeGraphicOptions(exe, v) }; onChange() }
     Text("Opções gráficas do jogo", style = MaterialTheme.typography.titleMedium)
-    Text("As mesmas do menu do jogo. Odin 2 Mini no perfil 480+, combate do prólogo: padrão 15,4 fps; «Desempenho» (= preset LOW do jogo) 16,8 fps.",
+    Text("As mesmas do menu OPTIONS > GRAPHIC OPTIONS do jogo; o jogo abre já com elas.",
         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     @Composable fun row(label: String, i: Int, options: List<Pair<Int, String>>) {
         Text(label, style = MaterialTheme.typography.labelLarge)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             options.forEach { (x, l) -> FilterChip(v[i] == x, { set(i, x) }, { Text(l) }) }
         }
-    }
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedButton(onClick = { v = PcGame.GRAPHIC_DEFAULT.copyOf(); runCatching { PcGame.writeGraphicOptions(exe, v) } }) { Text("Padrão do jogo") }
-        OutlinedButton(onClick = {
-            // O preset LOW do jogo, medido: MSAA off, aniso 2x, blur off, sombra e zangeki medios, zantime baixo.
-            v = v.copyOf().also { it[1] = 1; it[2] = 1; it[3] = 1; it[7] = 0; it[8] = 1; it[9] = 0 }
-            runCatching { PcGame.writeGraphicOptions(exe, v) }
-        }) { Text("Desempenho") }
     }
     row("Antialiasing", 7, listOf(0 to "Desligado", 1 to "MSAA x2"))
     row("Filtro de textura", 1, listOf(0 to "Desligado", 1 to "Anisotrópico 2x", 2 to "Anisotrópico 4x"))

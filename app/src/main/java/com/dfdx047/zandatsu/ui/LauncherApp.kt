@@ -94,6 +94,8 @@ import com.dfdx047.zandatsu.ui.theme.DfColors
  */
 enum class LauncherTab(@StringRes val title: Int, val icon: ImageVector, val main: Boolean = true) {
     HOME(R.string.tab_home, Icons.Filled.Home),
+    /** MGR de PC (20/11): aba principal da mesma launcher. */
+    PC(R.string.tab_pc, Icons.Filled.Computer),
     PERFORMANCE(R.string.tab_graphics, Icons.Filled.Tune),
     CONTROLS(R.string.tab_controls, Icons.Filled.Gamepad),
     DRIVERS(R.string.tab_drivers, Icons.Filled.Memory),
@@ -101,7 +103,6 @@ enum class LauncherTab(@StringRes val title: Int, val icon: ImageVector, val mai
     SETTINGS(R.string.tab_settings, Icons.Filled.Settings, main = false),
     DEBUG(R.string.tab_debug, Icons.Filled.BugReport, main = false),
     ABOUT(R.string.tab_about, Icons.Filled.Info, main = false),
-    PC(R.string.tab_pc, Icons.Filled.Computer, main = false),
 }
 
 /**
