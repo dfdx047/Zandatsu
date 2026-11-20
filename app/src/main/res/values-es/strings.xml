@@ -619,4 +619,19 @@
     <string name="dlc_remove">Quitar</string>
     <string name="tab_pc">PC (beta)</string>
     <string name="more_pc_sub">Versión de PC de Metal Gear Rising: carpeta del juego, driver, resolución</string>
+    <string name="pc_upscale_title">Escalado</string>
+    <string name="pc_upscale_bilinear">Escalado de pantalla (bilineal)</string>
+    <string name="pc_upscale_fsr1">FSR 1 (EASU + RCAS)</string>
+    <string name="pc_upscale_cas">CAS (nitidez)</string>
+    <string name="pc_upscale_bilinear_sub">La pantalla estira la resolución interna (bilineal simple).</string>
+    <string name="pc_upscale_fsr1_sub">AMD FSR 1 en DXVK: escalado que respeta los bordes hasta la pantalla y luego nitidez RCAS. Dos pasadas al tamaño de salida.</string>
+    <string name="pc_upscale_cas_sub">Nitidez adaptativa al contraste con un escalado simple, en una sola pasada: más ligero que FSR 1.</string>
+    <string name="pc_upscale_sharpness">Nitidez: %1$d%%</string>
+    <string name="pc_upscale_output">Salida del escalado</string>
+    <string name="pc_upscale_output_screen">Pantalla</string>
+    <string name="pc_upscale_output_720">720p (más ligero)</string>
+    <string name="pc_interp_title">Interpolación de fotogramas</string>
+    <string name="pc_interp_off">Desactivada</string>
+    <string name="pc_interp_30_60">30 → 60</string>
+    <string name="pc_interp_sub">Muestra un fotograma generado entre cada dos del juego (juego a 30 fps, pantalla a 60 Hz). El juego no da vectores de movimiento: el movimiento se estima a partir de los dos fotogramas y, en cortes de escena o fallos, el fotograma se repite o se mezcla. Añade un fotograma de latencia. Pone el límite de fps en 30.</string>
 </resources>

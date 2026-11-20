@@ -620,4 +620,19 @@
     <string name="dlc_remove">Remove</string>
     <string name="tab_pc">PC (beta)</string>
     <string name="more_pc_sub">Metal Gear Rising PC version: game folder, driver, resolution</string>
+    <string name="pc_upscale_title">Upscaling</string>
+    <string name="pc_upscale_bilinear">Screen scaling (bilinear)</string>
+    <string name="pc_upscale_fsr1">FSR 1 (EASU + RCAS)</string>
+    <string name="pc_upscale_cas">CAS (sharpening)</string>
+    <string name="pc_upscale_bilinear_sub">The screen stretches the internal resolution (plain bilinear).</string>
+    <string name="pc_upscale_fsr1_sub">AMD FSR 1 in DXVK: edge-aware upscale to the screen, then RCAS sharpening. Two passes at the output size.</string>
+    <string name="pc_upscale_cas_sub">Contrast adaptive sharpening with a simple upscale, in one pass: cheaper than FSR 1.</string>
+    <string name="pc_upscale_sharpness">Sharpness: %1$d%%</string>
+    <string name="pc_upscale_output">Upscale output</string>
+    <string name="pc_upscale_output_screen">Screen</string>
+    <string name="pc_upscale_output_720">720p (lighter)</string>
+    <string name="pc_interp_title">Frame interpolation</string>
+    <string name="pc_interp_off">Off</string>
+    <string name="pc_interp_30_60">30 → 60</string>
+    <string name="pc_interp_sub">Shows a generated frame between each two game frames (game at 30 fps, display at 60 Hz). The game gives no motion vectors: motion is estimated from the two frames, and on scene cuts or failures the frame is repeated or blended. Adds one frame of latency. Sets the fps limit to 30.</string>
 </resources>

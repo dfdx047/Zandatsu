@@ -619,4 +619,19 @@
     <string name="dlc_remove">Remover</string>
     <string name="tab_pc">PC (beta)</string>
     <string name="more_pc_sub">Versão de PC do Metal Gear Rising: pasta do jogo, driver, resolução</string>
+    <string name="pc_upscale_title">Upscaling</string>
+    <string name="pc_upscale_bilinear">Escala do ecrã (bilinear)</string>
+    <string name="pc_upscale_fsr1">FSR 1 (EASU + RCAS)</string>
+    <string name="pc_upscale_cas">CAS (nitidez)</string>
+    <string name="pc_upscale_bilinear_sub">O ecrã estica a resolução interna (bilinear simples).</string>
+    <string name="pc_upscale_fsr1_sub">AMD FSR 1 no DXVK: escala que respeita as arestas até ao ecrã, depois nitidez RCAS. Dois passes no tamanho de saída.</string>
+    <string name="pc_upscale_cas_sub">Nitidez adaptativa ao contraste com uma escala simples, num só passe: mais leve que o FSR 1.</string>
+    <string name="pc_upscale_sharpness">Nitidez: %1$d%%</string>
+    <string name="pc_upscale_output">Saída do upscaling</string>
+    <string name="pc_upscale_output_screen">Ecrã</string>
+    <string name="pc_upscale_output_720">720p (mais leve)</string>
+    <string name="pc_interp_title">Interpolação de frames</string>
+    <string name="pc_interp_off">Desligada</string>
+    <string name="pc_interp_30_60">30 → 60</string>
+    <string name="pc_interp_sub">Mostra um frame gerado entre cada dois frames do jogo (jogo a 30 fps, ecrã a 60 Hz). O jogo não dá vetores de movimento: o movimento é estimado a partir dos dois frames e, em cortes de cena ou falhas, o frame é repetido ou misturado. Mais um frame de latência. Põe o limite de fps em 30.</string>
 </resources>

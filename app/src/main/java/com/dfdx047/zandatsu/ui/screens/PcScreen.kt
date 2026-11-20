@@ -18,6 +18,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -26,11 +27,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.dfdx047.zandatsu.R
 import com.dfdx047.zandatsu.drivers.DriverRepository
 import com.dfdx047.zandatsu.pc.PcGame
 import com.dfdx047.zandatsu.pc.PcGameActivity
 import java.io.File
+import kotlin.math.roundToInt
 
 /**
  * Port de PC (beta): pasta do jogo de PC, driver Vulkan, resolucao livre e JOGAR. Renderizador: DXVK (D3D9 -> Vulkan);
@@ -77,12 +81,17 @@ fun PcScreen() {
         var profile by remember { mutableStateOf(PcGame.profile(c).ifEmpty { PcGame.defaultProfile() }) }
         var fps by remember { mutableStateOf(PcGame.fpsCap(c)) }
         var optsVersion by remember { mutableStateOf(0) }
+        var fsr by remember { mutableStateOf(PcGame.fsrMode(c)) }
+        var sharp by remember { mutableStateOf(PcGame.fsrSharpness(c)) }
+        var fsrOut by remember { mutableStateOf(PcGame.fsrOut(c)) }
+        var interp by remember { mutableStateOf(PcGame.frameInterp(c)) }
         fun custom() { profile = "custom"; PcGame.setProfile(c, "custom") }
         Text("Perfil", style = MaterialTheme.typography.titleMedium)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             PcGame.PROFILES.forEach { p ->
                 FilterChip(profile == p.id, {
                     PcGame.applyProfile(c, exe, p.id); profile = p.id; size = p.render; fps = p.fps; optsVersion++
+                    if (p.fps != 30 && interp) { interp = false; PcGame.setFrameInterp(c, false) }
                 }, { Text(p.label) })
             }
             FilterChip(profile == "custom", { custom() }, { Text("Personalizado") })
@@ -98,15 +107,42 @@ fun PcScreen() {
         Text("Limite de fps", style = MaterialTheme.typography.titleMedium)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf(0 to "60 (jogo)", 45 to "45", 30 to "30").forEach { (v, l) ->
-                FilterChip(fps == v, { fps = v; PcGame.setFpsCap(c, v); custom() }, { Text(l) })
+                FilterChip(fps == v, {
+                    fps = v; PcGame.setFpsCap(c, v); custom()
+                    // A interpolacao so serve com o jogo a 30 fps (gera o frame do meio de cada par).
+                    if (v != 30 && interp) { interp = false; PcGame.setFrameInterp(c, false) }
+                }, { Text(l) })
             }
         }
-        Text("Upscaling e interpolação", style = MaterialTheme.typography.titleMedium)
+        // Upscaling e interpolacao no present do DXVK (PcGame.dxvkPresentEnv, pc/ports/dxvk_android/fx/present_fx.h).
+        Text(stringResource(R.string.pc_upscale_title), style = MaterialTheme.typography.titleMedium)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(true, {}, { Text("Escala do ecrã (bilinear)") })
-            FilterChip(false, {}, { Text("FSR 1 (em breve)") }, enabled = false)
-            FilterChip(false, {}, { Text("Interpolação 30→60 (em breve)") }, enabled = false)
+            listOf(0 to R.string.pc_upscale_bilinear, 1 to R.string.pc_upscale_fsr1, 2 to R.string.pc_upscale_cas).forEach { (v, l) ->
+                FilterChip(fsr == v, { fsr = v; PcGame.setFsrMode(c, v) }, { Text(stringResource(l)) })
+            }
         }
+        Text(stringResource(when (fsr) { 1 -> R.string.pc_upscale_fsr1_sub; 2 -> R.string.pc_upscale_cas_sub; else -> R.string.pc_upscale_bilinear_sub }),
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (fsr != 0) {
+            Text(stringResource(R.string.pc_upscale_sharpness, (sharp * 100).roundToInt()), style = MaterialTheme.typography.labelLarge)
+            Slider(sharp, { sharp = (it * 10).roundToInt() / 10f }, valueRange = 0f..1f, steps = 9,
+                onValueChangeFinished = { PcGame.setFsrSharpness(c, sharp) })
+            Text(stringResource(R.string.pc_upscale_output), style = MaterialTheme.typography.labelLarge)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(0 to R.string.pc_upscale_output_screen, 720 to R.string.pc_upscale_output_720).forEach { (v, l) ->
+                    FilterChip(fsrOut == v, { fsrOut = v; PcGame.setFsrOut(c, v) }, { Text(stringResource(l)) })
+                }
+            }
+        }
+        Text(stringResource(R.string.pc_interp_title), style = MaterialTheme.typography.titleMedium)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(!interp, { interp = false; PcGame.setFrameInterp(c, false) }, { Text(stringResource(R.string.pc_interp_off)) })
+            FilterChip(interp, {
+                interp = true; PcGame.setFrameInterp(c, true)
+                if (fps != 30) { fps = 30; PcGame.setFpsCap(c, 30); custom() }
+            }, { Text(stringResource(R.string.pc_interp_30_60)) })
+        }
+        Text(stringResource(R.string.pc_interp_sub), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (found) androidx.compose.runtime.key(optsVersion) { GameGraphicOptions(exe) { custom() } }
         Text("Renderizador: DXVK (Direct3D 9 → Vulkan). OpenGL/gl4es não suporta o Direct3D 9 deste jogo.",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
