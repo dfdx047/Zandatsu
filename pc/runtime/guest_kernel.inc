@@ -139,7 +139,13 @@ void cpInfo() {
     uint32_t cp=arg(0);if(cp!=0&&cp!=1252&&cp!=437&&cp!=65001){lastError=87;ret(0,2);return;}
     uint32_t out=arg(1);std::memset(ptr(out,20),0,20);write32(out,cp==65001?4:1);*static_cast<char*>(ptr(out+4,1))='?';ret(1,2);
 }
-uint64_t counter() {return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());}
+// Lab MGR_QPC_SCALE=<f>: the guest clock runs f times real time (does the game's logic follow the clock or the frame count?).
+uint64_t counter() {
+    uint64_t now=static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
+    static const double scale=[]{const char* s=std::getenv("MGR_QPC_SCALE");return s?std::atof(s):1.0;}();
+    static const uint64_t origin=now;
+    return scale==1.0?now:origin+static_cast<uint64_t>(double(now-origin)*scale);
+}
 void tickCount() {ret(static_cast<uint32_t>(counter()/1000000),0);}
 void performanceCounter() {uint64_t now=counter();std::memcpy(ptr(arg(0),8),&now,8);ret(1,1);}
 void performanceFrequency() {uint64_t frequency=1000000000;std::memcpy(ptr(arg(0),8),&frequency,8);ret(1,1);}

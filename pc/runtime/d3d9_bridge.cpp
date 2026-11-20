@@ -9,6 +9,9 @@
 #include <cmath>
 #include <type_traits>
 #include <unordered_map>
+#include <unordered_set>
+#include <tuple>
+#include <vector>
 #include <cstring>
 #include <stdexcept>
 #ifdef __ANDROID__
@@ -75,6 +78,9 @@ namespace {
 std::vector<std::pair<unsigned,unsigned>> displayModes(){
     std::vector<std::pair<unsigned,unsigned>> modes{{640,360},{800,450},{854,480},{960,540},{1024,576},{1152,648},{1280,720},
         {1366,768},{1600,900},{1920,1080},{800,600},{1024,768}};
+    // Lab MGR_MODES="WxH,WxH,...": the exact mode list the game sees (to find which modes its options accept).
+    if(const char* list=std::getenv("MGR_MODES")){modes.clear();unsigned a,b;int used=0;const char* q=list;
+        while(std::sscanf(q,"%ux%u%n",&a,&b,&used)==2){modes.emplace_back(a,b);q+=used;if(*q!=',')break;++q;}}
     unsigned w=0,h=0;if(const char* s=std::getenv("MGR_RENDER_SIZE"))if(std::sscanf(s,"%ux%u",&w,&h)==2&&w>=320&&h>=200&&
         std::find(modes.begin(),modes.end(),std::make_pair(w,h))==modes.end())modes.emplace_back(w,h);
     std::sort(modes.begin(),modes.end(),[](auto a,auto b){return a.first*a.second<b.first*b.second||(a.first*a.second==b.first*b.second&&a.first<b.first);});
@@ -90,7 +96,7 @@ namespace {
 constexpr uint32_t methodBase=0x7e000000;
 enum class Kind:uint32_t {D3D9=1,Device=2,Texture=3,Cube=4,Surface=5,VertexBuffer=6,IndexBuffer=7,
     VertexShader=8,PixelShader=9,Declaration=10,StateBlock=11,Query=12,SwapChain=13,VolumeTexture=14,Volume=15};
-struct Object {IUnknown* native;Kind kind;uint32_t references=1;CompressedView compressed;uint32_t parent=0;uint32_t children=0;};
+struct Object {IUnknown* native;Kind kind;uint32_t references=1;CompressedView compressed;uint32_t parent=0;uint32_t children=0;uint64_t psHash=0;};
 std::unordered_map<uint32_t,Object> objects;
 // Nearly every call of a frame targets the same object (the device). Element
 // pointers of an unordered_map survive rehashing; only erasing an object
@@ -214,9 +220,55 @@ void captureBackbuffer(IDirect3DDevice9* device,uint64_t frame){
     }
     back->Release();
 }
+// MGR_SKIP_PS="HASH,HASH" (hex, FNV-1a 64 of the shader tokens): draws with these pixel shaders are skipped (the PC
+// counterpart of swordman_skip_ps, to measure or cut effects). MGR_PS_STATS=<frames>: every <frames> presents, logs
+// the draws per pixel shader and render target (size, format) seen, to name the shaders of each pass.
+uint64_t currentPixelShader=0;
+struct TargetDesc{uint32_t w=0,h=0,format=0;};TargetDesc currentTarget;
+uint64_t shaderHash(const DWORD* code){
+    uint64_t h=1469598103934665603ull;if(!code)return 0;
+    for(size_t i=0;i<65536;++i){h=(h^code[i])*1099511628211ull;if(code[i]==0x0000FFFFu)break;}
+    return h;
+}
+std::unordered_set<uint64_t>& skipSet(){
+    static std::unordered_set<uint64_t> set=[]{std::unordered_set<uint64_t> r;const char* s=std::getenv("MGR_SKIP_PS");
+        while(s&&*s){char* end=nullptr;uint64_t v=std::strtoull(s,&end,16);if(end==s)break;r.insert(v);s=*end?end+1:end;}
+        if(!r.empty())NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"MGR","skip-ps: %zu pixel shaders skipped",r.size());return r;}();
+    return set;
+}
+bool skippedPixelShader(uint64_t hash){auto& set=skipSet();return hash&&!set.empty()&&set.count(hash);}
+uint32_t psStatsFrames(){static const uint32_t n=[]{const char* s=std::getenv("MGR_PS_STATS");return s?uint32_t(std::atoi(s)):0u;}();return n;}
+std::map<std::tuple<uint64_t,uint32_t,uint32_t,uint32_t>,uint64_t> psDraws;
+void countPixelShaderDraw(){++psDraws[{currentPixelShader,currentTarget.w,currentTarget.h,currentTarget.format}];}
+void trackRenderTarget(uint32_t address){
+    currentTarget={};auto found=address?objects.find(address):objects.end();if(found==objects.end())return;
+    D3DSURFACE_DESC desc{};if(SUCCEEDED(static_cast<IDirect3DSurface9*>(found->second.native)->GetDesc(&desc)))currentTarget={desc.Width,desc.Height,uint32_t(desc.Format)};
+}
+void logPixelShaderStats(uint64_t frame){
+    uint32_t n=psStatsFrames();if(!n||frame%n)return;
+    std::vector<std::pair<uint64_t,std::tuple<uint64_t,uint32_t,uint32_t,uint32_t>>> rows;for(auto& [k,v]:psDraws)rows.emplace_back(v,k);
+    std::sort(rows.rbegin(),rows.rend());
+    NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"MGR","ps-stats frames %u: %zu (shader, target) pairs",n,rows.size());
+    for(size_t i=0;i<rows.size()&&i<120;++i){auto& [count,k]=rows[i];
+        NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"MGR","ps-stats %016llX rt %ux%u fmt %u  %.1f draws/frame",static_cast<unsigned long long>(std::get<0>(k)),std::get<1>(k),std::get<2>(k),std::get<3>(k),double(count)/n);}
+    psDraws.clear();
+}
+// Lab MGR_MEMSNAP=<dir>,<first frame>,<every>,<count>: dumps the exe's .data/.bss (0x01880000, 0xB6FA30 bytes) as
+// <dir>/snap_<frame>_<steady ns>.bin, to find the game's clocks (per-frame or real-time) by diffing snapshots.
+void memorySnapshot(uint64_t frame){
+    static const char* spec=std::getenv("MGR_MEMSNAP");if(!spec||!*spec)return;
+    static std::string dir;static uint64_t first=0,every=0,count=0;
+    if(!every){std::string v=spec;char d[256]={};unsigned long long a=0,b=0,c=0;
+        if(std::sscanf(v.c_str(),"%255[^,],%llu,%llu,%llu",d,&a,&b,&c)!=4||!b){spec=nullptr;return;}dir=d;first=a;every=b;count=c;}
+    if(frame<first||(frame-first)%every||(frame-first)/every>=count)return;
+    auto ns=std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    char name[96];std::snprintf(name,sizeof name,"/snap_%06llu_%lld.bin",static_cast<unsigned long long>(frame),static_cast<long long>(ns));
+    if(FILE* out=std::fopen((dir+name).c_str(),"wb")){std::fwrite(pointer(0x01880000u),1,0xB6FA30u,out);std::fclose(out);
+        NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"MGR","Memory snapshot %s",name);}
+}
 void countFrame(){
     using clock=std::chrono::steady_clock;static clock::time_point last=clock::now();static uint64_t lastFrame=0;
-    uint64_t frame=++presentedFrames;auto now=clock::now();double seconds=std::chrono::duration<double>(now-last).count();
+    uint64_t frame=++presentedFrames;memorySnapshot(frame);logPixelShaderStats(frame);auto now=clock::now();double seconds=std::chrono::duration<double>(now-last).count();
     if(seconds>=5.0){uint64_t h=0,w=0,sp=0;mgrRuntimeCounters(&h,&w,&sp);static uint64_t lh=0,lw=0,lsp=0;
         NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"MGR","Present: frame %llu, %.1f fps over %.1f s; machine futex handoffs %.0f/s, spin handoffs %.0f/s, signal wakes %.0f/s",static_cast<unsigned long long>(frame),(frame-lastFrame)/seconds,seconds,(h-lh)/seconds,(sp-lsp)/seconds,(w-lw)/seconds);lh=h;lw=w;lsp=sp;last=now;lastFrame=frame;}
 }
@@ -345,7 +397,9 @@ uint32_t dispatchGuestD3D9(uint32_t token,const uint32_t* args,uint32_t* argumen
         case 6:*argumentCount=3;return modeFormat(static_cast<D3DFORMAT>(args[2]))?uint32_t(displayModes().size()):0;
         case 7:{*argumentCount=5;auto modes=displayModes();auto* mode=static_cast<D3DDISPLAYMODE*>(pointer(args[4]));
             if(!modeFormat(static_cast<D3DFORMAT>(args[2]))||args[3]>=modes.size()||!mode)return D3DERR_INVALIDCALL;
-            mode->Width=modes[args[3]].first;mode->Height=modes[args[3]].second;mode->RefreshRate=60;mode->Format=static_cast<D3DFORMAT>(args[2]);return D3D_OK;}
+            mode->Width=modes[args[3]].first;mode->Height=modes[args[3]].second;mode->RefreshRate=60;mode->Format=static_cast<D3DFORMAT>(args[2]);
+            {static unsigned logged=0;if(logged++<64)NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"MGR","EnumAdapterModes %u -> %ux%u",args[3],mode->Width,mode->Height);}
+            return D3D_OK;}
         case 8:*argumentCount=3;return d3d->GetAdapterDisplayMode(args[1],static_cast<D3DDISPLAYMODE*>(pointer(args[2])));
         case 9:*argumentCount=6;return d3d->CheckDeviceType(args[1],static_cast<D3DDEVTYPE>(args[2]),static_cast<D3DFORMAT>(args[3]),static_cast<D3DFORMAT>(args[4]),args[5]);
         case 10:{*argumentCount=7;auto format=static_cast<D3DFORMAT>(args[6]);auto type=static_cast<D3DRESOURCETYPE>(args[5]);
@@ -380,7 +434,18 @@ uint32_t dispatchGuestD3D9(uint32_t token,const uint32_t* args,uint32_t* argumen
         }
         }
     }
-    if(kind==2){auto device=static_cast<IDirect3DDevice9*>(object);switch(method){
+    if(kind==2){auto device=static_cast<IDirect3DDevice9*>(object);
+        // Pixel shader identity (MGR_SKIP_PS / MGR_PS_STATS): bytecode hash kept on the guest shader object.
+        if(method==106){*argumentCount=3;IDirect3DPixelShader9* shader=nullptr;auto code=static_cast<const DWORD*>(pointer(args[1]));
+            HRESULT status=device->CreatePixelShader(code,args[2]?&shader:nullptr);
+            if(args[2]){uint32_t address=SUCCEEDED(status)?wrap(shader,Kind::PixelShader):0;if(address)objects.at(address).psHash=shaderHash(code);write(args[2],address);}
+            return status;}
+        if(method==107){auto found=args[1]?objects.find(args[1]):objects.end();currentPixelShader=found!=objects.end()?found->second.psHash:0;}
+        if(method==37&&args[1]==0)trackRenderTarget(args[2]);
+        if(method>=81&&method<=84){
+            if(psStatsFrames())countPixelShaderDraw();
+            if(skippedPixelShader(currentPixelShader)){static const uint8_t counts[4]={4,7,5,9};*argumentCount=counts[method-81];return D3D_OK;}}
+        switch(method){
         case 9:{*argumentCount=2;D3DDEVICE_CREATION_PARAMETERS p{};HRESULT status=device->GetCreationParameters(&p);if(SUCCEEDED(status)){write(args[1],p.AdapterOrdinal);write(args[1]+4,p.DeviceType);write(args[1]+8,0xf0000301);write(args[1]+12,p.BehaviorFlags);}return status;}
         case 13:{*argumentCount=3;auto p=presentation(args[1]);IDirect3DSwapChain9* result=nullptr;HRESULT status=device->CreateAdditionalSwapChain(&p,&result);write(args[2],SUCCEEDED(status)?wrap(result,Kind::SwapChain):0);return status;}
         case 16:{*argumentCount=2;auto p=presentation(args[1]);HRESULT status=D3DERR_DEVICELOST;

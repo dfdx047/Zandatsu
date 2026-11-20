@@ -1039,7 +1039,7 @@ void setGuestResolution(unsigned width,unsigned height){
     NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSU2","Selected render resolution %ux%u",width,height);
 }
 void setGuestFrameLimit(unsigned framesPerSecond){
-    frameLimit=(framesPerSecond>=30&&framesPerSecond<=240)?framesPerSecond:0;
+    frameLimit=(framesPerSecond>=10&&framesPerSecond<=240)?framesPerSecond:0;
     // The game paces itself to 1/60 s; let it run at the cap (uncapped: the 120 Hz display).
     nfs_widescreen_set_frame_rate(frameLimit.load()?frameLimit.load():120);
     NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSU2","Android frame limit %u FPS (0 means uncapped)",frameLimit.load());

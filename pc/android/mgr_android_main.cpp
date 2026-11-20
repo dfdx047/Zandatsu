@@ -229,6 +229,8 @@ extern "C" __attribute__((visibility("default"))) void mgr_android_main(android_
     setenv("DXVK_LOG_PATH", "none", 0);
     setenv("DXVK_STATE_CACHE_PATH", files.c_str(), 0);
     loadEnv(files + "/mgr_env.txt");
+    // Launcher "Limite de fps" (MGR_FPS_CAP): the guest Present waits for the pacer; 0 = the game's own 60 fps limit.
+    if (const char* cap = getenv("MGR_FPS_CAP")) setGuestFrameLimit(unsigned(atoi(cap)));
     std::string exe = getenv("MGR_EXE") ? getenv("MGR_EXE") : firstLine(files + "/mgr_exe.txt");
     if (exe.empty()) exe = "/storage/6A55-7C3B/MGRPC/METAL GEAR RISING REVENGEANCE.exe";
     Host host; app->userData = &host; app->onAppCmd = onCommand; app->onInputEvent = onInput;
