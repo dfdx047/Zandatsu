@@ -1,0 +1,69 @@
+From dd4753dc4a6959f0575d55571922c6def3693e83 Mon Sep 17 00:00:00 2001
+From: dfdevx2 <dfdevx2@users.noreply.github.com>
+Date: Fri, 20 Nov 2026 06:32:47 +0000
+Subject: [PATCH] lift32: fdivp/fdivrp divide by zero gives +-inf like x87, not
+ the dividend
+
+---
+ tools/lift/difftest.py | 17 +++++++++++++++++
+ tools/lift/lift32.py   |  7 +++++--
+ 2 files changed, 22 insertions(+), 2 deletions(-)
+
+diff --git a/tools/lift/difftest.py b/tools/lift/difftest.py
+index 9a363df..0c35a38 100644
+--- a/tools/lift/difftest.py
++++ b/tools/lift/difftest.py
+@@ -720,6 +720,23 @@ def _x87_forms():
+ 
+ CASES += _x87_forms()
+ 
++# fdivp/fdivrp by zero: x87 runs with ZE masked, so the quotient is +-inf (0/0 NaN). The lift used to return the
++# dividend instead, and a game's ray tests (t = d / dir, dir = 0 means "no hit") turned misses into hits.
++def _x87_div_zero():
++    load = bytes.fromhex('dd06' 'dd4608' 'dd4610')
++    store = bytes.fromhex('dd1f' 'dd5f08')
++    out = []
++    for tag, vals in (('a', (0.0, 4.0, 0.0)), ('b', (4.0, 0.0, -3.0))):
++        for op, name in (('def8', 'fdivp'), ('def0', 'fdivrp')):
++            for i in (1, 2):
++                b = bytes.fromhex(op[:2]) + bytes([int(op[2:], 16) + i])
++                out.append(Case('x87.%s-zero-%s.st%d' % (name, tag, i), load + b + store,
++                                mem={SCRATCH: struct.pack('<ddd', *vals)}, undef=('OF',)))
++    return out
++
++
++CASES += _x87_div_zero()
++
+ 
+ # ---------------------------------------------------------------- reference
+ 
+diff --git a/tools/lift/lift32.py b/tools/lift/lift32.py
+index 7af412b..5d2a6c4 100644
+--- a/tools/lift/lift32.py
++++ b/tools/lift/lift32.py
+@@ -1687,9 +1687,12 @@ class Lifter:
+             else:
+                 lines.append(f"_st[0] /= _st[1]; {comment}")
+ 
++        # fdivp/fdivrp: plain IEEE division. x87 runs with ZE masked, so x/0 is +-inf (0/0 NaN) and game code
++        # relies on it (a ray with a zero direction component gets t = inf, i.e. no hit). Returning the dividend
++        # instead turned those misses into hits at a finite distance.
+         elif m == 'fdivp':
+             d = self._fpu_popdst(ops)
+-            lines.append(f"{{ double _v = fp_pop(); {d} = _v == 0.0 ? {d} : {d} / _v; }} {comment}")
++            lines.append(f"{{ double _v = fp_pop(); {d} = {d} / _v; }} {comment}")
+ 
+         elif m == 'fdivr':
+             if ops:
+@@ -1697,7 +1700,7 @@ class Lifter:
+ 
+         elif m == 'fdivrp':
+             d = self._fpu_popdst(ops)
+-            lines.append(f"{{ double _v = fp_pop(); {d} = {d} == 0.0 ? _v : _v / {d}; }} {comment}")
++            lines.append(f"{{ double _v = fp_pop(); {d} = _v / {d}; }} {comment}")
+ 
+         elif m == 'fchs':
+             lines.append(f"_st[0] = -_st[0]; {comment}")
+-- 
+2.56.1
+
