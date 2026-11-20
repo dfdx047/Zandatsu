@@ -113,6 +113,16 @@ def rebuild(md, img, base, fd):
     return f
 
 
+def guard_wrap(code, a, fn):
+    """Rename the lifted sub_X to sub_X_body and add sub_X = guard + body (see guards.txt)."""
+    head = f"void sub_{a:08X}(void) {{"
+    if head not in code:
+        raise ValueError(f"guard {a:08X}: lifted body not found")
+    return (code.replace(head, f"static void sub_{a:08X}_body(void) {{", 1) +
+            f"\n\n/* GUARD: {fn} */\nint {fn}(void);\n"
+            f"void sub_{a:08X}(void) {{ if ({fn}()) sub_{a:08X}_body(); }}\n")
+
+
 def read_va_list(path):
     out = {}
     if path and os.path.exists(path):
@@ -146,6 +156,9 @@ def cmd_lift(exe, catalog, outdir, split=400, names_path=None, prefix="", shard=
     cfg = os.path.join(HERE, "..", "config")
     overrides = read_va_list(os.path.join(cfg, "overrides.txt"))
     excluded = read_va_list(os.path.join(cfg, "exclude.txt"))
+    # guards.txt: "VA  guard_fn  reason". The body is lifted as sub_X_body; sub_X runs guard_fn() first, which either
+    # returns 1 (run the body) or does the function's return itself (registers/esp) and returns 0.
+    guards = {a: v.split()[0] for a, v in read_va_list(os.path.join(cfg, "guards.txt")).items()}
     # Each exe build has its own hook sites (config/hooks-<build>.txt);
     # MGR_EXE_BUILD selects one, the documented build uses hooks.txt.
     build = os.environ.get("MGR_EXE_BUILD", "")
@@ -222,6 +235,8 @@ def cmd_lift(exe, catalog, outdir, split=400, names_path=None, prefix="", shard=
                     unimpl_sites[key].append(f"{a:08X}")
             if "RECOMP_ICALL(" in line: stats["icall_sites"] += 1
             if "RECOMP_ITAIL(" in line: stats["itail_sites"] += 1
+        if a in guards:
+            code = guard_wrap(code, a, guards[a])
         if names.get(a):
             code = f"/* {names[a]} */\n" + code
         chunk.append(code)

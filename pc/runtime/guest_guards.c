@@ -37,3 +37,17 @@ void mgr_guard_00F40EA0(void) {
     esi = POP32_VAL(esp);
     RECOMP_FLAGS_OUT(); esp += 4; RECOMP_RETURN();
 }
+
+/* 0x00F41B10 (thiscall, ret 0x50, eax = 0 on its own early-out path): reads [[this+0x1E70]+0x1688] at 0x00F41CFD. Same
+ * race as above (2nd site, 1 of 3 launcher runs after the 00F40EA0 guard, also in the lab on 20/11). Entry guard (lift
+ * guards.txt): with no object, return 0 the way the early-out path does. */
+int mgr_guard_enter_00F41B10(void) {
+    if (MEM32(g_ecx + 0x1E70u)) return 1;
+#ifdef __ANDROID__
+    static unsigned hits;
+    if (hits++ < 8) __android_log_print(ANDROID_LOG_WARN, "MGR", "guard 00F41B10: [0x%08X+0x1E70] is NULL, returns 0", g_ecx);
+#endif
+    g_eax = 0;
+    g_esp += 4 + 0x50;
+    return 0;
+}

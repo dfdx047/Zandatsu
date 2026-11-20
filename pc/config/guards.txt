@@ -1,0 +1,3 @@
+# VA        guard function (pc/runtime/guest_guards.c)   reason
+# The lift renames the body to sub_X_body; sub_X calls the guard first (1 = run the body, 0 = guard returned).
+0x00F41B10  mgr_guard_enter_00F41B10  [this+0x1E70] NULL while CONTINUE loads (teardown x job race), SEGV at 0x00F41CFD

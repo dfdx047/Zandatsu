@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdlib>
 #include <cstdint>
 #include <cstddef>
 #include <cstring>
@@ -38,6 +39,11 @@ public:
     GuestMemory() {
         base_ = mmap(nullptr, size_t(size), PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
         if (base_ == MAP_FAILED) throw std::runtime_error("Guest address-space reservation failed");
+        // Guest NULL page (0..0xFFFF) readable as zeros (MGR_NULL_READ=0 turns it off). While the CONTINUE save loads,
+        // MGR tears objects down while jobs still read them through now-NULL pointers (00F40EA0, 00F41B10, 00A7C8A0...):
+        // a port timing race, 3 SEGVs in 5 launcher runs on 20/11. Reads get 0 (the "no object" paths); writes still fault.
+        const char* nullRead = getenv("MGR_NULL_READ");
+        if (!nullRead || atoi(nullRead)) mprotect(base_, 0x10000, PROT_READ);
     }
     GuestMemory(const GuestMemory&) = delete;
     GuestMemory& operator=(const GuestMemory&) = delete;
