@@ -1,0 +1,95 @@
+From 9ff9495a55b5fbea579f4b988984f88cb617fa7c Mon Sep 17 00:00:00 2001
+From: dfdevx2 <dfdevx2@users.noreply.github.com>
+Date: Fri, 20 Nov 2026 07:03:21 +0000
+Subject: [PATCH] x87 fist/fistp: NaN, inf and out of range store the integer
+ indefinite like x87 (C cast is UB, ARM saturates); difftest links -lm
+
+---
+ runtime/recomp32/recomp_types.h | 18 +++++++++++++++++-
+ tools/lift/difftest.py          | 15 ++++++++++++++-
+ tools/lift/lift32.py            |  4 ++--
+ 3 files changed, 33 insertions(+), 4 deletions(-)
+
+diff --git a/runtime/recomp32/recomp_types.h b/runtime/recomp32/recomp_types.h
+index ddbfab6..ada5c47 100644
+--- a/runtime/recomp32/recomp_types.h
++++ b/runtime/recomp32/recomp_types.h
+@@ -943,9 +943,25 @@ static inline double fp_round_cw(double v, uint16_t cw) {
+ }
+ #define fp_to_int(v) fp_round_cw((v), _fpu_cw)
+ 
++/* fist/fistp store the "integer indefinite" (the type's minimum) for NaN, +-inf and anything out of range. A C cast
++ * there is undefined, and ARM saturates instead (inf -> INT_MAX, NaN -> 0): a game index computed from x/0 then
++ * points somewhere else than on x86. */
++static inline int16_t fp_cvt_i16(double v, uint16_t cw) {
++    double r = fp_round_cw(v, cw);
++    return (r >= -32768.0 && r < 32768.0) ? (int16_t)r : (int16_t)0x8000;
++}
++static inline int32_t fp_cvt_i32(double v, uint16_t cw) {
++    double r = fp_round_cw(v, cw);
++    return (r >= -2147483648.0 && r < 2147483648.0) ? (int32_t)r : (int32_t)0x80000000u;
++}
++#define fp_to_i16(v) fp_cvt_i16((v), _fpu_cw)
++#define fp_to_i32(v) fp_cvt_i32((v), _fpu_cw)
++
+ /* fistp qword: the exact shadow while st0 is still the value fild loaded. */
+ static inline int64_t fp_st0_to_i64(double v0, int64_t shadow, uint16_t cw) {
+-    return (v0 == (double)shadow) ? shadow : (int64_t)fp_round_cw(v0, cw);
++    if (v0 == (double)shadow) return shadow;
++    double r = fp_round_cw(v0, cw);
++    return (r >= -9223372036854775808.0 && r < 9223372036854775808.0) ? (int64_t)r : (int64_t)0x8000000000000000ull;
+ }
+ 
+ /* The 80-bit extended format, for `fld/fstp xword`. The model's stack is
+diff --git a/tools/lift/difftest.py b/tools/lift/difftest.py
+index 0c35a38..e6dd40b 100644
+--- a/tools/lift/difftest.py
++++ b/tools/lift/difftest.py
+@@ -737,6 +737,19 @@ def _x87_div_zero():
+ 
+ CASES += _x87_div_zero()
+ 
++# fistp of NaN, +-inf and out-of-range values stores the integer indefinite (0x8000, 0x80000000, 1 << 63).
++def _x87_fistp_indefinite():
++    out = []
++    for tag, v in (('inf', float('inf')), ('ninf', float('-inf')), ('nan', float('nan')), ('big', 3e9), ('nbig', -3e9),
++                   ('w40k', 40000.0), ('q1e19', 1e19), ('ok', -7.5)):
++        for form, op in (('word', 'df1f'), ('dword', 'db1f'), ('qword', 'df3f')):
++            out.append(Case('x87.fistp-%s-%s' % (form, tag), bytes.fromhex('dd06' + op),
++                            mem={SCRATCH: struct.pack('<d', v)}, undef=('OF',)))
++    return out
++
++
++CASES += _x87_fistp_indefinite()
++
+ 
+ # ---------------------------------------------------------------- reference
+ 
+@@ -960,7 +973,7 @@ def run_lifted(cases, workdir, keep):
+     # rather than the first that exists.
+     err = ''
+     for cc in compilers():
+-        r = subprocess.run([cc, '-O0', '-g', '-w', '-I', include, src, '-o', exe],
++        r = subprocess.run([cc, '-O0', '-g', '-w', '-I', include, src, '-o', exe, '-lm'],
+                            capture_output=True, text=True)
+         if r.returncode == 0:
+             break
+diff --git a/tools/lift/lift32.py b/tools/lift/lift32.py
+index 5d2a6c4..a635820 100644
+--- a/tools/lift/lift32.py
++++ b/tools/lift/lift32.py
+@@ -1637,9 +1637,9 @@ class Lifter:
+                 addr = self._fmt_mem_addr(ops[0].mem)
+                 src = 'fp_pop()' if m == 'fistp' else '_st[0]'
+                 if ops[0].size == 2:
+-                    lines.append(f"MEM16({addr}) = (int16_t)fp_to_int({src}); {comment}")
++                    lines.append(f"MEM16({addr}) = (uint16_t)fp_to_i16({src}); {comment}")
+                 elif ops[0].size == 4:
+-                    lines.append(f"MEM32({addr}) = (uint32_t)(int32_t)fp_to_int({src}); {comment}")
++                    lines.append(f"MEM32({addr}) = (uint32_t)fp_to_i32({src}); {comment}")
+                 else:
+                     pop = ' (void)fp_pop();' if m == 'fistp' else ''
+                     lines.append(f"{{ int64_t _q = fp_st0_to_i64(_st[0], g_st_i64[0], _fpu_cw);{pop} "
+-- 
+2.56.1
+
