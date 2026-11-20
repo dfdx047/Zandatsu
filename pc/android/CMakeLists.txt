@@ -22,7 +22,7 @@ target_include_directories(native_app_glue PUBLIC "${ANDROID_NDK}/sources/androi
 add_subdirectory("${PORT}/dxvk_android" "${CMAKE_CURRENT_BINARY_DIR}/dxvk")
 
 file(GLOB GEN_SOURCES "${GEN}/recomp_*.c")
-add_library(mgr_guest OBJECT ${GEN_SOURCES})
+add_library(mgr_guest OBJECT ${GEN_SOURCES} "${RT}/guest_guards.c")
 target_include_directories(mgr_guest PRIVATE "${PCRECOMP}/recomp32" "${GEN}" "${RT}")
 target_compile_definitions(mgr_guest PRIVATE RECOMP_STRICT_ICALL)
 target_compile_options(mgr_guest PRIVATE ${GUEST_OPT} -w -fwrapv -fno-strict-aliasing -ffp-contract=off -fexceptions

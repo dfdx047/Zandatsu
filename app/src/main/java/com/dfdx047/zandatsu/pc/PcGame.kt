@@ -137,6 +137,8 @@ object PcGame {
         if (sha != meta.getString("key_sha256")) throw PcException("executavel nao suportado (esperado SHA-1 ${meta.getString("exe_sha1").take(12)})")
         val fd = Os.memfd_create("libmgrpc.so", 0)
         val keep = ParcelFileDescriptor.dup(fd).detachFd()   // FileOutputStream.close() closes fd; the dup stays open
+        val magic = c.assets.open("libmgrpc.zdat").use { s -> ByteArray(4).also { DataInputStream(s).readFully(it) } }
+        if (String(magic) == "ZDT3") { unpackXz(c, key, fd, onProgress); return keep }
         FileOutputStream(fd).buffered(1 shl 20).use { o ->
             c.assets.open("libmgrpc.zdat").use { raw ->
                 val input = DataInputStream(raw.buffered(1 shl 20))
@@ -167,5 +169,61 @@ object PcGame {
             }
         }
         return keep
+    }
+
+    /**
+     * ZDT3: cabecalho igual ao ZDT2; cada bloco (8 MiB) e xz encriptado com AES-256-GCM. Os blocos sao independentes:
+     * descodificados em paralelo (um por nucleo) e escritos no memfd na posicao certa (pwrite).
+     */
+    private fun unpackXz(c: Context, key: ByteArray, fd: java.io.FileDescriptor, onProgress: (Long, Long) -> Unit) {
+        val threads = Runtime.getRuntime().availableProcessors().coerceIn(2, 8)
+        val pool = java.util.concurrent.Executors.newFixedThreadPool(threads)
+        val slots = java.util.concurrent.Semaphore(threads * 2)
+        val failure = java.util.concurrent.atomic.AtomicReference<Throwable?>(null)
+        val written = java.util.concurrent.atomic.AtomicLong()
+        FileOutputStream(fd).use { fo ->
+            val ch = fo.channel
+            c.assets.open("libmgrpc.zdat").use { raw ->
+                val input = DataInputStream(raw.buffered(1 shl 20))
+                val header = ByteArray(24).also { input.readFully(it) }
+                val hb = ByteBuffer.wrap(header).order(ByteOrder.LITTLE_ENDIAN)
+                val chunk = hb.getInt(4); val size = hb.getLong(8)
+                val spec = SecretKeySpec(key, "AES")
+                var done = 0L; var i = 0
+                while (done < size && failure.get() == null) {
+                    val n = minOf(chunk.toLong(), size - done).toInt()
+                    val blockLen = Integer.reverseBytes(input.readInt())
+                    if (blockLen < 16 || blockLen > chunk + (chunk shr 3) + 65536) throw PcException("libmgrpc.zdat: bloco $i")
+                    val block = ByteArray(blockLen).also { input.readFully(it) }
+                    val index = i; val offset = done
+                    slots.acquire()
+                    pool.execute {
+                        try {
+                            val nonce = ByteArray(12)
+                            System.arraycopy(header, 16, nonce, 0, 8)
+                            ByteBuffer.wrap(nonce, 8, 4).order(ByteOrder.BIG_ENDIAN).putInt(index)
+                            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+                            cipher.init(Cipher.DECRYPT_MODE, spec, GCMParameterSpec(128, nonce)); cipher.updateAAD(header)
+                            val dec = cipher.doFinal(block)
+                            val plain = ByteArray(n)
+                            org.tukaani.xz.XZInputStream(java.io.ByteArrayInputStream(dec)).use { DataInputStream(it).readFully(plain) }
+                            val bb = ByteBuffer.wrap(plain)
+                            var at = offset
+                            while (bb.hasRemaining()) at += ch.write(bb, at)
+                            onProgress(written.addAndGet(n.toLong()), size)
+                        } catch (t: Throwable) {
+                            failure.compareAndSet(null, t)
+                        } finally {
+                            slots.release()
+                        }
+                    }
+                    done += n; i++
+                }
+                pool.shutdown()
+                pool.awaitTermination(10, java.util.concurrent.TimeUnit.MINUTES)
+                failure.get()?.let { throw PcException("libmgrpc.zdat: ${it.message}") }
+                if (written.get() != size) throw PcException("libmgrpc.zdat: ${written.get()} de $size bytes")
+            }
+        }
     }
 }

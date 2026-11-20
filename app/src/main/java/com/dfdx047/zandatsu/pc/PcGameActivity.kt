@@ -28,7 +28,7 @@ import java.io.File
 class PcGameActivity : NativeActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         try {
-            val exe = File(PcGame.exePath(this))
+            val exe = File(PcGame.exePath(this).ifEmpty { PcGame.findExe().orEmpty().also { PcGame.setExePath(this, it) } })
             if (!exe.isFile) throw PcGame.PcException("executavel nao encontrado: ${exe.path}")
             val t0 = System.nanoTime()
             val fd = PcGame.decryptToMemfd(this, exe)
@@ -59,7 +59,37 @@ class PcGameActivity : NativeActivity() {
         // Antes de a janela ser adicionada (onResume): a fila de input fica com as Views, nao com o nativo.
         window.takeInputQueue(null)
         immersive()
-        overlay = GameOverlay(this, pcMode = true).also { it.onCreate() }
+        // A NativeActivity da a superficie da janela ao jogo (takeSurface): as Views dela nao sao desenhadas. Os
+        // controles ficam numa janela-painel por cima (TYPE_APPLICATION_PANEL, sem foco: as teclas ficam na janela
+        // do jogo e vao para o nativo); os toques no painel passam por overlayTouch (toque curto = clique).
+        overlay = GameOverlay(this, pcMode = true, host = layer).also {
+            it.onMenuChanged = { open -> toNative { nativePause(open) } }
+            it.onCreate()
+        }
+        window.decorView.post { showLayer() }
+    }
+
+    private val layer: android.widget.FrameLayout by lazy {
+        object : android.widget.FrameLayout(this) {
+            override fun dispatchTouchEvent(ev: MotionEvent): Boolean { overlayTouch(ev); return super.dispatchTouchEvent(ev) }
+        }
+    }
+
+    private fun showLayer() {
+        val token = window.decorView.windowToken
+        if (token == null) { window.decorView.postDelayed({ showLayer() }, 100); return }
+        if (layer.parent != null) return
+        val lp = android.view.WindowManager.LayoutParams(
+            android.view.WindowManager.LayoutParams.MATCH_PARENT, android.view.WindowManager.LayoutParams.MATCH_PARENT,
+            android.view.WindowManager.LayoutParams.TYPE_APPLICATION_PANEL,
+            android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or android.view.WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                android.view.WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            android.graphics.PixelFormat.TRANSLUCENT,
+        ).apply {
+            this.token = token
+            layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+        }
+        try { windowManager.addView(layer, lp) } catch (e: Exception) { Log.e(TAG, "camada dos controles", e) }
     }
 
     private var overlay: GameOverlay? = null
@@ -92,6 +122,7 @@ class PcGameActivity : NativeActivity() {
     private external fun nativeMotion(event: MotionEvent)
     private external fun nativeTouchPad(buttons: Int, hat: Int, axes: FloatArray)
     private external fun nativePointer(x: Float, y: Float, phase: Int)
+    private external fun nativePause(paused: Boolean)
 
     private fun toNative(block: () -> Unit): Boolean = try { block(); true } catch (_: UnsatisfiedLinkError) { false }
 
@@ -123,7 +154,7 @@ class PcGameActivity : NativeActivity() {
     private var tapping = false
 
     /** Toque curto fora dos controles da tela = clique do rato nesse ponto (menus do jogo). */
-    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+    private fun overlayTouch(event: MotionEvent) {
         val o = overlay
         if (o != null && !o.isMenuOpen()) {
             when (event.actionMasked) {
@@ -140,12 +171,11 @@ class PcGameActivity : NativeActivity() {
                 }
             }
         }
-        return super.dispatchTouchEvent(event)
     }
 
     override fun onResume() { super.onResume(); overlay?.onResume() }
     override fun onPause() { overlay?.onPause(); super.onPause() }
-    override fun onDestroy() { overlay?.onDestroy(); overlay = null; SwordManPad.setSink(null); super.onDestroy() }
+    override fun onDestroy() { if (layer.parent != null) runCatching { windowManager.removeViewImmediate(layer) }; overlay?.onDestroy(); overlay = null; SwordManPad.setSink(null); super.onDestroy() }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)

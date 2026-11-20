@@ -5,10 +5,12 @@
 #include "nfs_runtime.h"
 
 void mgr_game_log(void);   /* guest_mgr.inc */
+void mgr_guard_00F40EA0(void);   /* guest_guards.c */
 
 static const struct { uint32_t va; nfs_override_fn fn; } k_overrides[] = {
     { 0x00DD5650u, mgr_game_log },   /* game debug print (empty in retail) */
     { 0x00DD56A0u, mgr_game_log },   /* game debug print, second variant (empty in retail) */
+    { 0x00F40EA0u, mgr_guard_00F40EA0 },   /* NULL [this+0x1E70] while CONTINUE loads (guest_guards.c) */
 };
 
 nfs_override_fn nfs_override_lookup(uint32_t va) {

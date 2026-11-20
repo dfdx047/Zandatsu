@@ -51,7 +51,12 @@ import org.libsdl.app.SwordManPad
  *
  * Chamado pelo GameActivity (Java) nos eventos do ciclo de vida e de input.
  */
-class GameOverlay @JvmOverloads constructor(private val activity: Activity, override val pcMode: Boolean = false) : InputManager.InputDeviceListener, InGameActions {
+class GameOverlay @JvmOverloads constructor(
+    private val activity: Activity,
+    override val pcMode: Boolean = false,
+    /** PC: os controles vao para esta camada (uma janela por cima da NativeActivity, cuja superficie e do jogo). */
+    private val host: ViewGroup? = null,
+) : InputManager.InputDeviceListener, InGameActions {
     private val prefs = LauncherPrefs(activity)
     private val engine = HelperEngine()
     private val main = Handler(Looper.getMainLooper())
@@ -174,7 +179,7 @@ class GameOverlay @JvmOverloads constructor(private val activity: Activity, over
         view = v
         autoShown = !physicalPadConnected()
         applyAppearance()
-        activity.addContentView(
+        attach(
             v,
             ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT),
         )
@@ -183,7 +188,7 @@ class GameOverlay @JvmOverloads constructor(private val activity: Activity, over
         /** PC: toque fora dos controles vai para o jogo como clique (menus). */
         val g = roundButton(R.drawable.ic_btn_menu, R.string.ingame_title) { openMenuAt(menuModel.controlsTab) }
         gear = g
-        activity.addContentView(
+        attach(
             g,
             FrameLayout.LayoutParams((40 * density).toInt(), (40 * density).toInt(), Gravity.TOP or Gravity.START).apply {
                 leftMargin = (14 * density).toInt()
@@ -193,7 +198,7 @@ class GameOverlay @JvmOverloads constructor(private val activity: Activity, over
         // Pause (em cima, ao centro): opcoes do jogo.
         val pb = roundButton(R.drawable.ic_btn_pause, R.string.port_menu_title) { openMenuAt(0) }
         pauseButton = pb
-        activity.addContentView(
+        attach(
             pb,
             FrameLayout.LayoutParams((40 * density).toInt(), (40 * density).toInt(), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply {
                 topMargin = (10 * density).toInt()
@@ -227,7 +232,7 @@ class GameOverlay @JvmOverloads constructor(private val activity: Activity, over
             }
         }
         layoutButton = lb
-        activity.addContentView(
+        attach(
             lb,
             FrameLayout.LayoutParams((40 * density).toInt(), (40 * density).toInt(), Gravity.TOP or Gravity.START).apply {
                 leftMargin = (64 * density).toInt()
@@ -250,7 +255,7 @@ class GameOverlay @JvmOverloads constructor(private val activity: Activity, over
             }
             visibility = View.GONE
         }
-        activity.addContentView(
+        attach(
             c,
             ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT),
         )
@@ -335,6 +340,15 @@ class GameOverlay @JvmOverloads constructor(private val activity: Activity, over
 
     // ---------------------------------------------------------------- menus
 
+    private fun attach(v: View, lp: ViewGroup.LayoutParams) {
+        if (host != null) {
+            // Janela propria: o Compose procura o dono do ciclo de vida na raiz dela.
+            host.setViewTreeLifecycleOwner(owner)
+            host.setViewTreeSavedStateRegistryOwner(owner)
+            host.addView(v, lp)
+        } else activity.addContentView(v, lp)
+    }
+
     fun isMenuOpen(): Boolean = screen.value != InGameScreen.CLOSED
 
     /** PC: ha um controle da tela (botao, analogico, D-pad) neste ponto, ou o Blade Mode por deslize esta ativo. */
@@ -395,8 +409,12 @@ class GameOverlay @JvmOverloads constructor(private val activity: Activity, over
         return true
     }
 
+    /** PC: menu lateral ou editor aberto/fechado (o PcGameActivity pausa o jogo, setGuestPaused). */
+    var onMenuChanged: ((Boolean) -> Unit)? = null
+
     private fun setScreen(s: InGameScreen) {
         screen.value = s
+        onMenuChanged?.invoke(s != InGameScreen.CLOSED && prefs.pauseOnMenus)
         compose?.visibility = if (s == InGameScreen.CLOSED) View.GONE else View.VISIBLE
         if (s != InGameScreen.CLOSED) {
             view?.releaseAll()

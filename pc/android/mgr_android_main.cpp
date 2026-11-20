@@ -7,6 +7,7 @@
 #include <jni.h>
 #include <dlfcn.h>
 #include <mutex>
+#include <atomic>
 #include <fstream>
 #include <cmath>
 #include <algorithm>
@@ -255,6 +256,15 @@ void JNICALL jniTouchPad(JNIEnv* env, jobject, jint buttons, jint hat, jfloatArr
     if (axes && env->GetArrayLength(axes) >= 6) env->GetFloatArrayRegion(axes, 0, 6, javaPad.axes);
     publishPad();
 }
+// Menu lateral / editor do overlay aberto: o jogo para (maquina + audio), como no 360. O loop principal mantem a pausa
+// enquanto o menu estiver aberto (antes desligava-a a cada volta).
+std::atomic<bool> overlayPaused{false};
+void JNICALL jniPause(JNIEnv*, jobject, jboolean paused) {
+    __android_log_print(ANDROID_LOG_INFO, "MGRLAB", "overlay menu %s", paused ? "pause" : "resume");
+    overlayPaused = paused;
+    setGuestPaused(paused);
+}
+
 void JNICALL jniPointer(JNIEnv*, jobject, jfloat x, jfloat y, jint phase) {
     setGuestPointer(x, y, phase);
     __android_log_print(ANDROID_LOG_INFO, "MGRLAB", "touch click %.3f %.3f phase %d", x, y, phase);
@@ -268,8 +278,9 @@ JNIEnv* registerJava(android_app* app) {
         {"nativeMotion", "(Landroid/view/MotionEvent;)V", reinterpret_cast<void*>(jniMotion)},
         {"nativeTouchPad", "(II[F)V", reinterpret_cast<void*>(jniTouchPad)},
         {"nativePointer", "(FFI)V", reinterpret_cast<void*>(jniPointer)},
+        {"nativePause", "(Z)V", reinterpret_cast<void*>(jniPause)},
     };
-    javaInput = env->RegisterNatives(cls, m, 4) == JNI_OK;
+    javaInput = env->RegisterNatives(cls, m, sizeof(m) / sizeof(m[0])) == JNI_OK;
     if (env->ExceptionCheck()) env->ExceptionClear();   // lab activity: no such methods
     __android_log_print(ANDROID_LOG_INFO, "MGRLAB", "java input %s", javaInput ? "on (launcher overlay)" : "off");
     return env;
@@ -313,7 +324,7 @@ extern "C" __attribute__((visibility("default"))) void mgr_android_main(android_
         try {
             setD3D9HostWindow(app->window);
             if (d3d9RequestsSurface()) acknowledgeD3D9Surface(true);
-            setGuestPaused(false);
+            setGuestPaused(overlayPaused.load());
             if (!host.sized) {
                 // Free resolution (launcher MGR_RENDER_SIZE "WxH"): the window buffers get that size, the compositor scales.
                 unsigned rw = 0, rh = 0; const char* rs = getenv("MGR_RENDER_SIZE");

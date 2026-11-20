@@ -41,9 +41,12 @@ import java.io.File
 @Composable
 fun PcScreen() {
     val c = LocalContext.current
-    var exe by remember { mutableStateOf(PcGame.exePath(c).ifEmpty { PcGame.findExe().orEmpty() }) }
+    // O executavel achado nos cartoes fica gravado logo (antes so ficava no ecra e o JOGAR nao o via).
+    var exe by remember { mutableStateOf(PcGame.exePath(c).ifEmpty { PcGame.findExe().orEmpty().also { if (it.isNotEmpty()) PcGame.setExePath(c, it) } }) }
+    // Primeira abertura: o perfil do SoC e aplicado ja (resolucao, fps e GraphicOption a condizer com o chip marcado).
+    remember(exe) { if (PcGame.profile(c).isEmpty() && exe.isNotEmpty()) PcGame.applyProfile(c, exe, PcGame.defaultProfile()); 0 }
     var driver by remember { mutableStateOf(PcGame.driverDir(c)) }
-    var size by remember { mutableStateOf(PcGame.renderSize(c)) }
+    var size by remember(exe) { mutableStateOf(PcGame.renderSize(c)) }
     val access = Environment.isExternalStorageManager()
     val found = exe.isNotEmpty() && File(exe).isFile
     Column(

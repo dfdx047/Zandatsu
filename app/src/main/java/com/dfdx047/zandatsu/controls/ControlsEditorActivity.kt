@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
@@ -155,7 +156,11 @@ fun ControlsEditor(
             shape = RoundedCornerShape(bottomStart = 16.dp, bottomEnd = 16.dp),
             modifier = Modifier.align(Alignment.TopCenter),
         ) {
-            Row(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            // Uma linha so: em ecras mais estreitos rola em vez de partir o texto ("Salvar" na vertical).
+            Row(
+                Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 IconButton(onClick = close) { Icon(Icons.Filled.Close, stringResource(R.string.cancel), tint = Color.White) }
                 Text(stringResource(R.string.editor_title), color = Color.White, style = MaterialTheme.typography.titleSmall)
                 Spacer(Modifier.width(8.dp))
@@ -206,7 +211,7 @@ fun ControlsEditor(
                     close()
                 }) {
                     Icon(Icons.Filled.Save, null)
-                    Text(stringResource(R.string.save) + if (dirty) " •" else "")
+                    Text(stringResource(R.string.save) + if (dirty) " •" else "", maxLines = 1, softWrap = false)
                 }
             }
         }

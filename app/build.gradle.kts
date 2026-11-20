@@ -185,6 +185,8 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.2")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.2")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+    // libmgrpc.zdat ZDT3: blocos xz (93 MB contra 144 MB em zlib).
+    implementation("org.tukaani:xz:1.10")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
 
