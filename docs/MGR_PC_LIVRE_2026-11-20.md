@@ -44,3 +44,40 @@ em 3 corridas seguidas.
 - Runtime: `MGR_MT=1` deixa os threads correrem o código do jogo em paralelo; a máquina só é tomada dentro dos imports
   (lookup → thunk) e largada por `callGuest` enquanto o código do jogo corre. EnterCriticalSection contido dorme no
   próprio mutex (futex). Interlocked* passam a atómicos do host. `MGR_MT=0` (padrão) = máquina única como antes.
+
+### MT a funcionar (retomado 20:41 depois do reboot, Odin 2 Mini, luta do CONTINUE, 30 s, X-ray)
+
+O que foi preciso para `MGR_MT=1` correr:
+1. **Arranque travado** (deadlock): `D3DXCreateTexture` chama `CreateTexture` por `callGuest`, que resolvia o alvo por
+   `recomp_lookup_import` (toma a máquina) e logo a largava toda no `MtRelease`. O import corria sem máquina e o
+   `unlock` do thunk deixava a thread de arranque dona da máquina para sempre. Agora um alvo host no `callGuest` corre
+   com a máquina que já temos. Detetor `MT leak` no lookup + dump de stall também antes do 1.º quadro (dono da máquina).
+2. **Contenção**: com tudo pela máquina, 85–165 mil imports/s, 50 mil trocas/s, **5 fps**. Saíram da máquina:
+   D3DX math, GetCurrentThreadId, Interlocked*, Get/SetLastError, relógios (puros) → 20 fps; Enter/LeaveCriticalSection
+   (tabela com lock próprio) → 28 fps no título; HeapAlloc/Free/ReAlloc/Size (`GuestHeaps` com mutex, `GuestMemory`
+   com shared_mutex), TlsGet/SetValue; **bridge D3D9 com mutex próprio** (a thread que grava os draws fazia ~160 mil
+   chamadas/s, cada uma a tomar a máquina). `MGR_IMPORT_STATS=1|2` (por chamador / por thread) mostra o que falta.
+3. **Crashes do CONTINUE** mais frequentes com o load mais rápido: guardas nos setters `00F40ED0`/`00F40EF0` e no
+   update por quadro `009D5F00` (só o ficheiro do shard muda: re-lift `--shard` + cópia de um .c, sem rebuild total).
+
+A/B no mesmo build (`build/pc/android-mt`), alternado:
+
+| Corrida | MGR_MT | fps | chamadas/quadro | máquina ocupada | render: espera máquina | render: espera sinais |
+|---|---|---|---|---|---|---|
+| ab1-1 | 1 | **19,9** | 10,7k | 17% | 8,9 ms | 39,1 ms |
+| ab0-1 | 0 | 17,9 | 8,2k | 82% | 21,2 ms | 26,8 ms |
+| ab1-2 | 1 | **26,4** | 8,1k | 20% | 6,4 ms | 27,9 ms |
+| ab0-2 | 0 | 17,4 | 10,2k | 82% | 19,7 ms | 26,0 ms |
+| ab1-3 | 1 | **18,9** | 13,9k | 17% | 6,3 ms | 38,3 ms |
+| ab0-3 | 0 | — | — | — | — | — (parou: ITAIL 0 de 0x00F40F20, corrida do CONTINUE, não MT) |
+
+Faixa ~8k chamadas: 26,4 (MT) contra 17,9 (máquina única), **+47%**. Faixa ~10–11k: 19,9 contra 17,4, **+14%**.
+0 crashes em 3 corridas MT=1 depois das guardas (antes: 1 crash e 1 paragem em 3).
+
+Pendências do MT:
+- A render agora espera sobretudo **sinais** (jobs): ReleaseSemaphore/WaitForSingleObject (~17 mil/s) ainda tomam a
+  máquina e cada espera re-toma a máquina ao acordar. Próximo passo: eventos/semáforos com lock próprio.
+- Corrida do CONTINUE (NULL em `[obj+0x1E70]`) aparece também com MT=0 (`0x00F40F20`): precisa de uma correção na
+  origem (o loop principal a correr durante o teardown), não de mais guardas.
+- `MGR_MT` continua desligado por defeito; o build MT (`-DMGR_MT=ON`) não é o do launcher ainda.
+- FSR/interpolação (branch `worktree-agent-a15e8a5b9f3fbd060`) ainda por integrar e testar no aparelho.
