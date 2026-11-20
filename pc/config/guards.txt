@@ -1,3 +1,7 @@
 # VA        guard function (pc/runtime/guest_guards.c)   reason
 # The lift renames the body to sub_X_body; sub_X calls the guard first (1 = run the body, 0 = guard returned).
 0x00F41B10  mgr_guard_enter_00F41B10  [this+0x1E70] NULL while CONTINUE loads (teardown x job race), SEGV at 0x00F41CFD
+0x009F3EC0  mgr_guard_enter_009F3EC0  per-frame update runs while CONTINUE reloads ([0x01B788C0+0x1E70] NULL), SEGV at 0x00F40EDA
+0x00F40ED0  mgr_guard_enter_00F40ED0  setter [[this+0x1E70]+0xC4] while CONTINUE reloads (object NULL), SEGV at 0x00F40EDA
+0x00F40EF0  mgr_guard_enter_00F40EF0  setter [[this+0x1E70]+0xC8] while CONTINUE reloads (object NULL), SEGV at 0x00F40EFA (MGR_MT=1)
+0x009D5F00  mgr_guard_enter_009D5F00  per-frame update through [[0x01B78870]+0x1E70] while CONTINUE reloads (NULL), ICALL 0 from 0x00F416F0 (MGR_MT=1)
