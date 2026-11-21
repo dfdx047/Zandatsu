@@ -114,6 +114,13 @@ fun PcScreen() {
                 }, { Text(l) })
             }
         }
+        Text(stringResource(R.string.pc_cpu_title), style = MaterialTheme.typography.titleMedium)
+        var mt by remember { mutableStateOf(PcGame.multithread(c)) }
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(mt, { mt = true; PcGame.setMultithread(c, true) }, { Text(stringResource(R.string.pc_cpu_mt)) })
+            FilterChip(!mt, { mt = false; PcGame.setMultithread(c, false) }, { Text(stringResource(R.string.pc_cpu_single)) })
+        }
+        Text(stringResource(R.string.pc_cpu_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         // Upscaling e interpolacao no present do DXVK (PcGame.dxvkPresentEnv, pc/ports/dxvk_android/fx/present_fx.h).
         Text(stringResource(R.string.pc_upscale_title), style = MaterialTheme.typography.titleMedium)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

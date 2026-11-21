@@ -619,6 +619,10 @@
     <string name="dlc_remove">Quitar</string>
     <string name="tab_pc">PC (beta)</string>
     <string name="more_pc_sub">Versión de PC de Metal Gear Rising: carpeta del juego, driver, resolución</string>
+    <string name="pc_cpu_title">Procesador</string>
+    <string name="pc_cpu_mt">Multihilo</string>
+    <string name="pc_cpu_single">Un hilo (compatible)</string>
+    <string name="pc_cpu_hint">Multihilo: los hilos del juego corren en paralelo (+40% de fps en los combates). Si el juego se cuelga o se cierra, usa \"Un hilo\".</string>
     <string name="pc_upscale_title">Escalado</string>
     <string name="pc_upscale_bilinear">Escalado de pantalla (bilineal)</string>
     <string name="pc_upscale_fsr1">FSR 1 (EASU + RCAS)</string>

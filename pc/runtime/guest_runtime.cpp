@@ -107,6 +107,7 @@ struct Import { std::string name; recomp_func_t function{}; uint64_t calls{}; bo
 bool importIsMachineFree(const std::string& full){
     static const std::set<std::string> exact={"kernel32.dll!GetCurrentThreadId","kernel32.dll!InterlockedIncrement",
         "kernel32.dll!InterlockedDecrement","kernel32.dll!InterlockedExchange","kernel32.dll!InterlockedCompareExchange",
+        "kernel32.dll!InterlockedExchangeAdd",
         "kernel32.dll!GetLastError","kernel32.dll!SetLastError","kernel32.dll!GetTickCount","winmm.dll!timeGetTime",
         "kernel32.dll!QueryPerformanceCounter","kernel32.dll!QueryPerformanceFrequency",
         "kernel32.dll!EnterCriticalSection","kernel32.dll!LeaveCriticalSection",   // own table lock (guest_kernel.inc)

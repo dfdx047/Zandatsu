@@ -44,6 +44,7 @@ class PcGameActivity : NativeActivity() {
             val hz = if (PcGame.frameInterp(this)) preferSixtyHz() else display?.refreshRate?.roundToInt() ?: 60
             PcGame.dxvkPresentEnv(this, hz).forEach { (k, v) -> Os.setenv(k, v, true) }
             Log.i(TAG, "present: fsr=${PcGame.fsrMode(this)} out=${PcGame.fsrOut(this)} fi=${PcGame.frameInterp(this)} tela=$hz Hz")
+            Os.setenv("MGR_MT", if (PcGame.multithread(this)) "1" else "0", true)
             val drv = PcGame.driverDir(this)
             val installed = DriverRepository.installed().firstOrNull { it.dir.absolutePath == drv }
             if (installed != null) {

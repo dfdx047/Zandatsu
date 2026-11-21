@@ -91,6 +91,12 @@ object PcGame {
         "DXVK_FI_HZ" to displayHz.toString(),
     )
 
+    /**
+     * Multithread (MGR_MT=1): as threads do jogo correm o codigo do jogo em paralelo e so os imports com estado
+     * tomam a "maquina". Odin 2 Mini, combate do CONTINUE: 26,9-27,7 fps contra 17,4-17,9 com a maquina unica.
+     */
+    fun multithread(c: Context): Boolean = prefs(c).getBoolean("multithread", true)
+    fun setMultithread(c: Context, v: Boolean) = prefs(c).edit().putBoolean("multithread", v).apply()
     /** Perfil escolhido ("" = ainda nenhum: o primeiro arranque usa o do SoC). */
     fun profile(c: Context): String = prefs(c).getString("profile", "").orEmpty()
     fun setProfile(c: Context, v: String) = prefs(c).edit().putString("profile", v).apply()

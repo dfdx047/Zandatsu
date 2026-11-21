@@ -619,6 +619,10 @@
     <string name="dlc_remove">Remover</string>
     <string name="tab_pc">PC (beta)</string>
     <string name="more_pc_sub">Versão de PC do Metal Gear Rising: pasta do jogo, driver, resolução</string>
+    <string name="pc_cpu_title">Processador</string>
+    <string name="pc_cpu_mt">Multithread</string>
+    <string name="pc_cpu_single">Uma thread (compatível)</string>
+    <string name="pc_cpu_hint">Multithread: as threads do jogo correm em paralelo (+40% de fps nas lutas). Se o jogo travar ou fechar, use \"Uma thread\".</string>
     <string name="pc_upscale_title">Upscaling</string>
     <string name="pc_upscale_bilinear">Escala do ecrã (bilinear)</string>
     <string name="pc_upscale_fsr1">FSR 1 (EASU + RCAS)</string>
