@@ -146,9 +146,11 @@ template<class T>T* nativeObject(uint32_t address){
     auto native=dynamic_cast<T*>(found->second.native);if(!native)throw std::runtime_error("D3D9 resource interface mismatch");return native;
 }
 uint32_t wrapTexture(IDirect3DBaseTexture9* texture){if(!texture)return 0;switch(texture->GetType()){case D3DRTYPE_TEXTURE:return wrap(texture,Kind::Texture);case D3DRTYPE_CUBETEXTURE:return wrap(texture,Kind::Cube);case D3DRTYPE_VOLUMETEXTURE:return wrap(texture,Kind::VolumeTexture);default:throw std::runtime_error("Unknown D3D9 base texture type");}}
+void dropStaleLocks(uint32_t address);
 void retireGuestObject(uint32_t address){
     cachedObjectAddress=0;cachedObject=nullptr;
     auto found=objects.find(address);if(found==objects.end())return;
+    dropStaleLocks(address);
     uint32_t table;std::memcpy(&table,pointer(address),4);
     freeGuest(table);freeGuest(address);addresses.erase(found->second.native);objects.erase(found);
 }

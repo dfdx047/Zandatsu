@@ -59,6 +59,17 @@ void copyLockBack(uint32_t address,uint32_t subresource){
             std::memcpy(static_cast<uint8_t*>(data.native)+row*data.nativePitch,pixels.data()+((size_t(data.rectangle.top)+row)*width+data.rectangle.left)*4,(data.rectangle.right-data.rectangle.left)*4);
     }
 }
+// A resource released while still locked (MGR keeps VB/IB locked for good: sub_00F99AC0 Lock, sub_00F99B10 Unlock)
+// loses its lock with it, as in real D3D9. Left in the table, the next object the heap puts at the same guest address
+// failed every Lock with INVALIDCALL: on a CONTINUE reload EffectPrimitive::Startup failed, StartupScene (0x009EE540)
+// returned without creating [0x01B788C0+0x1E70] and the scene crashed through NULL (0x00F40F20 and the 1E70 guards).
+void dropStaleLocks(uint32_t address){
+    static unsigned reports=0;
+    for(auto it=resourceLocks.lower_bound(uint64_t(address)<<32);it!=resourceLocks.end()&&uint32_t(it->first>>32)==address;){
+        if(reports++<8)NFS_RUNTIME_LOG(ANDROID_LOG_WARN,"MGR","D3D9 stale lock dropped: object %08x subresource %u",address,uint32_t(it->first));
+        freeGuest(it->second.guest);it=resourceLocks.erase(it);
+    }
+}
 void releaseLock(uint32_t address,uint32_t subresource){auto lock=resourceLocks.find(lockKey(address,subresource));if(lock!=resourceLocks.end()){freeGuest(lock->second.guest);resourceLocks.erase(lock);}}
 HRESULT lockTexture(uint32_t address,uint32_t level,uint32_t output,const RECT* rect,uint32_t flags){
     if(!output||resourceLocks.count(lockKey(address,level)))return D3DERR_INVALIDCALL;

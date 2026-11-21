@@ -106,3 +106,25 @@ Atenção: o `deploy-lab.sh` envia `libmgrpc.stripped.so`, que o ninja não rege
 `llvm-strip --strip-debug -o libmgrpc.stripped.so libmgrpc.so` (a primeira rodada sy correu com a lib antiga).
 
 Próximo: `InterlockedExchangeAdd` sem máquina (atómico como os outros Interlocked); A/B MT=0 com bateria cheia.
+
+## 21/11 madrugada: causa real do crash do CONTINUE (lock fantasma na ponte D3D9)
+
+Não há janela de corrida no loop principal: o objeto `cSceneEspManager` (0x01B788C0) é destruído (SCENE CLEANUP,
+sub_00F42590 em 0x00F426D8) e recriado (SCENE STARTUP, sub_00A533F0 → sub_009EE540 → sub_00F44440) na mesma thread.
+`sub_009EE540` (EspSystemApp::StartupScene) sai com 0 **sem mensagem** quando `0xEC8000`/`0xF581C0` falham, e o
+chamador (0x00A53599) não testa: `[+0x1E70]` fica NULL nessa cena inteira → 0x00F40F20 (ITAIL 0) e todas as guardas.
+A falha vem de `D3D9 call failed: slot 11 = Lock, INVALIDCALL, caller 00F99AC0` → `EffectPrimitive::Startup` falha.
+Nos ~60 run.log com 3+ startups: as 11 corridas que caíram têm todas esse erro; nenhuma sem ele caiu (MT=0 e MT=1).
+
+Mecanismo: o MGR deixa VB/IB com Lock permanente (sub_00F99AC0 Lock / sub_00F99B10 Unlock). No D3D9 real o Release
+leva o lock junto. A ponte (`retireGuestObject`) libertava o endereço guest mas deixava a entrada em `resourceLocks`;
+quando o heap reutilizava o endereço para o VB/IB novo, o Lock dava INVALIDCALL ("lock já aberto"). Intermitente porque
+depende da ordem das alocações. Correção: `dropStaleLocks(address)` em `retireGuestObject` (log "D3D9 stale lock
+dropped"). As guardas 1E70 ficam até confirmar no aparelho.
+
+Confirmação no Odin (MT=1, 6 corridas com CONTINUE, 01:30–01:46): `EffectPrimitive` 0 falhas (antes: em todas as
+corridas que caíam), 4–8 "stale lock dropped" por corrida, 0 guardas 1E70 acionadas, 0 crashes. Luta 24,7–27,2 fps.
+As 2 falhas restantes de "slot 11" são de `IDirect3D9::CheckDeviceMultiSampleType` (sonda de MSAA 8x, NOTAVAILABLE),
+não de Lock.
+FSR 1 (DXVK_FSR=1, 1280x720 → 1920x1080): 5,93 ms de GPU por upscale, 26,8 fps (a luta está presa na CPU).
+Interpolação (DXVK_FI=1): 300/300 quadros gerados, 4,65 ms de GPU por quadro gerado.
