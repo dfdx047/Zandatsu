@@ -1219,6 +1219,9 @@ void setGuestPad(const float axes[6],uint32_t buttons,int hatX,int hatY){
     std::lock_guard<std::mutex> lock(inputMutex);
     for(unsigned i=0;i<6;++i)inputPad.axis[i]=std::max(-1.f,std::min(1.f,axes[i]));
     inputPad.buttons=buttons;inputPad.hatX=hatX;inputPad.hatY=hatY;
+    auto now=std::chrono::steady_clock::now();
+    for(unsigned i=0;i<inputPadHeldUntil.size();++i)if((buttons>>i)&1)inputPadHeldUntil[i]=now+inputPadHold;
+    if(hatX||hatY){inputHatHeldUntil=now+inputPadHold;inputHatHoldX=hatX;inputHatHoldY=hatY;}
     inputPadLatched|=buttons;if(hatX)inputHatLatchX=hatX;if(hatY)inputHatLatchY=hatY;
 }
 void setGuestPadConnected(bool connected){
@@ -1251,7 +1254,7 @@ void setGuestPointer(float x,float y,int phase){
      // Relative motion in a 1280x720 frame, so a tap also "moves" the mouse (MGR leaves pad mode on mouse motion).
      int32_t dx=int32_t((nx-guestPointerX.load())*1280.f),dy=int32_t((ny-guestPointerY.load())*720.f);
      if(phase==0&&!dx&&!dy)dx=1;inputMouseX+=dx;inputMouseY+=dy;
-     if(phase!=1){inputMouseButtons[0]=phase==0?0x80:0;if(phase==0)inputMouseLatched=0x80;}}
+     if(phase!=1){inputMouseButtons[0]=phase==0?0x80:0;if(phase==0){inputMouseLatched=0x80;inputMouseHeldUntil=std::chrono::steady_clock::now()+std::chrono::milliseconds(80);}}}
     guestPointerX=nx;guestPointerY=ny;
     enqueueGuestPointer(phase);
 }

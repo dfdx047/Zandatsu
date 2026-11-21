@@ -318,6 +318,9 @@ XInputSnapshot gamepadSnapshot(){
     static const uint16_t bit[10]={0x1000,0x2000,0x4000,0x8000,0x100,0x200,0x20,0x10,0x40,0x80};
     std::lock_guard<std::mutex> lock(inputMutex);
     uint32_t held=inputPad.buttons|inputPadLatched;int hx=inputPad.hatX?inputPad.hatX:inputHatLatchX,hy=inputPad.hatY?inputPad.hatY:inputHatLatchY;
+    auto now=std::chrono::steady_clock::now();
+    for(unsigned i=0;i<inputPadHeldUntil.size();++i)if(inputPadHeldUntil[i]>now)held|=1u<<i;
+    if(inputHatHeldUntil>now){if(!hx)hx=inputHatHoldX;if(!hy)hy=inputHatHoldY;}
     inputPadLatched=0;inputHatLatchX=inputHatLatchY=0;
     XInputSnapshot s{};for(int i=0;i<10;++i)if(held&(1u<<i))s.buttons|=bit[i];
     if(hy<0)s.buttons|=1;if(hy>0)s.buttons|=2;if(hx<0)s.buttons|=4;if(hx>0)s.buttons|=8;

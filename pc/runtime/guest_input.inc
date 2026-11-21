@@ -9,6 +9,8 @@ int32_t inputMouseX{},inputMouseY{},inputMouseZ{};
 // Touch drives an absolute pointer; games that read the DirectInput mouse (MGR switches its menus to mouse mode on
 // movement) also need the relative motion, and a tap shorter than one poll keeps the button down until it is read.
 uint8_t inputMouseLatched=0;
+// Touch clicks also stay down for at least 80 ms (same reason as inputPadHold, below): MT read the mouse twice per menu update.
+std::chrono::steady_clock::time_point inputMouseHeldUntil{};
 struct InputFormatObject {uint32_t offset,type,bytes=1,user=UINT32_MAX;};
 struct InputKeyEvent {uint64_t sequence;uint32_t scan,data,time;};
 struct InputBufferedEvent {uint32_t offset,data,time,sequence,user;};
@@ -36,6 +38,12 @@ struct InputPad {float axis[6]{};uint32_t buttons=0;int hatX=0,hatY=0;};
 InputPad inputPad;bool inputPadConnected=false;
 // Presses shorter than one game poll (a tap, `adb input keyevent`) are held until the guest has read them once.
 uint32_t inputPadLatched=0;int inputHatLatchX=0,inputHatLatchY=0;
+// ...and also for at least inputPadHoldMs (21/11): with MGR_MT=1 the game reads XInput more than once per menu update
+// (launcher e2e: taps on the touch A were seen by one read and missed by the menu, 6 of 6 runs stuck on the auto-save
+// notice; the lab's KEYCODE_BUTTON_A, held longer, passed). Real taps last ~80-150 ms, adb taps a few ms.
+constexpr auto inputPadHold=std::chrono::milliseconds(80);
+std::array<std::chrono::steady_clock::time_point,10> inputPadHeldUntil{};
+std::chrono::steady_clock::time_point inputHatHeldUntil{};int inputHatHoldX=0,inputHatHoldY=0;
 std::atomic<int> inputPadAcquired{0};
 std::array<uint8_t,16> directInputGuid(uint32_t data1){
     std::array<uint8_t,16> guid={0,0,0,0,0xf3,0xc9,0xcf,0x11,0xbf,0xc7,0x44,0x45,0x53,0x54,0,0};
@@ -385,7 +393,7 @@ void inputDispatch(){
         for(auto item:object.format){uint32_t index=(item.type>>8)&0xffff,category=item.type&0xff;
             if(kind==2){if(item.bytes==4)write32(arg(2)+item.offset,inputKeys[index]);else *static_cast<uint8_t*>(ptr(arg(2)+item.offset,1))=inputKeys[index];}
             else if(category&3){int32_t value=index==0?inputMouseX:index==1?inputMouseY:inputMouseZ;write32(arg(2)+item.offset,static_cast<uint32_t>(value));}
-            else *static_cast<uint8_t*>(ptr(arg(2)+item.offset,1))=uint8_t(inputMouseButtons[index]|(index==0?inputMouseLatched:0));
+            else *static_cast<uint8_t*>(ptr(arg(2)+item.offset,1))=uint8_t(inputMouseButtons[index]|(index==0?(inputMouseLatched|(std::chrono::steady_clock::now()<inputMouseHeldUntil?0x80:0)):0));
         }
         if(kind==3){inputMouseX=inputMouseY=inputMouseZ=0;inputMouseLatched=0;}
         ret(0,3);return;}
