@@ -67,6 +67,30 @@ object PcGame {
     /** Limite de fps (MGR_FPS_CAP): 0 = o do jogo (60). */
     fun fpsCap(c: Context): Int = prefs(c).getInt("fps_cap", 0)
     fun setFpsCap(c: Context, v: Int) = prefs(c).edit().putInt("fps_cap", v).apply()
+    /**
+     * Upscaling e interpolacao no present do DXVK (pc/ports/dxvk_android/fx/present_fx.h), por variaveis de ambiente
+     * postas pelo PcGameActivity antes do arranque: DXVK_FSR (0 bilinear, 1 FSR 1 EASU+RCAS, 2 CAS),
+     * DXVK_FSR_SHARPNESS (0..1), DXVK_FSR_OUT (0 = ecra, 720 = buffers de 720p que o compositor escala) e DXVK_FI
+     * (0/1: um frame gerado entre cada par de frames do jogo, 30 -> 60; precisa do limite de 30 fps).
+     */
+    fun fsrMode(c: Context): Int = prefs(c).getInt("fsr", 0)
+    fun setFsrMode(c: Context, v: Int) = prefs(c).edit().putInt("fsr", v).apply()
+    fun fsrSharpness(c: Context): Float = prefs(c).getFloat("fsr_sharpness", 0.8f)
+    fun setFsrSharpness(c: Context, v: Float) = prefs(c).edit().putFloat("fsr_sharpness", v).apply()
+    fun fsrOut(c: Context): Int = prefs(c).getInt("fsr_out", 0)
+    fun setFsrOut(c: Context, v: Int) = prefs(c).edit().putInt("fsr_out", v).apply()
+    fun frameInterp(c: Context): Boolean = prefs(c).getBoolean("frame_interp", false)
+    fun setFrameInterp(c: Context, v: Boolean) = prefs(c).edit().putBoolean("frame_interp", v).apply()
+
+    /** As variaveis do DXVK para as opcoes acima (todas sempre definidas: o processo do jogo pode ser reutilizado). */
+    fun dxvkPresentEnv(c: Context, displayHz: Int): List<Pair<String, String>> = listOf(
+        "DXVK_FSR" to fsrMode(c).toString(),
+        "DXVK_FSR_SHARPNESS" to String.format(java.util.Locale.ROOT, "%.2f", fsrSharpness(c)),
+        "DXVK_FSR_OUT" to fsrOut(c).toString(),
+        "DXVK_FI" to (if (frameInterp(c)) "1" else "0"),
+        "DXVK_FI_HZ" to displayHz.toString(),
+    )
+
     /** Perfil escolhido ("" = ainda nenhum: o primeiro arranque usa o do SoC). */
     fun profile(c: Context): String = prefs(c).getString("profile", "").orEmpty()
     fun setProfile(c: Context, v: String) = prefs(c).edit().putString("profile", v).apply()

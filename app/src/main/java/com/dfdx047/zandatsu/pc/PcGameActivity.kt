@@ -13,6 +13,7 @@ import com.dfdx047.zandatsu.drivers.DriverRepository
 import com.dfdx047.zandatsu.game.GameOverlay
 import org.libsdl.app.SwordManPad
 import java.io.File
+import kotlin.math.roundToInt
 
 /**
  * Jogo de PC (MGR:R) num processo proprio (:pcgame), como o GameActivity do 360. NativeActivity: o laco nativo e o
@@ -39,6 +40,10 @@ class PcGameActivity : NativeActivity() {
             if (PcGame.profile(this).isEmpty()) PcGame.applyProfile(this, exe.absolutePath, PcGame.defaultProfile())
             Os.setenv("MGR_RENDER_SIZE", PcGame.renderSize(this), true)
             Os.setenv("MGR_FPS_CAP", PcGame.fpsCap(this).toString(), true)
+            // FSR / CAS e interpolacao no present do DXVK (PcGame.dxvkPresentEnv).
+            val hz = if (PcGame.frameInterp(this)) preferSixtyHz() else display?.refreshRate?.roundToInt() ?: 60
+            PcGame.dxvkPresentEnv(this, hz).forEach { (k, v) -> Os.setenv(k, v, true) }
+            Log.i(TAG, "present: fsr=${PcGame.fsrMode(this)} out=${PcGame.fsrOut(this)} fi=${PcGame.frameInterp(this)} tela=$hz Hz")
             val drv = PcGame.driverDir(this)
             val installed = DriverRepository.installed().firstOrNull { it.dir.absolutePath == drv }
             if (installed != null) {
@@ -180,6 +185,23 @@ class PcGameActivity : NativeActivity() {
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) immersive()
+    }
+
+    /**
+     * Interpolacao 30 -> 60: o DXVK apresenta um frame gerado e um real por cada frame do jogo, cada um num vblank
+     * (FIFO), por isso a tela deve estar a 60 Hz. Pede o modo de 60 Hz com a mesma resolucao, se existir; devolve os
+     * Hz com que o DXVK deve contar (DXVK_FI_HZ: a 120 Hz cada frame e apresentado duas vezes).
+     */
+    private fun preferSixtyHz(): Int {
+        val d = display ?: return 60
+        val cur = d.mode
+        val sixty = d.supportedModes.filter { it.physicalWidth == cur.physicalWidth && it.physicalHeight == cur.physicalHeight }
+            .minByOrNull { kotlin.math.abs(it.refreshRate - 60f) }
+        if (sixty != null && kotlin.math.abs(sixty.refreshRate - 60f) < 1f) {
+            window.attributes = window.attributes.apply { preferredDisplayModeId = sixty.modeId }
+            return 60
+        }
+        return cur.refreshRate.roundToInt()
     }
 
     private fun immersive() {

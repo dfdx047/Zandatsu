@@ -1,0 +1,5 @@
+#version 450
+// Pass 3 of the frame generation (dxvk_fi.glsl).
+#extension GL_GOOGLE_include_directive : require
+#define PASS 3
+#include "dxvk_fi.glsl"
