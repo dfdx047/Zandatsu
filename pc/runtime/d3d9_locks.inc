@@ -101,6 +101,7 @@ HRESULT lockSurface(uint32_t address,uint32_t output,const RECT* rect,uint32_t f
 // DrawIndexedPrimitive cost 30 + 11 ms/frame on the Mi A3.
 struct BufferShadow{uint32_t guest=0,size=0;std::vector<uint8_t> uploaded;};
 uint64_t shadowCompareNs=0,shadowSentBytes=0,shadowUnchanged=0;
+std::map<uint32_t,std::pair<uint32_t,uint32_t>> shadowChangedSpan;   // buffer -> union of changed ranges (xray)
 std::unordered_map<uint32_t,BufferShadow> bufferShadows;
 bool bufferShadowOn(){static const bool on=[]{const char* v=std::getenv("MGR_BUFFER_SHADOW");return !v||std::atoi(v)!=0;}();return on;}
 void dropBufferShadow(uint32_t address){auto it=bufferShadows.find(address);if(it!=bufferShadows.end()){freeGuest(it->second.guest);bufferShadows.erase(it);}}
@@ -118,6 +119,9 @@ void reportLockCosts(){
     std::snprintf(one,sizeof one," [unlock %.2f ms %.2f MB, compare %.2f ms, sent %.3f MB, unchanged %.1f]",unlockCopyNs/1e6/120,unlockBytes/1048576.0/120,
         shadowCompareNs/1e6/120,shadowSentBytes/1048576.0/120,shadowUnchanged/120.0);line+=one;unlockCopyNs=unlockBytes=shadowCompareNs=shadowSentBytes=shadowUnchanged=0;
     NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"MGR","D3D9 buffer locks per frame:%s",line.c_str());
+    std::string spans;for(auto& [buffer,span]:shadowChangedSpan){auto it=bufferShadows.find(buffer);
+        std::snprintf(one,sizeof one," %08x(size %u): %u-%u",buffer,it!=bufferShadows.end()?it->second.size:0,span.first,span.second);spans+=one;}
+    shadowChangedSpan.clear();NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"MGR","D3D9 shadow changed spans (120 frames):%s",spans.c_str());
 }
 template<class Buffer,class Desc>HRESULT lockBuffer(uint32_t address,uint32_t offset,uint32_t size,uint32_t output,uint32_t flags){
     if(!output||resourceLocks.count(lockKey(address,0)))return D3DERR_INVALIDCALL;
@@ -165,5 +169,7 @@ template<class Buffer>HRESULT unlockShadowedBuffer(uint32_t address,const Resour
     auto buffer=nativeObject<Buffer>(address);void* native=nullptr;
     HRESULT status=buffer->Lock(base+lo,hi-lo,&native,data.flags&~D3DLOCK_READONLY);if(FAILED(status))return status;
     std::memcpy(native,now+lo,hi-lo);std::memcpy(old+lo,now+lo,hi-lo);shadowSentBytes+=hi-lo;
+    {auto& span=shadowChangedSpan[address];uint32_t a=base+lo,b=base+hi;
+        if(span.first==span.second){span={a,b};}else{span.first=std::min(span.first,a);span.second=std::max(span.second,b);}}
     return buffer->Unlock();
 }

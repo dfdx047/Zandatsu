@@ -1,7 +1,21 @@
 #pragma once
 // Force-included only into locally generated C; Windows generation is untouched.
 #include <time.h>
+#include <stddef.h>
 #define RECOMP_GENERATED_CODE
+#if defined(__aarch64__) && !defined(MGR_MEM_BASE_RELOAD)
+// Guest memory base as a pure value (21/11, Mi A3): ADDR(va) adds g_mem_base, a global, so after every guest memory
+// store clang reloaded it ("ldr x16,[x20]" before each access; 4 times in one 20-instruction loop of the hottest
+// function). It is written once at startup, before any lifted code runs. Read through the GOT in an asm with no
+// inputs, no volatile and no memory clobber, the compiler computes it once per function and keeps it in a register
+// (same idea as recomp_cpu() for the MT state). The extern declaration in recomp_types.h then names this function.
+__attribute__((always_inline)) static inline ptrdiff_t mgr_mem_base(void) {
+    ptrdiff_t b;
+    __asm__("adrp %0, :got:g_mem_base\n\tldr %0, [%0, :got_lo12:g_mem_base]\n\tldr %0, [%0]" : "=r"(b));
+    return b;
+}
+#define g_mem_base mgr_mem_base()
+#endif
 #include "recomp_types.h"
 // The PC's six-resolution selector cannot describe Android display sizes.
 // Intercept its entry for direct calls as well as dispatch calls; no x86 patch.

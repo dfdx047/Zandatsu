@@ -374,7 +374,46 @@ std::mutex guestSignalMutex;std::vector<SignalWaiter*> guestSignalWaiters;
 // ~17k/s in fights). Table changes (create/close) and state changes take it; lock order machine -> guestSyncMutex ->
 // guestSignalMutex. A waiter checks its handles and registers under guestSyncMutex, so a signal is never lost.
 std::mutex guestSyncMutex;
+// Lab wait/signal timeline (21/11, Mi A3: no guest thread above 42% yet 12 fps, so the frame is a chain of waits).
+// Touch <MGR_TRACE_DIR>/trace.go (default /sdcard/MGRPC/lab) during a run: 1 s of events (wait begin/end with the
+// handles, signals with the handle and how many woke, presents) is written to trace.json (Chrome trace format).
+unsigned notifyGuestSignalInner(uint32_t handle);
+struct TimelineEvent{int64_t ns;uint32_t tid;char kind;uint32_t handle,extra,func;};
+std::mutex timelineMutex;std::vector<TimelineEvent> timeline;std::atomic<bool> timelineOn{false};
+std::chrono::steady_clock::time_point timelineStart;
+void timelineAdd(char kind,uint32_t handle,uint32_t extra=0){
+    if(!timelineOn.load(std::memory_order_relaxed))return;
+    int64_t ns=std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now()-timelineStart).count();
+    std::lock_guard<std::mutex> lock(timelineMutex);timeline.push_back({ns,guestThreadId,kind,handle,extra,g_cur_func});
+}
+void timelinePresent(){
+    static const std::string dir=getenv("MGR_TRACE_DIR")?getenv("MGR_TRACE_DIR"):"/sdcard/MGRPC/lab";
+    static unsigned frames=0;++frames;
+    if(timelineOn.load()){
+        timelineAdd('P',0,frames);
+        if(std::chrono::steady_clock::now()-timelineStart<std::chrono::seconds(1))return;
+        timelineOn=false;std::vector<TimelineEvent> events;{std::lock_guard<std::mutex> lock(timelineMutex);events.swap(timeline);}
+        FILE* f=std::fopen((dir+"/trace.json").c_str(),"w");if(!f)return;
+        std::fprintf(f,"[\n");bool first=true;
+        for(auto& e:events){
+            const char* ph=e.kind=='B'?"B":e.kind=='E'?"E":"i";
+            const char* name=e.kind=='B'||e.kind=='E'?"wait":e.kind=='S'?"signal":e.kind=='P'?"present":"?";
+            std::fprintf(f,"%s{\"name\":\"%s\",\"ph\":\"%s\",\"ts\":%.3f,\"pid\":1,\"tid\":%u,\"s\":\"t\",\"args\":{\"h\":\"%x\",\"x\":%u,\"f\":\"%08x\"}}",
+                first?"":",\n",name,ph,e.ns/1000.0,e.tid,e.handle,e.extra,e.func);first=false;}
+        std::fprintf(f,"\n]\n");std::fclose(f);
+        NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"MGR","timeline: %zu events written to %s/trace.json",events.size(),dir.c_str());
+        return;
+    }
+    if(frames%30)return;
+    std::string go=dir+"/trace.go";
+    if(FILE* f=std::fopen(go.c_str(),"r")){std::fclose(f);std::remove(go.c_str());
+        {std::lock_guard<std::mutex> lock(timelineMutex);timeline.clear();timeline.reserve(200000);}
+        timelineStart=std::chrono::steady_clock::now();timelineOn=true;}
+}
 unsigned notifyGuestSignal(uint32_t handle=0){
+    unsigned woke=notifyGuestSignalInner(handle);timelineAdd('S',handle,woke);return woke;
+}
+unsigned notifyGuestSignalInner(uint32_t handle){
     std::lock_guard<std::mutex> lock(guestSignalMutex);unsigned woke=0;
     for(auto* w:guestSignalWaiters){
         if(w->woken)continue;
@@ -396,6 +435,7 @@ void waitGuestSignal(const uint32_t* handles=nullptr,unsigned count=0,std::uniqu
     if(held)countMachineRelease(3);
     {auto& trace=currentTrace();trace.func=g_cur_func;trace.esp=g_esp;}
     SignalWaiter me;me.handles=handles;me.count=count;
+    if(timelineOn.load(std::memory_order_relaxed))timelineAdd('B',count?handles[0]:0,count>1?handles[1]:0);
     {std::lock_guard<std::mutex> lock(guestSignalMutex);guestSignalWaiters.push_back(&me);}
     if(sync)sync->unlock();
     State saved;if(held){saved.save();machineLease->unlock();}
@@ -414,6 +454,7 @@ void waitGuestSignal(const uint32_t* handles=nullptr,unsigned count=0,std::uniqu
     {std::unique_lock<std::mutex> lock(guestSignalMutex);me.cv.wait_for(lock,std::chrono::milliseconds(1),[&]{return me.woken.load();});
         guestSignalWaiters.erase(std::find(guestSignalWaiters.begin(),guestSignalWaiters.end(),&me));}
     if(xrayOn())xrayThread()->signalNs+=xrayNs(signalFrom,std::chrono::steady_clock::now());
+    if(timelineOn.load(std::memory_order_relaxed))timelineAdd('E',count?handles[0]:0,me.woken.load()?1:0);
     if(held){machineLease->lock();saved.load();}
 }
 thread_local bool renderThread=false;
@@ -554,7 +595,7 @@ void d3dDispatch(){
     static std::array<std::chrono::nanoseconds,4096> methodTime{};
     if(timed){auto spent=std::chrono::steady_clock::now()-bridgeStart;bridgeTime+=token==0x7e002110u?spent:spent*64;presentTime+=token==0x7e002110u?spent:std::chrono::nanoseconds{};
         methodTime[((token-0x7e000000u)/16u)&4095u]+=token==0x7e002110u?spent:spent*64;}
-    if(token==0x7e002110u){fixedStepPresent();nfs_widescreen_apply_frame_rate();lastPresentMs=steadyMs();startStallWatch();}
+    if(token==0x7e002110u){fixedStepPresent();timelinePresent();nfs_widescreen_apply_frame_rate();lastPresentMs=steadyMs();startStallWatch();}
     if(token==0x7e002110u&&result==0){
         static FramePacer pacer;
         auto now=std::chrono::steady_clock::now();
