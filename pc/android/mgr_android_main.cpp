@@ -100,6 +100,21 @@ float screenH() { return touchApp && touchApp->contentRect.bottom > 0 ? float(to
 // Launcher (PcGameActivity, 20/11): the 360 touch controls send their whole pad state here (nativeTouchPad); merged
 // on top of the real pad like the pilot. Java input arrives on the UI thread: hostInput serializes it with the loop.
 struct JavaPad { uint32_t buttons = 0; int hat = 0; float axes[6] = {}; } javaPad;
+// MGR_TOUCH_MODE (launcher, 21/11): buttons (on-screen pad, default), gestures (whole screen, no buttons drawn) or
+// mouse (the finger is the game's mouse). Gestures: left half drag = left stick (move, menus), left tap = A (jump,
+// confirm); right half tap = X (light attack), long press = Y (strong), drag = right stick (camera); two fingers held =
+// LT (blade mode), two-finger tap = B (back), three-finger tap = START.
+enum class TouchMode { Buttons, Gestures, Mouse };
+TouchMode touchMode() {
+    static const TouchMode m = [] { const char* v = getenv("MGR_TOUCH_MODE"); std::string s = v ? v : "";
+        return s == "gestures" ? TouchMode::Gestures : s == "mouse" ? TouchMode::Mouse : TouchMode::Buttons; }();
+    return m;
+}
+struct Gest {
+    int32_t moveId = -1; float mox = 0, moy = 0, mx = 0, my = 0; std::chrono::steady_clock::time_point moveAt{}; bool moveDragged = false;
+    int32_t camId = -1; float cox = 0, coy = 0, cx = 0, cy = 0; std::chrono::steady_clock::time_point camAt{}; bool camDragged = false, camLong = false;
+    bool blade = false; int maxFingers = 0; std::chrono::steady_clock::time_point multiAt{};
+} gest;
 bool javaInput = false;
 std::recursive_mutex hostInput;
 void publishPad() {
@@ -120,6 +135,9 @@ void publishPad() {
             state.leftTrigger = std::fmax(state.leftTrigger, lt); state.rightTrigger = std::fmax(state.rightTrigger, rt);
         }
     }
+    if (gest.mx != 0 || gest.my != 0) { state.leftX = gest.mx; state.leftY = gest.my; }
+    if (gest.cx != 0 || gest.cy != 0) { state.rightX = gest.cx; state.rightY = gest.cy; }
+    if (gest.blade) state.leftTrigger = 1.f;
     if (pilotActive) {
         if (pilotNow.kind == "stick") { state.leftX = pilotNow.x; state.leftY = pilotNow.y; }
         if (pilotNow.kind == "rstick") { state.rightX = pilotNow.x; state.rightY = pilotNow.y; }
@@ -219,6 +237,69 @@ void touchGesture(const AInputEvent* event) {
     else if (dist >= 100) press = std::fabs(dx) > std::fabs(dy) ? (dx > 0 ? "RIGHT" : "LEFT") : (dy > 0 ? "DOWN" : "UP");
     if (press) { touchPress(press); __android_log_print(ANDROID_LOG_INFO, "MGRLAB", "touch: %s (%.0f px, %lld ms, %d fingers)", press, dist, (long long)ms, touch.fingers); }
 }
+void gestureMotion(const AInputEvent* event) {
+    int32_t action = AMotionEvent_getAction(event), masked = action & AMOTION_EVENT_ACTION_MASK;
+    size_t index = (action & AMOTION_EVENT_ACTION_POINTER_INDEX_MASK) >> AMOTION_EVENT_ACTION_POINTER_INDEX_SHIFT;
+    size_t count = AMotionEvent_getPointerCount(event);
+    const float W = screenW(), H = screenH(), radius = 0.12f * H;   // full stick deflection at 12% of the screen height
+    auto now = std::chrono::steady_clock::now();
+    auto msSince = [&](std::chrono::steady_clock::time_point t) { return std::chrono::duration_cast<std::chrono::milliseconds>(now - t).count(); };
+    if (masked == AMOTION_EVENT_ACTION_DOWN) gest.maxFingers = 0;
+    int down = int(count) - ((masked == AMOTION_EVENT_ACTION_UP || masked == AMOTION_EVENT_ACTION_POINTER_UP || masked == AMOTION_EVENT_ACTION_CANCEL) ? 1 : 0);
+    if (down > gest.maxFingers) { gest.maxFingers = down; if (down >= 2) gest.multiAt = now; }
+    gest.blade = down >= 2;
+    if (masked == AMOTION_EVENT_ACTION_DOWN || masked == AMOTION_EVENT_ACTION_POINTER_DOWN) {
+        int32_t id = AMotionEvent_getPointerId(event, index); float x = AMotionEvent_getX(event, index), y = AMotionEvent_getY(event, index);
+        if (x < W * 0.5f && gest.moveId < 0) { gest.moveId = id; gest.mox = x; gest.moy = y; gest.mx = gest.my = 0; gest.moveAt = now; gest.moveDragged = false; }
+        else if (x >= W * 0.5f && gest.camId < 0) { gest.camId = id; gest.cox = x; gest.coy = y; gest.cx = gest.cy = 0; gest.camAt = now; gest.camDragged = gest.camLong = false; }
+    }
+    for (size_t i = 0; i < count; ++i) {
+        int32_t id = AMotionEvent_getPointerId(event, i); float x = AMotionEvent_getX(event, i), y = AMotionEvent_getY(event, i);
+        if (id == gest.moveId) {
+            float dx = (x - gest.mox) / radius, dy = (y - gest.moy) / radius, len = std::sqrt(dx * dx + dy * dy);
+            if (len > 0.25f) gest.moveDragged = true;
+            if (len > 1) { dx /= len; dy /= len; }
+            gest.mx = gest.moveDragged ? dx : 0; gest.my = gest.moveDragged ? dy : 0;
+        } else if (id == gest.camId) {
+            float dx = (x - gest.cox) / radius, dy = (y - gest.coy) / radius, len = std::sqrt(dx * dx + dy * dy);
+            if (len > 0.25f) gest.camDragged = true;
+            if (len > 1) { dx /= len; dy /= len; }
+            gest.cx = gest.camDragged ? dx : 0; gest.cy = gest.camDragged ? dy : 0;
+            if (!gest.camDragged && !gest.camLong && gest.maxFingers < 2 && msSince(gest.camAt) >= 350) { gest.camLong = true; touchPress("Y"); }
+        }
+    }
+    bool lifting = masked == AMOTION_EVENT_ACTION_UP || masked == AMOTION_EVENT_ACTION_POINTER_UP || masked == AMOTION_EVENT_ACTION_CANCEL;
+    if (lifting) {
+        int32_t id = AMotionEvent_getPointerId(event, index); bool cancel = masked == AMOTION_EVENT_ACTION_CANCEL;
+        bool multi = gest.maxFingers >= 2;
+        if (id == gest.moveId) { if (!cancel && !multi && !gest.moveDragged && msSince(gest.moveAt) < 400) touchPress("A"); gest.moveId = -1; gest.mx = gest.my = 0; }
+        if (id == gest.camId) { if (!cancel && !multi && !gest.camDragged && !gest.camLong) touchPress("X"); gest.camId = -1; gest.cx = gest.cy = 0; }
+        if (masked == AMOTION_EVENT_ACTION_UP && multi && msSince(gest.multiAt) < 400 && !gest.moveDragged && !gest.camDragged)
+            touchPress(gest.maxFingers >= 3 ? "START" : "B");
+        if (masked == AMOTION_EVENT_ACTION_UP || cancel) { gest.moveId = gest.camId = -1; gest.mx = gest.my = gest.cx = gest.cy = 0; gest.blade = false; }
+    }
+    publishPad();
+}
+// Mouse mode: drag moves the game's mouse (camera), a tap is a left click (held >= 80 ms by the runtime), a two-finger
+// tap is the strong attack (Y; the guest mouse has only the left button).
+struct MouseTouch { bool active = false; float x = 0, y = 0; bool moved = false; int fingers = 0; std::chrono::steady_clock::time_point at{}; } mouseTouch;
+void mouseMotion(const AInputEvent* event) {
+    int32_t masked = AMotionEvent_getAction(event) & AMOTION_EVENT_ACTION_MASK;
+    const float W = screenW(), H = screenH(); float x = AMotionEvent_getX(event, 0), y = AMotionEvent_getY(event, 0);
+    int fingers = int(AMotionEvent_getPointerCount(event));
+    if (masked == AMOTION_EVENT_ACTION_DOWN) { mouseTouch = MouseTouch{true, x, y, false, 1, std::chrono::steady_clock::now()}; setGuestPointer(x / W, y / H, 1); return; }
+    if (!mouseTouch.active) return;
+    mouseTouch.fingers = std::max(mouseTouch.fingers, fingers);
+    if (masked == AMOTION_EVENT_ACTION_MOVE) { if (std::hypot(x - mouseTouch.x, y - mouseTouch.y) > 20) mouseTouch.moved = true; setGuestPointer(x / W, y / H, 1); }
+    if (masked == AMOTION_EVENT_ACTION_CANCEL) { mouseTouch.active = false; return; }
+    if (masked == AMOTION_EVENT_ACTION_UP) {
+        mouseTouch.active = false;
+        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - mouseTouch.at).count();
+        if (!mouseTouch.moved && ms < 400) {
+            if (mouseTouch.fingers >= 2) touchPress("Y"); else { setGuestPointer(x / W, y / H, 0); setGuestPointer(x / W, y / H, 2); }
+        }
+    }
+}
 int32_t onInput(android_app* app, AInputEvent* event) {
     int32_t type = AInputEvent_getType(event);
     static int logged = 0;
@@ -228,7 +309,9 @@ int32_t onInput(android_app* app, AInputEvent* event) {
         bool handled = gamepad.motion(event, false, setPadKey); if (handled) publishPad(); return handled ? 1 : 0;
     }
     if (type == AINPUT_EVENT_TYPE_MOTION && (AInputEvent_getSource(event) & AINPUT_SOURCE_CLASS_POINTER)) {
-        if (pad.on) padMotion(event); else touchGesture(event);
+        if (touchMode() == TouchMode::Gestures) gestureMotion(event);
+        else if (touchMode() == TouchMode::Mouse) mouseMotion(event);
+        else if (pad.on) padMotion(event); else touchGesture(event);
         return 1;
     }
     if (type == AINPUT_EVENT_TYPE_KEY && gamepad.key(event, false, setPadKey)) { publishPad(); return 1; }
@@ -334,7 +417,7 @@ extern "C" __attribute__((visibility("default"))) void mgr_android_main(android_
             pilotLoad(files + "/mgr_pilot.txt");
             { std::lock_guard<std::recursive_mutex> l(hostInput);
               if (pilotTick()) publishPad();
-              if (!javaInput) padTick(); }
+              if (!javaInput && touchMode() == TouchMode::Buttons) padTick(); }
             auto now = worker.status();
             if (now != status) { status = now; __android_log_print(ANDROID_LOG_INFO, "MGRLAB", "status: %s", status.c_str()); }
         } catch (const std::exception& e) {
