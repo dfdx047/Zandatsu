@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copiadas da launcher da app do 360 (mesmos textos). -->
+<resources>
+    <string name="about_check_updates">Check for updates</string>
+    <string name="about_developer">Developed by %1$s</string>
+    <string name="about_project_title">The project</string>
+    <string name="about_update_available">Version %1$s available: see what\'s new</string>
+    <string name="about_version">Version %1$s (%2$d)</string>
+    <string name="community_sub">News, help and builds of the port</string>
+    <string name="controls_scheme_sub">The fewest buttons, combos already joined</string>
+    <string name="controls_scheme_title">MGR controls on the touch screen</string>
+    <string name="create_shortcut">Create home screen shortcut</string>
+    <string name="create_shortcut_help">The shortcut opens the game directly, with the settings saved here.</string>
+    <string name="dark_dark">Dark</string>
+    <string name="dark_light">Light</string>
+    <string name="dark_system">System</string>
+    <string name="err_dialog_save_log">Save log</string>
+    <string name="err_update_check">Could not check for updates.</string>
+    <string name="game_title">Metal Gear Rising: Revengeance</string>
+    <string name="game_title_small">METAL GEAR RISING</string>
+    <string name="home_setup_sub">Tap a tile to change it</string>
+    <string name="home_setup_title">Game setup</string>
+    <string name="later">Later</string>
+    <string name="launch_options_title">Launch</string>
+    <string name="mapper_active">Custom mapping active for this controller</string>
+    <string name="mapper_auto">Automatic mapping</string>
+    <string name="mapper_cancel">Cancel</string>
+    <string name="mapper_clear">Default (no mapping)</string>
+    <string name="mapper_default">Using the default mapping</string>
+    <string name="mapper_none">No controller connected.</string>
+    <string name="mapper_open">Test and map controller</string>
+    <string name="mapper_press">Press a button or move a stick for: %1$s</string>
+    <string name="mapper_save">Save for this controller</string>
+    <string name="mapper_saved">Saved. It applies the next time the game opens.</string>
+    <string name="mapper_source_android">Android standard layout</string>
+    <string name="mapper_source_db">SDL GameControllerDB entry found for this controller</string>
+    <string name="mapper_title">Controller</string>
+    <string name="menu_edit_help">Move, resize and add on-screen buttons.</string>
+    <string name="menu_exit_action">Exit</string>
+    <string name="menu_exit_confirm_action">Press again to exit</string>
+    <string name="menu_go">Go</string>
+    <string name="menu_hints">LB/RB tabs · ↑↓ move · ◀▶ change · A choose · B close</string>
+    <string name="menu_open">Open</string>
+    <string name="menu_restart_badge">Restart needed</string>
+    <string name="menu_restart_needed">Applies the next time the game starts.</string>
+    <string name="menu_session">Session</string>
+    <string name="menu_tab_pause">Pause</string>
+    <string name="more_about_sub">Version, updates, community and credits</string>
+    <string name="msg_shortcut_requested">Shortcut requested: confirm it on the home screen.</string>
+    <string name="msg_shortcut_unsupported">Your launcher does not support pinned shortcuts.</string>
+    <string name="orientation">Game orientation</string>
+    <string name="orientation_auto">Sensor</string>
+    <string name="orientation_landscape">Landscape</string>
+    <string name="orientation_portrait">Portrait</string>
+    <string name="profiles_load">Load</string>
+    <string name="profiles_name">Profile name</string>
+    <string name="profiles_title">Layout profiles</string>
+    <string name="saves_refresh">Refresh</string>
+    <string name="settings_app">App</string>
+    <string name="settings_check_updates">Check for updates on start</string>
+    <string name="settings_dark">Dark mode</string>
+    <string name="settings_language">App language</string>
+    <string name="settings_language_sub">System: follows the phone language (Portuguese or Spanish), English otherwise.</string>
+    <string name="settings_logs">Logs</string>
+    <string name="settings_logs_sub">Everything the app and the game record, for bug reports</string>
+    <string name="settings_physical_pad">Physical controller</string>
+    <string name="settings_theme">Theme</string>
+    <string name="settings_theme_material_unavailable">Material You needs Android 12 or newer.</string>
+    <string name="settings_touch_reset_text">Every button goes back to the default place, size and opacity. Your macros are removed.</string>
+    <string name="settings_touch_reset_title">Reset the layout?</string>
+    <string name="shortcut_long">Play Metal Gear Rising</string>
+    <string name="shortcut_short">MGR</string>
+    <string name="status_ready">Ready to play</string>
+    <string name="sum_driver">Driver</string>
+    <string name="sum_fps">FPS</string>
+    <string name="sum_resolution">Resolution</string>
+    <string name="tab_drivers">Drivers</string>
+    <string name="tab_home">Home</string>
+    <string name="tab_more">More</string>
+    <string name="update_changelog">What\'s new</string>
+    <string name="update_current">You have %1$s.</string>
+    <string name="update_no_changelog">No changelog for this version.</string>
+    <string name="update_open_page">Open release page</string>
+    <string name="update_skip">Skip this version</string>
+    <string name="update_title">Version %1$s available</string>
+    <string-array name="controls_legend">
+        <item>Walk|Left stick</item>
+        <item>Camera|Drag on the right side of the screen; a quick tap centers it (R3)</item>
+        <item>Light attack|With the stick toward the enemy: parry</item>
+        <item>Strong attack|</item>
+        <item>Jump|</item>
+        <item>Action|Zandatsu grab, open, interact</item>
+        <item>Blade Mode|Cut by swiping on the right side or with X/Y</item>
+        <item>Ninja Run|Hold to run and deflect bullets</item>
+        <item>Lock-on|Locks the camera on the enemy</item>
+        <item>Sub-weapon|</item>
+        <item>Dodge|X+A together, with a direction</item>
+        <item>Ripper Mode|L3+R3 with a full energy bar</item>
+        <item>Augment|AR vision (small cross ↑)</item>
+        <item>Switch weapon / item|Small cross ← →</item>
+        <item>Use item|Small cross ↓</item>
+        <item>Pause|Start</item>
+        <item>Codec|Back</item>
+    </string-array>
+</resources>

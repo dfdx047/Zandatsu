@@ -25,6 +25,9 @@ enum class ButtonBadge(val key: String) { XBOX("xbox"), PLAYSTATION("playstation
  */
 enum class PcTouchMode(val key: String) { BUTTONS("buttons"), GESTURES("gestures"), MOUSE("mouse") }
 
+/** Orientacao do jogo (como na app do 360): paisagem (as duas), retrato ou pelo sensor (todas). */
+enum class GameOrientation(val key: String) { LANDSCAPE("landscape"), PORTRAIT("portrait"), AUTO("auto") }
+
 inline fun <reified T : Enum<T>> enumByKey(value: String?, default: T, key: (T) -> String): T =
     enumValues<T>().firstOrNull { key(it) == value } ?: default
 
@@ -37,8 +40,25 @@ class LauncherPrefs(context: Context) {
     private val prefs: SharedPreferences
         get() = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_MULTI_PROCESS)
 
-    val themeMode: ThemeMode get() = ThemeMode.GAME
-    val darkMode: DarkMode get() = DarkMode.DARK
+    var themeMode: ThemeMode
+        get() = enumByKey(prefs.getString("theme_mode", null), ThemeMode.GAME) { it.key }
+        set(v) = prefs.edit().putString("theme_mode", v.key).apply()
+
+    var darkMode: DarkMode
+        get() = enumByKey(prefs.getString("dark_mode", null), DarkMode.DARK) { it.key }
+        set(v) = prefs.edit().putString("dark_mode", v.key).apply()
+
+    var gameOrientation: GameOrientation
+        get() = enumByKey(prefs.getString("game_orientation", null), GameOrientation.LANDSCAPE) { it.key }
+        set(v) = prefs.edit().putString("game_orientation", v.key).apply()
+
+    var checkUpdatesOnStart: Boolean
+        get() = prefs.getBoolean("check_updates", true)
+        set(v) = prefs.edit().putBoolean("check_updates", v).apply()
+
+    var skippedUpdate: String?
+        get() = prefs.getString("skipped_update", null)
+        set(v) = prefs.edit().putString("skipped_update", v).apply()
 
     var controlStyle: ControlStyle
         get() = enumByKey(prefs.getString("control_style", null), ControlStyle.GAME) { it.key }

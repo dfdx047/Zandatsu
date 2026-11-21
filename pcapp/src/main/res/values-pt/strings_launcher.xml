@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copiadas da launcher da app do 360 (mesmos textos). -->
+<resources>
+    <string name="about_check_updates">Procurar atualizações</string>
+    <string name="about_developer">Desenvolvido por %1$s</string>
+    <string name="about_project_title">O projeto</string>
+    <string name="about_update_available">Versão %1$s disponível: ver o que mudou</string>
+    <string name="about_version">Versão %1$s (%2$d)</string>
+    <string name="community_sub">Novidades, ajuda e versões do port</string>
+    <string name="controls_scheme_sub">O mínimo de botões, combos já juntos</string>
+    <string name="controls_scheme_title">Controles do MGR na tela</string>
+    <string name="create_shortcut">Criar atalho na tela inicial</string>
+    <string name="create_shortcut_help">O atalho abre o jogo direto, com as configurações salvas aqui.</string>
+    <string name="dark_dark">Escuro</string>
+    <string name="dark_light">Claro</string>
+    <string name="dark_system">Sistema</string>
+    <string name="err_dialog_save_log">Salvar log</string>
+    <string name="err_update_check">Não deu para procurar atualizações.</string>
+    <string name="game_title">Metal Gear Rising: Revengeance</string>
+    <string name="game_title_small">METAL GEAR RISING</string>
+    <string name="home_setup_sub">Toque num item para mudar</string>
+    <string name="home_setup_title">Configuração do jogo</string>
+    <string name="later">Depois</string>
+    <string name="launch_options_title">Abertura do jogo</string>
+    <string name="mapper_active">Mapeamento próprio ativo neste controle</string>
+    <string name="mapper_auto">Mapeamento automático</string>
+    <string name="mapper_cancel">Cancelar</string>
+    <string name="mapper_clear">Padrão (sem mapeamento)</string>
+    <string name="mapper_default">Usando o mapeamento padrão</string>
+    <string name="mapper_none">Nenhum controle conectado.</string>
+    <string name="mapper_open">Testar e mapear controle</string>
+    <string name="mapper_press">Aperte um botão ou mova um analógico para: %1$s</string>
+    <string name="mapper_save">Salvar para este controle</string>
+    <string name="mapper_saved">Salvo. Vale na próxima vez que abrir o jogo.</string>
+    <string name="mapper_source_android">Layout padrão do Android</string>
+    <string name="mapper_source_db">Este controle está no GameControllerDB do SDL</string>
+    <string name="mapper_title">Controle</string>
+    <string name="menu_edit_help">Mova, redimensione e adicione botões da tela.</string>
+    <string name="menu_exit_action">Sair</string>
+    <string name="menu_exit_confirm_action">Toque de novo para sair</string>
+    <string name="menu_go">Ir</string>
+    <string name="menu_hints">LB/RB abas · ↑↓ mover · ◀▶ mudar · A escolher · B fechar</string>
+    <string name="menu_open">Abrir</string>
+    <string name="menu_restart_badge">Requer reinício</string>
+    <string name="menu_restart_needed">Vale na próxima vez que o jogo abrir.</string>
+    <string name="menu_session">Sessão</string>
+    <string name="menu_tab_pause">Pausa</string>
+    <string name="more_about_sub">Versão, atualizações, comunidade e créditos</string>
+    <string name="msg_shortcut_requested">Atalho pedido: confirme na tela inicial.</string>
+    <string name="msg_shortcut_unsupported">O seu launcher não suporta atalhos fixados.</string>
+    <string name="orientation">Orientação do jogo</string>
+    <string name="orientation_auto">Sensor</string>
+    <string name="orientation_landscape">Paisagem</string>
+    <string name="orientation_portrait">Vertical</string>
+    <string name="profiles_load">Carregar</string>
+    <string name="profiles_name">Nome do perfil</string>
+    <string name="profiles_title">Perfis de layout</string>
+    <string name="saves_refresh">Atualizar</string>
+    <string name="settings_app">Aplicativo</string>
+    <string name="settings_check_updates">Procurar atualizações ao abrir</string>
+    <string name="settings_dark">Modo escuro</string>
+    <string name="settings_language">Idioma do app</string>
+    <string name="settings_language_sub">Sistema: segue o idioma do celular (português ou espanhol), inglês nos outros casos.</string>
+    <string name="settings_logs">Logs</string>
+    <string name="settings_logs_sub">Tudo o que o app e o jogo registram, para relatar problemas</string>
+    <string name="settings_physical_pad">Controle físico</string>
+    <string name="settings_theme">Tema</string>
+    <string name="settings_theme_material_unavailable">O Material You precisa do Android 12 ou mais novo.</string>
+    <string name="settings_touch_reset_text">Todos os botões voltam ao lugar, tamanho e opacidade padrão. As suas macros são apagadas.</string>
+    <string name="settings_touch_reset_title">Restaurar o layout?</string>
+    <string name="shortcut_long">Jogar Metal Gear Rising</string>
+    <string name="shortcut_short">MGR</string>
+    <string name="status_ready">Pronto para jogar</string>
+    <string name="sum_driver">Driver</string>
+    <string name="sum_fps">FPS</string>
+    <string name="sum_resolution">Resolução</string>
+    <string name="tab_drivers">Drivers</string>
+    <string name="tab_home">Início</string>
+    <string name="tab_more">Mais</string>
+    <string name="update_changelog">O que mudou</string>
+    <string name="update_current">Você tem a %1$s.</string>
+    <string name="update_no_changelog">Sem changelog para esta versão.</string>
+    <string name="update_open_page">Abrir a página da versão</string>
+    <string name="update_skip">Pular esta versão</string>
+    <string name="update_title">Versão %1$s disponível</string>
+    <string-array name="controls_legend">
+        <item>Andar|Analógico esquerdo</item>
+        <item>Câmera|Arraste no lado direito da tela; um toque rápido centraliza (R3)</item>
+        <item>Ataque leve|Com o analógico na direção do inimigo: aparar</item>
+        <item>Ataque forte|</item>
+        <item>Pular|</item>
+        <item>Ação|Agarrar no Zandatsu, abrir, interagir</item>
+        <item>Blade Mode|Corte deslizando o dedo no lado direito ou com X/Y</item>
+        <item>Ninja Run|Segure para correr e defletir balas</item>
+        <item>Mira|Trava a câmera no inimigo</item>
+        <item>Arma secundária|</item>
+        <item>Esquiva|X+A juntos, com uma direção</item>
+        <item>Ripper Mode|L3+R3 com a barra de energia cheia</item>
+        <item>Augment|Visão AR (cruz pequena ↑)</item>
+        <item>Trocar arma / item|Cruz pequena ← →</item>
+        <item>Usar item|Cruz pequena ↓</item>
+        <item>Pausa|Start</item>
+        <item>Codec|Back</item>
+    </string-array>
+</resources>

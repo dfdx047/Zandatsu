@@ -60,6 +60,27 @@
             android:theme="@style/Theme.ZandatsuPc.Editor"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden" />
 
+        <!-- Atalho da tela inicial (pinned shortcut): grava as opcoes do jogo e abre o PcGameActivity, sem ecra. -->
+        <activity
+            android:name=".PlayShortcutActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="com.dfdx047.zandatsu.pc.PLAY" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+        <!-- Mapeador do comando fisico (copiado da app do 360). -->
+        <activity
+            android:name=".controls.PadMapperActivity"
+            android:exported="false"
+            android:theme="@style/Theme.ZandatsuPc"
+            android:configChanges="orientation|screenSize|screenLayout|keyboard|keyboardHidden|navigation" />
+
         <!-- Idioma por app em Android < 13 (AppCompat guarda a escolha). -->
         <service
             android:name="androidx.appcompat.app.AppLocalesMetadataHolderService"
