@@ -95,7 +95,12 @@ HRESULT lockSurface(uint32_t address,uint32_t output,const RECT* rect,uint32_t f
 // four big static buffers (11 MB) every frame: the read-back cost 33.6 ms/frame on a Cortex-A73 (now 0.02 ms). All the game's writes go through the shadow, so it
 // already holds what the buffer holds: Lock returns shadow+offset with no read-back, Unlock still copies the range out.
 // MGR_BUFFER_SHADOW=0 turns it off (A/B).
-struct BufferShadow{uint32_t guest=0,size=0;bool filled=false;};
+// The native buffer is no longer locked at Lock time: the game writes the shadow, and Unlock sends DXVK only the bytes
+// that differ from what it already has (uploaded). MGR locks its 11 MB of static buffers whole every frame; DXVK 1.9
+// then memcpy'd the whole dirty range out of uncached mapped memory at the next draw (FlushBuffer): DrawPrimitive and
+// DrawIndexedPrimitive cost 30 + 11 ms/frame on the Mi A3.
+struct BufferShadow{uint32_t guest=0,size=0;std::vector<uint8_t> uploaded;};
+uint64_t shadowCompareNs=0,shadowSentBytes=0,shadowUnchanged=0;
 std::unordered_map<uint32_t,BufferShadow> bufferShadows;
 bool bufferShadowOn(){static const bool on=[]{const char* v=std::getenv("MGR_BUFFER_SHADOW");return !v||std::atoi(v)!=0;}();return on;}
 void dropBufferShadow(uint32_t address){auto it=bufferShadows.find(address);if(it!=bufferShadows.end()){freeGuest(it->second.guest);bufferShadows.erase(it);}}
@@ -110,7 +115,8 @@ void reportLockCosts(){
     std::string line;char one[160];
     for(int d=0;d<2;++d)for(int k=0;k<4;++k){auto& c=lockCosts[d][k];if(!c.n)continue;
         std::snprintf(one,sizeof one," [%s %s: %.0f/frame lock %.2f ms copy %.2f ms %.2f MB]",d?"dyn":"static",kind[k],c.n/120.0,c.nativeNs/1e6/120,c.copyNs/1e6/120,c.bytes/1048576.0/120);line+=one;c=LockCost{};}
-    std::snprintf(one,sizeof one," [unlock copy %.2f ms %.2f MB]",unlockCopyNs/1e6/120,unlockBytes/1048576.0/120);line+=one;unlockCopyNs=unlockBytes=0;
+    std::snprintf(one,sizeof one," [unlock %.2f ms %.2f MB, compare %.2f ms, sent %.3f MB, unchanged %.1f]",unlockCopyNs/1e6/120,unlockBytes/1048576.0/120,
+        shadowCompareNs/1e6/120,shadowSentBytes/1048576.0/120,shadowUnchanged/120.0);line+=one;unlockCopyNs=unlockBytes=shadowCompareNs=shadowSentBytes=shadowUnchanged=0;
     NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"MGR","D3D9 buffer locks per frame:%s",line.c_str());
 }
 template<class Buffer,class Desc>HRESULT lockBuffer(uint32_t address,uint32_t offset,uint32_t size,uint32_t output,uint32_t flags){
@@ -118,7 +124,8 @@ template<class Buffer,class Desc>HRESULT lockBuffer(uint32_t address,uint32_t of
     auto buffer=nativeObject<Buffer>(address);Desc desc{};HRESULT status=buffer->GetDesc(&desc);if(FAILED(status))return status;
     if(offset>desc.Size)return D3DERR_INVALIDCALL;
     auto t0=std::chrono::steady_clock::now();
-    void* native=nullptr;status=buffer->Lock(offset,size,&native,flags);if(FAILED(status))return status;
+    void* native=nullptr;
+    if(!bufferShadowOn()){status=buffer->Lock(offset,size,&native,flags);if(FAILED(status))return status;}
     auto t1=std::chrono::steady_clock::now();
     if(!size||offset+size>desc.Size)size=desc.Size-offset;
     auto& cost=lockCosts[(desc.Usage&D3DUSAGE_DYNAMIC)?1:0][(flags&D3DLOCK_DISCARD)?1:(flags&D3DLOCK_NOOVERWRITE)?2:flags?3:0];
@@ -126,15 +133,37 @@ template<class Buffer,class Desc>HRESULT lockBuffer(uint32_t address,uint32_t of
     struct CopyTimer{LockCost& c;std::chrono::steady_clock::time_point t;~CopyTimer(){c.copyNs+=std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now()-t).count();}} copyTimer{cost,t1};
     if(bufferShadowOn()){   // all buffers (static ones are the 11 MB/frame case)
         auto& shadow=bufferShadows[address];
-        if(!shadow.guest){shadow.guest=allocateGuest(desc.Size);shadow.size=desc.Size;}
-        if(!shadow.filled){   // first lock: the buffer may hold data from before the shadow existed
-            if(!(flags&D3DLOCK_DISCARD))std::memcpy(pointer(shadow.guest+offset),native,size);
-            shadow.filled=offset==0&&size==desc.Size;
+        if(!shadow.guest){   // first lock: one read of what the buffer holds
+            shadow.guest=allocateGuest(desc.Size);shadow.size=desc.Size;shadow.uploaded.assign(desc.Size,0);
+            void* all=nullptr;
+            if(!(flags&D3DLOCK_DISCARD)&&SUCCEEDED(buffer->Lock(0,0,&all,D3DLOCK_READONLY))){std::memcpy(shadow.uploaded.data(),all,desc.Size);buffer->Unlock();}
+            std::memcpy(pointer(shadow.guest),shadow.uploaded.data(),desc.Size);
         }
-        ResourceLock entry{native,shadow.guest+offset,size,size,size,1,flags};entry.shadowed=true;
+        ResourceLock entry{nullptr,shadow.guest+offset,size,size,size,1,flags};entry.shadowed=true;
         resourceLocks.emplace(lockKey(address,0),entry);write(output,shadow.guest+offset);return D3D_OK;
     }
     uint32_t temporary=allocateGuest(size);
     if(!(flags&D3DLOCK_DISCARD))std::memcpy(pointer(temporary),native,size);
     resourceLocks.emplace(lockKey(address,0),ResourceLock{native,temporary,size,size,size,1,flags});write(output,temporary);return D3D_OK;
+}
+// Unlock of a shadowed buffer: first and last differing 256-byte block against what DXVK holds; only that range is
+// locked and copied (nothing at all when the game changed nothing).
+template<class Buffer>HRESULT unlockShadowedBuffer(uint32_t address,const ResourceLock& data){
+    if(data.flags&D3DLOCK_READONLY)return D3D_OK;
+    auto it=bufferShadows.find(address);if(it==bufferShadows.end())return D3DERR_INVALIDCALL;
+    auto& shadow=it->second;auto t0=std::chrono::steady_clock::now();
+    uint32_t base=data.guest-shadow.guest,n=data.size;
+    const uint8_t* now=static_cast<const uint8_t*>(pointer(data.guest));uint8_t* old=shadow.uploaded.data()+base;
+    constexpr uint32_t block=256;uint32_t lo=0,hi=n;
+    if(data.flags&D3DLOCK_DISCARD){lo=0;hi=n;}
+    else{
+        while(lo<n){uint32_t c=std::min(block,n-lo);if(std::memcmp(now+lo,old+lo,c))break;lo+=c;}
+        if(lo>=n){++shadowUnchanged;shadowCompareNs+=std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now()-t0).count();return D3D_OK;}
+        while(hi>lo){uint32_t c=(hi-lo)%block?(hi-lo)%block:block;if(std::memcmp(now+hi-c,old+hi-c,c))break;hi-=c;}
+    }
+    shadowCompareNs+=std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now()-t0).count();
+    auto buffer=nativeObject<Buffer>(address);void* native=nullptr;
+    HRESULT status=buffer->Lock(base+lo,hi-lo,&native,data.flags&~D3DLOCK_READONLY);if(FAILED(status))return status;
+    std::memcpy(native,now+lo,hi-lo);std::memcpy(old+lo,now+lo,hi-lo);shadowSentBytes+=hi-lo;
+    return buffer->Unlock();
 }
