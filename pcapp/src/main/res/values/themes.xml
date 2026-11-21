@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="pc_background">#0A0B0D</color>
+    <color name="pc_icon_background">#0C0D10</color>
+    <color name="pc_icon_red">#E3263A</color>
+
+    <!-- Launcher: escuro; as cores vem do Compose. -->
+    <style name="Theme.ZandatsuPc" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:windowBackground">@color/pc_background</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="colorPrimary">@color/pc_icon_red</item>
+    </style>
+
+    <!-- Jogo: ecra inteiro, fundo preto. -->
+    <style name="Theme.ZandatsuPc.Game" parent="android:Theme.Material.NoActionBar.Fullscreen">
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+    </style>
+
+    <style name="Theme.ZandatsuPc.Editor" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+    </style>
+</resources>

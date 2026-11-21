@@ -19,3 +19,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "Zandatsu"
 include(":app")
+include(":pcapp")

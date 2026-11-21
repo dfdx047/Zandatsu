@@ -1,0 +1,160 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name" translatable="false">Zandatsu PC</string>
+    <string name="app_title" translatable="false">ZANDATSU PC</string>
+
+    <string name="tab_game">Game</string>
+    <string name="tab_graphics">Graphics</string>
+    <string name="tab_controls">Controls</string>
+    <string name="tab_system">System</string>
+    <string name="tab_about">About</string>
+
+    <string name="yes">Yes</string>
+    <string name="no">No</string>
+    <string name="on">On</string>
+    <string name="off">Off</string>
+    <string name="back">Back</string>
+
+    <!-- Game -->
+    <string name="game_intro">Metal Gear Rising: Revengeance, PC version. You need your own PC copy (the folder with the .exe and GameData). The game code in this app is only decrypted with your executable.</string>
+    <string name="game_need_access">The app needs \"All files access\" to read the game folder (internal storage or SD card).</string>
+    <string name="game_grant_access">Allow file access</string>
+    <string name="game_folder">Game folder</string>
+    <string name="game_exe_label">Game executable (full path)</string>
+    <string name="game_search">Search storage and SD cards</string>
+    <string name="game_search_hint">Looks for \"%1$s\" in MGRPC/, MGR/ or Games/MGR/ on each storage volume.</string>
+    <string name="game_status">Status</string>
+    <string name="status_packaged">Game code in the app</string>
+    <string name="status_missing">Missing</string>
+    <string name="status_access">File access</string>
+    <string name="status_exe">Executable</string>
+    <string name="status_found">Found</string>
+    <string name="status_not_found">Not found</string>
+    <string name="status_version">Supported version</string>
+    <string name="status_checking">Checking…</string>
+    <string name="status_supported">Yes</string>
+    <string name="status_unsupported">No</string>
+    <string name="status_error">Error</string>
+    <string name="status_unsupported_detail">This executable is not the supported version (expected SHA-1 %1$s…). The game code cannot be decrypted with it.</string>
+    <string name="play">PLAY</string>
+    <string name="play_hint">The game options are written again before launching. In game, the Back button opens the menu.</string>
+    <string name="play_anyway">Play anyway</string>
+
+    <!-- Graphics -->
+    <string name="gfx_profile">Profile</string>
+    <string name="profile_low">Low</string>
+    <string name="profile_medium">Medium</string>
+    <string name="profile_high">High</string>
+    <string name="profile_ultra">Ultra</string>
+    <string name="profile_custom">Custom</string>
+    <string name="gfx_recommended">Recommended for this device: %1$s. Changing any option switches to Custom.</string>
+    <string name="gfx_resolution">Internal resolution</string>
+    <string name="gfx_resolution_value">%1$s (%2$d%%)</string>
+    <string name="gfx_resolution_hint">Percentage of the native screen resolution (%1$s), same aspect ratio. The screen (or FSR / CAS) scales the image up.</string>
+    <string name="gfx_fps">Frame rate limit</string>
+    <string name="gfx_fps_hint">Above 60 only helps on screens with a high refresh rate.</string>
+    <string name="gfx_upscale">Upscaling</string>
+    <string name="gfx_upscale_bilinear">Bilinear</string>
+    <string name="gfx_upscale_fsr1">FSR 1</string>
+    <string name="gfx_upscale_cas">CAS</string>
+    <string name="gfx_upscale_bilinear_sub">The screen stretches the internal resolution (simple bilinear).</string>
+    <string name="gfx_upscale_fsr1_sub">AMD FSR 1 in DXVK: edge-aware scaling to the output, then RCAS sharpening. Two passes at output size.</string>
+    <string name="gfx_upscale_cas_sub">Contrast adaptive sharpening with a simple scale in a single pass: lighter than FSR 1.</string>
+    <string name="gfx_sharpness">Sharpness: %1$d%%</string>
+    <string name="gfx_upscale_output">Upscaling output</string>
+    <string name="gfx_output_screen">Screen</string>
+    <string name="gfx_output_720">720p (lighter)</string>
+    <string name="gfx_framegen">Frame generation</string>
+    <string name="gfx_framegen_switch">30 → 60 fps</string>
+    <string name="gfx_framegen_sub">Shows a generated frame between every two game frames (game at 30 fps, screen at 60 Hz). The motion is estimated from the two frames; on scene cuts or failures the frame is repeated or blended. One more frame of latency.</string>
+    <string name="gfx_framegen_warning">Requires the 30 fps limit: turning it on sets the limit to 30, and choosing another limit turns it off.</string>
+    <string name="gfx_renderer">Renderer: DXVK (Direct3D 9 → Vulkan).</string>
+
+    <!-- Game graphics options (GraphicOption) -->
+    <string name="go_title">Game graphics options</string>
+    <string name="go_sub">The same as OPTIONS > GRAPHIC OPTIONS in the game, written to the game\'s GraphicOption file (read when the game starts).</string>
+    <string name="go_aa">Antialiasing</string>
+    <string name="go_filter">Texture filtering</string>
+    <string name="go_aniso">Anisotropic %1$dx</string>
+    <string name="go_blur">Blur</string>
+    <string name="go_shadow">Shadows</string>
+    <string name="go_zangeki">Zangeki</string>
+    <string name="go_zantime">Zantime</string>
+    <string name="go_window">Display mode</string>
+    <string name="go_fullscreen">Fullscreen</string>
+    <string name="go_windowed">Window</string>
+    <string name="go_brightness">Brightness</string>
+    <string name="go_low">Low</string>
+    <string name="go_medium">Medium</string>
+    <string name="go_file">File: %1$s</string>
+    <string name="go_never_written">Not written yet.</string>
+    <string name="go_written_at">Written and verified: %1$s (%2$s)</string>
+    <string name="go_no_exe">game executable not set</string>
+    <string name="go_write_failed_title">Game options not saved</string>
+    <string name="go_write_failed">Could not save the game options in %1$s: %2$s</string>
+    <string name="saf_hint">If the SD card does not accept writes by path, give the app access to the game folder through the system picker: the options are then written through it.</string>
+    <string name="saf_current">Folder with system access: %1$s</string>
+    <string name="saf_pick">Give access to the game folder</string>
+
+    <!-- Controls -->
+    <string name="ctl_mode">Touch mode</string>
+    <string name="ctl_mode_buttons">Buttons</string>
+    <string name="ctl_mode_gestures">Gestures</string>
+    <string name="ctl_mode_mouse">Mouse</string>
+    <string name="ctl_mode_buttons_sub">On-screen buttons and sticks (editable layout). A quick tap outside the buttons is a mouse click in the game menus.</string>
+    <string name="ctl_mode_gestures_sub">No buttons on screen (only the menu button). Left half: drag = move. Right half: tap = light attack, long press = strong attack, swipe = camera, two fingers = Blade Mode.</string>
+    <string name="ctl_mode_mouse_sub">No buttons on screen (only the menu button). Your finger is the game mouse: drag = camera, tap = click.</string>
+    <string name="ctl_pad_hint">A physical controller always works, in any mode.</string>
+    <string name="ctl_layout">Button layout</string>
+    <string name="ctl_edit_layout">Edit layout</string>
+    <string name="ctl_edit_hint">Also available in game: menu > Edit controls.</string>
+    <string name="ctl_style">Style</string>
+    <string name="ctl_style_classic">Classic</string>
+    <string name="ctl_directional">Movement</string>
+    <string name="ctl_stick">Stick</string>
+    <string name="ctl_dpad">D-pad</string>
+    <string name="ctl_badge">Button labels</string>
+    <string name="ctl_badge_none">None</string>
+    <string name="ctl_opacity">Opacity: %1$d%%</string>
+    <string name="ctl_scale">Size: %1$d%%</string>
+    <string name="ctl_haptics">Vibrate on touch</string>
+    <string name="ctl_blade_toggle">Blade Mode toggles</string>
+    <string name="ctl_blade_toggle_sub">One tap enters Blade Mode and another leaves it (instead of holding).</string>
+    <string name="ctl_pause_menu">Pause with the menu open</string>
+    <string name="ctl_pause_menu_sub">The game stops while the in-game menu or the editor is open.</string>
+
+    <!-- System -->
+    <string name="sys_driver">Vulkan driver</string>
+    <string name="sys_driver_sub">GPU: %1$s. \"System\" uses the device driver; the others are installed in this app.</string>
+    <string name="sys_driver_system">System</string>
+    <string name="sys_driver_import">Install from file (.zip)</string>
+    <string name="sys_driver_download">Download driver</string>
+    <string name="sys_driver_installing">Installing %1$s…</string>
+    <string name="sys_driver_hint">AdrenoTools packages (Turnip for Adreno). The driver is never changed automatically.</string>
+    <string name="sys_driver_delete_title">Delete driver?</string>
+    <string name="drv_err_no_library">The package has no driver library</string>
+    <string name="drv_err_not_zip">Not a valid .zip</string>
+    <string name="drv_err_io">Read/write error</string>
+    <string name="drv_err_network">Network error</string>
+    <string name="drv_err_min_api">This driver needs a newer Android</string>
+    <string name="drv_err_wrong_gpu">This driver is not for this GPU</string>
+    <string name="sys_cpu">Processor</string>
+    <string name="sys_mt">Multithread</string>
+    <string name="sys_mt_sub">The game threads run in parallel (about +40% fps in fights). If the game freezes or closes, turn it off.</string>
+    <string name="sys_language">Language</string>
+    <string name="sys_language_system">System</string>
+
+    <!-- In game -->
+    <string name="ingame_paused">The game is paused while this menu is open.</string>
+    <string name="ingame_resume">Continue</string>
+    <string name="ingame_edit_controls">Edit controls</string>
+    <string name="ingame_exit">Exit game</string>
+    <string name="ingame_exit_hint">Exiting closes the game without saving: use the game\'s own save first.</string>
+
+    <!-- About -->
+    <string name="about_text">Launcher for the PC version of Metal Gear Rising: Revengeance on Android: the game\'s x86 code is statically recompiled to ARM64 and Direct3D 9 goes to Vulkan through DXVK.</string>
+    <string name="about_separate">This app is separate from Zandatsu (Xbox 360 version): its own settings, drivers and control layouts.</string>
+    <string name="about_tech">Graphics: DXVK with FSR 1 / CAS and 30 → 60 frame generation. Alternative Vulkan drivers through libadrenotools.</string>
+    <string name="about_paths">App folder: %1$s</string>
+    <string name="about_legal">No game files are included. Metal Gear Rising: Revengeance is a trademark of its owners; this project is not affiliated with them.</string>
+</resources>

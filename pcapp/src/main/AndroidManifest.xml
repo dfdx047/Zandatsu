@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-feature android:name="android.hardware.vulkan.level" android:version="1" android:required="true" />
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+    <uses-feature android:name="android.hardware.gamepad" android:required="false" />
+
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Download de drivers Vulkan (Turnip) das releases do GitHub. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- A pasta do jogo de PC (8+ GB) fica no armazenamento partilhado ou no cartao SD; o nativo abre-a por caminho. -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+
+    <application
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:allowBackup="false"
+        android:extractNativeLibs="true"
+        android:hardwareAccelerated="true"
+        android:isGame="true"
+        android:appCategory="game"
+        android:localeConfig="@xml/locales_config"
+        android:theme="@style/Theme.ZandatsuPc">
+
+        <profileable android:shell="true" />
+
+        <!-- Launcher (Compose). -->
+        <activity
+            android:name=".PcLauncherActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Jogo de PC: NativeActivity com o carregador libmgrlab.so (sem codigo do jogo); o libgame de PC vem
+             encriptado nos assets e e desencriptado para um memfd (PcGameActivity). -->
+        <activity
+            android:name=".PcGameActivity"
+            android:process=":pcgame"
+            android:label="@string/app_name"
+            android:exported="false"
+            android:launchMode="singleInstance"
+            android:screenOrientation="sensorLandscape"
+            android:preferMinimalPostProcessing="true"
+            android:theme="@style/Theme.ZandatsuPc.Game"
+            android:configChanges="layoutDirection|locale|fontScale|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation">
+            <meta-data android:name="android.app.lib_name" android:value="mgrlab" />
+        </activity>
+
+        <!-- Editor do layout dos controles por toque (paisagem, como o jogo). -->
+        <activity
+            android:name=".controls.ControlsEditorActivity"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape"
+            android:theme="@style/Theme.ZandatsuPc.Editor"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden" />
+
+        <!-- Idioma por app em Android < 13 (AppCompat guarda a escolha). -->
+        <service
+            android:name="androidx.appcompat.app.AppLocalesMetadataHolderService"
+            android:enabled="false"
+            android:exported="false">
+            <meta-data
+                android:name="autoStoreLocales"
+                android:value="true" />
+        </service>
+    </application>
+</manifest>

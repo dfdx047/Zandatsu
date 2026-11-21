@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copiadas da app do 360 (editor e controles por toque). -->
+<resources>
+    <string name="cancel">Cancelar</string>
+    <string name="delete">Apagar</string>
+    <string name="editor_add">Adicionar</string>
+    <string name="editor_add_step">Passo</string>
+    <string name="editor_combo">Combinação</string>
+    <string name="editor_combo_help">Todos os botões marcados são apertados juntos enquanto você segura.</string>
+    <string name="editor_frames">Frames</string>
+    <string name="editor_helpers">Botões do port</string>
+    <string name="editor_hide">Esconder</string>
+    <string name="editor_hint">Arraste os botões · toque num para editar</string>
+    <string name="editor_hold_last">Segurar último passo</string>
+    <string name="editor_label">Rótulo</string>
+    <string name="editor_macro">Macro</string>
+    <string name="editor_macro_note">As macros só mandam botões do controle: o jogo vê como um controle normal.</string>
+    <string name="editor_new_macro">Nova macro</string>
+    <string name="editor_opacity">Opacidade</string>
+    <string name="editor_pad_buttons">Botões do controle</string>
+    <string name="editor_sequence">Sequência</string>
+    <string name="editor_sequence_help">Os passos correm em ordem, 60 frames = 1 segundo.</string>
+    <string name="editor_show">Mostrar %1$s</string>
+    <string name="editor_size">Tamanho</string>
+    <string name="editor_step">Passo %1$d</string>
+    <string name="editor_title">Layout dos controles</string>
+    <string name="helper_augment">Augment Mode (↑)</string>
+    <string name="helper_center_cam">Centralizar câmera (R3)</string>
+    <string name="helper_dodge">Esquiva (X+A)</string>
+    <string name="helper_item">Usar item (↓)</string>
+    <string name="helper_menu">Menu do jogo (Back + Start)</string>
+    <string name="helper_ripper">Ripper Mode (L3+R3)</string>
+    <string name="helper_subweapon">Arma secundária (LT)</string>
+    <string name="helper_weapon_l">Arma / item ←</string>
+    <string name="helper_weapon_r">Arma / item →</string>
+    <string name="input_action">Ação (B)</string>
+    <string name="input_heavy">Forte (Y)</string>
+    <string name="input_jump">Pulo (A)</string>
+    <string name="input_light">Leve (X)</string>
+    <string name="reset">Restaurar</string>
+    <string name="save">Salvar</string>
+    <string name="settings_touch_layout_battle">Combate</string>
+    <string name="settings_touch_layout_map">Controle completo</string>
+    <string name="settings_touch_layout_menu">Menus</string>
+    <string name="ingame_title">Controles</string>
+    <string name="ingame_switch_layout">Trocar controles: combate / menus / controle completo</string>
+    <string name="port_menu_title">Opções do jogo</string>
+</resources>

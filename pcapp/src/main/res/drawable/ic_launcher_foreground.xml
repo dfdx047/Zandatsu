@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Zandatsu PC: um ecra de PC (contorno branco frio) cortado por um golpe vermelho na diagonal. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Ecra -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#E4E7EB"
+        android:strokeWidth="3.5"
+        android:strokeLineJoin="round"
+        android:pathData="M32,36 L76,36 Q79,36 79,39 L79,65 Q79,68 76,68 L32,68 Q29,68 29,65 L29,39 Q29,36 32,36 Z" />
+    <!-- Pe -->
+    <path
+        android:fillColor="#E4E7EB"
+        android:pathData="M50,68 L58,68 L59.5,75 L48.5,75 Z" />
+    <path
+        android:fillColor="#E4E7EB"
+        android:pathData="M42,75 L66,75 L66,78.5 L42,78.5 Z" />
+    <!-- Golpe -->
+    <path
+        android:fillColor="#E3263A"
+        android:pathData="M25,74 L82,28 L84.5,31 L28.5,77.5 Z" />
+</vector>
