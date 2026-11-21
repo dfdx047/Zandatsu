@@ -1,5 +1,6 @@
-struct ResourceLock {void* native;uint32_t guest,size,pitch,rowBytes,rows,flags;CompressedView compressed{};RECT rectangle{};uint32_t nativePitch{};};
+struct ResourceLock {void* native;uint32_t guest,size,pitch,rowBytes,rows,flags;CompressedView compressed{};RECT rectangle{};uint32_t nativePitch{};bool shadowed{};};
 std::map<uint64_t,ResourceLock> resourceLocks;
+void dropBufferShadow(uint32_t address);   // below, with lockBuffer
 uint64_t lockKey(uint32_t object,uint32_t subresource){return (uint64_t(object)<<32)|subresource;}
 uint32_t rowBytes(D3DFORMAT format,uint32_t width){
     switch(format){
@@ -67,10 +68,11 @@ void dropStaleLocks(uint32_t address){
     static unsigned reports=0;
     for(auto it=resourceLocks.lower_bound(uint64_t(address)<<32);it!=resourceLocks.end()&&uint32_t(it->first>>32)==address;){
         if(reports++<8)NFS_RUNTIME_LOG(ANDROID_LOG_WARN,"MGR","D3D9 stale lock dropped: object %08x subresource %u",address,uint32_t(it->first));
-        freeGuest(it->second.guest);it=resourceLocks.erase(it);
+        if(!it->second.shadowed)freeGuest(it->second.guest);it=resourceLocks.erase(it);
     }
+    dropBufferShadow(address);
 }
-void releaseLock(uint32_t address,uint32_t subresource){auto lock=resourceLocks.find(lockKey(address,subresource));if(lock!=resourceLocks.end()){freeGuest(lock->second.guest);resourceLocks.erase(lock);}}
+void releaseLock(uint32_t address,uint32_t subresource){auto lock=resourceLocks.find(lockKey(address,subresource));if(lock!=resourceLocks.end()){if(!lock->second.shadowed)freeGuest(lock->second.guest);resourceLocks.erase(lock);}}
 HRESULT lockTexture(uint32_t address,uint32_t level,uint32_t output,const RECT* rect,uint32_t flags){
     if(!output||resourceLocks.count(lockKey(address,level)))return D3DERR_INVALIDCALL;
     auto texture=nativeObject<IDirect3DTexture9>(address);D3DSURFACE_DESC desc{};HRESULT status=texture->GetLevelDesc(level,&desc);if(FAILED(status))return status;
@@ -88,11 +90,51 @@ HRESULT lockSurface(uint32_t address,uint32_t output,const RECT* rect,uint32_t f
     auto surface=nativeObject<IDirect3DSurface9>(address);D3DSURFACE_DESC desc{};HRESULT status=surface->GetDesc(&desc);if(FAILED(status))return status;
     D3DLOCKED_RECT lock{};status=surface->LockRect(&lock,rect,flags);if(FAILED(status))return status;return lockPixels(address,0,desc,lock,rect,flags,output);
 }
+// Every VB/IB keeps one guest shadow of the whole buffer for its lifetime (21/11, Mi A3 / SD665): each Lock used to
+// allocate a guest copy and read the locked range back from DXVK's mapping, which is uncached GPU memory. MGR locks its
+// four big static buffers (11 MB) every frame: the read-back cost 33.6 ms/frame on a Cortex-A73 (now 0.02 ms). All the game's writes go through the shadow, so it
+// already holds what the buffer holds: Lock returns shadow+offset with no read-back, Unlock still copies the range out.
+// MGR_BUFFER_SHADOW=0 turns it off (A/B).
+struct BufferShadow{uint32_t guest=0,size=0;bool filled=false;};
+std::unordered_map<uint32_t,BufferShadow> bufferShadows;
+bool bufferShadowOn(){static const bool on=[]{const char* v=std::getenv("MGR_BUFFER_SHADOW");return !v||std::atoi(v)!=0;}();return on;}
+void dropBufferShadow(uint32_t address){auto it=bufferShadows.find(address);if(it!=bufferShadows.end()){freeGuest(it->second.guest);bufferShadows.erase(it);}}
+// Lock cost split (21/11, Mi A3): native DXVK Lock (may wait for the GPU) vs our copies, by dynamic/static and flags.
+struct LockCost{uint64_t n=0,nativeNs=0,copyNs=0,bytes=0;};
+uint64_t unlockCopyNs=0,unlockBytes=0;
+LockCost lockCosts[2][4];   // [dynamic][0 none,1 DISCARD,2 NOOVERWRITE,3 other]
+void reportLockCosts(){
+    static const bool on=std::getenv("MGR_XRAY")&&std::atoi(std::getenv("MGR_XRAY"));if(!on)return;
+    static unsigned frames=0;if(++frames%120)return;
+    static const char* kind[4]={"none","discard","nooverwrite","other"};
+    std::string line;char one[160];
+    for(int d=0;d<2;++d)for(int k=0;k<4;++k){auto& c=lockCosts[d][k];if(!c.n)continue;
+        std::snprintf(one,sizeof one," [%s %s: %.0f/frame lock %.2f ms copy %.2f ms %.2f MB]",d?"dyn":"static",kind[k],c.n/120.0,c.nativeNs/1e6/120,c.copyNs/1e6/120,c.bytes/1048576.0/120);line+=one;c=LockCost{};}
+    std::snprintf(one,sizeof one," [unlock copy %.2f ms %.2f MB]",unlockCopyNs/1e6/120,unlockBytes/1048576.0/120);line+=one;unlockCopyNs=unlockBytes=0;
+    NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"MGR","D3D9 buffer locks per frame:%s",line.c_str());
+}
 template<class Buffer,class Desc>HRESULT lockBuffer(uint32_t address,uint32_t offset,uint32_t size,uint32_t output,uint32_t flags){
     if(!output||resourceLocks.count(lockKey(address,0)))return D3DERR_INVALIDCALL;
     auto buffer=nativeObject<Buffer>(address);Desc desc{};HRESULT status=buffer->GetDesc(&desc);if(FAILED(status))return status;
+    if(offset>desc.Size)return D3DERR_INVALIDCALL;
+    auto t0=std::chrono::steady_clock::now();
     void* native=nullptr;status=buffer->Lock(offset,size,&native,flags);if(FAILED(status))return status;
-    if(!size)size=desc.Size-offset;uint32_t temporary=allocateGuest(size);
+    auto t1=std::chrono::steady_clock::now();
+    if(!size||offset+size>desc.Size)size=desc.Size-offset;
+    auto& cost=lockCosts[(desc.Usage&D3DUSAGE_DYNAMIC)?1:0][(flags&D3DLOCK_DISCARD)?1:(flags&D3DLOCK_NOOVERWRITE)?2:flags?3:0];
+    ++cost.n;cost.nativeNs+=std::chrono::duration_cast<std::chrono::nanoseconds>(t1-t0).count();cost.bytes+=size;
+    struct CopyTimer{LockCost& c;std::chrono::steady_clock::time_point t;~CopyTimer(){c.copyNs+=std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now()-t).count();}} copyTimer{cost,t1};
+    if(bufferShadowOn()){   // all buffers (static ones are the 11 MB/frame case)
+        auto& shadow=bufferShadows[address];
+        if(!shadow.guest){shadow.guest=allocateGuest(desc.Size);shadow.size=desc.Size;}
+        if(!shadow.filled){   // first lock: the buffer may hold data from before the shadow existed
+            if(!(flags&D3DLOCK_DISCARD))std::memcpy(pointer(shadow.guest+offset),native,size);
+            shadow.filled=offset==0&&size==desc.Size;
+        }
+        ResourceLock entry{native,shadow.guest+offset,size,size,size,1,flags};entry.shadowed=true;
+        resourceLocks.emplace(lockKey(address,0),entry);write(output,shadow.guest+offset);return D3D_OK;
+    }
+    uint32_t temporary=allocateGuest(size);
     if(!(flags&D3DLOCK_DISCARD))std::memcpy(pointer(temporary),native,size);
     resourceLocks.emplace(lockKey(address,0),ResourceLock{native,temporary,size,size,size,1,flags});write(output,temporary);return D3D_OK;
 }
