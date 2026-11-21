@@ -44,3 +44,18 @@ set(MGR_LAB_INCLUDE "" CACHE FILEPATH "untracked lab include for guest_mgr.inc")
 if(MGR_LAB_INCLUDE)
   target_compile_definitions(mgr_pc PRIVATE "MGR_LAB_INCLUDE=\"${MGR_LAB_INCLUDE}\"")
 endif()
+
+# Lab: livediff (lifted function vs its x86 bytes in Unicorn, on live game state). MGR_LIVEDIFF_DIR holds wraps.c and
+# wrap.rsp from pc/tools/livediff_wraps.py; run with MGR_LIVEDIFF_LOG=<file>.
+set(MGR_LIVEDIFF_DIR "" CACHE PATH "lab: livediff wrappers (pc/tools/livediff_wraps.py)")
+if(MGR_LIVEDIFF_DIR)
+  target_sources(mgr_pc PRIVATE livediff.cpp "${MGR_LIVEDIFF_DIR}/wraps.c")
+  target_link_options(mgr_pc PRIVATE "-Wl,@${MGR_LIVEDIFF_DIR}/wrap.rsp")
+  set_property(TARGET mgr_pc APPEND PROPERTY LINK_DEPENDS "${MGR_LIVEDIFF_DIR}/wrap.rsp")
+  target_link_libraries(mgr_pc PRIVATE dl)
+endif()
+option(MGR_LIVEDIFF_ENTRY "lab: lifted functions call recomp_run_native at entry (livediff entry hook)" OFF)
+if(MGR_LIVEDIFF_ENTRY)
+  target_compile_definitions(guest PRIVATE RECOMP_NATIVE_RANGE)
+  target_compile_options(guest PRIVATE "SHELL:-include ${CMAKE_CURRENT_SOURCE_DIR}/livediff_enter.h")
+endif()
