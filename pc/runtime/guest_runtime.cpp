@@ -1149,7 +1149,9 @@ std::string connectGuestRuntime(const char* executable) {
 #ifdef __ANDROID__
         bootDeadline=std::chrono::steady_clock::time_point::max();
 #else
-        bootDeadline=std::chrono::steady_clock::now()+std::chrono::minutes(5);
+        // Linux bench (pc/runtime/linux): MGR_SECONDS=<s> runs past the 5 min bring-up budget (the host stops at s).
+        bootDeadline=std::chrono::steady_clock::now()+(std::getenv("MGR_SECONDS")?
+            std::chrono::seconds(std::atoi(std::getenv("MGR_SECONDS"))+60):std::chrono::seconds(300));
 #endif
         recomp_yield_hook=checkGuestProgress;
         memory=std::make_unique<GuestMemory>();
