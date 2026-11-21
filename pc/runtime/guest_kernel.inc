@@ -158,8 +158,28 @@ void cpInfo() {
     uint32_t out=arg(1);std::memset(ptr(out,20),0,20);write32(out,cp==65001?4:1);*static_cast<char*>(ptr(out+4,1))='?';ret(1,2);
 }
 // Lab MGR_QPC_SCALE=<f>: the guest clock runs f times real time (does the game's logic follow the clock or the frame count?).
+// Lab MGR_FIXED_STEP=1 (21/11, physics bug): the guest clock advances exactly 1/60 s per presented frame (plus the real
+// time inside the frame, capped just under 1/60 s), so the game's logic always sees 60 Hz steps, as on a PC at 60 fps;
+// below 60 fps the game runs in slow motion instead of taking ~2 logic steps per frame.
+std::atomic<uint64_t> fixedStepBase{0},fixedStepFrameStart{0};
+bool fixedStepOn(){static const bool on=[]{const char* v=std::getenv("MGR_FIXED_STEP");return v&&std::atoi(v)!=0;}();return on;}
+uint64_t realNs(){return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());}
+void fixedStepPresent(){
+    if(!fixedStepOn())return;
+    uint64_t now=realNs(),start=fixedStepFrameStart.load(),inside=start&&now>start?now-start:0;
+    uint64_t shown=inside>=100000000ull?16666000ull+(inside-100000000ull):16666667ull;
+    fixedStepBase.fetch_add(shown);fixedStepFrameStart.store(now);
+}
 uint64_t counter() {
-    uint64_t now=static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
+    uint64_t now=realNs();
+    if(fixedStepOn()){
+        static const uint64_t origin=now;uint64_t start=fixedStepFrameStart.load();if(!start){fixedStepFrameStart.store(now);start=now;}
+        // Inside a frame the clock runs real time up to 1/60 s and then holds; past 100 ms without a Present (loading,
+        // startup before the first frame) it runs real time again from where it held, so waits on the clock end.
+        uint64_t inside=now>start?now-start:0;
+        if(inside>=100000000ull)inside=16666000ull+(inside-100000000ull);else if(inside>16666000ull)inside=16666000ull;
+        return origin+fixedStepBase.load()+inside;
+    }
     static const double scale=[]{const char* s=std::getenv("MGR_QPC_SCALE");return s?std::atof(s):1.0;}();
     static const uint64_t origin=now;
     return scale==1.0?now:origin+static_cast<uint64_t>(double(now-origin)*scale);
