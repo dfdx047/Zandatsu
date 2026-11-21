@@ -94,7 +94,16 @@ void serviceGuestSound(){
 }
 #else
 void serviceGuestSound(){}
-bool startSoundStream(){return true;} // Host tests inspect the mixer; no physical audio output.
+// Host (Linux lab): no physical output, but a null sink still consumes the mix in real time (48 kHz, 10 ms blocks).
+// Without it the DirectSound play cursors never move and MGR's scene startup waits on the sound forever (21/11).
+bool startSoundStream(){
+    static std::once_flag started;
+    std::call_once(started,[]{soundMixer.rate=48000;std::thread([]{
+        std::vector<float> scratch(480*2);auto next=std::chrono::steady_clock::now();
+        for(;;){next+=std::chrono::milliseconds(10);soundMixer.render(scratch.data(),480);std::this_thread::sleep_until(next);}
+    }).detach();});
+    return true;
+}
 #endif
 void shutdownGuestSound(){
 #ifdef __ANDROID__
