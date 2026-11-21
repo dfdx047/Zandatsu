@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copiadas da app do 360 (editor e controles por toque). -->
+<resources>
+    <string name="cancel">Cancel</string>
+    <string name="delete">Delete</string>
+    <string name="editor_add">Add</string>
+    <string name="editor_add_step">Step</string>
+    <string name="editor_combo">Combination</string>
+    <string name="editor_combo_help">All selected buttons are pressed together while you hold.</string>
+    <string name="editor_frames">Frames</string>
+    <string name="editor_helpers">Port buttons</string>
+    <string name="editor_hide">Hide</string>
+    <string name="editor_hint">Drag the buttons · tap one to edit it</string>
+    <string name="editor_hold_last">Hold last step</string>
+    <string name="editor_label">Label</string>
+    <string name="editor_macro">Macro</string>
+    <string name="editor_macro_note">Macros only send controller buttons: the game sees them as a normal controller.</string>
+    <string name="editor_new_macro">New macro</string>
+    <string name="editor_opacity">Opacity</string>
+    <string name="editor_pad_buttons">Controller buttons</string>
+    <string name="editor_sequence">Sequence</string>
+    <string name="editor_sequence_help">Steps run in order, 60 frames = 1 second.</string>
+    <string name="editor_show">Show %1$s</string>
+    <string name="editor_size">Size</string>
+    <string name="editor_step">Step %1$d</string>
+    <string name="editor_title">Touch layout</string>
+    <string name="helper_augment">Augment Mode (↑)</string>
+    <string name="helper_center_cam">Center camera (R3)</string>
+    <string name="helper_dodge">Dodge (X+A)</string>
+    <string name="helper_item">Use item (↓)</string>
+    <string name="helper_menu">Game menu (Back + Start)</string>
+    <string name="helper_ripper">Ripper Mode (L3+R3)</string>
+    <string name="helper_subweapon">Sub-weapon (LT)</string>
+    <string name="helper_weapon_l">Weapon / item ←</string>
+    <string name="helper_weapon_r">Weapon / item →</string>
+    <string name="input_action">Action (B)</string>
+    <string name="input_heavy">Strong (Y)</string>
+    <string name="input_jump">Jump (A)</string>
+    <string name="input_light">Light (X)</string>
+    <string name="reset">Reset</string>
+    <string name="save">Save</string>
+    <string name="settings_touch_layout_battle">Combat</string>
+    <string name="settings_touch_layout_map">Full pad</string>
+    <string name="settings_touch_layout_menu">Menus</string>
+    <string name="ingame_title">Controls</string>
+    <string name="ingame_switch_layout">Switch controls: combat / menus / full pad</string>
+    <string name="port_menu_title">Game options</string>
+</resources>
