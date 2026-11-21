@@ -9,7 +9,9 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.WindowInsets
 import android.view.WindowInsetsController
+import com.dfdx047.zandatsu.pc.controls.PadRouter
 import com.dfdx047.zandatsu.pc.data.AppPaths
+import com.dfdx047.zandatsu.pc.data.GameOrientation
 import com.dfdx047.zandatsu.pc.data.LauncherPrefs
 import com.dfdx047.zandatsu.pc.data.PcTouchMode
 import com.dfdx047.zandatsu.pc.drivers.DriverRepository
@@ -33,13 +35,22 @@ import kotlin.math.roundToInt
  *              controles = clique do rato (nativePointer);
  *   gestures - sem botoes (so o de menu): cada MotionEvent do ecra vai inteiro para nativeMotion (fonte touchscreen,
  *   mouse      coordenadas em pixeis da janela, que ocupa o ecra todo); o nativo interpreta conforme o modo.
+ * Comando com mapeamento guardado no mapeador da launcher (PadRouter): os eventos dele nao vao para o nativo; viram o
+ * estado de um comando enviado por nativeTouchPad (junto com o dos controles da tela), por cima do comando real.
+ * Orientacao: a da launcher (paisagem / retrato / sensor), como o GameActivity da app do 360.
  */
 class PcGameActivity : NativeActivity() {
     private lateinit var touchMode: PcTouchMode
 
     override fun onCreate(savedInstanceState: Bundle?) {
         AppPaths.init(this)
-        touchMode = LauncherPrefs(this).pcTouchMode
+        val prefs = LauncherPrefs(this)
+        touchMode = prefs.pcTouchMode
+        requestedOrientation = when (prefs.gameOrientation) {
+            GameOrientation.PORTRAIT -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+            GameOrientation.AUTO -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+            GameOrientation.LANDSCAPE -> android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        }
         val env = LinkedHashMap<String, String>()
         fun set(k: String, v: String) { Os.setenv(k, v, true); env[k] = v }
         // Valores vazios primeiro: se o arranque falhar a meio, nada fica do arranque anterior (processo reutilizado).
@@ -75,7 +86,8 @@ class PcGameActivity : NativeActivity() {
             set("MGR_START_ERROR", e.message ?: e.toString())
         }
         Log.i(TAG, "env: " + env.entries.joinToString(" ") { (k, v) -> "$k=$v" })
-        if (touchMode == PcTouchMode.BUTTONS) SwordManPad.setSink(pad) else SwordManPad.setSink(null)
+        if (touchMode == PcTouchMode.BUTTONS) SwordManPad.setSink(touchPad) else SwordManPad.setSink(null)
+        PadRouter.sink = mappedPad
         super.onCreate(savedInstanceState)
         // Antes de a janela ser adicionada (onResume): a fila de input fica com as Views, nao com o nativo.
         window.takeInputQueue(null)
@@ -119,28 +131,48 @@ class PcGameActivity : NativeActivity() {
 
     private var overlay: PcOverlay? = null
 
-    /** Comando da tela (HelperEngine -> SwordManPad): estado completo enviado ao nativo a cada mudanca. */
-    private val pad = object : SwordManPad.Sink {
-        private var buttons = 0
-        private var hat = 0
-        private val axes = floatArrayOf(0f, 0f, 0f, 0f, 0f, 0f)
-        override fun button(keycode: Int, down: Boolean) {
-            synchronized(this) {
-                val bit = BUTTON_BITS[keycode]
-                if (bit != null) buttons = if (down) buttons or (1 shl bit) else buttons and (1 shl bit).inv()
-                val h = HAT_BITS[keycode]
-                if (h != null) hat = if (down) hat or h else hat and h.inv()
-                send()
-            }
+    /** Estado de um comando virtual (botoes XInput, cruz, eixos 0..5 com os gatilhos em 0..1). */
+    private class PadState {
+        var buttons = 0
+        var hat = 0
+        val axes = floatArrayOf(0f, 0f, 0f, 0f, 0f, 0f)
+        fun button(keycode: Int, down: Boolean) {
+            val bit = BUTTON_BITS[keycode]
+            if (bit != null) buttons = if (down) buttons or (1 shl bit) else buttons and (1 shl bit).inv()
+            val h = HAT_BITS[keycode]
+            if (h != null) hat = if (down) hat or h else hat and h.inv()
         }
-        override fun axis(axis: Int, value: Float) {
-            synchronized(this) {
-                if (axis !in 0..5) return
-                axes[axis] = if (axis >= 4) (value + 1f) / 2f else value   // gatilhos -1..1 -> 0..1
-                send()
-            }
+        fun axis(axis: Int, value: Float) {
+            if (axis !in 0..5) return
+            axes[axis] = if (axis >= 4) (value + 1f) / 2f else value   // gatilhos -1..1 -> 0..1
         }
-        private fun send() = try { nativeTouchPad(buttons, hat, axes) } catch (_: UnsatisfiedLinkError) {}
+    }
+
+    private val padLock = Any()
+    private val touchState = PadState()
+    private val mappedState = PadState()
+
+    /** Junta o comando da tela e o comando remapeado e envia o estado inteiro ao nativo. */
+    private fun sendPads() {
+        val axes = FloatArray(6)
+        for (i in 0..5) {
+            val m = mappedState.axes[i]
+            val t = touchState.axes[i]
+            axes[i] = if (i >= 4) maxOf(m, t) else if (kotlin.math.abs(m) > 0.02f) m else t
+        }
+        try { nativeTouchPad(touchState.buttons or mappedState.buttons, touchState.hat or mappedState.hat, axes) } catch (_: UnsatisfiedLinkError) {}
+    }
+
+    /** Comando da tela (HelperEngine -> SwordManPad). */
+    private val touchPad = object : SwordManPad.Sink {
+        override fun button(keycode: Int, down: Boolean) = synchronized(padLock) { touchState.button(keycode, down); sendPads() }
+        override fun axis(axis: Int, value: Float) = synchronized(padLock) { touchState.axis(axis, value); sendPads() }
+    }
+
+    /** Comando fisico com mapeamento do mapeador (PadRouter). */
+    private val mappedPad = object : PadRouter.Sink {
+        override fun button(keycode: Int, down: Boolean) = synchronized(padLock) { mappedState.button(keycode, down); sendPads() }
+        override fun axis(axis: Int, value: Float) = synchronized(padLock) { mappedState.axis(axis, value); sendPads() }
     }
 
     private external fun nativeKey(event: KeyEvent)
@@ -158,15 +190,20 @@ class PcGameActivity : NativeActivity() {
                 if (event.action == KeyEvent.ACTION_UP && !event.isCanceled) { if (!o.onBackPressed()) o.openMenu() }
                 return true
             }
-            // Menu aberto: as teclas do comando sao do menu (Compose nao tem foco na janela-painel: so o Back conta).
-            if (o.isMenuOpen() && event.action == KeyEvent.ACTION_DOWN) return true
+            // Menu aberto: as teclas do comando sao do menu (Compose nao tem foco na janela-painel: vao pelo controlador).
+            if (o.isMenuOpen()) {
+                if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) o.menuKeyDown(event.keyCode)
+                return true
+            }
         }
+        if (PadRouter.onKey(event)) return true
         if (toNative { nativeKey(event) }) return true
         return super.dispatchKeyEvent(event)
     }
 
     override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
-        if (overlay?.isMenuOpen() == true) return true
+        overlay?.let { o -> if (o.isMenuOpen()) { o.menuMotion(event); return true } }
+        if (PadRouter.onMotion(event)) return true
         if (toNative { nativeMotion(event) }) return true
         return super.dispatchGenericMotionEvent(event)
     }
@@ -223,6 +260,7 @@ class PcGameActivity : NativeActivity() {
         if (layer.parent != null) runCatching { windowManager.removeViewImmediate(layer) }
         overlay?.onDestroy(); overlay = null
         SwordManPad.setSink(null)
+        PadRouter.sink = null
         super.onDestroy()
     }
 

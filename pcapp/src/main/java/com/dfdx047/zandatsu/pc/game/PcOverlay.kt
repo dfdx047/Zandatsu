@@ -79,7 +79,8 @@ enum class InGameScreen { CLOSED, MENU, EDITOR }
  *  - modo Botoes: os controles desenhados (TouchControlsView + HelperEngine -> SwordManPad -> nativeTouchPad),
  *    o botao de menu e o de troca de layout (combate / menus / comando completo);
  *  - modos Gestos e Mouse: so o botao de menu; o resto do toque vai direto para o nativo (PcGameActivity).
- * Menu (Compose): continuar, editar os controles (modo Botoes), sair do jogo. Com o menu aberto o jogo fica em pausa.
+ * Menu (Compose): o painel lateral da app do 360 (PcGameMenu: Pausa, Controles, Ajuda), por toque ou pelo comando.
+ * Com o menu aberto o jogo fica em pausa (se a opcao estiver ligada).
  */
 class PcOverlay(
     private val activity: Activity,
@@ -95,6 +96,14 @@ class PcOverlay(
     private var menuButton: ImageView? = null
     private var layoutButton: ImageView? = null
     private var compose: ComposeView? = null
+    private val menuController = MenuController()
+    private val menuModel = PcMenuModel(activity, prefs, object : PcMenuActions {
+        override fun resume() = setScreen(InGameScreen.CLOSED)
+        override fun openEditor() = setScreen(InGameScreen.EDITOR)
+        override fun exitToLauncher() { onExit?.invoke() }
+        override fun applyAppearance() = this@PcOverlay.applyAppearance()
+        override val touchMode: PcTouchMode get() = mode
+    })
     private var inBattle = true
     private var onMap = false
 
@@ -149,18 +158,14 @@ class PcOverlay(
                 SwordManTheme(themeMode = prefs.themeMode, darkMode = DarkMode.DARK) {
                     when (screen.value) {
                         InGameScreen.CLOSED -> Unit
-                        InGameScreen.MENU -> PcMenu(
-                            buttonsMode,
-                            onResume = { setScreen(InGameScreen.CLOSED) },
-                            onEdit = { setScreen(InGameScreen.EDITOR) },
-                            onExit = { onExit?.invoke() },
-                        )
+                        InGameScreen.MENU -> PcGameMenu(menuModel, menuController)
                         InGameScreen.EDITOR -> ControlsEditor(prefs, overGame = true, initialKind = currentLayoutKind()) { closeEditor() }
                     }
                 }
             }
             visibility = View.GONE
         }
+        menuController.onClose = { setScreen(InGameScreen.CLOSED) }
         compose = c
         host.addView(c, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         applyAppearance()
@@ -205,7 +210,7 @@ class PcOverlay(
         view?.let { it.releaseAll(); it.layout = ControlLayoutStore.load(currentLayoutKind()) }
     }
 
-    private fun applyAppearance() {
+    fun applyAppearance() {
         view?.let { v ->
             v.layout = ControlLayoutStore.load(currentLayoutKind())
             v.style = prefs.controlStyle
@@ -231,7 +236,21 @@ class PcOverlay(
 
     fun isMenuOpen(): Boolean = screen.value != InGameScreen.CLOSED
 
-    fun openMenu() = setScreen(InGameScreen.MENU)
+    fun openMenu() {
+        if (screen.value == InGameScreen.MENU) return
+        menuModel.refresh()
+        menuController.open(0)
+        setScreen(InGameScreen.MENU)
+    }
+
+    /** Menu aberto: teclas do comando (cima/baixo, LB/RB, A, B). Devolve true se as consumiu. */
+    fun menuKeyDown(code: Int): Boolean =
+        if (screen.value == InGameScreen.MENU) menuController.onKeyDown(code) else false
+
+    /** Menu aberto: analogico esquerdo / cruz do comando. */
+    fun menuMotion(ev: android.view.MotionEvent) {
+        if (screen.value == InGameScreen.MENU) menuController.onMotion(ev)
+    }
 
     private fun closeEditor() {
         view?.layout = ControlLayoutStore.load(currentLayoutKind())
@@ -239,6 +258,7 @@ class PcOverlay(
     }
 
     private fun setScreen(s: InGameScreen) {
+        if (s != InGameScreen.MENU) menuController.stopRepeat()
         screen.value = s
         onMenuChanged?.invoke(s != InGameScreen.CLOSED && prefs.pauseOnMenus)
         compose?.visibility = if (s == InGameScreen.CLOSED) View.GONE else View.VISIBLE
@@ -264,7 +284,7 @@ class PcOverlay(
     /** Back: fecha um nivel; devolve true se tratou. */
     fun onBackPressed(): Boolean = when (screen.value) {
         InGameScreen.EDITOR -> { closeEditor(); true }
-        InGameScreen.MENU -> { setScreen(InGameScreen.CLOSED); true }
+        InGameScreen.MENU -> { menuController.close(); true }
         InGameScreen.CLOSED -> false
     }
 
@@ -301,23 +321,5 @@ class PcOverlay(
         SwordManPad.detach()
         owner.destroy()
         view = null
-    }
-}
-
-@Composable
-private fun PcMenu(buttonsMode: Boolean, onResume: () -> Unit, onEdit: () -> Unit, onExit: () -> Unit) {
-    Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.55f)), contentAlignment = Alignment.Center) {
-        Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.width(340.dp)) {
-            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(stringResource(R.string.ingame_title), style = MaterialTheme.typography.titleLarge)
-                Text(stringResource(R.string.ingame_paused), style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Button(onClick = onResume, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.ingame_resume)) }
-                if (buttonsMode) OutlinedButton(onClick = onEdit, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.ingame_edit_controls)) }
-                OutlinedButton(onClick = onExit, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.ingame_exit)) }
-                Text(stringResource(R.string.ingame_exit_hint), style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
     }
 }
