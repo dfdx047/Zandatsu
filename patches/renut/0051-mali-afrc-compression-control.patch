@@ -1,0 +1,143 @@
+Zandatsu (22/11, Fase 4B Mali): ativa AFRC (VK_EXT_image_compression_control) nos render targets de cor
+em GPUs Mali Valhall/Immortalis que suportam a extensao (ex.: Mali-G615/G710/G720).
+- cvar swordman_renut_afrc = auto|on|off (off por padrao; on para testar em Mali-G615/G715/G720).
+
+--- a/app/thirdparty/plume/plume_render_interface_types.h
++++ b/app/thirdparty/plume/plume_render_interface_types.h
+@@ -1818,6 +1818,7 @@
+         // Textures. SwordMan (Android): BC formats sampled natively (Mali has none; Renut decodes them then).
+         bool textureCompressionBC = false;
+         bool textureCompressionASTC_LDR = false;
++        bool imageCompressionControl = false;  // Zandatsu (renut/0051): VK_EXT_image_compression_control (AFRC na Mali Valhall)
+ 
+         // Descriptor sets. SwordMan (Android): Mali-G57 (r40) binds 7, Renut's draws use 8 unless compacted.
+         uint32_t maxBoundDescriptorSets = 8;
+--- a/app/thirdparty/plume/plume_vulkan.h
++++ b/app/thirdparty/plume/plume_vulkan.h
+@@ -299,6 +299,8 @@
+     // Zandatsu (renut/0036): o renderArea desses passes: 0 exato, 16/64 alargado em blocos, -1 o alvo inteiro.
+     void SetAndroidScissorArea(int mode);
+     void SetAndroidClearFold(bool enabled);
++    // Zandatsu (renut/0051): AFRC (VK_EXT_image_compression_control) nos render targets de cor em Mali Valhall.
++    void SetAndroidAfrc(bool enabled);
+ #endif
+ 
+     struct VulkanFramebuffer : RenderFramebuffer {
+@@ -521,6 +523,7 @@
+         VkPhysicalDeviceSampleLocationsPropertiesEXT sampleLocationProperties = {};
+         std::unique_ptr<RenderBuffer> nullBuffer;
+         bool loadStoreOpNoneSupported = false;
++        bool imageCompressionControlSupported = false;
+         bool nullDescriptorSupported = false;
+ #if defined(__SWITCH__)
+         bool frameGenerationCapable = false;
+--- a/app/thirdparty/plume/plume_vulkan.cpp
++++ b/app/thirdparty/plume/plume_vulkan.cpp
+@@ -185,6 +185,8 @@
+     // com loadOp CLEAR e o valor do clear, sem o vkCmdClearAttachments.
+     static std::atomic<uint64_t> AndroidPassStats[12];
+     static std::atomic<bool> AndroidClearFold{ true };
++    static std::atomic<bool> AndroidAfrc{ false };
++    void SetAndroidAfrc(bool enabled) { AndroidAfrc.store(enabled, std::memory_order_relaxed); }
+ 
+     // Zandatsu (renut/0032, issues #2 e #36): nas Mali de tres digitos uma troca de scissor no meio do passe nao vale (o
+     // quadro do minimapa, 180x180, sai na tela inteira). A troca fecha o passe, e o seguinte abre com o renderArea do
+@@ -454,6 +456,7 @@
+     
+     static const std::unordered_set<std::string> OptionalDeviceExtensions = {
+         VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME,
++        VK_EXT_IMAGE_COMPRESSION_CONTROL_EXTENSION_NAME,
+         VK_EXT_SCALAR_BLOCK_LAYOUT_EXTENSION_NAME,
+         VK_EXT_ROBUSTNESS_2_EXTENSION_NAME,
+         VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME,
+@@ -1438,6 +1441,19 @@
+             imageInfo.flags |= VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
+         }
+ 
++#if defined(__ANDROID__)
++        // Zandatsu (renut/0051): AFRC (Arm Fixed-Rate Compression) nos render targets de cor (Mali Valhall+).
++        VkImageCompressionControlEXT compressionControl = {};
++        if (device->imageCompressionControlSupported && AndroidAfrc.load(std::memory_order_relaxed) &&
++            (desc.flags & RenderTextureFlag::RENDER_TARGET) != 0 &&
++            (desc.flags & RenderTextureFlag::STORAGE) == 0 &&
++            desc.multisampling.sampleCount == 1) {
++            compressionControl.sType = VK_STRUCTURE_TYPE_IMAGE_COMPRESSION_CONTROL_EXT;
++            compressionControl.flags = VK_IMAGE_COMPRESSION_FIXED_RATE_DEFAULT_EXT;
++            compressionControl.pNext = imageInfo.pNext;
++            imageInfo.pNext = &compressionControl;
++        }
++#endif
+         imageFormat = imageInfo.format;
+         fillSubresourceRange();
+ 
+@@ -5028,6 +5044,14 @@
+             featuresChain = &presentWaitFeatures;
+         }
+ 
++        VkPhysicalDeviceImageCompressionControlFeaturesEXT compressionControlFeatures = {};
++        const bool compressionControlFound = supportedOptionalExtensions.find(VK_EXT_IMAGE_COMPRESSION_CONTROL_EXTENSION_NAME) != supportedOptionalExtensions.end();
++        if (compressionControlFound) {
++            compressionControlFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_COMPRESSION_CONTROL_FEATURES_EXT;
++            compressionControlFeatures.pNext = featuresChain;
++            featuresChain = &compressionControlFeatures;
++        }
++
+         VkPhysicalDeviceRobustness2FeaturesEXT robustnessFeatures = {};
+         const bool robustnessFound = supportedOptionalExtensions.find(VK_EXT_ROBUSTNESS_2_EXTENSION_NAME) != supportedOptionalExtensions.end();
+         if (robustnessFound) {
+@@ -5131,6 +5155,12 @@
+             createDeviceChain = &presentWaitFeatures;
+         }
+ 
++        imageCompressionControlSupported = compressionControlFound && compressionControlFeatures.imageCompressionControl;
++        if (imageCompressionControlSupported) {
++            compressionControlFeatures.pNext = createDeviceChain;
++            createDeviceChain = &compressionControlFeatures;
++        }
++
+         nullDescriptorSupported = robustnessFeatures.nullDescriptor;
+         if (nullDescriptorSupported) {
+             robustnessFeatures.pNext = createDeviceChain;
+@@ -5326,6 +5356,7 @@
+         capabilities.geometryShader = deviceFeatures.features.geometryShader;
+         capabilities.textureCompressionBC = deviceFeatures.features.textureCompressionBC;  // SwordMan (Android)
+         capabilities.textureCompressionASTC_LDR = deviceFeatures.features.textureCompressionASTC_LDR;  // Zandatsu (renut/0050)
++        capabilities.imageCompressionControl = imageCompressionControlSupported;  // Zandatsu (renut/0051)
+         capabilities.maxBoundDescriptorSets = physicalDeviceProperties.limits.maxBoundDescriptorSets;  // SwordMan (Android)
+         capabilities.raytracing = rayTracingSupported;
+         capabilities.raytracingStateUpdate = false;
+--- a/app/src/renut_engine/gpu/backend/video.cpp
++++ b/app/src/renut_engine/gpu/backend/video.cpp
+@@ -95,6 +95,14 @@
+ // (Mali): decoded on the GPU by bc_decode_cs when uploaded (compute) or on the CPU (cpu). auto = native where the
+ // device has BC, compute elsewhere; the Renut check (src/renut_glue.cpp) also picks compute for RADV on Xclipse,
+ // whose BC4/BC5 are emulated by the driver. native/compute/cpu force one (compute and cpu work on any device).
++#if defined(__ANDROID__)
++namespace plume { void SetAndroidAfrc(bool enabled); }
++#endif
++REXCVAR_DEFINE_STRING(swordman_renut_afrc, "off", "SwordMan",
++                      "Renut: AFRC (VK_EXT_image_compression_control) nos render targets de cor em Mali Valhall+; "
++                      "desligado por padrao (na Mali-G57 desliga AFBC); on = testar em Mali Valhall v10+ (G615/G715/G720)")
++    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
++
+ REXCVAR_DEFINE_STRING(swordman_renut_bc_astc, "auto", "SwordMan",
+                       "Renut: transcodifica BC1 para ASTC 4x4 em GPU compute (4x menos banda na Mali); "
+                       "auto = ligado quando sem BC nativo e com ASTC LDR, on, off")
+@@ -1097,6 +1105,17 @@
+   BuildStreamConvertPipeline(s);
+   BuildTargetReadbackPipeline(s);
+   BuildBcDecodePipeline(s);  // SwordMan (Android)
++#if defined(__ANDROID__)
++  {
++    const std::string afrc_want = REXCVAR_GET(swordman_renut_afrc);
++    const bool mali = uint32_t(s.device->getDescription().vendor) == 0x13B5;
++    const bool afrc_hw = s.device->getCapabilities().imageCompressionControl;
++    const bool afrc_on = afrc_hw && (afrc_want == "on"); (void)mali;
++    plume::SetAndroidAfrc(afrc_on);
++    RGPU_INFO("AFRC (VK_EXT_image_compression_control): {} (suporte: {}, swordman_renut_afrc = {})",
++              afrc_on ? "ligado" : "desligado", afrc_hw ? "sim" : "nao", afrc_want);
++  }
++#endif
+   // Optional: without it, scaled resolve destinations keep one level.
+   s.texture_mip_ps =
+       CreateHostShader(s.device.get(), RENUT_HOST_SHADER(texture_mip_ps), "texture_mip_ps");
