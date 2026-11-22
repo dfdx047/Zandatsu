@@ -1,0 +1,64 @@
+Zandatsu (Android, Phase 5B): Mali-G720/G1-Ultra cut-off and scissor fixes (issue #78):
+- Match Immortalis-* and Mali-G1* (Lumex / Dimensity 9500) in MaliWithThreeDigits.
+- Default swordman_renut_scissor_area to '16' (Mali 16x16 tile alignment, avoiding garbage blocks on G720).
+- Keep boundViewport/boundScissor tracked on multi-viewport/scissor (MRT) calls so renut/0029 always re-emits.
+
+--- a/app/src/renut_engine/gpu/backend/present.cpp
++++ b/app/src/renut_engine/gpu/backend/present.cpp
+@@ -45,7 +45,7 @@
+ REXCVAR_DEFINE_STRING(swordman_renut_scissor_pass, "auto", "Banjo/Renut",
+                       "Zandatsu: each scissor change opens another render pass with the scissor as its render area: "
+                       "auto (three-digit Mali GPUs), true or false");
+-REXCVAR_DEFINE_STRING(swordman_renut_scissor_area, "exact", "Banjo/Renut",
++REXCVAR_DEFINE_STRING(swordman_renut_scissor_area, "16", "Banjo/Renut",
+                       "Zandatsu: the render area of those passes: exact (the scissor), 16 or 64 (the scissor widened "
+                       "to blocks of that size) or full (the whole target)");
+ REXCVAR_DEFINE_STRING(swordman_renut_present_own_list, "auto", "Banjo/Renut",
+@@ -142,8 +142,14 @@
+ }
+ 
+ bool MaliWithThreeDigits(const std::string &name) {
+-  if (name.find("Mali") == std::string::npos && name.find("Immortalis") == std::string::npos)
++  if (name.find("Immortalis") != std::string::npos)
++    return true;
++  if (name.find("Mali") == std::string::npos)
+     return false;
++  // Zandatsu (renut/0054): Mali-G1* (5th Gen+ Lumex, e.g. Dimensity 9500) also uses the CSF architecture.
++  if (name.find("Mali-G1") != std::string::npos && (name.find("Mali-G1-") != std::string::npos ||
++      name.find("Mali-G1 ") != std::string::npos || name.size() == name.find("Mali-G1") + 7))
++    return true;
+   for (size_t i = name.find('G'); i != std::string::npos; i = name.find('G', i + 1)) {
+     size_t n = 0;
+     while (i + 1 + n < name.size() && name[i + 1 + n] >= '0' && name[i + 1 + n] <= '9')
+--- a/app/thirdparty/plume/plume_vulkan.cpp
++++ b/app/thirdparty/plume/plume_vulkan.cpp
+@@ -3949,9 +3949,12 @@
+ 
+             if (!viewportVector.empty()) {
+                 vkCmdSetViewport(vk, 0, uint32_t(viewportVector.size()), viewportVector.data());
++                // Zandatsu (renut/0054): keep element 0 tracked so renut/0029 re-emits viewport inside render pass.
++                boundViewport = viewportVector[0];
++                viewportBound = true;
++            } else {
++                viewportBound = false;
+             }
+-
+-            viewportBound = false;
+         }
+         else {
+             // Single element fast path.
+@@ -3977,9 +3980,12 @@
+ 
+             if (!scissorVector.empty()) {
+                 vkCmdSetScissor(vk, 0, uint32_t(scissorVector.size()), scissorVector.data());
++                // Zandatsu (renut/0054): keep element 0 tracked so renut/0029 re-emits scissor inside render pass.
++                boundScissor = scissorVector[0];
++                scissorBound = true;
++            } else {
++                scissorBound = false;
+             }
+-
+-            scissorBound = false;
+         }
+         else {
+             // Single element fast path.

@@ -1,0 +1,20 @@
+Zandatsu (Android, Phase 5B): default swordman_present_timing = 0 to prevent cutscene slow-motion/lag
+on LTPO/VRR and Adreno/HyperOS devices (issues #78, #84, #99, #114) where holding 30 fps frames 20 ms
+ahead via VK_GOOGLE_display_timing stalls vkAcquireNextImageKHR. AChoreographer pacing (0042) remains active.
+
+--- a/app/src/renut_engine/display_sync.cpp
++++ b/app/src/renut_engine/display_sync.cpp
+@@ -40,8 +40,11 @@
+                     "almost a whole refresh more; now and then one was shown three refreshes and the next one). A frame "
+                     "that ends late is released at once, as before. The [display] line every 10 s gives present -> "
+                     "display and input -> display (renut_engine/display_sync.cpp)");
+-// Zandatsu (renut/0043): a hora de exibicao de cada quadro (VK_GOOGLE_display_timing) na grelha do vsync.
+-REXCVAR_DEFINE_INT32(swordman_present_timing, 1, "SwordMan",
++// Zandatsu (renut/0043, 0053): a hora de exibicao de cada quadro (VK_GOOGLE_display_timing) na grelha do vsync.
++// Padrao 0 (renut/0053): em telas LTPO/VRR e drivers Adreno/HyperOS segurar quadros 20 ms no futuro trava o
++// vkAcquireNextImageKHR durante cutscenes a 30 fps (issues #78, #84, #99, #114); o AChoreographer (0042) ja
++// cadencia sem travar a fila.
++REXCVAR_DEFINE_INT32(swordman_present_timing, 0, "SwordMan",
+                      "Android, vsync on: each frame asks the display for its time (VK_GOOGLE_display_timing), the "
+                      "previous one's plus the frame's refreshes, on the display's own refresh grid (banjo_display_sync): "
+                      "a 30 fps video on a 120 Hz display stays 4 refreshes a frame instead of 3, 4 or 5. A late frame "

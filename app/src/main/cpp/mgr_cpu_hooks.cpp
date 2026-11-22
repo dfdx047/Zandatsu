@@ -79,7 +79,11 @@ WorkerR13 g_worker_r13[64];
 
 bool FindWorkerR13(uint32_t entry, uint64_t* r13) {
   for (auto& w : g_worker_r13) {
-    const uint32_t e = w.entry.load(std::memory_order_acquire);
+    uint32_t e = w.entry.load(std::memory_order_acquire);
+    while (e == 1u) {
+      __asm__ volatile("yield");
+      e = w.entry.load(std::memory_order_acquire);
+    }
     if (e == 0) return false;
     if (e == entry) {
       *r13 = w.r13;
@@ -91,14 +95,25 @@ bool FindWorkerR13(uint32_t entry, uint64_t* r13) {
 }  // namespace
 
 // O laco de cada worker (r3 = a sua entrada): fica com o r13 dele.
+// Zandatsu (Phase 5B): reserva o slot com sentinela 1 antes de gravar r13 (antes dois workers podiam
+// sobrescrever w.r13 em paralelo antes do CAS, causando leitura de ponteiro nulo + 0xD0).
 REX_HOOK_RAW(sub_828BF158) {
   const uint32_t entry = ctx.r3.u32;
   for (auto& w : g_worker_r13) {
+    uint32_t e = w.entry.load(std::memory_order_acquire);
+    while (e == 1u) {
+      __asm__ volatile("yield");
+      e = w.entry.load(std::memory_order_acquire);
+    }
+    if (e == entry) break;
+    if (e != 0) continue;
     uint32_t expected = 0;
-    if (w.entry.load(std::memory_order_acquire) == entry) break;
-    if (w.entry.load(std::memory_order_acquire) != 0) continue;
-    w.r13 = ctx.r13.u64;
-    if (w.entry.compare_exchange_strong(expected, entry, std::memory_order_acq_rel)) break;
+    if (w.entry.compare_exchange_strong(expected, 1u, std::memory_order_acq_rel)) {
+      w.r13 = ctx.r13.u64;
+      w.entry.store(entry, std::memory_order_release);
+      break;
+    }
+    if (expected == entry) break;
   }
   __imp__sub_828BF158(ctx, base);
 }
