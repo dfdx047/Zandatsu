@@ -1,0 +1,75 @@
+Zandatsu (Android, Phase 5D): fix Ultrawide Save/Pause menu 20% unfiltered seam and auto-enable AFRC on Mali Valhall v10+:
+- draw.cpp: do not widen destination texture on 1280-column menu captures of the widened back buffer.
+- video.cpp: default swordman_renut_afrc = auto (enables AFRC on 3-digit Mali/Immortalis/G1* = -15% GPU ms on G615; off on G57).
+
+--- a/app/src/renut_engine/gpu/render/draw.cpp
++++ b/app/src/renut_engine/gpu/render/draw.cpp
+@@ -5997,10 +5997,14 @@
+     source_rect = &widened_rect;
+   }
+   HostSurface *surface = GetHostSurfaceLocked(source_va);
+-  // Zandatsu (renut/0046, 12/11): the console's 1280 columns of the back buffer (the screen's width already, not a
+-  // WidenScreenSurface target) copied for a menu's background: that frame is 2D (guest/widescreen.h).
+-  if (source_rect && source_rect->x1 == 0 && source_rect->x2 == 1280 && GuestScreenWidth() > 1280 && surface &&
+-      !surface->depth && surface->width == GuestScreenWidth() && surface->height == 720)
++  // Zandatsu (renut/0046, 0059): the console's 1280 columns of the back buffer (the screen's width already, not a
++  // WidenScreenSurface target) copied for a menu's background: that frame is 2D (guest/widescreen.h), and the
++  // destination texture must NOT be widened to GuestScreenWidth() or u=0..1 squishes the blur into 0..1024 (80%)
++  // and exposes unfiltered/stale columns on the right 20%.
++  const bool menu_capture = source_rect && source_rect->x1 == 0 && source_rect->x2 == 1280 &&
++                            GuestScreenWidth() > 1280 && surface && !surface->depth &&
++                            surface->width == GuestScreenWidth() && surface->height == 720;
++  if (menu_capture)
+     NoteScreenCapture();
+   if (swordman::frame_dump::On() && surface && swordman::frame_dump::Active(TextureFrameLocked())) {
+     const ClearRect r = source_rect ? *source_rect : ClearRect{0, 0, -1, -1};
+@@ -6038,8 +6042,8 @@
+     return src.x2 > src.x1 && src.y2 > src.y1;
+   };
+ 
+-  // SwordMan (2026-10-26, widescreen): the game's 1280x720 copies of the screen follow the wider screen.
+-  if (surface && dest_texture_va && dest_level == 0)
++  // SwordMan (2026-10-26, widescreen; renut/0059): widen 1280x720 screen copies, except 1280-col menu captures.
++  if (surface && dest_texture_va && dest_level == 0 && !menu_capture)
+     WidenScreenTexture(dest_texture_va, surface->width, surface->height);
+   if (surface && dest_texture_va) {
+     if (surface->depth) {
+--- a/app/src/renut_engine/gpu/backend/video.cpp
++++ b/app/src/renut_engine/gpu/backend/video.cpp
+@@ -98,9 +98,9 @@
+ #if defined(__ANDROID__)
+ namespace plume { void SetAndroidAfrc(bool enabled); }
+ #endif
+-REXCVAR_DEFINE_STRING(swordman_renut_afrc, "off", "SwordMan",
+-                      "Renut: AFRC (VK_EXT_image_compression_control) nos render targets de cor em Mali Valhall+; "
+-                      "desligado por padrao (na Mali-G57 desliga AFBC); on = testar em Mali Valhall v10+ (G615/G715/G720)")
++REXCVAR_DEFINE_STRING(swordman_renut_afrc, "auto", "SwordMan",
++                      "Renut: AFRC (VK_EXT_image_compression_control) nos render targets de cor em Mali Valhall v10+; "
++                      "auto = ligado em Mali G6xx/G7xx/Immortalis/G1* (desligado na G57 onde desliga AFBC), on, off")
+     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+ 
+ REXCVAR_DEFINE_STRING(swordman_renut_bc_astc, "auto", "SwordMan",
+@@ -1108,9 +1108,22 @@
+ #if defined(__ANDROID__)
+   {
+     const std::string afrc_want = REXCVAR_GET(swordman_renut_afrc);
++    const std::string gpu_name = s.device->getDescription().name;
+     const bool mali = uint32_t(s.device->getDescription().vendor) == 0x13B5;
++    // Zandatsu (renut/0059): Valhall v10+ (G6xx/G715/G720/Immortalis/G1*) has real HW AFRC (-15% GPU ms on G615);
++    // older Valhall v9 (G57/G77/G78) advertises the extension but disables AFBC and regresses +13 ms.
++    bool mali_v10 = gpu_name.find("Immortalis") != std::string::npos ||
++                    gpu_name.find("Mali-G1") != std::string::npos;
++    if (!mali_v10 && mali) {
++      for (size_t i = gpu_name.find('G'); i != std::string::npos; i = gpu_name.find('G', i + 1)) {
++        size_t n = 0;
++        while (i + 1 + n < gpu_name.size() && gpu_name[i + 1 + n] >= '0' && gpu_name[i + 1 + n] <= '9')
++          ++n;
++        if (n >= 3) { mali_v10 = true; break; }
++      }
++    }
+     const bool afrc_hw = s.device->getCapabilities().imageCompressionControl;
+-    const bool afrc_on = afrc_hw && (afrc_want == "on"); (void)mali;
++    const bool afrc_on = afrc_hw && (afrc_want == "on" || (afrc_want == "auto" && mali_v10));
+     plume::SetAndroidAfrc(afrc_on);
+     RGPU_INFO("AFRC (VK_EXT_image_compression_control): {} (suporte: {}, swordman_renut_afrc = {})",
+               afrc_on ? "ligado" : "desligado", afrc_hw ? "sim" : "nao", afrc_want);
