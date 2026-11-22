@@ -1,6 +1,6 @@
 Zandatsu (Android, Phase 6): integrate ZeroFG v1.1.0 (ReallyZero / Zero) into Renut present.
-Uses 3-slot history ring + per-frame-in-flight output (eliminating GPU read/write flicker), linear gamma=1.0 copy,
-subgroup acceleration, and 720p work cap (swordman_zerofg_max_height=720).
+Uses 3-slot history ring + per-frame-in-flight output, own present list on Mali for kGenerated (fixes 3-digit Mali
+crop/flicker on generated frames), linear gamma=1.0 copy, subgroup accel, and 720p work cap.
 
 --- a/app/src/renut_engine/gpu/backend/present.cpp
 +++ b/app/src/renut_engine/gpu/backend/present.cpp
@@ -338,3 +338,15 @@ subgroup acceleration, and 720p work cap (swordman_zerofg_max_height=720).
    FrameInterp &f = g_interp;
    if (f.failed)
      return false;
+@@ -1104,8 +1391,9 @@
+ #if defined(__ANDROID__)
+   const bool after = role == PresentRole::kAfterGenerated;
+   const uint32_t extra = g_interp.extra;
+-  // Zandatsu (renut/0030): o trabalho do jogo sai antes, e a saida para a tela vai numa lista so dela.
+-  const bool own = role == PresentRole::kFrame && UseOwnPresent(s);
++  // Zandatsu (renut/0030, Phase 6): o trabalho do jogo (e do ZeroFG) sai antes, e a saida para a tela vai numa lista
++  // so dela tambem no kGenerated (evita o bug de recorte/cintilacao das Mali de 3 digitos nos frames gerados).
++  const bool own = role != PresentRole::kAfterGenerated && UseOwnPresent(s);
+   if (own && s.list_open)
+     detail::SubmitAndAdvance(s, nullptr, nullptr);
+   const uint32_t own_index = g_own.index;
