@@ -1,0 +1,70 @@
+Zandatsu (22/11, portado de Dragon-Burst renut/0107): passes sem profundidade abrem so com a cor (swordman_renut_depth_drop, ligada).
+- O jogo deixa a profundidade da cena ligada nos passes de ecra inteiro do pos-processamento (brilho, sombra em tela,
+  composicao, HUD): o Renut abria-os com cor + profundidade, e numa GPU por blocos (Mali, GMEM do Adreno) cada um lia e
+  gravava a D32S8 inteira (~7 MB + 7 MB a 720p) sem a usar.
+
+--- a/app/src/renut_engine/gpu/render/draw.cpp
++++ b/app/src/renut_engine/gpu/render/draw.cpp
+@@ -86,6 +86,12 @@
+   return on;
+ }
+ }  // namespace
++// Zandatsu (renut/0047, de Dragon Burst 0107): a draw that neither tests nor writes depth nor uses stencil opens its
++// pass without the depth target (GPUs by tiles then neither load nor store it), unless the open pass already has it
++// with the same colours.
++REXCVAR_DEFINE_BOOL(swordman_renut_depth_drop, true, "SwordMan",
++                    "Renut: os passes sem teste nem escrita de profundidade nem stencil abrem so com a cor (a Mali e o "
++                    "Adreno em GMEM nao leem nem gravam a profundidade); false = como antes");
+ REXCVAR_DEFINE_STRING(swordman_renut_skip_ps, "", "SwordMan",
+                       "Renut (diagnostic): pixel shader hashes (hex, comma separated) whose draws are skipped")
+     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+@@ -1251,6 +1257,20 @@
+   return label;
+ }
+ 
++// Zandatsu (renut/0047): the targets of the framebuffer BindTargets bound last (with g_bound.framebuffer).
++HostSurface *g_bound_depth = nullptr;
++HostSurface *g_bound_colors[d3d::kMaxRenderTargets] = {};
++uint32_t g_bound_color_count = 0;
++
++bool BoundWithDepth(const Targets &t) {
++  if (!g_bound.framebuffer || g_bound_depth != t.depth || g_bound_color_count != t.color_count)
++    return false;
++  for (uint32_t i = 0; i < t.color_count; ++i)
++    if (g_bound_colors[i] != t.colors[i])
++      return false;
++  return true;
++}
++
+ bool BindTargets(const Targets &t) {
+   if (t.depth && t.depth->handed)
+     DepthHandOverBeforeBindLocked(t.depth, nullptr, 0);  // banjo-nx (2026-10-19, banjo_deko3d_depth_handover)
+@@ -1320,6 +1340,10 @@
+     State().command_list->setFramebuffer(framebuffer);
+     g_bound.framebuffer = framebuffer;
+   }
++  g_bound_depth = t.depth;  // Zandatsu (renut/0047)
++  g_bound_color_count = t.color_count;
++  for (uint32_t i = 0; i < t.color_count; ++i)
++    g_bound_colors[i] = t.colors[i];
+   return true;
+ }
+ 
+@@ -4456,6 +4480,17 @@
+     }
+   }
+ 
++  // Zandatsu (renut/0047, swordman_renut_depth_drop): RB_DEPTHCONTROL bit 0 stencil, bit 1 depth test, bit 2 depth
++  // write (only with the test); a test that always passes and writes nothing reads nothing (pipeline.cpp). Depth kept
++  // when the open framebuffer already has it, so a pass is never split for it.
++  static const bool depth_drop = REXCVAR_GET(swordman_renut_depth_drop);
++  if (depth_drop && targets.depth && targets.color_count) {
++    const u32 dc = u32(device.dev().m_ControlPacket.DepthControl);
++    const bool depth_used = (dc & 1) || ((dc & 2) && ((dc & 4) || ((dc >> 4) & 7) != 7));
++    if (!depth_used && !BoundWithDepth(targets))
++      targets.depth = nullptr;
++  }
++
+   // banjo-nx (banjo_gpu_depth_only): before anything of the pixel shader is set up.
+   if (ps && DrawsWithoutPixelShader(device, targets, *ps)) {
+     ps = nullptr;

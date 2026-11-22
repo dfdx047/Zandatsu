@@ -1,0 +1,22 @@
+Zandatsu (22/11): swordman_renut_scissor_pass so parte o render pass quando o scissor recorta o alvo
+(ex.: minimapa) ou ao sair de um renderArea reduzido; trocas de scissor de alvo inteiro nao partem o passe.
+
+--- a/app/thirdparty/plume/plume_vulkan.cpp
++++ b/app/thirdparty/plume/plume_vulkan.cpp
+@@ -3972,7 +3972,15 @@
+ 
+ #if defined(__ANDROID__)
+             if (activeRenderPass != VK_NULL_HANDLE && AndroidScissorPass.load(std::memory_order_relaxed)) {
+-                endActiveRenderPass();
++                // Zandatsu (renut/0048): so fecha o passe se o renderArea estava reduzido ou o novo scissor
++                // recorta o alvo (ex.: minimapa); trocas de scissor de alvo inteiro nao partem o passe na Mali.
++                const bool subrect = targetFramebuffer != nullptr &&
++                    (scissor.offset.x > 0 || scissor.offset.y > 0 ||
++                     scissor.offset.x + int32_t(scissor.extent.width) < int32_t(targetFramebuffer->width) ||
++                     scissor.offset.y + int32_t(scissor.extent.height) < int32_t(targetFramebuffer->height));
++                if (androidAreaShrunk || subrect) {
++                    endActiveRenderPass();
++                }
+             }
+ #endif
+             vkCmdSetScissor(vk, 0, 1, &scissor);
