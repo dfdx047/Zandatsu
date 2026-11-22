@@ -806,10 +806,14 @@ private data class RenutPresetSpec(
 
 private fun RenutPreset.spec(): RenutPresetSpec = when (this) {
     RenutPreset.MINIMUM -> RenutPresetSpec(
-        InternalResolution.P540, shadows = false, bloom = false, anisotropic = -1, effect = "fsr", audioLittle = true,
+        InternalResolution.P540, shadows = false, bloom = false, anisotropic = -1, effect = "fsr", lazyMips = true, audioLittle = true,
     )
-    RenutPreset.LOW -> RenutPresetSpec(InternalResolution.P540, shadows = true, bloom = true, anisotropic = -1, effect = "fsr", audioLittle = true)
-    RenutPreset.MEDIUM -> RenutPresetSpec(InternalResolution.P720, shadows = true, bloom = true, anisotropic = -1, audioLittle = true)
+    RenutPreset.LOW -> RenutPresetSpec(
+        InternalResolution.P540, shadows = true, bloom = true, anisotropic = -1, effect = "fsr", lazyMips = true, audioLittle = true,
+    )
+    RenutPreset.MEDIUM -> RenutPresetSpec(
+        InternalResolution.P720, shadows = true, bloom = true, anisotropic = -1, lazyMips = true, audioLittle = true,
+    )
     RenutPreset.HIGH -> RenutPresetSpec(
         InternalResolution.P1080, shadows = true, bloom = true, anisotropic = -1, lazyMips = true, shadow1x = true,
         audioLittle = true,

@@ -1,0 +1,21 @@
+Zandatsu (Android, Phase 5B+): serialize vkCreateGraphicsPipelines by default on Mali/Immortalis
+(swordman_renut_serial_pipelines = auto). Prevents SIGSEGV at 0x40 inside libGLES_mali.so
+cmpbe_v2_compile_multiple_shaders under concurrent pipeline builds (issues #47, #83, #101).
+
+--- a/app/src/renut_engine/gpu/render/pipeline.cpp
++++ b/app/src/renut_engine/gpu/render/pipeline.cpp
+@@ -383,9 +383,13 @@
+   const std::string mode = REXCVAR_GET(swordman_renut_serial_pipelines);
+   const std::string name = State().device ? State().device->getDescription().name : std::string();
+   const bool powervr = name.find("PowerVR") != std::string::npos;
+-  g_serial = mode == "true" || (mode == "auto" && (powervr || !g_seen.empty()));
++  // Zandatsu (renut/0055): libGLES_mali.so (cmpbe_v2_compile_multiple_shaders) crashes with SIGSEGV at 0x40
++  // under concurrent vkCreateGraphicsPipelines on Mali-G57/G615/G78 (issues #47, #83, #101). Serialize on Mali too.
++  const bool mali = name.find("Mali") != std::string::npos || name.find("Immortalis") != std::string::npos;
++  g_serial = mode == "true" || (mode == "auto" && (powervr || mali || !g_seen.empty()));
+   RGPU_INFO("[renut] swordman_renut_serial_pipelines = {}: {}", mode,
+             g_serial ? (powervr ? "um pipeline de cada vez (PowerVR)"
++                        : mali  ? "um pipeline de cada vez (Mali)"
+                                 : "um pipeline de cada vez (o driver ja caiu a compilar)")
+                      : "em paralelo");
+   if (REXCVAR_GET(swordman_renut_compile_guard)) {
