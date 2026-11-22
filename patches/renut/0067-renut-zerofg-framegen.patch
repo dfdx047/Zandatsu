@@ -1,6 +1,7 @@
 Zandatsu (Android, Phase 6): integrate ZeroFG v1.1.0 (ReallyZero / Zero) into Renut present.
 Supports both 30->60 FPS (with dbz3_frameskip=1) and 60->120 FPS (on >=100 Hz displays) via swordman_zerofg_mode.
-Drains banjo_renut_record worker before recording ZeroFG compute dispatches onto the real VkCommandBuffer.
+Drains banjo_renut_record worker before recording ZeroFG compute dispatches onto the real VkCommandBuffer,
+uses linear gamma=1.0 on history copy, and caps ZeroFG working height (swordman_zerofg_max_height=720) for Mali speed.
 
 --- a/app/src/renut_engine/gpu/backend/present.cpp
 +++ b/app/src/renut_engine/gpu/backend/present.cpp
@@ -22,7 +23,7 @@ Drains banjo_renut_record worker before recording ZeroFG compute dispatches onto
  #include "renut_engine/gpu/backend/render_thread.h"
  #include "renut_engine/gpu/backend/video.h"
  #include "renut_engine/gpu/backend/video_internal.h"
-@@ -79,6 +83,12 @@
+@@ -79,6 +83,15 @@
      .allowed({"original", "stretch", "widescreen"})
      .lifecycle(rex::cvar::Lifecycle::kHotReload);
  
@@ -31,11 +32,14 @@ Drains banjo_renut_record worker before recording ZeroFG compute dispatches onto
 +                      "Geracao de quadros ZeroFG v1.1.0 (Vulkan 1.3): off, reallyzero (rapido) ou zero (qualidade)")
 +    .allowed({"off", "reallyzero", "zero"})
 +    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++REXCVAR_DEFINE_INT32(swordman_zerofg_max_height, 720, "SwordMan",
++                     "Altura maxima de trabalho do ZeroFG (720 = otimo equilibrio GPU/qualidade; 0 = nativo)")
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
 +
  REXCVAR_DEFINE_BOOL(renut_vsync, true, "Nuts&Bolts/Graphics",
                      "Show each frame at the display's refresh: no tearing, and the game runs at "
                      "the refresh rate (frame_cap then only limits below it). Off shows frames at "
-@@ -733,13 +743,13 @@
+@@ -733,13 +746,13 @@
  }
  
  bool MakeInterpTarget(VideoState &s, InterpTarget &t, uint32_t w, uint32_t h, plume::RenderFormat format,
@@ -51,7 +55,7 @@ Drains banjo_renut_record worker before recording ZeroFG compute dispatches onto
    t.texture = s.device->createTexture(desc);
    if (!t.texture)
      return false;
-@@ -828,9 +838,261 @@
+@@ -828,9 +841,270 @@
      InterpToLayout(cmd, *t, plume::RenderTextureLayout::SHADER_READ);
  }
  
@@ -100,7 +104,8 @@ Drains banjo_renut_record worker before recording ZeroFG compute dispatches onto
 +  return rex::perf::GetDisplayRefreshRate() >= 100.0f;  // 60 -> 120 FPS needs >=100 Hz
 +}
 +
-+void CopyToZeroFGHistoryLocked(VideoState &s, const PresentImage &image, InterpTarget &dst, uint32_t w, uint32_t h) {
++void CopyToZeroFGHistoryLocked(VideoState &s, const PresentImage &image, InterpTarget &dst, uint32_t src_w,
++                               uint32_t src_h, uint32_t dst_w, uint32_t dst_h) {
 +  plume::RenderCommandList *cmd = s.command_list;
 +  if (image.layout && *image.layout != plume::RenderTextureLayout::SHADER_READ) {
 +    cmd->barriers(plume::RenderBarrierStage::GRAPHICS,
@@ -109,17 +114,19 @@ Drains banjo_renut_record worker before recording ZeroFG compute dispatches onto
 +  }
 +  InterpToLayout(cmd, dst, plume::RenderTextureLayout::COLOR_WRITE);
 +  cmd->setFramebuffer(dst.framebuffer.get());
-+  cmd->setViewports(plume::RenderViewport(0.0f, 0.0f, float(w), float(h)));
-+  cmd->setScissors(plume::RenderRect(0, 0, int32_t(w), int32_t(h)));
++  cmd->setViewports(plume::RenderViewport(0.0f, 0.0f, float(dst_w), float(dst_h)));
++  cmd->setScissors(plume::RenderRect(0, 0, int32_t(dst_w), int32_t(dst_h)));
 +  cmd->setGraphicsPipelineLayout(s.utility_layout.get());
 +  cmd->setPipeline(g_zerofg.copy_pipeline.get());
 +  cmd->setGraphicsDescriptorSet(s.texture_set.get(), 0);
 +  cmd->setGraphicsDescriptorSet(s.sampler_set.get(), 1);
 +  UtilityPush push{};
-+  push.scale[0] = image.width ? float(w) / float(image.width) : 1.0f;
-+  push.scale[1] = image.height ? float(h) / float(image.height) : 1.0f;
++  push.scale[0] = image.width ? float(src_w) / float(image.width) : 1.0f;
++  push.scale[1] = image.height ? float(src_h) / float(image.height) : 1.0f;
 +  push.texture_index = image.descriptor;
 +  push.sampler_index = kLinearClampSamplerSlot;
++  push.param0 = 1.0f;  // linear copy (0.0 -> pow(c, 0.0) = 1.0 = pure white!)
++  push.param1 = 0.0f;  // no gamma ramp (applied once at scan-out)
 +  cmd->setGraphicsPushConstants(0, &push, 0, sizeof(push));
 +  cmd->drawInstanced(3, 1, 0, 0);
 +  cmd->setFramebuffer(nullptr);
@@ -136,10 +143,16 @@ Drains banjo_renut_record worker before recording ZeroFG compute dispatches onto
 +    g_zerofg.history = false;
 +    return false;
 +  }
-+  const uint32_t w = image.source_width ? image.source_width : image.width;
-+  const uint32_t h = image.source_height ? image.source_height : image.height;
-+  if (!w || !h || !EnsureInterpListsOnlyLocked(s) || !Video::EnsureCommandListLocked())
++  const uint32_t src_w = image.source_width ? image.source_width : image.width;
++  const uint32_t src_h = image.source_height ? image.source_height : image.height;
++  if (!src_w || !src_h || !EnsureInterpListsOnlyLocked(s) || !Video::EnsureCommandListLocked())
 +    return false;
++  const int32_t max_h = REXCVAR_GET(swordman_zerofg_max_height);
++  uint32_t w = src_w, h = src_h;
++  if (max_h > 0 && h > uint32_t(max_h)) {
++    h = uint32_t(max_h) & ~1u;
++    w = std::max(2u, ((src_w * h + src_h / 2) / src_h) & ~1u);
++  }
 +
 +  auto *vk_dev = static_cast<plume::VulkanDevice *>(s.device.get());
 +  auto *vk_if = vk_dev ? vk_dev->renderInterface : nullptr;
@@ -237,7 +250,7 @@ Drains banjo_renut_record worker before recording ZeroFG compute dispatches onto
 +  }
 +
 +  const uint32_t i = g_zerofg.index, p = i ^ 1u;
-+  CopyToZeroFGHistoryLocked(s, image, g_zerofg.hist[i], w, h);
++  CopyToZeroFGHistoryLocked(s, image, g_zerofg.hist[i], src_w, src_h, w, h);
 +  ++g_zerofg.sequence;
 +  if (!g_zerofg.history) {
 +    g_zerofg.history = true;
