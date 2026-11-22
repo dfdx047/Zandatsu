@@ -1,0 +1,259 @@
+Zandatsu (22/11, Fase 4A Mali): transcodifica texturas BC1 (DXT1) direto para ASTC 4x4 LDR no bc_decode_cs.
+- Corta 4x o tamanho em VRAM, o staging de upload e a banda de amostragem na cache L2/DRAM da Mali
+  (16 bytes/bloco em ASTC 4x4 contra 64 bytes/bloco em RGBA8).
+- cvar swordman_renut_bc_astc = auto|on|off (auto = ligado sem BC nativo e com ASTC LDR em hardware).
+
+--- a/app/thirdparty/plume/plume_render_interface_types.h
++++ b/app/thirdparty/plume/plume_render_interface_types.h
+@@ -169,6 +169,7 @@
+         S8_UINT,
+         // banjo-nx (2026-10-19): 24-bit unorm depth with 8-bit stencil, 4 bytes a pixel (deko3d Z24S8; the Xenos D24S8).
+         D24_UNORM_S8_UINT,
++        ASTC_4x4_UNORM,
+         MAX
+     };
+ 
+@@ -611,6 +612,7 @@
+         case RenderFormat::BC6H_SF16:
+         case RenderFormat::BC7_UNORM:
+         case RenderFormat::BC7_UNORM_SRGB:
++        case RenderFormat::ASTC_4x4_UNORM:
+             return 16;
+         default:
+             assert(false && "Unknown format.");
+@@ -697,6 +699,7 @@
+         case RenderFormat::BC7_TYPELESS:
+         case RenderFormat::BC7_UNORM:
+         case RenderFormat::BC7_UNORM_SRGB:
++        case RenderFormat::ASTC_4x4_UNORM:
+             return 4;
+         default:
+             assert(false && "Unknown format.");
+@@ -1814,6 +1817,7 @@
+ 
+         // Textures. SwordMan (Android): BC formats sampled natively (Mali has none; Renut decodes them then).
+         bool textureCompressionBC = false;
++        bool textureCompressionASTC_LDR = false;
+ 
+         // Descriptor sets. SwordMan (Android): Mali-G57 (r40) binds 7, Renut's draws use 8 unless compacted.
+         uint32_t maxBoundDescriptorSets = 8;
+--- a/app/thirdparty/plume/plume_vulkan.cpp
++++ b/app/thirdparty/plume/plume_vulkan.cpp
+@@ -647,6 +647,8 @@
+             return VK_FORMAT_BC7_UNORM_BLOCK;
+         case RenderFormat::BC7_UNORM_SRGB:
+             return VK_FORMAT_BC7_SRGB_BLOCK;
++        case RenderFormat::ASTC_4x4_UNORM:
++            return VK_FORMAT_ASTC_4x4_UNORM_BLOCK;
+         default:
+             assert(false && "Unknown format.");
+             return VK_FORMAT_UNDEFINED;
+@@ -5323,6 +5325,7 @@
+         // Fill capabilities.
+         capabilities.geometryShader = deviceFeatures.features.geometryShader;
+         capabilities.textureCompressionBC = deviceFeatures.features.textureCompressionBC;  // SwordMan (Android)
++        capabilities.textureCompressionASTC_LDR = deviceFeatures.features.textureCompressionASTC_LDR;  // Zandatsu (renut/0050)
+         capabilities.maxBoundDescriptorSets = physicalDeviceProperties.limits.maxBoundDescriptorSets;  // SwordMan (Android)
+         capabilities.raytracing = rayTracingSupported;
+         capabilities.raytracingStateUpdate = false;
+--- a/app/src/renut_engine/gpu/render/format.h
++++ b/app/src/renut_engine/gpu/render/format.h
+@@ -165,6 +165,7 @@
+   BC3,
+   BC4,
+   BC5,
++  BC1_ASTC,
+ };
+ 
+ // SwordMan (Android): the BC conversions (BC1 = 1 .. BC5 = 5, the bc_decode_cs format), 0 for any other.
+@@ -175,6 +176,7 @@
+   case TexelConversion::BC3: return 3;
+   case TexelConversion::BC4: return 4;
+   case TexelConversion::BC5: return 5;
++  case TexelConversion::BC1_ASTC: return 6;
+   default: return 0;
+   }
+ }
+@@ -198,7 +200,7 @@
+ 
+ // SwordMan (Android): a BC format's info (GetTextureFormatInfo, compressed) as decoded blocks of plain texels, for a
+ // device that cannot sample BC; 'info' unchanged for any other format.
+-TextureFormatInfo DecodedBcInfo(const TextureFormatInfo &info);
++TextureFormatInfo DecodedBcInfo(const TextureFormatInfo &info, bool bc1_astc = false);
+ 
+ // Converts 'count' guest blocks (already byte-swapped per the fetch endian)
+ // into host blocks.
+--- a/app/src/renut_engine/gpu/render/format.cpp
++++ b/app/src/renut_engine/gpu/render/format.cpp
+@@ -242,7 +242,7 @@
+   }
+ }
+ 
+-TextureFormatInfo DecodedBcInfo(const TextureFormatInfo &info) {
++TextureFormatInfo DecodedBcInfo(const TextureFormatInfo &info, bool bc1_astc) {
+   using F = plume::RenderFormat;
+   if (!info.compressed)
+     return info;
+@@ -250,6 +250,14 @@
+   uint32_t texel_bytes = 4;
+   switch (info.host) {
+   case F::BC1_UNORM:
++    if (bc1_astc) {
++      out.conversion = TexelConversion::BC1_ASTC;
++      out.host = F::ASTC_4x4_UNORM;
++      out.host_block_bytes = 16;
++      out.compressed = true;
++      out.decoded_blocks = false;
++      return out;
++    }
+     out.conversion = TexelConversion::BC1;
+     out.host = F::R8G8B8A8_UNORM;
+     break;
+--- a/app/src/renut_engine/gpu/backend/video.h
++++ b/app/src/renut_engine/gpu/backend/video.h
+@@ -232,6 +232,7 @@
+   // buffers change (earlier dispatches of the slot still use it).
+   // SwordMan (Android): BC textures decoded when the device has no BC formats (BuildBcDecodePipeline).
+   BcDecodeMode bc_decode = BcDecodeMode::Native;
++  bool bc1_to_astc = false;  // Zandatsu (renut/0050): BC1 -> ASTC 4x4 (4x menos banda na Mali)
+   std::unique_ptr<plume::RenderPipelineLayout> bc_decode_layout;
+   std::unique_ptr<plume::RenderShader> bc_decode_cs;
+   std::unique_ptr<plume::RenderPipeline> bc_decode_pipeline;
+--- a/app/src/renut_engine/gpu/backend/video.cpp
++++ b/app/src/renut_engine/gpu/backend/video.cpp
+@@ -95,6 +95,11 @@
+ // (Mali): decoded on the GPU by bc_decode_cs when uploaded (compute) or on the CPU (cpu). auto = native where the
+ // device has BC, compute elsewhere; the Renut check (src/renut_glue.cpp) also picks compute for RADV on Xclipse,
+ // whose BC4/BC5 are emulated by the driver. native/compute/cpu force one (compute and cpu work on any device).
++REXCVAR_DEFINE_STRING(swordman_renut_bc_astc, "auto", "SwordMan",
++                      "Renut: transcodifica BC1 para ASTC 4x4 em GPU compute (4x menos banda na Mali); "
++                      "auto = ligado quando sem BC nativo e com ASTC LDR, on, off")
++    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
++
+ REXCVAR_DEFINE_STRING(swordman_renut_bc_decode, "auto", "SwordMan",
+                       "Renut: BC textures native, decoded on the GPU (compute) or on the CPU (cpu); auto = native "
+                       "where the device has BC formats, compute elsewhere")
+@@ -429,6 +434,11 @@
+     s.bc_decode = BcDecodeMode::Native;
+   else
+     s.bc_decode = s.bc_decode_pipeline ? BcDecodeMode::Compute : BcDecodeMode::Cpu;
++  const std::string astc_want = REXCVAR_GET(swordman_renut_bc_astc);
++  const bool astc_hw = s.device->getCapabilities().textureCompressionASTC_LDR;
++  s.bc1_to_astc = (s.bc_decode == BcDecodeMode::Compute) && astc_hw && (astc_want != "off");
++  if (s.bc1_to_astc)
++    RGPU_INFO("BC1 textures: transcodificadas para ASTC 4x4 (4x menos banda/VRAM na Mali)");
+   RGPU_INFO("BC textures: {} (device BC formats: {}, swordman_renut_bc_decode = {})",
+             s.bc_decode == BcDecodeMode::Native    ? "native"
+             : s.bc_decode == BcDecodeMode::Compute ? "decoded on the GPU (compute)"
+--- a/app/src/renut_engine/gpu/render/textures.cpp
++++ b/app/src/renut_engine/gpu/render/textures.cpp
+@@ -522,7 +522,7 @@
+         push.format = BcDecodeFormat(t.info.conversion);
+         push.src_row_pitch = raw_row_pitch;
+         push.src_slice_pitch = raw_slice_pitch;
+-        push.dst_row_pitch = row_pitch / bs;
++        push.dst_row_pitch = t.info.decoded_blocks ? (row_pitch / bs) : row_pitch;
+         push.dst_slice_pitch = slice_pitch;
+         bc_dispatches.push_back(push);
+         auto *buffer = const_cast<plume::RenderBuffer *>(staging.ref.ref);
+@@ -638,7 +638,7 @@
+   t.info = GetTextureFormatInfo(fetch.Format(), AllSigned(fetch));
+   // SwordMan (Android): BC as plain texels where the device cannot sample it (swordman_renut_bc_decode).
+   if (State().bc_decode != BcDecodeMode::Native)
+-    t.info = DecodedBcInfo(t.info);
++    t.info = DecodedBcInfo(t.info, State().bc1_to_astc && fetch.Dimension() != TextureDimension::Tex3D);
+   t.width = width;
+   t.height = height;
+   t.depth = depth;
+--- a/app/src/renut_engine/gpu/shaders/host/bc_decode_cs.hlsl
++++ b/app/src/renut_engine/gpu/shaders/host/bc_decode_cs.hlsl
+@@ -91,6 +91,89 @@
+     const uint by = rest % g_Push.blocksH;
+     const uint bz = rest / g_Push.blocksH;
+     const uint format = g_Push.format;
++    if (format == 6) {
++        // Zandatsu (renut/0050): BC1 (8 B) -> ASTC 4x4 LDR (16 B), 4x menos VRAM e banda na Mali.
++        const uint64_t src = g_Push.src + uint64_t(bz) * g_Push.srcSlicePitch + uint64_t(by) * g_Push.srcRowPitch +
++                             uint64_t(bx) * 8;
++        const uint64_t dst = g_Push.dst + uint64_t(bz) * g_Push.dstSlicePitch + uint64_t(by) * g_Push.dstRowPitch +
++                             uint64_t(bx) * 16;
++        const uint endpoints = Load(src);
++        const uint indices = Load(src + 4);
++        const uint c0 = endpoints & 0xFFFF;
++        const uint c1 = endpoints >> 16;
++        const uint3 a = Rgb565(c0);
++        const uint3 b = Rgb565(c1);
++        uint w0, w1, w2, w3 = 0;
++        if (c0 > c1) {
++            // 4-color opaque: ASTC 4x4, 1 partition, CEM 8 (LDR RGB direct), 2-bit weights (0, 21, 43, 64).
++            const bool swapped = (a.r + a.g + a.b) > (b.r + b.g + b.b);
++            const uint3 e0 = swapped ? b : a;
++            const uint3 e1 = swapped ? a : b;
++            w0 = 0x10042u | (e0.r << 17) | (e1.r << 25);
++            w1 = (e1.r >> 7) | (e0.g << 1) | (e1.g << 9) | (e0.b << 17) | (e1.b << 25);
++            w2 = (e1.b >> 7);
++            for (uint i = 0; i < 16; ++i) {
++                const uint idx = (indices >> (2 * i)) & 3;
++                uint w = (idx == 0) ? 0u : (idx == 1) ? 3u : (idx == 2) ? 1u : 2u;
++                if (swapped) w = 3u - w;
++                const uint rev = ((w & 1u) << 1) | (w >> 1);
++                w3 |= rev << (30 - 2 * i);
++            }
++        } else {
++            // 3-color + transparent (idx == 3).
++            bool hasTrans = false;
++            bool allTrans = true;
++            uint3 sum = uint3(0, 0, 0);
++            uint nOpaque = 0;
++            for (uint i = 0; i < 16; ++i) {
++                const uint idx = (indices >> (2 * i)) & 3;
++                if (idx == 3) {
++                    hasTrans = true;
++                } else {
++                    allTrans = false;
++                    sum += (idx == 0) ? a : (idx == 1) ? b : ((a + b) >> 1);
++                    nOpaque++;
++                }
++            }
++            if (allTrans) {
++                // ASTC Void-Extent constant (0, 0, 0, 0).
++                w0 = 0xFFFFFDFCu;
++                w1 = 0xFFFFFFFFu;
++                w2 = 0u;
++                w3 = 0u;
++            } else if (!hasTrans) {
++                const bool swapped = (a.r + a.g + a.b) > (b.r + b.g + b.b);
++                const uint3 e0 = swapped ? b : a;
++                const uint3 e1 = swapped ? a : b;
++                w0 = 0x10042u | (e0.r << 17) | (e1.r << 25);
++                w1 = (e1.r >> 7) | (e0.g << 1) | (e1.g << 9) | (e0.b << 17) | (e1.b << 25);
++                w2 = (e1.b >> 7);
++                for (uint i = 0; i < 16; ++i) {
++                    const uint idx = (indices >> (2 * i)) & 3;
++                    uint w = (idx == 0) ? 0u : (idx == 1) ? 3u : 1u;
++                    if (swapped) w = 3u - w;
++                    const uint rev = ((w & 1u) << 1) | (w >> 1);
++                    w3 |= rev << (30 - 2 * i);
++                }
++            } else {
++                // Punch-through alpha: ASTC CEM 12 (LDR RGBA direct), e0=(0,0,0,0), e1=(avg,255).
++                const uint3 avg = sum / max(nOpaque, 1u);
++                w0 = 0x18042u | (avg.r << 25);
++                w1 = (avg.r >> 7) | (avg.g << 9) | (avg.b << 25);
++                w2 = (avg.b >> 7) | (255u << 9);
++                for (uint i = 0; i < 16; ++i) {
++                    const uint idx = (indices >> (2 * i)) & 3;
++                    const uint w = (idx == 3) ? 0u : 3u;
++                    w3 |= w << (30 - 2 * i);
++                }
++            }
++        }
++        Store(dst, w0);
++        Store(dst + 4, w1);
++        Store(dst + 8, w2);
++        Store(dst + 12, w3);
++        return;
++    }
+     const uint blockBytes = (format == 1 || format == 4) ? 8 : 16;
+     const uint64_t src = g_Push.src + uint64_t(bz) * g_Push.srcSlicePitch + uint64_t(by) * g_Push.srcRowPitch +
+                          uint64_t(bx) * blockBytes;
