@@ -1,0 +1,31 @@
+Zandatsu (Android, Phase 5D++++): widen 1280x720 viewports on GuestScreenWidth()x720 back buffer too.
+Fixes Save/Pause menu blur quads covering only 0..1024 (80%) instead of 0..1280 (100%) in Ultrawide.
+
+--- a/app/src/renut_engine/gpu/render/draw.cpp
++++ b/app/src/renut_engine/gpu/render/draw.cpp
+@@ -1521,7 +1521,8 @@
+   // SwordMan (2026-10-26, widescreen): a widened target's viewport differs from the back buffer's of the same size.
+   {
+     const HostSurface *first = t.color_count && t.colors[0] ? t.colors[0] : t.depth;
+-    key[22] = first && GuestScreenWidth() > 1280 && IsWidenedSurface(first->guest_va) ? 1u : 0u;
++    key[22] = first && GuestScreenWidth() > 1280 &&
++              (IsWidenedSurface(first->guest_va) || (first->width == GuestScreenWidth() && first->height == 720)) ? 1u : 0u;
+   }
+   key[23] = 0;
+   static u32 last_key[24];
+@@ -1541,10 +1542,12 @@
+   const d3d::ValuesPacket &v = dev.m_ValuesPacket;
+   float xs = (vte & 0x01) ? float(v.VportXScale) : 1.0f;
+   float xo = (vte & 0x02) ? float(v.VportXOffset) : 0.0f;
+-  // SwordMan (2026-10-26, widescreen): a 1280x720 viewport on a target widened to the screen (WidenScreenSurface)
+-  // covers the wider target: the game sizes those passes for the console's screen.
++  // SwordMan (2026-10-26, widescreen; renut/0063): a 1280x720 viewport on ANY GuestScreenWidth()x720 target
++  // (including the back buffer, not only WidenScreenSurface targets) covers the full wider target so menu
++  // blur quads (which compute NDC against BackBufferWidth) cover 0..1280 completely instead of 0..1024.
+   const HostSurface *first = t.color_count && t.colors[0] ? t.colors[0] : t.depth;
+-  const bool widened = first && GuestScreenWidth() > 1280 && IsWidenedSurface(first->guest_va);
++  const bool widened = first && GuestScreenWidth() > 1280 &&
++                       (IsWidenedSurface(first->guest_va) || (first->width == GuestScreenWidth() && first->height == 720));
+   if (widened && (vte & 0x03) == 0x03 && std::fabs(xs - 640.0f) < 0.01f && std::fabs(xo - 640.0f) < 0.01f) {
+     xs = float(GuestScreenWidth()) * 0.5f;
+     xo = xs;
