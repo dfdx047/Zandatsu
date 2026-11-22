@@ -1,0 +1,253 @@
+Zandatsu (22/11, Fase 3A NEON): vetoriza em ARM64 NEON:
+- SwapEndian (8in16, 8in32, 16in32) e ConvertTexels (R5G6B5, R5G5B5A1, R4G4B4A4, Depth24) em render/format.cpp;
+- byteswap + sanitizacao +-inf -> +-FLT_MAX (renut/0041) no upload de constantes de shader em render/draw.cpp.
+
+--- a/app/src/renut_engine/gpu/render/format.cpp
++++ b/app/src/renut_engine/gpu/render/format.cpp
+@@ -7,6 +7,9 @@
+ #include "renut_engine/gpu/banjo_renut_tuning.h"  // banjo-nx (2026-10-19): Depth24On
+ 
+ #include <cstring>
++#if defined(__ARM_NEON) || defined(__aarch64__)
++#include <arm_neon.h>
++#endif
+ 
+ #include <rex/cvar.h>
+ 
+@@ -298,8 +301,25 @@
+   switch (conversion) {
+   case TexelConversion::Copy:
+     break;
+-  case TexelConversion::R5G6B5:
+-    for (uint32_t i = 0; i < count; ++i, src += 2, dst += 4) {
++  case TexelConversion::R5G6B5: {
++    uint32_t i = 0;
++#if defined(__ARM_NEON) || defined(__aarch64__)
++    const uint16x8_t m5 = vdupq_n_u16(0x1F), m6 = vdupq_n_u16(0x3F);
++    const uint8x8_t opaque = vdup_n_u8(0xFF);
++    for (; i + 8 <= count; i += 8, src += 16, dst += 32) {
++      const uint16x8_t v = vld1q_u16(reinterpret_cast<const uint16_t *>(src));
++      const uint8x8_t r5 = vmovn_u16(vandq_u16(v, m5));
++      const uint8x8_t g6 = vmovn_u16(vandq_u16(vshrq_n_u16(v, 5), m6));
++      const uint8x8_t b5 = vmovn_u16(vshrq_n_u16(v, 11));
++      uint8x8x4_t rgba;
++      rgba.val[0] = vorr_u8(vshl_n_u8(r5, 3), vshr_n_u8(r5, 2));
++      rgba.val[1] = vorr_u8(vshl_n_u8(g6, 2), vshr_n_u8(g6, 4));
++      rgba.val[2] = vorr_u8(vshl_n_u8(b5, 3), vshr_n_u8(b5, 2));
++      rgba.val[3] = opaque;
++      vst4_u8(dst, rgba);
++    }
++#endif
++    for (; i < count; ++i, src += 2, dst += 4) {
+       uint16_t v;
+       std::memcpy(&v, src, 2);
+       dst[0] = Expand(v & 0x1F, 5);
+@@ -308,8 +328,26 @@
+       dst[3] = 0xFF;
+     }
+     break;
+-  case TexelConversion::R5G5B5A1:
+-    for (uint32_t i = 0; i < count; ++i, src += 2, dst += 4) {
++  }
++  case TexelConversion::R5G5B5A1: {
++    uint32_t i = 0;
++#if defined(__ARM_NEON) || defined(__aarch64__)
++    const uint16x8_t m5 = vdupq_n_u16(0x1F);
++    for (; i + 8 <= count; i += 8, src += 16, dst += 32) {
++      const uint16x8_t v = vld1q_u16(reinterpret_cast<const uint16_t *>(src));
++      const uint8x8_t r5 = vmovn_u16(vandq_u16(v, m5));
++      const uint8x8_t g5 = vmovn_u16(vandq_u16(vshrq_n_u16(v, 5), m5));
++      const uint8x8_t b5 = vmovn_u16(vandq_u16(vshrq_n_u16(v, 10), m5));
++      const uint8x8_t a1 = vmovn_u16(vreinterpretq_u16_s16(vshrq_n_s16(vreinterpretq_s16_u16(v), 15)));
++      uint8x8x4_t rgba;
++      rgba.val[0] = vorr_u8(vshl_n_u8(r5, 3), vshr_n_u8(r5, 2));
++      rgba.val[1] = vorr_u8(vshl_n_u8(g5, 3), vshr_n_u8(g5, 2));
++      rgba.val[2] = vorr_u8(vshl_n_u8(b5, 3), vshr_n_u8(b5, 2));
++      rgba.val[3] = a1;
++      vst4_u8(dst, rgba);
++    }
++#endif
++    for (; i < count; ++i, src += 2, dst += 4) {
+       uint16_t v;
+       std::memcpy(&v, src, 2);
+       dst[0] = Expand(v & 0x1F, 5);
+@@ -318,8 +356,26 @@
+       dst[3] = (v & 0x8000) ? 0xFF : 0x00;
+     }
+     break;
+-  case TexelConversion::R4G4B4A4:
+-    for (uint32_t i = 0; i < count; ++i, src += 2, dst += 4) {
++  }
++  case TexelConversion::R4G4B4A4: {
++    uint32_t i = 0;
++#if defined(__ARM_NEON) || defined(__aarch64__)
++    const uint16x8_t m4 = vdupq_n_u16(0xF);
++    for (; i + 8 <= count; i += 8, src += 16, dst += 32) {
++      const uint16x8_t v = vld1q_u16(reinterpret_cast<const uint16_t *>(src));
++      const uint8x8_t r4 = vmovn_u16(vandq_u16(v, m4));
++      const uint8x8_t g4 = vmovn_u16(vandq_u16(vshrq_n_u16(v, 4), m4));
++      const uint8x8_t b4 = vmovn_u16(vandq_u16(vshrq_n_u16(v, 8), m4));
++      const uint8x8_t a4 = vmovn_u16(vshrq_n_u16(v, 12));
++      uint8x8x4_t rgba;
++      rgba.val[0] = vorr_u8(vshl_n_u8(r4, 4), r4);
++      rgba.val[1] = vorr_u8(vshl_n_u8(g4, 4), g4);
++      rgba.val[2] = vorr_u8(vshl_n_u8(b4, 4), b4);
++      rgba.val[3] = vorr_u8(vshl_n_u8(a4, 4), a4);
++      vst4_u8(dst, rgba);
++    }
++#endif
++    for (; i < count; ++i, src += 2, dst += 4) {
+       uint16_t v;
+       std::memcpy(&v, src, 2);
+       dst[0] = Expand(v & 0xF, 4);
+@@ -328,6 +384,7 @@
+       dst[3] = Expand((v >> 12) & 0xF, 4);
+     }
+     break;
++  }
+   case TexelConversion::R10G10B10A2:
+   case TexelConversion::R11G11B10:
+   case TexelConversion::R10G11B11: {
+@@ -356,14 +413,23 @@
+     }
+     break;
+   }
+-  case TexelConversion::Depth24:
+-    for (uint32_t i = 0; i < count; ++i, src += 4, dst += 4) {
++  case TexelConversion::Depth24: {
++    uint32_t i = 0;
++#if defined(__ARM_NEON) || defined(__aarch64__)
++    constexpr float kInvDepth24 = 1.0f / float(0xFFFFFF);
++    for (; i + 4 <= count; i += 4, src += 16, dst += 16) {
++      const uint32x4_t v = vshrq_n_u32(vld1q_u32(reinterpret_cast<const uint32_t *>(src)), 8);
++      vst1q_f32(reinterpret_cast<float *>(dst), vmulq_n_f32(vcvtq_f32_u32(v), kInvDepth24));
++    }
++#endif
++    for (; i < count; ++i, src += 4, dst += 4) {
+       uint32_t v;
+       std::memcpy(&v, src, 4);
+       const float depth = float(v >> 8) / float(0xFFFFFF);
+       std::memcpy(dst, &depth, 4);
+     }
+     break;
++  }
+   case TexelConversion::CTX1:
+   case TexelConversion::Unsupported:
+     break;
+@@ -512,29 +578,63 @@
+   const auto *s = static_cast<const uint8_t *>(src);
+   auto *d = static_cast<uint8_t *>(dst);
+   switch (endian & 3) {
+-  case 1:  // 8in16
+-    for (size_t i = 0; i + 1 < bytes; i += 2) {
++  case 1: {  // 8in16
++    size_t i = 0;
++#if defined(__ARM_NEON) || defined(__aarch64__)
++    for (; i + 32 <= bytes; i += 32) {
++      const uint8x16_t a = vld1q_u8(s + i), b = vld1q_u8(s + i + 16);
++      vst1q_u8(d + i, vrev16q_u8(a));
++      vst1q_u8(d + i + 16, vrev16q_u8(b));
++    }
++    for (; i + 16 <= bytes; i += 16)
++      vst1q_u8(d + i, vrev16q_u8(vld1q_u8(s + i)));
++#endif
++    for (; i + 1 < bytes; i += 2) {
+       const uint8_t a = s[i], b = s[i + 1];
+       d[i] = b;
+       d[i + 1] = a;
+     }
+     break;
+-  case 2:  // 8in32
+-    for (size_t i = 0; i + 3 < bytes; i += 4) {
++  }
++  case 2: {  // 8in32
++    size_t i = 0;
++#if defined(__ARM_NEON) || defined(__aarch64__)
++    for (; i + 32 <= bytes; i += 32) {
++      const uint8x16_t a = vld1q_u8(s + i), b = vld1q_u8(s + i + 16);
++      vst1q_u8(d + i, vrev32q_u8(a));
++      vst1q_u8(d + i + 16, vrev32q_u8(b));
++    }
++    for (; i + 16 <= bytes; i += 16)
++      vst1q_u8(d + i, vrev32q_u8(vld1q_u8(s + i)));
++#endif
++    for (; i + 3 < bytes; i += 4) {
+       uint32_t v;
+       std::memcpy(&v, s + i, 4);
+       v = __builtin_bswap32(v);
+       std::memcpy(d + i, &v, 4);
+     }
+     break;
+-  case 3:  // 16in32
+-    for (size_t i = 0; i + 3 < bytes; i += 4) {
++  }
++  case 3: {  // 16in32
++    size_t i = 0;
++#if defined(__ARM_NEON) || defined(__aarch64__)
++    for (; i + 32 <= bytes; i += 32) {
++      const uint16x8_t a = vld1q_u16(reinterpret_cast<const uint16_t *>(s + i));
++      const uint16x8_t b = vld1q_u16(reinterpret_cast<const uint16_t *>(s + i + 16));
++      vst1q_u16(reinterpret_cast<uint16_t *>(d + i), vrev32q_u16(a));
++      vst1q_u16(reinterpret_cast<uint16_t *>(d + i + 16), vrev32q_u16(b));
++    }
++    for (; i + 16 <= bytes; i += 16)
++      vst1q_u16(reinterpret_cast<uint16_t *>(d + i), vrev32q_u16(vld1q_u16(reinterpret_cast<const uint16_t *>(s + i))));
++#endif
++    for (; i + 3 < bytes; i += 4) {
+       uint32_t v;
+       std::memcpy(&v, s + i, 4);
+       v = (v >> 16) | (v << 16);
+       std::memcpy(d + i, &v, 4);
+     }
+     break;
++  }
+   default:
+     if (d != s)
+       std::memmove(d, s, bytes);
+--- a/app/src/renut_engine/gpu/render/draw.cpp
++++ b/app/src/renut_engine/gpu/render/draw.cpp
+@@ -12,6 +12,9 @@
+ #include <cmath>
+ #include <condition_variable>
+ #include <cstring>
++#if defined(__ARM_NEON) || defined(__aarch64__)
++#include <arm_neon.h>
++#endif
+ #include <limits>
+ #include <map>
+ #include <mutex>
+@@ -1827,6 +1830,26 @@
+     u32 lanes[kConstantGroupBytes / 4];
+     std::memcpy(lanes, constants.Register(group * 4), kConstantGroupBytes);
+     std::memcpy(last.bytes + group * kConstantGroupBytes, lanes, kConstantGroupBytes);
++#if defined(__ARM_NEON) || defined(__aarch64__)
++    // Zandatsu (renut/0049): byteswap + sanitizacao +-inf -> +-FLT_MAX em NEON (4 floats por instrucao, sem branch).
++    uint8_t *dst_group = out + group * kConstantGroupBytes;
++    const auto *src_group = reinterpret_cast<const uint8_t *>(lanes);
++    if (FiniteConstantsOn()) {
++      const uint32x4_t abs_mask = vdupq_n_u32(0x7FFFFFFFu);
++      const uint32x4_t inf_bits = vdupq_n_u32(0x7F800000u);
++      const uint32x4_t sign_mask = vdupq_n_u32(0x80000000u);
++      const uint32x4_t flt_max = vdupq_n_u32(0x7F7FFFFFu);
++      for (size_t off = 0; off < kConstantGroupBytes; off += 16) {
++        const uint32x4_t v = vreinterpretq_u32_u8(vrev32q_u8(vld1q_u8(src_group + off)));
++        const uint32x4_t is_inf = vceqq_u32(vandq_u32(v, abs_mask), inf_bits);
++        const uint32x4_t clamped = vorrq_u32(vandq_u32(v, sign_mask), flt_max);
++        vst1q_u32(reinterpret_cast<uint32_t *>(dst_group + off), vbslq_u32(is_inf, clamped, v));
++      }
++    } else {
++      for (size_t off = 0; off < kConstantGroupBytes; off += 16)
++        vst1q_u8(dst_group + off, vrev32q_u8(vld1q_u8(src_group + off)));
++    }
++#else
+     for (u32 &lane : lanes)
+       lane = std::byteswap(lane);
+     // Zandatsu (renut/0041, 12/11, ceu preto nas Mali-G615, issues #24 e #35): a Xenos multiplica a moda do D3D9
+@@ -1840,6 +1863,7 @@
+       }
+     }
+     std::memcpy(out + group * kConstantGroupBytes, lanes, kConstantGroupBytes);
++#endif
+   }
+   // Every register of those groups is in the upload, with the bytes it has
+   // now.
