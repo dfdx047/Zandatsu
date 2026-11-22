@@ -1,9 +1,9 @@
-Zandatsu (Android, Phase 6): negotiate Vulkan 1.3 + synchronization2 in plume for ZeroFG v1.1.0.
+Zandatsu (Android, Phase 6): negotiate Vulkan 1.3 + synchronization2 + subgroup properties in plume for ZeroFG v1.1.0.
 Falls back cleanly to Vulkan 1.2 on older GPUs without Vulkan 1.3.
 
 --- a/app/thirdparty/plume/plume_vulkan.h
 +++ b/app/thirdparty/plume/plume_vulkan.h
-@@ -525,6 +525,16 @@
+@@ -525,6 +525,19 @@
          bool loadStoreOpNoneSupported = false;
          bool imageCompressionControlSupported = false;
          bool nullDescriptorSupported = false;
@@ -17,10 +17,13 @@ Falls back cleanly to Vulkan 1.2 on older GPUs without Vulkan 1.3.
 +        bool storageBuffer16BitAccessSupported = false;
 +        bool subgroupSizeControlSupported = false;
 +        bool computeFullSubgroupsSupported = false;
++        uint32_t subgroupSize = 0;
++        VkShaderStageFlags subgroupSupportedStages = 0;
++        VkSubgroupFeatureFlags subgroupSupportedOperations = 0;
  #if defined(__SWITCH__)
          bool frameGenerationCapable = false;
  #endif
-@@ -567,6 +577,7 @@
+@@ -567,6 +580,7 @@
          VkDebugUtilsMessengerEXT switchDebugMessenger = VK_NULL_HANDLE;
  #   endif
          VkApplicationInfo appInfo = {};
@@ -30,7 +33,7 @@ Falls back cleanly to Vulkan 1.2 on older GPUs without Vulkan 1.3.
  
 --- a/app/thirdparty/plume/plume_vulkan.cpp
 +++ b/app/thirdparty/plume/plume_vulkan.cpp
-@@ -5104,6 +5104,16 @@
+@@ -5104,11 +5104,34 @@
              featuresChain = &pipelineRobustnessFeatures;
          }
  
@@ -47,7 +50,25 @@ Falls back cleanly to Vulkan 1.2 on older GPUs without Vulkan 1.3.
          VkPhysicalDeviceFeatures2 deviceFeatures = {};
          deviceFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
          deviceFeatures.pNext = featuresChain;
-@@ -5191,6 +5201,19 @@
+         vkGetPhysicalDeviceFeatures2(physicalDevice, &deviceFeatures);
+ 
++        // Zandatsu (Phase 6 / ZeroFG): query subgroup properties for ReallyZero/Zero subgroup acceleration (Mali & Adreno).
++        if (physicalDeviceProperties.apiVersion >= VK_API_VERSION_1_1) {
++            VkPhysicalDeviceSubgroupProperties subgroupProps = {};
++            subgroupProps.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES;
++            VkPhysicalDeviceProperties2 props2 = {};
++            props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
++            props2.pNext = &subgroupProps;
++            vkGetPhysicalDeviceProperties2(physicalDevice, &props2);
++            subgroupSize = subgroupProps.subgroupSize;
++            subgroupSupportedStages = subgroupProps.supportedStages;
++            subgroupSupportedOperations = subgroupProps.supportedOperations;
++        }
++
+         // Check for properties.
+         if (rayTracingFound) {
+             rtPipelineProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR;
+@@ -5191,6 +5214,19 @@
              createDeviceChain = &portabilityFeatures;
          }
  
@@ -67,7 +88,7 @@ Falls back cleanly to Vulkan 1.2 on older GPUs without Vulkan 1.3.
  #if defined(__SWITCH__)
          frameGenerationCapable = SwitchFrameGenerationPrepared && timelineFeatures.timelineSemaphore;
          if (frameGenerationCapable) {
-@@ -5327,7 +5350,7 @@
+@@ -5327,7 +5363,7 @@
          allocatorInfo.device = vk;
          allocatorInfo.pVulkanFunctions = &vmaFunctions;
          allocatorInfo.instance = renderInterface->instance;
@@ -76,7 +97,7 @@ Falls back cleanly to Vulkan 1.2 on older GPUs without Vulkan 1.3.
  
          res = vmaCreateAllocator(&allocatorInfo, &allocator);
          if (res != VK_SUCCESS) {
-@@ -5926,7 +5949,9 @@
+@@ -5926,7 +5962,9 @@
          appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
          appInfo.pEngineName = "plume";
          appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);

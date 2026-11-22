@@ -1,7 +1,6 @@
 Zandatsu (Android, Phase 6): integrate ZeroFG v1.1.0 (ReallyZero / Zero) into Renut present.
-Supports both 30->60 FPS (with dbz3_frameskip=1) and 60->120 FPS (on >=100 Hz displays) via swordman_zerofg_mode.
-Drains banjo_renut_record worker before recording ZeroFG compute dispatches onto the real VkCommandBuffer,
-uses linear gamma=1.0 on history copy, and caps ZeroFG working height (swordman_zerofg_max_height=720) for Mali speed.
+Uses 3-slot history ring + per-frame-in-flight output (eliminating GPU read/write flicker), linear gamma=1.0 copy,
+subgroup acceleration, and 720p work cap (swordman_zerofg_max_height=720).
 
 --- a/app/src/renut_engine/gpu/backend/present.cpp
 +++ b/app/src/renut_engine/gpu/backend/present.cpp
@@ -55,7 +54,7 @@ uses linear gamma=1.0 on history copy, and caps ZeroFG working height (swordman_
    t.texture = s.device->createTexture(desc);
    if (!t.texture)
      return false;
-@@ -828,9 +841,270 @@
+@@ -828,9 +841,283 @@
      InterpToLayout(cmd, *t, plume::RenderTextureLayout::SHADER_READ);
  }
  
@@ -68,7 +67,10 @@ uses linear gamma=1.0 on history copy, and caps ZeroFG working height (swordman_
 +  bool unsupported = false;
 +  bool lists_ready = false;
 +  std::unique_ptr<plume::RenderPipeline> copy_pipeline;
-+  InterpTarget hist[2], output;
++  // 3-slot history ring + per-frame-in-flight output so frame N+1 never overwrites frame N while on the GPU.
++  static constexpr uint32_t kHistCount = 3;
++  InterpTarget hist[kHistCount];
++  InterpTarget output[kFramesInFlight];
 +  uint32_t width = 0, height = 0, index = 0, frame_ctx = 0;
 +  uint64_t sequence = 0;
 +  bool history = false;
@@ -207,6 +209,9 @@ uses linear gamma=1.0 on history copy, and caps ZeroFG working height (swordman_
 +    ci.capabilities.subgroup_size_control_enabled = vk_dev->subgroupSizeControlSupported;
 +    ci.capabilities.compute_full_subgroups_supported = vk_dev->computeFullSubgroupsSupported;
 +    ci.capabilities.compute_full_subgroups_enabled = vk_dev->computeFullSubgroupsSupported;
++    ci.capabilities.subgroup_size = vk_dev->subgroupSize;
++    ci.capabilities.subgroup_supported_stages = vk_dev->subgroupSupportedStages;
++    ci.capabilities.subgroup_supported_operations = vk_dev->subgroupSupportedOperations;
 +    zerofg::Status st = zerofg::Status::kSuccess;
 +    g_zerofg.interp = zerofg::Interpolator::Create(ci, &st);
 +    if (!g_zerofg.interp || st != zerofg::Status::kSuccess) {
@@ -227,10 +232,12 @@ uses linear gamma=1.0 on history copy, and caps ZeroFG working height (swordman_
 +      WaitInterpListsLocked(s);
 +    }
 +    constexpr plume::RenderFormat rgba8 = plume::RenderFormat::R8G8B8A8_UNORM;
-+    const bool ok = MakeInterpTarget(s, g_zerofg.hist[0], w, h, rgba8, "zerofg hist 0") &&
-+                    MakeInterpTarget(s, g_zerofg.hist[1], w, h, rgba8, "zerofg hist 1") &&
-+                    MakeInterpTarget(s, g_zerofg.output, w, h, rgba8, "zerofg output",
-+                                     plume::RenderTextureFlag::STORAGE);
++    bool ok = true;
++    for (uint32_t k = 0; k < ZeroFGState::kHistCount && ok; ++k)
++      ok = MakeInterpTarget(s, g_zerofg.hist[k], w, h, rgba8, "zerofg hist");
++    for (uint32_t k = 0; k < kFramesInFlight && ok; ++k)
++      ok = MakeInterpTarget(s, g_zerofg.output[k], w, h, rgba8, "zerofg output",
++                            plume::RenderTextureFlag::STORAGE);
 +    if (!ok) {
 +      RGPU_ERROR("ZeroFG: falha ao criar texturas {}x{}", w, h);
 +      g_zerofg.unsupported = true;
@@ -244,22 +251,27 @@ uses linear gamma=1.0 on history copy, and caps ZeroFG working height (swordman_
 +    }
 +    g_zerofg.width = w;
 +    g_zerofg.height = h;
++    g_zerofg.index = 0;
 +    g_zerofg.history = false;
 +    g_zerofg.sequence = 0;
-+    RGPU_INFO("ZeroFG: alvos {}x{} prontos", w, h);
++    RGPU_INFO("ZeroFG: alvos {}x{} prontos (subgroup {})", w, h, vk_dev->subgroupSize);
 +  }
 +
-+  const uint32_t i = g_zerofg.index, p = i ^ 1u;
++  const uint32_t i = g_zerofg.index;
++  const uint32_t p = (i + ZeroFGState::kHistCount - 1) % ZeroFGState::kHistCount;
++  const uint32_t next_i = (i + 1) % ZeroFGState::kHistCount;
 +  CopyToZeroFGHistoryLocked(s, image, g_zerofg.hist[i], src_w, src_h, w, h);
 +  ++g_zerofg.sequence;
 +  if (!g_zerofg.history) {
 +    g_zerofg.history = true;
-+    g_zerofg.index = p;
++    g_zerofg.index = next_i;
 +    return false;
 +  }
 +
 +  // ZeroFG requires output.layout != VK_IMAGE_LAYOUT_UNDEFINED and transitions output back to output.layout.
-+  InterpToLayout(s.command_list, g_zerofg.output, plume::RenderTextureLayout::SHADER_READ);
++  const uint32_t ctx = g_zerofg.frame_ctx;
++  InterpTarget &out_target = g_zerofg.output[ctx];
++  InterpToLayout(s.command_list, out_target, plume::RenderTextureLayout::SHADER_READ);
 +
 +  auto make_zfg_image = [&](const InterpTarget &t, VkImageUsageFlags usage, uint64_t seq) {
 +    zerofg::Image zi{};
@@ -283,7 +295,7 @@ uses linear gamma=1.0 on history copy, and caps ZeroFG working height (swordman_
 +  const VkImageUsageFlags kOutUsage = kHistUsage | VK_IMAGE_USAGE_STORAGE_BIT;
 +  const zerofg::Image prev_img = make_zfg_image(g_zerofg.hist[p], kHistUsage, g_zerofg.sequence - 1);
 +  const zerofg::Image cur_img = make_zfg_image(g_zerofg.hist[i], kHistUsage, g_zerofg.sequence);
-+  const zerofg::Image out_img = make_zfg_image(g_zerofg.output, kOutUsage, 0);
++  const zerofg::Image out_img = make_zfg_image(out_target, kOutUsage, 0);
 +
 +  // Drain the record worker so CopyToZeroFGHistoryLocked + InterpToLayout are played onto the real VkCommandBuffer
 +  // before ZeroFG records its Vulkan 1.3 compute dispatches directly into it.
@@ -291,9 +303,9 @@ uses linear gamma=1.0 on history copy, and caps ZeroFG working height (swordman_
 +  plume::RenderCommandList *real_list = s.slot_list[s.frame] ? s.slot_list[s.frame] : s.command_lists[s.frame].get();
 +  VkCommandBuffer vk_cmd = static_cast<plume::VulkanCommandList *>(real_list)->vk;
 +  const zerofg::Status st =
-+      g_zerofg.interp->Interpolate(vk_cmd, g_zerofg.frame_ctx, prev_img, cur_img, 0.5f, out_img);
-+  g_zerofg.frame_ctx = (g_zerofg.frame_ctx + 1) % kFramesInFlight;
-+  g_zerofg.index = p;
++      g_zerofg.interp->Interpolate(vk_cmd, ctx, prev_img, cur_img, 0.5f, out_img);
++  g_zerofg.frame_ctx = (ctx + 1) % kFramesInFlight;
++  g_zerofg.index = next_i;
 +  if (st != zerofg::Status::kSuccess) {
 +    static uint32_t err_log = 0;
 +    if (err_log++ < 8)
@@ -302,9 +314,9 @@ uses linear gamma=1.0 on history copy, and caps ZeroFG working height (swordman_
 +  }
 +
 +  out = PresentImage{};
-+  out.texture = g_zerofg.output.texture.get();
-+  out.layout = &g_zerofg.output.layout;
-+  out.descriptor = g_zerofg.output.slot;
++  out.texture = out_target.texture.get();
++  out.layout = &out_target.layout;
++  out.descriptor = out_target.slot;
 +  out.width = w;
 +  out.height = h;
 +  return true;
