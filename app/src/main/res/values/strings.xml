@@ -242,6 +242,8 @@
     <string name="settings_clear_1x_sub">Clears the game\'s buffers at 1x and scales them (less GPU work at 2x/3x). Turn off if the edges of the image flicker.</string>
     <string name="perf_frame_rate">Frame rate</string>
     <string name="perf_frame_rate_sub">MGR runs at 60 FPS. The 30 FPS hack keeps the game at full speed and only draws every other frame: half the GPU work, for weaker GPUs (Mali).</string>
+    <string name="perf_zerofg">Frame generation (ZeroFG)</string>
+    <string name="perf_zerofg_sub">Optical-flow 2x frame generation (Vulkan 1.3): 30→60 or 60→120 FPS. ReallyZero is faster; Zero has higher quality.</string>
     <string name="aniso_game">Game</string>
     <string name="helper_menu">Game menu (Back + Start)</string>
     <string name="settings_touch_layout_map">Full pad</string>

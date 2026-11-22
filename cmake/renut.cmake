@@ -41,6 +41,19 @@ if(NOT TARGET plume)
     add_subdirectory("${RENUT_APP_DIR}/thirdparty/plume" "${CMAKE_BINARY_DIR}/plume")
 endif()
 
+# ZeroFG v1.1.0 (Apache-2.0): optical-flow frame generation (ReallyZero / Zero) on Vulkan 1.3.
+if(EXISTS "${SM_ROOT}/third_party/zerofg/CMakeLists.txt")
+    if(NOT TARGET zerofg)
+        set(ZEROFG_PREBUILT_SHADERS "ON" CACHE STRING "" FORCE)
+        set(ZEROFG_VULKAN_HEADERS_DIR "${RENUT_APP_DIR}/thirdparty/plume/contrib/Vulkan-Headers/include" CACHE PATH "" FORCE)
+        add_subdirectory("${SM_ROOT}/third_party/zerofg" "${CMAKE_BINARY_DIR}/zerofg")
+        set_target_properties(zerofg PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    endif()
+    set(SM_HAS_ZEROFG_VAL 1)
+else()
+    set(SM_HAS_ZEROFG_VAL 0)
+endif()
+
 # Descompressao do arquivo de shaders: zstd (so o descompressor), smol-v, xxHash, das copias do XenosRecomp.
 set(RENUT_ZSTD_LIB_DIR "${RENUT_XR_DIR}/thirdparty/zstd/lib")
 file(GLOB renut_zstd_sources "${RENUT_ZSTD_LIB_DIR}/common/*.c" "${RENUT_ZSTD_LIB_DIR}/decompress/*.c")
@@ -140,9 +153,12 @@ function(sm_renut_gpu_lib NAME MARCH)
         "${SM_ROOT}/src"
         "${REXSDK_ROOT}/thirdparty/imgui"
         "${CMAKE_BINARY_DIR}/rexglue-sdk/include")
-    target_compile_definitions(${NAME} PRIVATE MGR_RENUT_RENDERER=1 SA2_RENUT_RENDERER=1 RENUT_RECOMP)
+    target_compile_definitions(${NAME} PRIVATE MGR_RENUT_RENDERER=1 SA2_RENUT_RENDERER=1 RENUT_RECOMP SM_HAS_ZEROFG=${SM_HAS_ZEROFG_VAL})
     target_compile_options(${NAME} PRIVATE -march=${MARCH} -ffp-contract=off -fno-strict-aliasing)
     target_link_libraries(${NAME} PRIVATE rex::runtime plume renut_zstd renut_smolv renut_xxhash rex::o1heap android)
+    if(SM_HAS_ZEROFG_VAL)
+        target_link_libraries(${NAME} PRIVATE zerofg)
+    endif()
 endfunction()
 
 # Liga o Renut ao libgame.so (<alvo>) e diz ao codigo do app que ele existe (SM_RENUT).

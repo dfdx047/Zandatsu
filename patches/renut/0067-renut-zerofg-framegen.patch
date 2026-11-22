@@ -1,0 +1,302 @@
+Zandatsu (Android, Phase 6): integrate ZeroFG v1.1.0 (ReallyZero / Zero) into Renut present.
+Supports both 30->60 FPS (with dbz3_frameskip=1) and 60->120 FPS (on >=100 Hz displays) via swordman_zerofg_mode.
+
+--- a/app/src/renut_engine/gpu/backend/present.cpp
++++ b/app/src/renut_engine/gpu/backend/present.cpp
+@@ -18,6 +18,9 @@
+ #include <plume_render_interface.h>
+ #if defined(__ANDROID__)
+ #include <plume_vulkan.h>  // Zandatsu (renut/0032)
++#if defined(SM_HAS_ZEROFG) && SM_HAS_ZEROFG
++#include <zerofg/zerofg.h>  // Zandatsu (Phase 6): ZeroFG v1.1.0 optical-flow frame generation
++#endif
+ #endif
+ 
+ #include <rex/cvar.h>
+@@ -79,6 +82,12 @@
+     .allowed({"original", "stretch", "widescreen"})
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ 
++// Zandatsu (Phase 6 / renut/0067): ZeroFG v1.1.0 optical-flow frame generation (off / reallyzero / zero).
++REXCVAR_DEFINE_STRING(swordman_zerofg_mode, "off", "SwordMan",
++                      "Geracao de quadros ZeroFG v1.1.0 (Vulkan 1.3): off, reallyzero (rapido) ou zero (qualidade)")
++    .allowed({"off", "reallyzero", "zero"})
++    .lifecycle(rex::cvar::Lifecycle::kHotReload);
++
+ REXCVAR_DEFINE_BOOL(renut_vsync, true, "Nuts&Bolts/Graphics",
+                     "Show each frame at the display's refresh: no tearing, and the game runs at "
+                     "the refresh rate (frame_cap then only limits below it). Off shows frames at "
+@@ -733,13 +742,13 @@
+ }
+ 
+ bool MakeInterpTarget(VideoState &s, InterpTarget &t, uint32_t w, uint32_t h, plume::RenderFormat format,
+-                      const char *name) {
++                      const char *name, plume::RenderTextureFlags extra_flags = plume::RenderTextureFlag::NONE) {
+   t.framebuffer.reset();
+   t.view.reset();
+   t.texture.reset();
+   t.layout = plume::RenderTextureLayout::UNKNOWN;
+   plume::RenderTextureDesc desc = plume::RenderTextureDesc::Texture2D(w, h, 1, format);
+-  desc.flags |= plume::RenderTextureFlag::RENDER_TARGET;
++  desc.flags |= plume::RenderTextureFlag::RENDER_TARGET | extra_flags;
+   t.texture = s.device->createTexture(desc);
+   if (!t.texture)
+     return false;
+@@ -828,9 +837,257 @@
+     InterpToLayout(cmd, *t, plume::RenderTextureLayout::SHADER_READ);
+ }
+ 
++#if defined(SM_HAS_ZEROFG) && SM_HAS_ZEROFG
++// Zandatsu (Phase 6 / renut/0067): ZeroFG v1.1.0 (ReallyZero / Zero) optical-flow frame generation on Vulkan 1.3.
++// Works for both 30->60 FPS (with dbz3_frameskip=1 on 60/120 Hz) and 60->120 FPS (on >=100 Hz displays).
++struct ZeroFGState {
++  std::unique_ptr<zerofg::Interpolator> interp;
++  std::string active_mode;
++  bool unsupported = false;
++  bool lists_ready = false;
++  std::unique_ptr<plume::RenderPipeline> copy_pipeline;
++  InterpTarget hist[2], output;
++  uint32_t width = 0, height = 0, index = 0, frame_ctx = 0;
++  uint64_t sequence = 0;
++  bool history = false;
++};
++ZeroFGState g_zerofg;
++
++bool EnsureInterpListsOnlyLocked(VideoState &s) {
++  if (g_zerofg.lists_ready)
++    return true;
++  FrameInterp &f = g_interp;
++  for (uint32_t i = 0; i < kFramesInFlight; ++i) {
++    if (!f.lists[i])
++      f.lists[i] = s.queue->createCommandList();
++    if (!f.fences[i])
++      f.fences[i] = s.device->createCommandFence();
++    if (!f.acquire[i])
++      f.acquire[i] = s.device->createCommandSemaphore();
++    if (!f.lists[i] || !f.fences[i] || !f.acquire[i])
++      return false;
++  }
++  g_zerofg.lists_ready = true;
++  return true;
++}
++
++bool ZeroFGOn(std::string &mode_out) {
++  mode_out = REXCVAR_GET(swordman_zerofg_mode);
++  if (mode_out != "reallyzero" && mode_out != "zero")
++    return false;
++  const std::string skip = rex::cvar::GetFlagByName("dbz3_frameskip");
++  const bool fps30 = !skip.empty() && std::atoi(skip.c_str()) > 0;
++  if (fps30)
++    return true;  // 30 -> 60 FPS works on 60 Hz and 120 Hz displays
++  return rex::perf::GetDisplayRefreshRate() >= 100.0f;  // 60 -> 120 FPS needs >=100 Hz
++}
++
++void CopyToZeroFGHistoryLocked(VideoState &s, const PresentImage &image, InterpTarget &dst, uint32_t w, uint32_t h) {
++  plume::RenderCommandList *cmd = s.command_list;
++  if (image.layout && *image.layout != plume::RenderTextureLayout::SHADER_READ) {
++    cmd->barriers(plume::RenderBarrierStage::GRAPHICS,
++                  plume::RenderTextureBarrier(image.texture, plume::RenderTextureLayout::SHADER_READ));
++    *image.layout = plume::RenderTextureLayout::SHADER_READ;
++  }
++  InterpToLayout(cmd, dst, plume::RenderTextureLayout::COLOR_WRITE);
++  cmd->setFramebuffer(dst.framebuffer.get());
++  cmd->setViewports(plume::RenderViewport(0.0f, 0.0f, float(w), float(h)));
++  cmd->setScissors(plume::RenderRect(0, 0, int32_t(w), int32_t(h)));
++  cmd->setGraphicsPipelineLayout(s.utility_layout.get());
++  cmd->setPipeline(g_zerofg.copy_pipeline.get());
++  cmd->setGraphicsDescriptorSet(s.texture_set.get(), 0);
++  cmd->setGraphicsDescriptorSet(s.sampler_set.get(), 1);
++  UtilityPush push{};
++  push.scale[0] = image.width ? float(w) / float(image.width) : 1.0f;
++  push.scale[1] = image.height ? float(h) / float(image.height) : 1.0f;
++  push.texture_index = image.descriptor;
++  push.sampler_index = kLinearClampSamplerSlot;
++  cmd->setGraphicsPushConstants(0, &push, 0, sizeof(push));
++  cmd->drawInstanced(3, 1, 0, 0);
++  cmd->setFramebuffer(nullptr);
++  InterpToLayout(cmd, dst, plume::RenderTextureLayout::SHADER_READ);
++}
++
++bool ZeroFGInterpolateLocked(VideoState &s, const PresentImage &image, PresentImage &out) {
++  std::string mode;
++  if (g_zerofg.unsupported || !ZeroFGOn(mode)) {
++    g_zerofg.history = false;
++    return false;
++  }
++  if (!image.texture || image.descriptor == kInvalidDescriptor || image.gamma > 0.0f) {
++    g_zerofg.history = false;
++    return false;
++  }
++  const uint32_t w = image.source_width ? image.source_width : image.width;
++  const uint32_t h = image.source_height ? image.source_height : image.height;
++  if (!w || !h || !EnsureInterpListsOnlyLocked(s) || !Video::EnsureCommandListLocked())
++    return false;
++
++  auto *vk_dev = static_cast<plume::VulkanDevice *>(s.device.get());
++  auto *vk_if = vk_dev ? vk_dev->renderInterface : nullptr;
++  if (!vk_dev || !vk_if || !vk_if->getInstanceProcAddr ||
++      vk_dev->effectiveApiVersion < VK_API_VERSION_1_3 || !vk_dev->synchronization2Supported) {
++    g_zerofg.unsupported = true;
++    RGPU_WARN("ZeroFG: indisponivel nesta GPU (requer Vulkan 1.3 + synchronization2; API 0x{:X}, sync2 {})",
++              vk_dev ? vk_dev->effectiveApiVersion : 0u, vk_dev ? vk_dev->synchronization2Supported : false);
++    return false;
++  }
++
++  if (!g_zerofg.copy_pipeline) {
++    plume::RenderGraphicsPipelineDesc desc;
++    desc.pipelineLayout = s.utility_layout.get();
++    desc.vertexShader = s.present_vs.get();
++    desc.pixelShader = s.present_ps.get();
++    desc.primitiveTopology = plume::RenderPrimitiveTopology::TRIANGLE_LIST;
++    desc.cullMode = plume::RenderCullMode::NONE;
++    desc.renderTargetCount = 1;
++    desc.renderTargetFormat[0] = plume::RenderFormat::R8G8B8A8_UNORM;
++    desc.renderTargetBlend[0] = plume::RenderBlendDesc::Copy();
++    desc.depthTargetFormat = plume::RenderFormat::UNKNOWN;
++    g_zerofg.copy_pipeline = s.device->createGraphicsPipeline(desc);
++    if (!g_zerofg.copy_pipeline) {
++      g_zerofg.unsupported = true;
++      return false;
++    }
++  }
++
++  if (!g_zerofg.interp || g_zerofg.active_mode != mode) {
++    if (g_zerofg.interp) {
++      detail::WaitAllSubmitted(s);
++      WaitInterpListsLocked(s);
++      g_zerofg.interp.reset();
++    }
++    zerofg::CreateInfo ci{};
++    ci.vulkan.instance = vk_if->instance;
++    ci.vulkan.physical_device = vk_dev->physicalDevice;
++    ci.vulkan.device = vk_dev->vk;
++    ci.vulkan.get_instance_proc_addr = vk_if->getInstanceProcAddr;
++    ci.mode = (mode == "zero") ? zerofg::Mode::kZero : zerofg::Mode::kReallyZero;
++    ci.backend = zerofg::Backend::kAuto;
++    ci.frame_context_count = kFramesInFlight;
++    ci.capabilities.effective_api_version = vk_dev->effectiveApiVersion;
++    ci.capabilities.synchronization2_enabled = vk_dev->synchronization2Supported;
++    ci.capabilities.shader_storage_image_extended_formats_enabled = vk_dev->shaderStorageImageExtendedFormatsSupported;
++    ci.capabilities.maintenance4_supported = vk_dev->maintenance4Supported;
++    ci.capabilities.maintenance4_enabled = vk_dev->maintenance4Supported;
++    ci.capabilities.shader_int16_supported = vk_dev->shaderInt16Supported;
++    ci.capabilities.shader_int16_enabled = vk_dev->shaderInt16Supported;
++    ci.capabilities.subgroup_size_control_supported = vk_dev->subgroupSizeControlSupported;
++    ci.capabilities.subgroup_size_control_enabled = vk_dev->subgroupSizeControlSupported;
++    ci.capabilities.compute_full_subgroups_supported = vk_dev->computeFullSubgroupsSupported;
++    ci.capabilities.compute_full_subgroups_enabled = vk_dev->computeFullSubgroupsSupported;
++    zerofg::Status st = zerofg::Status::kSuccess;
++    g_zerofg.interp = zerofg::Interpolator::Create(ci, &st);
++    if (!g_zerofg.interp || st != zerofg::Status::kSuccess) {
++      RGPU_ERROR("ZeroFG: Create({}) falhou (status {})", mode, int(st));
++      g_zerofg.unsupported = true;
++      return false;
++    }
++    g_zerofg.active_mode = mode;
++    g_zerofg.width = g_zerofg.height = 0;
++    g_zerofg.history = false;
++    g_zerofg.sequence = 0;
++    RGPU_INFO("ZeroFG v1.1.0: modo '{}' pronto ({:.0f} Hz)", mode, rex::perf::GetDisplayRefreshRate());
++  }
++
++  if (g_zerofg.width != w || g_zerofg.height != h) {
++    if (g_zerofg.width) {
++      detail::WaitAllSubmitted(s);
++      WaitInterpListsLocked(s);
++    }
++    constexpr plume::RenderFormat rgba8 = plume::RenderFormat::R8G8B8A8_UNORM;
++    const bool ok = MakeInterpTarget(s, g_zerofg.hist[0], w, h, rgba8, "zerofg hist 0") &&
++                    MakeInterpTarget(s, g_zerofg.hist[1], w, h, rgba8, "zerofg hist 1") &&
++                    MakeInterpTarget(s, g_zerofg.output, w, h, rgba8, "zerofg output",
++                                     plume::RenderTextureFlag::STORAGE);
++    if (!ok) {
++      RGPU_ERROR("ZeroFG: falha ao criar texturas {}x{}", w, h);
++      g_zerofg.unsupported = true;
++      return false;
++    }
++    const zerofg::Status st = g_zerofg.interp->Resize(w, h, VK_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_R8G8B8A8_UNORM);
++    if (st != zerofg::Status::kSuccess) {
++      RGPU_ERROR("ZeroFG: Resize({}x{}) falhou (status {})", w, h, int(st));
++      g_zerofg.unsupported = true;
++      return false;
++    }
++    g_zerofg.width = w;
++    g_zerofg.height = h;
++    g_zerofg.history = false;
++    g_zerofg.sequence = 0;
++    RGPU_INFO("ZeroFG: alvos {}x{} prontos", w, h);
++  }
++
++  const uint32_t i = g_zerofg.index, p = i ^ 1u;
++  CopyToZeroFGHistoryLocked(s, image, g_zerofg.hist[i], w, h);
++  ++g_zerofg.sequence;
++  if (!g_zerofg.history) {
++    g_zerofg.history = true;
++    g_zerofg.index = p;
++    return false;
++  }
++
++  // ZeroFG requires output.layout != VK_IMAGE_LAYOUT_UNDEFINED and transitions output back to output.layout.
++  InterpToLayout(s.command_list, g_zerofg.output, plume::RenderTextureLayout::SHADER_READ);
++
++  auto make_zfg_image = [&](const InterpTarget &t, VkImageUsageFlags usage, uint64_t seq) {
++    zerofg::Image zi{};
++    const auto *vk_tex = static_cast<const plume::VulkanTexture *>(t.texture.get());
++    const auto *vk_view = static_cast<const plume::VulkanTextureView *>(t.view.get());
++    zi.image = vk_tex->vk;
++    zi.view = vk_view->vk;
++    zi.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
++    zi.format = VK_FORMAT_R8G8B8A8_UNORM;
++    zi.width = w;
++    zi.height = h;
++    zi.usage = usage;
++    zi.tiling = VK_IMAGE_TILING_OPTIMAL;
++    zi.view_type = VK_IMAGE_VIEW_TYPE_2D;
++    zi.creation_facts_known = true;
++    zi.sequence = seq;
++    return zi;
++  };
++  const VkImageUsageFlags kHistUsage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
++                                       VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
++  const VkImageUsageFlags kOutUsage = kHistUsage | VK_IMAGE_USAGE_STORAGE_BIT;
++  const zerofg::Image prev_img = make_zfg_image(g_zerofg.hist[p], kHistUsage, g_zerofg.sequence - 1);
++  const zerofg::Image cur_img = make_zfg_image(g_zerofg.hist[i], kHistUsage, g_zerofg.sequence);
++  const zerofg::Image out_img = make_zfg_image(g_zerofg.output, kOutUsage, 0);
++
++  VkCommandBuffer vk_cmd = static_cast<plume::VulkanCommandList *>(s.command_list)->vk;
++  const zerofg::Status st =
++      g_zerofg.interp->Interpolate(vk_cmd, g_zerofg.frame_ctx, prev_img, cur_img, 0.5f, out_img);
++  g_zerofg.frame_ctx = (g_zerofg.frame_ctx + 1) % kFramesInFlight;
++  g_zerofg.index = p;
++  if (st != zerofg::Status::kSuccess) {
++    static uint32_t err_log = 0;
++    if (err_log++ < 8)
++      RGPU_WARN("ZeroFG: Interpolate falhou (status {})", int(st));
++    return false;
++  }
++
++  out = PresentImage{};
++  out.texture = g_zerofg.output.texture.get();
++  out.layout = &g_zerofg.output.layout;
++  out.descriptor = g_zerofg.output.slot;
++  out.width = w;
++  out.height = h;
++  return true;
++}
++#endif
++
+ // Records the passes for the guest frame into the frame's list; true with the generated frame in out (none for the
+ // first frame after a start or a size change: the history is recorded, nothing to present yet).
+ bool InterpolateLocked(VideoState &s, const PresentImage &image, PresentImage &out) {
++#if defined(SM_HAS_ZEROFG) && SM_HAS_ZEROFG
++  if (ZeroFGInterpolateLocked(s, image, out))
++    return true;
++  {
++    std::string mode;
++    if (!g_zerofg.unsupported && ZeroFGOn(mode))
++      return false;  // ZeroFG active (just recorded first history frame)
++  }
++#endif
+   FrameInterp &f = g_interp;
+   if (f.failed)
+     return false;

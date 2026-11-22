@@ -1,0 +1,89 @@
+Zandatsu (Android, Phase 6): negotiate Vulkan 1.3 + synchronization2 in plume for ZeroFG v1.1.0.
+Falls back cleanly to Vulkan 1.2 on older GPUs without Vulkan 1.3.
+
+--- a/app/thirdparty/plume/plume_vulkan.h
++++ b/app/thirdparty/plume/plume_vulkan.h
+@@ -525,6 +525,16 @@
+         bool loadStoreOpNoneSupported = false;
+         bool imageCompressionControlSupported = false;
+         bool nullDescriptorSupported = false;
++        // Zandatsu (Phase 6 / ZeroFG): Vulkan 1.3 + synchronization2 capability flags.
++        uint32_t effectiveApiVersion = VK_API_VERSION_1_2;
++        bool synchronization2Supported = false;
++        bool shaderStorageImageExtendedFormatsSupported = false;
++        bool maintenance4Supported = false;
++        bool shaderFloat16Supported = false;
++        bool shaderInt16Supported = false;
++        bool storageBuffer16BitAccessSupported = false;
++        bool subgroupSizeControlSupported = false;
++        bool computeFullSubgroupsSupported = false;
+ #if defined(__SWITCH__)
+         bool frameGenerationCapable = false;
+ #endif
+@@ -567,6 +577,7 @@
+         VkDebugUtilsMessengerEXT switchDebugMessenger = VK_NULL_HANDLE;
+ #   endif
+         VkApplicationInfo appInfo = {};
++        PFN_vkGetInstanceProcAddr getInstanceProcAddr = nullptr;
+         RenderInterfaceCapabilities capabilities;
+         std::vector<std::string> deviceNames;
+ 
+--- a/app/thirdparty/plume/plume_vulkan.cpp
++++ b/app/thirdparty/plume/plume_vulkan.cpp
+@@ -5104,6 +5104,16 @@
+             featuresChain = &pipelineRobustnessFeatures;
+         }
+ 
++        // Zandatsu (Phase 6 / ZeroFG): query Vulkan 1.3 features (synchronization2, maintenance4, etc.) when available.
++        VkPhysicalDeviceVulkan13Features vulkan13Features = {};
++        const bool vulkan13Available = renderInterface->appInfo.apiVersion >= VK_API_VERSION_1_3 &&
++            physicalDeviceProperties.apiVersion >= VK_API_VERSION_1_3;
++        if (vulkan13Available) {
++            vulkan13Features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
++            vulkan13Features.pNext = featuresChain;
++            featuresChain = &vulkan13Features;
++        }
++
+         VkPhysicalDeviceFeatures2 deviceFeatures = {};
+         deviceFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+         deviceFeatures.pNext = featuresChain;
+@@ -5191,6 +5201,19 @@
+             createDeviceChain = &portabilityFeatures;
+         }
+ 
++        // Zandatsu (Phase 6 / ZeroFG): enable Vulkan 1.3 synchronization2 (and maintenance4) when supported.
++        effectiveApiVersion = vulkan13Available ? VK_API_VERSION_1_3 : std::min(renderInterface->appInfo.apiVersion, physicalDeviceProperties.apiVersion);
++        shaderStorageImageExtendedFormatsSupported = deviceFeatures.features.shaderStorageImageExtendedFormats != VK_FALSE;
++        shaderInt16Supported = deviceFeatures.features.shaderInt16 != VK_FALSE;
++        if (vulkan13Available && vulkan13Features.synchronization2) {
++            synchronization2Supported = true;
++            maintenance4Supported = vulkan13Features.maintenance4 != VK_FALSE;
++            subgroupSizeControlSupported = vulkan13Features.subgroupSizeControl != VK_FALSE;
++            computeFullSubgroupsSupported = vulkan13Features.computeFullSubgroups != VK_FALSE;
++            vulkan13Features.pNext = createDeviceChain;
++            createDeviceChain = &vulkan13Features;
++        }
++
+ #if defined(__SWITCH__)
+         frameGenerationCapable = SwitchFrameGenerationPrepared && timelineFeatures.timelineSemaphore;
+         if (frameGenerationCapable) {
+@@ -5327,7 +5350,7 @@
+         allocatorInfo.device = vk;
+         allocatorInfo.pVulkanFunctions = &vmaFunctions;
+         allocatorInfo.instance = renderInterface->instance;
+-        allocatorInfo.vulkanApiVersion = renderInterface->appInfo.apiVersion;
++        allocatorInfo.vulkanApiVersion = std::min(renderInterface->appInfo.apiVersion, VK_API_VERSION_1_2);
+ 
+         res = vmaCreateAllocator(&allocatorInfo, &allocator);
+         if (res != VK_SUCCESS) {
+@@ -5926,7 +5949,9 @@
+         appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
+         appInfo.pEngineName = "plume";
+         appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
+-        appInfo.apiVersion = VK_API_VERSION_1_2;
++        // Zandatsu (Phase 6 / ZeroFG): negotiate Vulkan 1.3 when the loader/driver supports it (fallback 1.2).
++        appInfo.apiVersion = (volkGetInstanceVersion() >= VK_API_VERSION_1_3) ? VK_API_VERSION_1_3 : VK_API_VERSION_1_2;
++        getInstanceProcAddr = vkGetInstanceProcAddr;
+ 
+         VkInstanceCreateInfo createInfo = {};
+         createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;

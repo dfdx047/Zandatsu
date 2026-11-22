@@ -241,6 +241,8 @@
     <string name="settings_clear_1x_sub">Limpia los búferes del juego a 1x y los escala (menos trabajo de GPU a 2x/3x). Desactívalo si los bordes de la imagen parpadean.</string>
     <string name="perf_frame_rate">Tasa de fotogramas</string>
     <string name="perf_frame_rate_sub">MGR corre a 60 FPS. El hack de 30 FPS mantiene el juego a velocidad normal y solo dibuja un frame de cada dos: la mitad del trabajo de la GPU, para GPUs débiles (Mali).</string>
+    <string name="perf_zerofg">Generación de fotogramas (ZeroFG)</string>
+    <string name="perf_zerofg_sub">Interpolación por flujo óptico 2x (Vulkan 1.3): 30→60 o 60→120 FPS. ReallyZero es más rápido; Zero tiene mayor calidad.</string>
     <string name="aniso_game">Juego</string>
     <string name="helper_menu">Menú del juego (Back + Start)</string>
     <string name="settings_touch_layout_map">Mando completo</string>

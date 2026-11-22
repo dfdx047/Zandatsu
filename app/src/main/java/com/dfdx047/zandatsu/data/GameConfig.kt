@@ -78,6 +78,7 @@ data class GameConfig(
     val renutLazyMips: Boolean = false,     // swordman_renut_resolve_mips_lazy: mips dos resolves so quando lidos (>720p)
     val renutShadow1x: Boolean = false,     // renut_shadow_resolution "1x": sombras no tamanho do console (>720p)
     val audioLittleCores: Boolean = false,  // swordman_audio_little_cores: threads de audio nos nucleos pequenos
+    val zerofgMode: String = "off",         // swordman_zerofg_mode: off | reallyzero | zero (ZeroFG v1.1.0, Vulkan 1.3)
 ) {
     /**
      * O jogo corre no Renut com estas opcoes (escolha + aparelho). auto so escolhe o Renut numa GPU validada (Adreno):
@@ -147,6 +148,7 @@ data class GameConfig(
             "swordman_renut_resolve_mips_lazy" to renutLazyMips,
             "renut_shadow_resolution" to if (renutShadow1x) "1x" else "Resolution",
             "swordman_audio_little_cores" to audioLittleCores,
+            "swordman_zerofg_mode" to zerofgMode,
             "swordman_job_serial" to effectiveJobSerial,
             "swordman_job_serial_choice" to jobSerial,
             "renut_anisotropic_filtering" to when (anisotropic) {
@@ -268,6 +270,7 @@ data class GameConfig(
 
     companion object {
         val EFFECTS = listOf("bilinear", "cas", "fsr", "sgsr")
+        val ZEROFG_MODES = listOf("off", "reallyzero", "zero")
         val ASPECTS = listOf("original", "stretch", "widescreen")
         val FSR_QUALITY = listOf("auto", "quality", "balanced", "performance", "ultra_performance")
         val FXAA = listOf("none", "fxaa", "fxaa_extreme")
@@ -401,6 +404,7 @@ data class GameConfig(
                 renutLazyMips = bool("swordman_renut_resolve_mips_lazy", d.renutLazyMips),
                 renutShadow1x = str("renut_shadow_resolution", "Resolution") == "1x",
                 audioLittleCores = bool("swordman_audio_little_cores", d.audioLittleCores),
+                zerofgMode = str("swordman_zerofg_mode", d.zerofgMode).let { if (it in ZEROFG_MODES) it else "off" },
             )
         }
 

@@ -71,7 +71,8 @@ object DisplayRates {
     @JvmStatic
     fun wantedHz(context: Context): Int = try {
         AppPaths.init(context)
-        GameConfig.load().frameMode.outputHz
+        val c = GameConfig.load()
+        if (c.zerofgMode != "off" && c.frameRate == 60) 120 else c.frameMode.outputHz
     } catch (e: Exception) {
         60
     }

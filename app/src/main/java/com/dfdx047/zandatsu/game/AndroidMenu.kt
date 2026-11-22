@@ -418,6 +418,21 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
             )
         }
         list += frameRateItems(c)
+        if (c.useRenut) list += choice(
+            s(R.string.perf_zerofg), s(R.string.perf_zerofg_sub),
+            listOf(
+                "off" to s(R.string.off),
+                "reallyzero" to "ReallyZero",
+                "zero" to "Zero",
+            ),
+            c.zerofgMode,
+        ) { v ->
+            val next = c.copy(zerofgMode = v)
+            set(next, mapOf("swordman_zerofg_mode" to v))
+            if (v != "off" && next.frameRate == 60 && DisplayRates.supports120(context)) {
+                actions.setDisplayRate(120)
+            }
+        }
         list += fpsMeterItem(c)
         if (c.showFps) {
             list += choice(
@@ -602,6 +617,21 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
         }
         list += MInfo(s(R.string.renut_res_experimental))
         list += frameRateItems(c)
+        if (c.useRenut) list += choice(
+            s(R.string.perf_zerofg), s(R.string.perf_zerofg_sub),
+            listOf(
+                "off" to s(R.string.off),
+                "reallyzero" to "ReallyZero",
+                "zero" to "Zero",
+            ),
+            c.zerofgMode,
+        ) { v ->
+            val next = c.copy(zerofgMode = v)
+            set(next, mapOf("swordman_zerofg_mode" to v))
+            if (v != "off" && next.frameRate == 60 && DisplayRates.supports120(context)) {
+                actions.setDisplayRate(120)
+            }
+        }
         list += fpsMeterItem(c)
         list += aspectItem(c)
         list += MHeader(s(R.string.settings_filter))

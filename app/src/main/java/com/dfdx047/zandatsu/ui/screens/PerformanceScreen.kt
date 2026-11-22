@@ -585,4 +585,17 @@ private fun FrameRateSetting(vm: LauncherViewModel, c: GameConfig) {
         StatusLine(stringResource(R.string.perf_fps_120_fallback), Level.WARN)
     }
     if (!has120) StatusLine(stringResource(R.string.perf_fps_120_unavailable, maxHz.roundToInt()), Level.INFO)
+    if (c.useRenut) {
+        SettingSegmented(
+            title = stringResource(R.string.perf_zerofg),
+            subtitle = stringResource(R.string.perf_zerofg_sub),
+            options = listOf(
+                "off" to stringResource(R.string.off),
+                "reallyzero" to "ReallyZero",
+                "zero" to "Zero",
+            ),
+            selected = c.zerofgMode,
+            onSelect = { v -> vm.updateConfig { it.copy(zerofgMode = v) } },
+        )
+    }
 }
