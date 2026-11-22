@@ -323,19 +323,18 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
 
     private fun set(next: GameConfig, cvars: Map<String, String>) {
         cfg = next
-        val nativeCvars = cvars.filterKeys {
-            it != "swordman_renut_preset" && it != "swordman_aspect_choice" && it != "swordman_job_serial_choice"
-        }
+        val nativeCvars = cvars.filterKeys { it !in APP_ONLY_KEYS }
         if (nativeCvars.isNotEmpty()) {
-            val ok = NativeGameState.setCvars(nativeCvars)
+            val ok = NativeGameState.setCvars(nativeCvars, persist = false)
             AppLog.i("menu", "cvars ${nativeCvars.entries.joinToString { "${it.key}=${it.value}" }}" + if (ok) "" else " (falhou)")
         }
+        GameConfig.save(next)
     }
 
     /** Opcoes so do app (volume, modo seguro): ficam no mgr.toml para o launcher. */
     private fun saveAppOnly(next: GameConfig) {
         cfg = next
-        Thread { GameConfig.save(next) }.start()
+        GameConfig.save(next)
     }
 
     private fun setLive(name: String, value: String) {
@@ -578,7 +577,6 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
             val before = c.toToml()
             val changed = next.toToml().filter { (k, v) -> before[k] != v }.mapValues { it.value.toString() }
             set(next, changed)
-            Thread { GameConfig.save(next) }.start()
         }
     }
 
@@ -798,6 +796,13 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
 
     private companion object {
         val LIVE_CVARS = listOf("debug_overlay_position", "swordman_renut_scissor_pass", "swordman_renut_scissor_area")
+        val APP_ONLY_KEYS = setOf(
+            "swordman_renut_preset",
+            "swordman_aspect_choice",
+            "swordman_job_serial_choice",
+            "swordman_resolution_screen",
+            "swordman_renderer_choice",
+        )
     }
 }
 

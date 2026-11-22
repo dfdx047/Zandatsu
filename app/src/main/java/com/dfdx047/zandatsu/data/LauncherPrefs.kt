@@ -112,25 +112,25 @@ class LauncherPrefs(context: Context) {
 
     var controlStyle: ControlStyle
         get() = enumByKey(prefs.getString(KEY_CONTROL_STYLE, null), ControlStyle.GAME) { it.key }
-        set(v) = prefs.edit().putString(KEY_CONTROL_STYLE, v.key).apply()
+        set(v) { prefs.edit().putString(KEY_CONTROL_STYLE, v.key).commit() }
 
     var directional: Directional
         get() = enumByKey(prefs.getString(KEY_DIRECTIONAL, null), Directional.STICK) { it.key }
-        set(v) = prefs.edit().putString(KEY_DIRECTIONAL, v.key).apply()
+        set(v) { prefs.edit().putString(KEY_DIRECTIONAL, v.key).commit() }
 
     var buttonBadge: ButtonBadge
         get() = enumByKey(prefs.getString(KEY_BADGE, null), ButtonBadge.XBOX) { it.key }
-        set(v) = prefs.edit().putString(KEY_BADGE, v.key).apply()
+        set(v) { prefs.edit().putString(KEY_BADGE, v.key).commit() }
 
     /** Pausar o jogo enquanto o menu dos controles ou o menu rapido do port estao abertos. */
     var pauseOnMenus: Boolean
         get() = prefs.getBoolean(KEY_PAUSE_MENUS, true)
-        set(v) = prefs.edit().putBoolean(KEY_PAUSE_MENUS, v).apply()
+        set(v) { prefs.edit().putBoolean(KEY_PAUSE_MENUS, v).commit() }
 
     /** Issue #52: esconder tambem os botoes de engrenagem e pausa na tela (o Back continua a abrir o menu). */
     var hideOverlayButtons: Boolean
         get() = prefs.getBoolean("hide_overlay_buttons", false)
-        set(v) = prefs.edit().putBoolean("hide_overlay_buttons", v).apply()
+        set(v) { prefs.edit().putBoolean("hide_overlay_buttons", v).commit() }
 
     var touchMode: TouchMode
         get() {
@@ -138,30 +138,30 @@ class LauncherPrefs(context: Context) {
             if (v == null && !prefs.getBoolean(KEY_TOUCH_ENABLED, true)) return TouchMode.OFF
             return enumByKey(v, TouchMode.AUTO) { it.key }
         }
-        set(v) = prefs.edit().putString(KEY_TOUCH_MODE, v.key).apply()
+        set(v) { prefs.edit().putString(KEY_TOUCH_MODE, v.key).commit() }
 
     var touchEnabled: Boolean
         get() = prefs.getBoolean(KEY_TOUCH_ENABLED, true)
-        set(v) = prefs.edit().putBoolean(KEY_TOUCH_ENABLED, v).apply()
+        set(v) { prefs.edit().putBoolean(KEY_TOUCH_ENABLED, v).commit() }
 
     var touchHideWithPad: Boolean
         get() = prefs.getBoolean(KEY_TOUCH_HIDE_WITH_PAD, true)
-        set(v) = prefs.edit().putBoolean(KEY_TOUCH_HIDE_WITH_PAD, v).apply()
+        set(v) { prefs.edit().putBoolean(KEY_TOUCH_HIDE_WITH_PAD, v).commit() }
 
     var touchHaptics: Boolean
         get() = prefs.getBoolean(KEY_TOUCH_HAPTICS, true)
-        set(v) = prefs.edit().putBoolean(KEY_TOUCH_HAPTICS, v).apply()
+        set(v) { prefs.edit().putBoolean(KEY_TOUCH_HAPTICS, v).commit() }
 
     /** Opacidade global dos controles (0.1-1), multiplica a de cada botao. */
     /** Troca automatica menu/luta dos controles na tela. */
     var touchAutoSwitch: Boolean
         get() = prefs.getBoolean("touch_auto_switch", true)
-        set(value) = prefs.edit().putBoolean("touch_auto_switch", value).apply()
+        set(value) { prefs.edit().putBoolean("touch_auto_switch", value).commit() }
 
     /** LT alterna: um toque entra no Blade Mode e outro sai (em vez de segurar). */
     var bladeToggle: Boolean
         get() = prefs.getBoolean("touch_blade_toggle", true)
-        set(value) = prefs.edit().putBoolean("touch_blade_toggle", value).apply()
+        set(value) { prefs.edit().putBoolean("touch_blade_toggle", value).commit() }
 
     /** Teste de GPU (04/11): o aviso de arranque nas GPUs com problema conhecido ("Nao mostrar de novo"). */
     var diagPromptNever: Boolean
@@ -176,11 +176,11 @@ class LauncherPrefs(context: Context) {
     /** Tamanho de todos os botoes (multiplica o de cada um). */
     var touchScale: Float
         get() = prefs.getFloat("touch_scale", 1f)
-        set(value) = prefs.edit().putFloat("touch_scale", value).apply()
+        set(value) { prefs.edit().putFloat("touch_scale", value).commit() }
 
     var touchOpacity: Float
         get() = prefs.getFloat(KEY_TOUCH_OPACITY, 0.75f)
-        set(v) = prefs.edit().putFloat(KEY_TOUCH_OPACITY, v).apply()
+        set(v) { prefs.edit().putFloat(KEY_TOUCH_OPACITY, v).commit() }
 
     var turnipNoticeShown: Boolean
         get() = prefs.getBoolean(KEY_TURNIP_NOTICE, false)

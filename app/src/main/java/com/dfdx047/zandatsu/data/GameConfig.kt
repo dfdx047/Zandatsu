@@ -331,8 +331,19 @@ data class GameConfig(
             }
             val interp = bool("dbz3_frame_interpolation", false)
             val skip = int("dbz3_frameskip", 0) > 0
+            val renutH = int("sa2_render_height_handheld", 0)
+            val renutRes = when (renutH) {
+                360 -> InternalResolution.P360
+                540 -> InternalResolution.P540
+                720 -> InternalResolution.P720
+                1080 -> InternalResolution.P1080
+                1440 -> InternalResolution.P1440
+                2160 -> InternalResolution.P2160
+                else -> null
+            }
             return GameConfig(
                 resolution = if (bool("swordman_resolution_screen", false)) ScreenInfo.matchedResolution()
+                else if (str("swordman_renderer", "") == "renut" && renutRes != null) renutRes
                 else InternalResolution.from(
                     int("draw_resolution_scale_x", 1),
                     int("draw_resolution_percent", 100),
