@@ -5,25 +5,8 @@ package com.dfdx047.zandatsu.game
  * log e o estado jogo/menus (ainda desconhecido no MGR: fightFlag devolve -1).
  */
 object NativeGameState {
-    const val SIDE_UNKNOWN = 0
-    /** P1 a esquerda do adversario: "para tras" = esquerda. */
-    const val SIDE_LEFT = 1
-    /** P1 a direita do adversario: "para tras" = direita. */
-    const val SIDE_RIGHT = 2
-
     @Volatile
     private var available = true
-
-    /** Lado do P1 neste momento (SIDE_*). */
-    fun p1Side(): Int {
-        if (!available) return SIDE_UNKNOWN
-        return try {
-            nativeP1Side()
-        } catch (e: UnsatisfiedLinkError) {
-            available = false
-            SIDE_UNKNOWN
-        }
-    }
 
     /**
      * Pausa (GPU + audio) enquanto [overlayOpen] ou, com [pauseQuickMenu], enquanto o
@@ -68,17 +51,6 @@ object NativeGameState {
             nativeGpuReset()
         } catch (e: UnsatisfiedLinkError) {
             ""
-        }
-    }
-
-    /** 1 = camara livre (modo foto) ligada, 0 = nao, -1 = desconhecido. */
-    fun mapFlag(): Int {
-        if (!available) return -1
-        return try {
-            nativeMapFlag()
-        } catch (e: UnsatisfiedLinkError) {
-            // libgame.so antiga sem esta funcao: so desliga a deteccao do mapa.
-            -1
         }
     }
 
@@ -130,15 +102,6 @@ object NativeGameState {
             nativeInvokeCommand(name, args)
         } catch (e: UnsatisfiedLinkError) {
             false
-        }
-    }
-
-    /** Som de menu do proprio jogo: 0 mover, 1 confirmar, 2 voltar, 3 nao da, 5 abrir, 6 fechar. */
-    fun menuSound(sound: Int) {
-        if (!available) return
-        try {
-            nativeMenuSound(sound)
-        } catch (_: UnsatisfiedLinkError) {
         }
     }
 
@@ -229,13 +192,6 @@ object NativeGameState {
         }
     }
 
-    const val SOUND_MOVE = 0
-    const val SOUND_CONFIRM = 1
-    const val SOUND_BACK = 2
-    const val SOUND_DENIED = 3
-    const val SOUND_OPEN = 5
-    const val SOUND_CLOSE = 6
-
     /** Solta a pausa sem condicoes (ao fechar o jogo). */
     fun forceResume() {
         if (!available) return
@@ -251,7 +207,6 @@ object NativeGameState {
 
     @JvmStatic private external fun nativeGetCvar(name: String): String
     @JvmStatic private external fun nativeInvokeCommand(name: String, args: String): Boolean
-    @JvmStatic private external fun nativeMenuSound(sound: Int)
     @JvmStatic private external fun nativeLogLine(line: String)
     @JvmStatic private external fun nativeSetDisplayHz(hz: Float)
     @JvmStatic private external fun nativePresentInfo(): String
@@ -265,16 +220,12 @@ object NativeGameState {
 
     @JvmStatic
     private external fun nativeFightFlag(): Int
-    @JvmStatic private external fun nativeMapFlag(): Int
     @JvmStatic private external fun nativePlayMode(): Int
     @JvmStatic private external fun nativeBattleDebug(): String
     @JvmStatic private external fun nativeDumpFight(path: String, kind: Int, ms: Long): Boolean
 
     @JvmStatic
     private external fun nativeSetCvars(names: Array<String>, values: Array<String>, persist: Boolean): Boolean
-
-    @JvmStatic
-    private external fun nativeP1Side(): Int
 
     @JvmStatic
     private external fun nativeSyncPause(overlayOpen: Boolean, pauseQuickMenu: Boolean): Boolean

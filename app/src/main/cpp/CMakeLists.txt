@@ -128,10 +128,7 @@ set_source_files_properties(${GENERATED_SOURCES} PROPERTIES
 # sm_add_game(<alvo> <march>) cria-o com o codigo do jogo nessa CPU alvo; o SDK e o mesmo. "game" e o libgame.so do
 # SM_MARCH; "game_v80" (SM_DUAL_MARCH) o de armv8-a, em v80/libgame.so (fora da pasta de .so que vai para o APK).
 #-----------------------------------------------------------------------------
-option(DB_D3D_TRACE "Hooks de rastreio da biblioteca D3D (logs/d3d_trace.log)" OFF)
-if(DB_D3D_TRACE AND NOT EXISTS "${CMAKE_CURRENT_LIST_DIR}/d3d_trace_hooks.cpp")
-    message(FATAL_ERROR "DB_D3D_TRACE ligado mas falta app/src/main/cpp/d3d_trace_hooks.cpp")
-endif()
+option(SM_PROFILING "Manter frame pointers no codigo recompilado (simpleperf)" OFF)
 option(SM_BSYMBOLIC "libgame.so com -Bsymbolic-functions" ON)
 option(SM_RENUT "Compila o Renut (swordman_renderer = renut)" ON)
 if(SM_RENUT)
@@ -146,6 +143,10 @@ function(sm_add_game TARGET MARCH)
     # Um PCH por alvo: o -march muda e o PCH de um nao serve ao outro.
     target_precompile_headers(${RECOMP} PRIVATE "${SM_GENERATED}/mgr_pch.h")
     target_compile_options(${RECOMP} PRIVATE -march=${MARCH} -ffp-contract=off)
+    if(NOT SM_PROFILING)
+        # Liberta x29 e corta prologo/epilogo nas ~85 mil sub_* recompiladas (runtime/watchdog mantem frame pointers).
+        target_compile_options(${RECOMP} PRIVATE -fomit-frame-pointer)
+    endif()
 
     add_library(${TARGET} SHARED "${SM_ROOT}/src/main.cpp" $<TARGET_OBJECTS:${RECOMP}>)
     target_sources(${TARGET} PRIVATE
@@ -160,10 +161,6 @@ function(sm_add_game TARGET MARCH)
         # A GPU reinicia (hang/falha) sem o jogo fechar: volta ao launcher com o aviso.
         "${CMAKE_CURRENT_LIST_DIR}/gpu_reset.cpp"
     )
-    # Rastreio das funcoes D3D candidatas (optxbox d3dmap + d3d_trace_gen.py do Dragon Burst).
-    if(DB_D3D_TRACE)
-        target_sources(${TARGET} PRIVATE "${CMAKE_CURRENT_LIST_DIR}/d3d_trace_hooks.cpp")
-    endif()
     target_include_directories(${TARGET} PRIVATE
         "${SM_ROOT}"
         "${SM_ROOT}/src"

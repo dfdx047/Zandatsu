@@ -184,7 +184,6 @@
     <string name="settings_pause_menus">Pausar en los menús</string>
     <string name="settings_pause_menus_sub">El juego se detiene mientras el menú de controles (engranaje en el juego) o el menú del juego (Back + Start) está abierto.</string>
     <string name="port_menu_title">Opciones del juego</string>
-    <string name="port_menu_restart_note">La resolución y el modo seguro de la GPU se aplican la próxima vez que se abra el juego.</string>
     <string name="touch_mode_auto">Automático</string>
     <string name="touch_mode_on">Activado</string>
     <string name="touch_mode_off">Desactivado</string>
@@ -205,15 +204,6 @@
     <string name="settings_direct_resolve_sub">Copia los efectos de pantalla completa directamente a la textura, saltándose dos conversiones. Menos carga de GPU.</string>
     <string name="settings_direct_resolve_fast">Atajo de efectos: modo rápido</string>
     <string name="settings_direct_resolve_fast_sub">Además evita copiar los efectos a la memoria del juego (solo se rellena la textura). Más rápido; desactívalo si algún efecto se ve mal.</string>
-    <string name="turnip_compat_title">Correcciones Turnip (Adreno 6xx)</string>
-    <string name="turnip_compat_sub">Para fallos gráficos con Turnip en Adreno 6xx (p. ej. 650). Se aplican al reabrir el juego; combínalas libremente. El driver del sistema ignora las de TU_DEBUG.</string>
-    <string name="turnip_compat_sysmem">Sin GMEM (TU_DEBUG=sysmem)</string>
-    <string name="turnip_compat_nolrz">Sin LRZ ni UBWC</string>
-    <string name="turnip_compat_paths">Sin dynamic rendering ni stencil export</string>
-    <string name="turnip_compat_sync">Diagnóstico: sincronización total (lento)</string>
-    <string name="turnip_compat_single_buffer">Memoria del juego en un solo bloque (512 MB)</string>
-    <string name="turnip_compat_bc">Texturas BC descomprimidas</string>
-    <string name="turnip_compat_depth">Profundidad en float 32</string>
     <string name="ingame_capture">Capturar 2 frames (diagnóstico)</string>
     <string name="settings_rt_direct">Render targets directos</string>
     <string name="settings_rt_direct_sub">Cada pasada dibuja en su propia imagen sin copias entre ellas (menos trabajo de GPU). Desactívalo si faltan partes de la imagen.</string>
@@ -327,11 +317,7 @@
     <string name="drivers_turnip_unsupported">Sin soporte conocido de Turnip en esta GPU: usa el driver del sistema. %1$s</string>
     <string name="drivers_turnip_auto">Con Turnip activo, TU_DEBUG=%1$s se aplica automáticamente en esta GPU.</string>
     <string name="drivers_boot_failed">El driver %1$s no pudo abrir el juego 3 veces seguidas. Prueba el driver del sistema u otra versión.</string>
-    <string name="turnip_compat_ir3_nopreamble">Compilador de shaders: sin preámbulo (IR3 nopreamble)</string>
-    <string name="turnip_compat_ir3_nouboopt">Compilador de shaders: sin optimización de UBO (IR3 nouboopt)</string>
-    <string name="turnip_compat_ir3_nofp16">Compilador de shaders: sin cálculos de 16 bits (IR3 nofp16)</string>
     <string name="turnip_bisect">Bisect de Turnip: cambia una opción del driver en cada arranque del juego</string>
-    <string name="turnip_bisect_next">Próximo arranque del juego: paso %1$s (de %2$d). Juega un poco + autotest del render en cada arranque y envía todos los zips.</string>
     <string name="close">Cerrar</string>
     <string name="game_title_small">METAL GEAR RISING</string>
     <string name="orientation_portrait">Vertical</string>
@@ -340,7 +326,6 @@
     <string name="debug_selftest_text">Autotest del render: en el juego, abre el menú → Depuración → Autotest del render. Congela la imagen solo, apaga los atajos de la GPU uno a uno y compara las imágenes.</string>
     <string name="controls_scheme_title">Controles de MGR en la pantalla</string>
     <string name="controls_scheme_sub">Los mínimos botones, combos ya unidos</string>
-    <string name="controls_scheme_text">Stick izquierdo: caminar · arrastrar a la derecha: cámara (toque = centrar, R3)\nX ataque ligero (+ stick hacia el enemigo = parar) · Y ataque fuerte · A saltar · B acción / agarrar en el Zandatsu\nLT: Blade Mode (corta deslizando en el lado derecho o con X/Y) · RT mantener: Ninja Run · RB fijar · LB arma secundaria\nBotón de esquiva = X+A (con una dirección) · cruceta pequeña: ↑ Augment, ← → armas/objetos, ↓ usar objeto · L3+R3: Ripper Mode\nStart pausa · Back Códec</string>
     <string name="helper_dodge">Esquiva (X+A)</string>
     <string name="helper_ripper">Ripper Mode (L3+R3)</string>
     <string name="helper_augment">Augment Mode (↑)</string>
@@ -386,19 +371,8 @@
     <string name="err_dialog_import_title">La importación falló</string>
     <string name="err_dialog_import_text">No se pudo copiar el juego. Revisa el espacio libre y que el archivo o la carpeta sigan disponibles, e inténtalo de nuevo.</string>
     <string name="err_dialog_use_system_driver">Usar el driver del sistema</string>
-    <string name="turnip_sweep_start">Barrido automático de Turnip (%1$d inicios)</string>
-    <string name="turnip_sweep_help">El juego se abre y se cierra solo, una opción del driver por inicio (~40 s cada uno). No toques el dispositivo; al final el zip de logs va a Download.</string>
-    <string name="settings_glow_blur">Desenfoque del brillo</string>
-    <string name="settings_glow_blur_sub">Desactivado ahorra ~2,6 ms por frame en el RG Cube, sin diferencia visible en las escenas probadas.</string>
-    <string name="turnip_sweep_rtt">Barrido de Turnip: atajo resolve→textura (%1$d inicios)</string>
-    <string name="settings_ps_fp16">Pixel shaders en fp16 (experimental)</string>
-    <string name="settings_ps_fp16_sub">Cálculo en media precisión en los shaders del juego: más rápido en Mali y Adreno; puede dar bandas de color o efectos incorrectos. Se aplica en el próximo inicio.</string>
-    <string name="tab_cheats">Trucos</string>
-    <string name="cheats_boot_title">Inicio</string>
     <string name="cheats_skip_logos">Saltar los logos</string>
     <string name="cheats_skip_logos_sub">Acelera el juego 8 veces durante los logos de las empresas al iniciar, hasta la pantalla de título.</string>
-    <string name="settings_shadows">Sombras</string>
-    <string name="settings_shadows_sub">Sombras proyectadas en la escena. Desactivadas ahorran ~3 ms por frame en el RP5; la imagen queda normal, solo sin esas sombras.</string>
     <string name="q_shadows">Sombras</string>
     <string name="q_shadows_sub">Alta: las sombras proyectadas en la escena (~3 ms en el RP5). Desactivadas: imagen normal, solo sin esas sombras. El nivel Medio llega con el render nativo de la sombra.</string>
     <string name="q_lighting">Iluminación (brillo)</string>
@@ -430,9 +404,6 @@
     <string name="renut_bloom_sub">El brillo alrededor de las luces y la espada. Desactivado: la imagen original, sin brillo.</string>
     <string name="renut_res_experimental">* Experimental: en la RP5 (Turnip) 1080p, 2K y 4K colgaron la GPU (device lost) en 2 minutos de combate. Si la imagen se congela, vuelve a 720p.</string>
     <string name="profile_pick_title">Elige tu perfil</string>
-    <string name="profile_pick_sub">Cada uno con los fps medidos en 60 s de combate: Retroid Pocket 5 con el renderizador nativo (Renut, driver Turnip) y RG Cube con el emulado (Xenia, Mali-G57). Este dispositivo usará: %1$s. No hay nada elegido; puedes cambiarlo después en Rendimiento.</string>
-    <string name="profile_pick_fps_rp5">Retroid Pocket 5 (Renut): %1$s</string>
-    <string name="profile_pick_fps_cube">RG Cube (Xenia): %1$s</string>
     <string name="renut_preset_minimum_desc">540p con AMD FSR, sin sombras ni brillo, audio en los núcleos pequeños</string>
     <string name="delete_old_extracted">Borrar archivos extraídos antiguos (%1$s)</string>
     <string name="busy_deleting_old">Borrando archivos extraídos antiguos…</string>
@@ -606,7 +577,6 @@
     <string name="home_iso_in_use">ISO: %1$s</string>
     <string name="home_folder_in_use">Carpeta importada (memoria de la app)</string>
     <string name="home_change_iso">Cambiar .iso</string>
-    <string name="controls_legend_title">Qué hace cada botón</string>
     <string name="back">Volver</string>
     <string name="import_dlc">Importar DLC</string>
     <string name="busy_importing_dlc">Copiando DLC</string>

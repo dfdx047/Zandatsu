@@ -129,13 +129,6 @@ class GameOverlay(private val activity: Activity) : InputManager.InputDeviceList
             }
         }
         engine.onLeftGame = { view?.stopBlade() }
-        engine.onMapChanged = { map ->
-            onMap = map
-            view?.let {
-                it.releaseAll()
-                it.layout = currentLayout()
-            }
-        }
         // O motor corre sempre (pausa, luta/menus), mesmo com os controles desligados.
         main.postDelayed(attachRunnable, 2500)
         val density = activity.resources.displayMetrics.density

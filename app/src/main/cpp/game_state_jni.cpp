@@ -45,12 +45,6 @@ bool g_paused = false;
 
 }  // namespace
 
-// Lado do P1 (Dragon Burst). Sem sentido no MGR: sempre desconhecido.
-extern "C" JNIEXPORT jint JNICALL
-Java_com_dfdx047_zandatsu_game_NativeGameState_nativeP1Side(JNIEnv*, jclass) {
-  return 0;
-}
-
 // ---------------------------------------------------------------------------
 // Pausa do jogo enquanto um menu do app esta aberto (menu do jogo, editor dos
 // controles). O jogo para no VdSwap (android_hooks.cpp) e o audio com
@@ -126,12 +120,6 @@ extern "C" JNIEXPORT jint JNICALL
 Java_com_dfdx047_zandatsu_game_NativeGameState_nativePlayMode(JNIEnv*, jclass) {
   if (!rex::Runtime::instance() || g_swordman_ticks.load(std::memory_order_relaxed) == 0) return -1;
   return static_cast<jint>(LoadGuestU32(kPlayStateMode));
-}
-
-// Camara livre / modo foto (Dragon Burst). Nao existe no MGR.
-extern "C" JNIEXPORT jint JNICALL
-Java_com_dfdx047_zandatsu_game_NativeGameState_nativeMapFlag(JNIEnv*, jclass) {
-  return rex::Runtime::instance() ? 0 : -1;
 }
 
 // Diagnostico para logs/controles.log: frames apresentados e se esta pausado.
@@ -265,10 +253,6 @@ Java_com_dfdx047_zandatsu_game_NativeGameState_nativeInvokeCommand(JNIEnv* env, 
   env->ReleaseStringUTFChars(args, ca);
   return ok ? JNI_TRUE : JNI_FALSE;
 }
-
-// Sons de menu do proprio jogo (Dragon Burst). O MGR ainda nao: o menu do app fica mudo.
-extern "C" JNIEXPORT void JNICALL
-Java_com_dfdx047_zandatsu_game_NativeGameState_nativeMenuSound(JNIEnv*, jclass, jint) {}
 
 // Linha no log do jogo (autoteste do render, menu do app, controles).
 extern "C" JNIEXPORT void JNICALL

@@ -40,7 +40,6 @@ class HelperEngine {
     private var sentLx = 0f
     private var sentLy = 0f
     private var running = false
-    @Volatile private var side = NativeGameState.SIDE_UNKNOWN
 
     /** Menu dos controles aberto por cima do jogo: o jogo fica pausado. */
     @Volatile var menuOpen = false
@@ -67,15 +66,6 @@ class HelperEngine {
      * so quando muda (ver [trackBattle]).
      */
     var onBattleChanged: ((Boolean) -> Unit)? = null
-
-    /**
-     * Estado "comando completo" pedido pelo jogo (Dragon Burst: camara livre). No MGR o runtime
-     * devolve 0 (nunca entra); fica para quando houver um estado equivalente.
-     */
-    var onMapChanged: ((Boolean) -> Unit)? = null
-    @Volatile var onMap = false
-        private set
-    private var offMapTicks = 0
 
     /** Diagnostico (so com "Diagnostico de desempenho"): recebe linhas para logs/controles.log. */
     @Volatile var diag: ((String) -> Unit)? = null
@@ -210,10 +200,8 @@ class HelperEngine {
 
     private fun step() {
         paused = NativeGameState.syncPause(menuOpen || freeze, pauseQuickMenu)
-        side = NativeGameState.p1Side()
         if (!paused) {
             trackBattle(NativeGameState.playMode())
-            trackMap(NativeGameState.mapFlag())
         }
         diag?.let { d ->
             if (++diagTicks >= 30) {
@@ -222,7 +210,7 @@ class HelperEngine {
                 val line = NativeGameState.battleDebug() ?: ""
                 if (line != diagLast) {
                     diagLast = line
-                    d("$line layout=${if (onMap) "mapa" else if (inBattle) "luta" else "menus"}${if (paused) " (pausa)" else ""}")
+                    d("$line layout=${if (inBattle) "luta" else "menus"}${if (paused) " (pausa)" else ""}")
                 }
             }
         }
@@ -316,31 +304,12 @@ class HelperEngine {
         candidateTicks = 0
     }
 
-    private fun trackMap(flag: Int) {
-        if (flag < 0) return
-        val next = when {
-            flag == 1 -> {
-                offMapTicks = 0
-                true
-            }
-            onMap && ++offMapTicks < MAP_DELAY_TICKS -> true
-            else -> false
-        }
-        if (next != onMap) {
-            onMap = next
-            com.dfdx047.zandatsu.data.AppLog.i("controls", "comando completo: " + if (next) "sim" else "nao")
-            diag?.invoke("troca -> " + if (next) "mapa" else "fora do mapa")
-            mainHandler.post { onMapChanged?.invoke(next) }
-        }
-    }
-
-    /** FORWARD/BACKWARD -> RIGHT/LEFT conforme o lado do P1 (esquerda se desconhecido). */
+    /** FORWARD/BACKWARD -> RIGHT/LEFT. */
     private fun resolveRelative(inputs: Set<PadInput>): Set<PadInput> {
         if (PadInput.FORWARD !in inputs && PadInput.BACKWARD !in inputs) return inputs
-        val p1Right = side == NativeGameState.SIDE_RIGHT
         val out = inputs.toMutableSet()
-        if (out.remove(PadInput.BACKWARD)) out += if (p1Right) PadInput.RIGHT else PadInput.LEFT
-        if (out.remove(PadInput.FORWARD)) out += if (p1Right) PadInput.LEFT else PadInput.RIGHT
+        if (out.remove(PadInput.BACKWARD)) out += PadInput.LEFT
+        if (out.remove(PadInput.FORWARD)) out += PadInput.RIGHT
         return out
     }
 
@@ -385,8 +354,6 @@ class HelperEngine {
         const val MIN_DWELL_TICKS = 120
         /** Duracao minima de um toque num botao (2 frames a 30 fps + folga). */
         const val MIN_PRESS_MS = 80L
-        /** ~1,5 s fora do estado de voo antes de sair do layout do mapa. */
-        const val MAP_DELAY_TICKS = 90
     }
 
     private fun keyFor(i: PadInput): Int? = when (i) {

@@ -31,10 +31,8 @@ val cmakeVersionFromDir: String? =
 // sem o jogo nativo: util para mexer na interface sem esperar pelo NDK.
 // O APK resultante abre o launcher mas nao consegue arrancar o jogo.
 val uiOnly = (project.findProperty("df.uiOnly") as String?) == "true"
-// "-Pdf.d3dTrace=true": compila os hooks de rastreio das funcoes D3D
-// (app/src/main/cpp/d3d_trace_hooks.cpp, gerado por tools/d3d_trace_gen.py).
-// So para mapear a biblioteca D3D; nao usar em testes de desempenho.
-val d3dTrace = (project.findProperty("df.d3dTrace") as String?) == "true"
+// "-Pdf.profiling=true": mantem frame pointers no codigo recompilado (simpleperf). Sem isto, o codigo gerado liberta x29.
+val profiling = (project.findProperty("df.profiling") as String?) == "true"
 // "-Pdf.thinlto=true": ThinLTO no codigo gerado e no libmain.so (SM_THINLTO; build a parte, mais lento).
 val thinLto = (project.findProperty("df.thinlto") as String?) == "true"
 // "-Pdf.march=...": CPU alvo do libgame.so principal (omissao armv8.2-a). O APK leva tambem um libgame.so em armv8-a
@@ -73,7 +71,7 @@ android {
                         "-DCMAKE_POLICY_VERSION_MINIMUM=3.5",
                         "-DREXGLUE_ENABLE_TRACY=OFF",
                         "-DREXGLUE_BUILD_TESTS=OFF",
-                        "-DDB_D3D_TRACE=" + (if (d3dTrace) "ON" else "OFF"),
+                        "-DSM_PROFILING=" + (if (profiling) "ON" else "OFF"),
                         "-DSM_THINLTO=" + (if (thinLto) "ON" else "OFF"),
                         "-DSM_MARCH=$march",
                         "-DSM_DUAL_MARCH=" + (if (dualMarch) "ON" else "OFF"),

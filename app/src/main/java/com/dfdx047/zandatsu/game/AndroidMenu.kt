@@ -167,12 +167,9 @@ class MenuController {
         }
     }
 
-    fun sound(s: Int) = NativeGameState.menuSound(s)
-
     fun open(tabIndex: Int) {
         tab = tabIndex.coerceIn(0, (tabCount - 1).coerceAtLeast(0))
         row = -1
-        sound(NativeGameState.SOUND_OPEN)
     }
 
     fun ensureRow() {
@@ -185,7 +182,6 @@ class MenuController {
         if (i == tab) return
         tab = i
         row = -1
-        sound(NativeGameState.SOUND_MOVE)
     }
 
     private fun changeTab(d: Int) = selectTab((tab + d + tabCount) % tabCount)
@@ -197,7 +193,6 @@ class MenuController {
             if (i < 0 || i >= items.size) return
             if (items[i].selectable) {
                 row = i
-                sound(NativeGameState.SOUND_MOVE)
                 return
             }
         }
@@ -210,15 +205,11 @@ class MenuController {
             is MStep -> it.onStep(d)
             else -> return
         }
-        sound(NativeGameState.SOUND_CONFIRM)
     }
 
     fun activate() {
         when (val it = items.getOrNull(row)) {
-            is MAction -> {
-                sound(NativeGameState.SOUND_CONFIRM)
-                it.run()
-            }
+            is MAction -> it.run()
             is MToggle, is MChoice -> adjust(1)
             else -> Unit
         }
@@ -253,7 +244,6 @@ class MenuController {
 
     fun close() {
         stopRepeat()
-        sound(NativeGameState.SOUND_CLOSE)
         onClose()
     }
 
