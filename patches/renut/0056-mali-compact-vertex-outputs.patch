@@ -1,0 +1,110 @@
+Zandatsu (Android, Mali Phase 5B++): compact vertex shader outputs from 29 (Location 0..28, 120 components)
+to 14 (Location 0..13/14, <= 56 components) so every MGR shader fits within Mali's Vulkan limit
+(maxVertexOutputComponents = 64). Fixes deterministic SIGSEGV at 0x40 in libGLES_mali.so
+cmpbe_v2_compile_multiple_shaders (vs 937F4E320E232406 / ps 1995A5D0668660EE, issues #47, #83, #101)
+and cuts Mali tiler varying bandwidth in half across all 298 vertex shaders.
+
+--- a/app/thirdparty/reblue-XenosRecomp/XenosRecomp/shader_recompiler.cpp
++++ b/app/thirdparty/reblue-XenosRecomp/XenosRecomp/shader_recompiler.cpp
+@@ -150,23 +150,28 @@
+     { DeclUsage::TexCoord, 7 },
+     { DeclUsage::TexCoord, 8 },
+     { DeclUsage::TexCoord, 9 },
++    { DeclUsage::Color, 0 },
++    { DeclUsage::Color, 1 },
++};
++
++// Zandatsu (renut/0056): Mali GPUs have maxVertexOutputComponents = 64 (16 vec4 locations max).
++// Declaring all 29 interpolators (Location 0..28 = 120 components) violates Vulkan limits on Mali,
++// wastes tiler varying bandwidth, and triggers SIGSEGV at 0x40 in libGLES_mali.so
++// cmpbe_v2_compile_multiple_shaders (issues #47, #83, #101). None of MGR's 904 pixel shaders read
++// these slots, so keep them as local variables inside main() (dead-eliminated by DXC).
++static constexpr std::pair<DeclUsage, size_t> UNUSED_INTERPOLATORS[] =
++{
+     { DeclUsage::TexCoord, 10 },
+     { DeclUsage::TexCoord, 11 },
+     { DeclUsage::TexCoord, 12 },
+     { DeclUsage::TexCoord, 13 },
+     { DeclUsage::TexCoord, 14 },
+     { DeclUsage::TexCoord, 15 },
+-    { DeclUsage::Color, 0 },
+-    { DeclUsage::Color, 1 },
+ #ifdef RENUT_RECOMP
+-    // mgr-nx-deko: MGR passes additional colour interpolators through COLOR2..5.
+     { DeclUsage::Color, 2 },
+     { DeclUsage::Color, 3 },
+     { DeclUsage::Color, 4 },
+     { DeclUsage::Color, 5 },
+-#endif
+-#ifdef RENUT_RECOMP
+-    // N&B also passes vectors through NORMAL/TANGENT/BINORMAL interpolators.
+     { DeclUsage::Normal, 0 },
+     { DeclUsage::Normal, 1 },
+     { DeclUsage::Normal, 2 },
+@@ -2554,6 +2559,8 @@
+ 
+         for (auto& [usage, usageIndex] : INTERPOLATORS)
+             println("\to{}{} = float4(0.0, 0.0, 0.0, 1.0);", USAGE_VARIABLES[uint32_t(usage)], usageIndex);
++        for (auto& [usage, usageIndex] : UNUSED_INTERPOLATORS)
++            println("\tfloat4 o{}{} = float4(0.0, 0.0, 0.0, 1.0);", USAGE_VARIABLES[uint32_t(usage)], usageIndex);
+     #ifdef RENUT_RECOMP
+         out += "\toPointCoord = 0.0;\n";
+         out += "\toPointSize = 0.0;\n";
+@@ -2561,6 +2568,11 @@
+ 
+         out += "\n";
+     }
++    else
++    {
++        for (auto& [usage, usageIndex] : UNUSED_INTERPOLATORS)
++            println("\tfloat4 i{}{} = float4(0.0, 0.0, 0.0, 1.0);", USAGE_VARIABLES[uint32_t(usage)], usageIndex);
++    }
+ 
+     for (size_t i = 0; i < std::size(printedRegisters); i++)
+     {
+--- a/app/src/renut_engine/gpu/shaders/host/rectangle_list_gs.hlsl
++++ b/app/src/renut_engine/gpu/shaders/host/rectangle_list_gs.hlsl
+@@ -17,11 +17,8 @@
+ struct Vertex
+ {
+     float4 position : SV_Position;
+-    float4 texcoord[16] : TEXCOORD0;
++    float4 texcoord[10] : TEXCOORD0;
+     float4 color[2] : COLOR0;
+-    float4 normal[3] : NORMAL0;
+-    float4 tangent : TANGENT0;
+-    float4 binormal : BINORMAL0;
+     float2 pointCoord : POINTCOORD;
+     float pointSize : POINTSIZE;
+ };
+@@ -31,14 +28,10 @@
+ {
+     Vertex d;
+     d.position = a.position + b.position - c.position;
+-    [unroll] for (uint i = 0; i < 16; ++i)
++    [unroll] for (uint i = 0; i < 10; ++i)
+         d.texcoord[i] = a.texcoord[i] + b.texcoord[i] - c.texcoord[i];
+     [unroll] for (uint j = 0; j < 2; ++j)
+         d.color[j] = a.color[j] + b.color[j] - c.color[j];
+-    [unroll] for (uint k = 0; k < 3; ++k)
+-        d.normal[k] = a.normal[k] + b.normal[k] - c.normal[k];
+-    d.tangent = a.tangent + b.tangent - c.tangent;
+-    d.binormal = a.binormal + b.binormal - c.binormal;
+     d.pointCoord = a.pointCoord + b.pointCoord - c.pointCoord;
+     d.pointSize = a.pointSize + b.pointSize - c.pointSize;
+     return d;
+--- a/app/src/renut_engine/gpu/shaders/host/point_sprite_gs.hlsl
++++ b/app/src/renut_engine/gpu/shaders/host/point_sprite_gs.hlsl
+@@ -12,11 +12,8 @@
+ struct Vertex
+ {
+     float4 position : SV_Position;
+-    float4 texcoord[16] : TEXCOORD0;
++    float4 texcoord[10] : TEXCOORD0;
+     float4 color[2] : COLOR0;
+-    float4 normal[3] : NORMAL0;
+-    float4 tangent : TANGENT0;
+-    float4 binormal : BINORMAL0;
+     float2 pointCoord : POINTCOORD;
+     float pointSize : POINTSIZE;
+ };
