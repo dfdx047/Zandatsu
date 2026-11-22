@@ -1,5 +1,6 @@
 Zandatsu (Android, Phase 6): integrate ZeroFG v1.1.0 (ReallyZero / Zero) into Renut present.
 Supports both 30->60 FPS (with dbz3_frameskip=1) and 60->120 FPS (on >=100 Hz displays) via swordman_zerofg_mode.
+Drains banjo_renut_record worker before recording ZeroFG compute dispatches onto the real VkCommandBuffer.
 
 --- a/app/src/renut_engine/gpu/backend/present.cpp
 +++ b/app/src/renut_engine/gpu/backend/present.cpp
@@ -13,7 +14,15 @@ Supports both 30->60 FPS (with dbz3_frameskip=1) and 60->120 FPS (on >=100 Hz di
  #endif
  
  #include <rex/cvar.h>
-@@ -79,6 +82,12 @@
+@@ -31,6 +34,7 @@
+ #include "renut_engine/gpu/overlay/overlay_ui.h"
+ #include "renut_engine/gpu/overlay/overlay_drawer.h"  // banjo-nx (2026-10-19): HasLatest
+ #include "renut_engine/gpu/banjo_renut_tuning.h"
++#include "renut_engine/gpu/banjo_renut_record.h"  // Zandatsu (Phase 6 / ZeroFG): Drain() before raw VkCommandBuffer
+ #include "renut_engine/gpu/backend/render_thread.h"
+ #include "renut_engine/gpu/backend/video.h"
+ #include "renut_engine/gpu/backend/video_internal.h"
+@@ -79,6 +83,12 @@
      .allowed({"original", "stretch", "widescreen"})
      .lifecycle(rex::cvar::Lifecycle::kHotReload);
  
@@ -26,7 +35,7 @@ Supports both 30->60 FPS (with dbz3_frameskip=1) and 60->120 FPS (on >=100 Hz di
  REXCVAR_DEFINE_BOOL(renut_vsync, true, "Nuts&Bolts/Graphics",
                      "Show each frame at the display's refresh: no tearing, and the game runs at "
                      "the refresh rate (frame_cap then only limits below it). Off shows frames at "
-@@ -733,13 +742,13 @@
+@@ -733,13 +743,13 @@
  }
  
  bool MakeInterpTarget(VideoState &s, InterpTarget &t, uint32_t w, uint32_t h, plume::RenderFormat format,
@@ -42,7 +51,7 @@ Supports both 30->60 FPS (with dbz3_frameskip=1) and 60->120 FPS (on >=100 Hz di
    t.texture = s.device->createTexture(desc);
    if (!t.texture)
      return false;
-@@ -828,9 +837,257 @@
+@@ -828,9 +838,261 @@
      InterpToLayout(cmd, *t, plume::RenderTextureLayout::SHADER_READ);
  }
  
@@ -263,7 +272,11 @@ Supports both 30->60 FPS (with dbz3_frameskip=1) and 60->120 FPS (on >=100 Hz di
 +  const zerofg::Image cur_img = make_zfg_image(g_zerofg.hist[i], kHistUsage, g_zerofg.sequence);
 +  const zerofg::Image out_img = make_zfg_image(g_zerofg.output, kOutUsage, 0);
 +
-+  VkCommandBuffer vk_cmd = static_cast<plume::VulkanCommandList *>(s.command_list)->vk;
++  // Drain the record worker so CopyToZeroFGHistoryLocked + InterpToLayout are played onto the real VkCommandBuffer
++  // before ZeroFG records its Vulkan 1.3 compute dispatches directly into it.
++  banjo::renut_gpu::record::Drain();
++  plume::RenderCommandList *real_list = s.slot_list[s.frame] ? s.slot_list[s.frame] : s.command_lists[s.frame].get();
++  VkCommandBuffer vk_cmd = static_cast<plume::VulkanCommandList *>(real_list)->vk;
 +  const zerofg::Status st =
 +      g_zerofg.interp->Interpolate(vk_cmd, g_zerofg.frame_ctx, prev_img, cur_img, 0.5f, out_img);
 +  g_zerofg.frame_ctx = (g_zerofg.frame_ctx + 1) % kFramesInFlight;
