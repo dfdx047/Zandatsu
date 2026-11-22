@@ -298,6 +298,7 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
     private var opacity by mutableFloatStateOf(prefs.touchOpacity)
     private var haptics by mutableStateOf(prefs.touchHaptics)
     private var pauseMenus by mutableStateOf(prefs.pauseOnMenus)
+    private var hideOverlayButtons by mutableStateOf(prefs.hideOverlayButtons)
     private var confirmExit by mutableStateOf(false)
 
     private fun s(id: Int) = context.getString(id)
@@ -314,6 +315,7 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
         opacity = prefs.touchOpacity
         haptics = prefs.touchHaptics
         pauseMenus = prefs.pauseOnMenus
+        hideOverlayButtons = prefs.hideOverlayButtons
         confirmExit = false
         selfTestRefused = false
         AppLog.i("menu", "aberto")
@@ -705,6 +707,11 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
         list += MToggle(s(R.string.settings_pause_menus), s(R.string.settings_pause_menus_sub), pauseMenus) { v ->
             pauseMenus = v
             prefs.pauseOnMenus = v
+            appearance()
+        }
+        list += MToggle(s(R.string.settings_hide_overlay_buttons), s(R.string.settings_hide_overlay_buttons_sub), hideOverlayButtons) { v ->
+            hideOverlayButtons = v
+            prefs.hideOverlayButtons = v
             appearance()
         }
         val c = cfg

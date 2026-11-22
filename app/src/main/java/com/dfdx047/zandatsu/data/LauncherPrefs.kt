@@ -127,6 +127,11 @@ class LauncherPrefs(context: Context) {
         get() = prefs.getBoolean(KEY_PAUSE_MENUS, true)
         set(v) = prefs.edit().putBoolean(KEY_PAUSE_MENUS, v).apply()
 
+    /** Issue #52: esconder tambem os botoes de engrenagem e pausa na tela (o Back continua a abrir o menu). */
+    var hideOverlayButtons: Boolean
+        get() = prefs.getBoolean("hide_overlay_buttons", false)
+        set(v) = prefs.edit().putBoolean("hide_overlay_buttons", v).apply()
+
     var touchMode: TouchMode
         get() {
             val v = prefs.getString(KEY_TOUCH_MODE, null)

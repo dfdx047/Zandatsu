@@ -188,6 +188,8 @@
     <string name="touch_mode_on">Ligado</string>
     <string name="touch_mode_off">Desligado</string>
     <string name="settings_touch_mode_sub">Automático: aparecem quando você toca na tela e somem quando usa um controle.</string>
+    <string name="settings_hide_overlay_buttons">Esconder botões de pausa e menu</string>
+    <string name="settings_hide_overlay_buttons_sub">Esconde também a engrenagem e o botão de pausa da tela. Use o botão Voltar (Back) para abrir o menu.</string>
     <string name="settings_touch_layout_menu">Menus</string>
     <string name="settings_touch_layout_battle">Combate</string>
     <string name="export_logs">Exportar logs</string>

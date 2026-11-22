@@ -193,6 +193,11 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
     @JvmName("changePauseOnMenus")
     fun setPauseOnMenus(v: Boolean) { pauseOnMenus = v; prefs.pauseOnMenus = v }
 
+    var hideOverlayButtons by mutableStateOf(prefs.hideOverlayButtons)
+        private set
+    @JvmName("changeHideOverlayButtons")
+    fun setHideOverlayButtons(v: Boolean) { hideOverlayButtons = v; prefs.hideOverlayButtons = v }
+
     var touchMode by mutableStateOf(prefs.touchMode)
         private set
     @JvmName("changeTouchMode")

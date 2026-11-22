@@ -188,6 +188,8 @@
     <string name="touch_mode_on">Activado</string>
     <string name="touch_mode_off">Desactivado</string>
     <string name="settings_touch_mode_sub">Automático: aparecen al tocar la pantalla y se ocultan al usar un mando.</string>
+    <string name="settings_hide_overlay_buttons">Ocultar botones de pausa y menú</string>
+    <string name="settings_hide_overlay_buttons_sub">Oculta también el engranaje y el botón de pausa en pantalla. Usa el botón Atrás para abrir el menú.</string>
     <string name="settings_touch_layout_menu">Menús</string>
     <string name="settings_touch_layout_battle">Combate</string>
     <string name="export_logs">Exportar logs</string>

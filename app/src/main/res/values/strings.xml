@@ -189,6 +189,8 @@
     <string name="touch_mode_on">On</string>
     <string name="touch_mode_off">Off</string>
     <string name="settings_touch_mode_sub">Automatic: they show up when you touch the screen and hide when you use a controller.</string>
+    <string name="settings_hide_overlay_buttons">Hide pause &amp; menu buttons</string>
+    <string name="settings_hide_overlay_buttons_sub">Also hides the on-screen gear and pause icons. Use the Back button to open the menu.</string>
     <string name="settings_touch_layout_menu">Menus</string>
     <string name="settings_touch_layout_battle">Combat</string>
     <string name="export_logs">Export logs</string>

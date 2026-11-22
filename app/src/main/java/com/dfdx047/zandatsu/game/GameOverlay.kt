@@ -536,9 +536,9 @@ class GameOverlay(private val activity: Activity) : InputManager.InputDeviceList
         }
         if (!show) v.releaseAll()
         v.visibility = if (show) View.VISIBLE else View.GONE
-        // Engrenagem e pause ficam sempre (menos com um menu aberto). Teste do
-        // compositor: "env:DF_HIDE_BUTTONS = 1" no cvars.txt esconde-os (o Back abre o menu).
-        val hideAll = android.system.Os.getenv("DF_HIDE_BUTTONS") == "1"
+        // Engrenagem e pause ficam sempre (menos com um menu aberto ou hideOverlayButtons ligado). Teste do
+        // compositor: "env:DF_HIDE_BUTTONS = 1" no cvars.txt tambem os esconde (o Back abre o menu).
+        val hideAll = prefs.hideOverlayButtons || android.system.Os.getenv("DF_HIDE_BUTTONS") == "1"
         val buttons = if (menuOpen || hideAll) View.GONE else View.VISIBLE
         gear?.visibility = buttons
         pauseButton?.visibility = buttons

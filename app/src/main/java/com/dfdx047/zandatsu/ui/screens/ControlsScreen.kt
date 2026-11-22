@@ -159,6 +159,12 @@ fun ControlsScreen(vm: LauncherViewModel) {
                 checked = vm.pauseOnMenus,
                 onChange = vm::setPauseOnMenus,
             )
+            SettingSwitch(
+                stringResource(R.string.settings_hide_overlay_buttons),
+                stringResource(R.string.settings_hide_overlay_buttons_sub),
+                checked = vm.hideOverlayButtons,
+                onChange = vm::setHideOverlayButtons,
+            )
             com.dfdx047.zandatsu.ui.components.ButtonRow {
                 FilledTonalButton(onClick = { context.startActivity(Intent(context, ControlsEditorActivity::class.java)) }) {
                     Icon(Icons.Filled.Edit, null)
