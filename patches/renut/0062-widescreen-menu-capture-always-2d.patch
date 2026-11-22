@@ -1,0 +1,22 @@
+Zandatsu (Android, Phase 5D+++): remove 500-draw cap on captures-based 2D menu detection.
+Save Slot 1 hovers at 498-502 draws, which oscillated out of 2D mode; 1280-column back-buffer
+captures only occur on Save/Pause/MISSION FAILED menus.
+
+--- a/app/src/renut_engine/gpu/d3d/hooks/device.cpp
++++ b/app/src/renut_engine/gpu/d3d/hooks/device.cpp
+@@ -952,11 +952,11 @@
+     bool frame_2d = false;
+     if (renut::gpu::GuestScreenWidth() > 1280) {
+       const uint32_t widened = renut::gpu::TakeWidenedDraws();
+-      // Zandatsu (renut/0046, 0060): a 2D logo/movie has < 8 widened draws; a Save/Pause menu over the scene
+-      // captures the back buffer's 1280 columns while having < 500 draws (boss attacks with distortion captures
+-      // have 700-2000+ draws and must stay Ultrawide). Require 6 consecutive frames to avoid mid-combat flickers.
++      // Zandatsu (renut/0046, 0060, 0062): a 2D logo/movie has < 8 widened draws; a Save/Pause/MISSION FAILED
++      // menu captures the back buffer's 1280 columns (captures > 0, ~490-510 draws). Combat never makes this
++      // 1280-column back-buffer capture, and 6 consecutive frames prevent brief mid-combat flickers.
+       const uint32_t captures = renut::gpu::TakeScreenCaptures();
+-      run_2d = (widened < 8 || (captures > 0 && widened < 500)) ? run_2d + 1 : 0;
++      run_2d = (widened < 8 || captures > 0) ? run_2d + 1 : 0;
+       frame_2d = run_2d >= 6;
+       if (frame_2d != shown_2d && logged_2d < 40) {
+         ++logged_2d;

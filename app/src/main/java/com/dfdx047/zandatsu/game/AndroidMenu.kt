@@ -323,9 +323,12 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
 
     private fun set(next: GameConfig, cvars: Map<String, String>) {
         cfg = next
-        if (cvars.isNotEmpty()) {
-            val ok = NativeGameState.setCvars(cvars)
-            AppLog.i("menu", "cvars ${cvars.entries.joinToString { "${it.key}=${it.value}" }}" + if (ok) "" else " (falhou)")
+        val nativeCvars = cvars.filterKeys {
+            it != "swordman_renut_preset" && it != "swordman_aspect_choice" && it != "swordman_job_serial_choice"
+        }
+        if (nativeCvars.isNotEmpty()) {
+            val ok = NativeGameState.setCvars(nativeCvars)
+            AppLog.i("menu", "cvars ${nativeCvars.entries.joinToString { "${it.key}=${it.value}" }}" + if (ok) "" else " (falhou)")
         }
     }
 

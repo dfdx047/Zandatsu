@@ -471,6 +471,7 @@ class GameOverlay(private val activity: Activity) : InputManager.InputDeviceList
         v.bladeToggle = prefs.bladeToggle
         v.globalScale = prefs.touchScale
         engine.autoSwitch = prefs.touchAutoSwitch
+        engine.pauseQuickMenu = prefs.pauseOnMenus
         val a = prefs.touchOpacity.coerceAtLeast(0.4f)
         gear?.alpha = a
         pauseButton?.alpha = a
