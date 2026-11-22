@@ -1,0 +1,23 @@
+Zandatsu (Android, Phase 5D++): skip point_sprite_gs on Mali GPUs (vendor 0x13B5) only.
+libGLES_mali.so cmpbe_v2_compile_multiple_shaders crashes deterministically with SIGSEGV at 0x40 on
+point-topology geometry shaders (vs 937F4E320E232406 / ps 1995A5D0668660EE) on Mali-G57/G615/G78
+(issues #47, #83, #101). Keeps rectangle_list_gs on Mali and both geometry shaders on Adreno.
+
+--- a/app/src/renut_engine/gpu/backend/video.cpp
++++ b/app/src/renut_engine/gpu/backend/video.cpp
+@@ -373,6 +373,15 @@
+   }
+   s.rectangle_list_gs =
+       CreateHostShader(s.device.get(), RENUT_HOST_SHADER(rectangle_list_gs), "rectangle_list_gs");
++#if defined(__ANDROID__)
++  // Zandatsu (renut/0061): libGLES_mali.so (cmpbe_v2_compile_multiple_shaders) crashes with SIGSEGV at 0x40
++  // on point-topology geometry shaders (vs 937F4E320E232406 / ps 1995A5D0668660EE) on Mali-G57/G615/G78
++  // (issues #47, #83, #101). Skip point_sprite_gs on Mali only; keep rectangle_list_gs on Mali and both on Adreno.
++  if (uint32_t(s.device->getDescription().vendor) == 0x13B5) {
++    RGPU_INFO("Mali: point_sprite_gs desligado (evita crash cmpbe_v2_compile_multiple_shaders; rectangle_list_gs mantido)");
++    return;
++  }
++#endif
+   s.point_sprite_gs =
+       CreateHostShader(s.device.get(), RENUT_HOST_SHADER(point_sprite_gs), "point_sprite_gs");
+   if (DrawSetsCompact() && IsVulkan()) {
