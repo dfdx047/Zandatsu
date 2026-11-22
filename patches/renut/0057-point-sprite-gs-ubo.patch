@@ -1,0 +1,46 @@
+Zandatsu (Android, Mali Phase 5B+++): read SharedConstants from dynamic UBO (set 7, remapped to set 4
+when compact sets are active) in point_sprite_gs.hlsl instead of vk::RawBufferLoad (PhysicalStorageBuffer).
+Fixes deterministic SIGSEGV at 0x40 in libGLES_mali.so cmpbe_v2_compile_multiple_shaders on Mali-G57/G615/G78
+(issues #47, #83, #101) while preserving point sprites and geometry shaders on both Mali and Adreno.
+
+--- a/app/src/renut_engine/gpu/shaders/host/point_sprite_gs.hlsl
++++ b/app/src/renut_engine/gpu/shaders/host/point_sprite_gs.hlsl
+@@ -22,30 +22,23 @@
+ // height and minimum and maximum size, at 1328 the size of the host viewport
+ // (what clip space spans), all in guest pixels (the host viewport is the
+ // render resolution scale times that, so sprites scale with it).
+-#if defined(__spirv__) && defined(BANJO_DEKO3D)
+-// banjo-nx (deko3d renderer): SharedConstants as the game shaders read them (the dynamic UBO of set 7), and D3D's
+-// clip space (no -fvk-invert-y for deko3d).
++#if defined(__spirv__)
++// Zandatsu (renut/0057): read SharedConstants from the dynamic UBO at set 7 (remapped to set 4 by
++// RemapDrawShaderSets when compact sets are active, video.cpp:382) instead of vk::RawBufferLoad
++// (PhysicalStorageBuffer), which crashes libGLES_mali.so cmpbe_v2_compile_multiple_shaders at 0x40
++// (issues #47, #83, #101).
+ struct BanjoSharedConstants { float4 v[84]; };
+ [[vk::binding(0, 7)]] ConstantBuffer<BanjoSharedConstants> g_BanjoShared;
+ 
+ float4 PointState() { return g_BanjoShared.v[82]; }
+ float4 ViewportState() { return g_BanjoShared.v[83]; }
+ 
++#if defined(BANJO_DEKO3D)
+ static const float kUp = 1.0;
+-#elif defined(__spirv__)
+-struct PushConstants
+-{
+-    uint64_t VertexShaderConstants;
+-    uint64_t PixelShaderConstants;
+-    uint64_t SharedConstants;
+-};
+-[[vk::push_constant]] ConstantBuffer<PushConstants> g_PushConstants;
+-
+-float4 PointState() { return vk::RawBufferLoad<float4>(g_PushConstants.SharedConstants + 1312, 16); }
+-float4 ViewportState() { return vk::RawBufferLoad<float4>(g_PushConstants.SharedConstants + 1328, 16); }
+-
++#else
+ // The vertex shaders' clip space has y flipped (-fvk-invert-y).
+ static const float kUp = -1.0;
++#endif
+ #else
+ cbuffer SharedConstants : register(b2, space4)
+ {
