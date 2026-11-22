@@ -267,7 +267,7 @@ data class GameConfig(
     }
 
     companion object {
-        val EFFECTS = listOf("bilinear", "cas", "fsr")
+        val EFFECTS = listOf("bilinear", "cas", "fsr", "sgsr")
         val ASPECTS = listOf("original", "stretch", "widescreen")
         val FSR_QUALITY = listOf("auto", "quality", "balanced", "performance", "ultra_performance")
         val FXAA = listOf("none", "fxaa", "fxaa_extreme")

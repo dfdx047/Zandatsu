@@ -435,7 +435,7 @@ private fun FilterSettings(vm: LauncherViewModel, c: GameConfig, quality: Boolea
     SettingSegmented(
         title = stringResource(R.string.settings_filter),
         subtitle = stringResource(R.string.settings_filter_sub),
-        options = listOf("bilinear" to "Bilinear", "cas" to "AMD CAS", "fsr" to "AMD FSR 1"),
+        options = listOf("bilinear" to "Bilinear", "cas" to "AMD CAS", "fsr" to "AMD FSR 1", "sgsr" to "SGSR 1"),
         selected = c.presentEffect,
         onSelect = { v -> vm.updateConfig { it.copy(presentEffect = v) } },
     )

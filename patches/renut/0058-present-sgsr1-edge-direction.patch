@@ -1,0 +1,245 @@
+Zandatsu (Android, Phase 5C): add Qualcomm SGSR1 Edge Direction (BSD-3-Clause) single-pass FP16
+spatial upscaler (present_effect = sgsr). Runs directly in the swapchain pass with zero intermediate
+texture or extra render pass, cutting scan-out bandwidth in half vs FSR 1 on Mali.
+
+--- a/app/src/renut_engine/gpu/backend/present.cpp
++++ b/app/src/renut_engine/gpu/backend/present.cpp
+@@ -94,6 +94,7 @@
+ #include "host_shaders/present_cas_ps.spirv.h"
+ #include "host_shaders/present_easu_ps.spirv.h"
+ #include "host_shaders/present_rcas_ps.spirv.h"
++#include "host_shaders/present_sgsr_ps.spirv.h"  // Zandatsu (renut/0058): SGSR1 Edge Direction
+ #include "host_shaders/frame_interp_ps.spirv.h"  // Zandatsu (renut/0025)
+ #endif
+ 
+@@ -397,12 +398,12 @@
+ // pipeline that failed to build: the single pass of RecordScanOut. The captures (CaptureFrameLocked) stay bilinear.
+ constexpr plume::RenderFormat kEffectFormat = plume::RenderFormat::R8G8B8A8_UNORM;  // kSwapChainFormat (video.cpp)
+ 
+-enum class Effect { kBilinear, kFsr, kCas };
++enum class Effect { kBilinear, kFsr, kCas, kSgsr };
+ 
+ struct PresentEffect {
+   bool built = false, failed = false;
+-  std::unique_ptr<plume::RenderShader> easu_ps, rcas_ps, cas_ps;
+-  std::unique_ptr<plume::RenderPipeline> easu, linear, rcas, cas;  // linear: present_ps into the image
++  std::unique_ptr<plume::RenderShader> easu_ps, rcas_ps, cas_ps, sgsr_ps;
++  std::unique_ptr<plume::RenderPipeline> easu, linear, rcas, cas, sgsr;  // linear: present_ps into the image
+   std::unique_ptr<plume::RenderTexture> target;
+   std::unique_ptr<plume::RenderTextureView> view;
+   std::unique_ptr<plume::RenderFramebuffer> framebuffer;
+@@ -435,18 +436,20 @@
+   e.easu_ps = CreateHostShader(s.device.get(), RENUT_HOST_SHADER(present_easu_ps), "present_easu_ps");
+   e.rcas_ps = CreateHostShader(s.device.get(), RENUT_HOST_SHADER(present_rcas_ps), "present_rcas_ps");
+   e.cas_ps = CreateHostShader(s.device.get(), RENUT_HOST_SHADER(present_cas_ps), "present_cas_ps");
+-  if (e.easu_ps && e.rcas_ps && e.cas_ps && s.present_ps) {
++  e.sgsr_ps = CreateHostShader(s.device.get(), RENUT_HOST_SHADER(present_sgsr_ps), "present_sgsr_ps");
++  if (e.easu_ps && e.rcas_ps && e.cas_ps && e.sgsr_ps && s.present_ps) {
+     e.easu = EffectPipeline(s, e.easu_ps.get(), "renut present: FSR EASU");
+     e.linear = EffectPipeline(s, s.present_ps.get(), "renut present: bilinear to the effect image");
+     e.rcas = EffectPipeline(s, e.rcas_ps.get(), "renut present: FSR RCAS");
+     e.cas = EffectPipeline(s, e.cas_ps.get(), "renut present: CAS");
++    e.sgsr = EffectPipeline(s, e.sgsr_ps.get(), "renut present: SGSR1 Edge Direction");
+   }
+-  e.built = e.easu && e.linear && e.rcas && e.cas;
++  e.built = e.easu && e.linear && e.rcas && e.cas && e.sgsr;
+   e.failed = !e.built;
+   if (e.failed)
+-    RGPU_ERROR("present_effect: the FSR/CAS pipelines failed to build; bilinear scan-out");
++    RGPU_ERROR("present_effect: the FSR/CAS/SGSR pipelines failed to build; bilinear scan-out");
+   else
+-    RGPU_INFO("present_effect: FSR 1 (EASU + RCAS) and CAS pipelines ready");
++    RGPU_INFO("present_effect: FSR 1 (EASU + RCAS), CAS and SGSR 1 Edge pipelines ready");
+   return e.built;
+ }
+ 
+@@ -491,9 +494,23 @@
+ // (RecordEffectScanOut), bilinear when there is none.
+ Effect RecordEffectPrePass(VideoState &s, const PresentImage &image, uint32_t out_w, uint32_t out_h) {
+   const std::string &name = REXCVAR_GET(present_effect);
+-  const Effect effect = name == "fsr" ? Effect::kFsr : name == "cas" ? Effect::kCas : Effect::kBilinear;
++  const Effect effect = name == "fsr"    ? Effect::kFsr
++                        : name == "cas"  ? Effect::kCas
++                        : name == "sgsr" ? Effect::kSgsr
++                                         : Effect::kBilinear;
+   if (effect == Effect::kBilinear || image.gamma > 0.0f)  // image.gamma: banjo_renut_diag_show_texture, as it is
+     return Effect::kBilinear;
++  // Zandatsu (renut/0058): SGSR1 Edge Direction is single-pass — no intermediate texture or extra render pass.
++  if (effect == Effect::kSgsr) {
++    if (!BuildEffectPipelines(s))
++      return Effect::kBilinear;
++    if (image.layout && *image.layout != plume::RenderTextureLayout::SHADER_READ) {
++      s.command_list->barriers(plume::RenderBarrierStage::GRAPHICS,
++                               plume::RenderTextureBarrier(image.texture, plume::RenderTextureLayout::SHADER_READ));
++      *image.layout = plume::RenderTextureLayout::SHADER_READ;
++    }
++    return Effect::kSgsr;
++  }
+   const uint32_t src_w = image.source_width ? image.source_width : image.width;
+   const uint32_t src_h = image.source_height ? image.source_height : image.height;
+   const FrameFit fit = FitFrame(out_w, out_h, src_w, src_h);
+@@ -540,27 +557,41 @@
+   return effect;
+ }
+ 
+-// In the output's render pass, in place of RecordScanOut: RCAS or CAS from the effect image, with the gamma ramp.
++// In the output's render pass, in place of RecordScanOut: RCAS, CAS or single-pass SGSR1 Edge, with gamma ramp.
+ void RecordEffectScanOut(VideoState &s, const PresentImage &image, uint32_t out_w, uint32_t out_h, Effect effect) {
+   const PresentEffect &e = g_effect;
+   plume::RenderCommandList *cmd = s.command_list;
+   const uint32_t src_w = image.source_width ? image.source_width : image.width;
+   const uint32_t src_h = image.source_height ? image.source_height : image.height;
+-  const plume::RenderViewport vp = FitFrame(out_w, out_h, src_w, src_h).viewport;
++  const FrameFit fit = FitFrame(out_w, out_h, src_w, src_h);
++  const plume::RenderViewport &vp = fit.viewport;
+   cmd->setViewports(vp);
+   cmd->setScissors(plume::RenderRect(int32_t(vp.x), int32_t(vp.y), int32_t(vp.x + vp.width),
+                                      int32_t(vp.y + vp.height)));
+   cmd->setGraphicsPipelineLayout(s.utility_layout.get());
+-  cmd->setPipeline(effect == Effect::kFsr ? e.rcas.get() : e.cas.get());
++  cmd->setPipeline(effect == Effect::kFsr    ? e.rcas.get()
++                   : effect == Effect::kSgsr ? e.sgsr.get()
++                                             : e.cas.get());
+   cmd->setGraphicsDescriptorSet(s.texture_set.get(), 0);
+   cmd->setGraphicsDescriptorSet(s.sampler_set.get(), 1);
+   UtilityPush push{};
+-  push.scale[0] = push.scale[1] = 1.0f;
+-  push.texture_index = e.slot;
+-  // The shaders read the image with Load: the sampler's word carries the sharpness (a float's bits).
+-  const float sharpness = effect == Effect::kFsr ? float(REXCVAR_GET(present_fsr_sharpness_reduction))
+-                                                 : float(REXCVAR_GET(present_cas_additional_sharpness));
+-  push.sampler_index = std::bit_cast<uint32_t>(sharpness);
++  if (effect == Effect::kSgsr) {
++    const float frame_u = image.width ? float(src_w) / float(image.width) : 1.0f;
++    const float frame_v = image.height ? float(src_h) / float(image.height) : 1.0f;
++    push.scale[0] = frame_u * fit.visible[0];
++    push.scale[1] = frame_v * fit.visible[1];
++    push.translate[0] = frame_u * (1.0f - fit.visible[0]) * 0.5f;
++    push.translate[1] = frame_v * (1.0f - fit.visible[1]) * 0.5f;
++    push.texture_index = image.descriptor;
++    push.sampler_index = kLinearClampSamplerSlot;
++  } else {
++    push.scale[0] = push.scale[1] = 1.0f;
++    push.texture_index = e.slot;
++    // The shaders read the image with Load: the sampler's word carries the sharpness (a float's bits).
++    const float sharpness = effect == Effect::kFsr ? float(REXCVAR_GET(present_fsr_sharpness_reduction))
++                                                   : float(REXCVAR_GET(present_cas_additional_sharpness));
++    push.sampler_index = std::bit_cast<uint32_t>(sharpness);
++  }
+   push.param0 = s.output_gamma;
+   const uint32_t ramp_slot =
+       g_gamma.uploaded && g_gamma.slot != kInvalidDescriptor && REXCVAR_GET(sa2_renut_gamma_ramp) ? g_gamma.slot : 0u;
+--- /dev/null
++++ b/app/src/renut_engine/gpu/shaders/host/present_sgsr_ps.hlsl
+@@ -0,0 +1,111 @@
++//============================================================================================================
++//                  Copyright (c) 2025, Qualcomm Innovation Center, Inc. All rights reserved.
++//                              SPDX-License-Identifier: BSD-3-Clause
++//============================================================================================================
++// Zandatsu (renut/0058): Qualcomm Snapdragon Game Super Resolution (SGSR1 Edge Direction), single-pass FP16
++// spatial upscaler + edge-directed sharpener for Renut scan-out (present_effect = sgsr).
++// Runs directly in the swapchain pass with zero intermediate texture or extra render pass.
++#include "utility.hlsli"
++#include "present_output.hlsli"
++
++static const min16float kEdgeThreshold = min16float(8.0 / 255.0);
++static const min16float kEdgeSharpness = min16float(2.0);
++
++min16float FastLanczos2(min16float x)
++{
++    min16float wA = x - min16float(4.0);
++    min16float wB = x * wA - wA;
++    wA *= wA;
++    return wB * wA;
++}
++
++min16float2 WeightY(min16float dx, min16float dy, min16float c, min16float3 data)
++{
++    min16float std = data.x;
++    min16float2 dir = data.yz;
++    min16float edgeDis = (dx * dir.y) + (dy * dir.x);
++    min16float x = (dx * dx + dy * dy) +
++                   (edgeDis * edgeDis) * (saturate(c * c * std) * min16float(0.7) - min16float(1.0));
++    min16float w = FastLanczos2(x);
++    return min16float2(w, w * c);
++}
++
++min16float2 EdgeDirection(min16float4 left, min16float4 right)
++{
++    min16float rxLz = right.x - left.z;
++    min16float rwLy = right.w - left.y;
++    min16float2 delta = min16float2(rxLz + rwLy, rxLz - rwLy);
++    min16float lengthInv = rsqrt(delta.x * delta.x + delta.y * delta.y + min16float(3.075740e-05));
++    return delta * lengthInv;
++}
++
++struct PSInput
++{
++    float4 position : SV_Position;
++    float2 uv : TEXCOORD0;
++};
++
++float4 main(PSInput input) : SV_Target0
++{
++    Texture2D tex = g_Textures[g_Push.textureIndex];
++    SamplerState samp = g_Samplers[g_Push.samplerIndex];
++
++    uint w, h;
++    tex.GetDimensions(w, h);
++    const float2 texSize = float2(w, h);
++    const float2 texSizeInv = 1.0 / texSize;
++
++    min16float3 color = min16float3(tex.SampleLevel(samp, input.uv, 0.0).rgb);
++
++    const float2 imgCoord = input.uv * texSize + float2(-0.5, 0.5);
++    const float2 imgCoordPixel = floor(imgCoord);
++    float2 coord = imgCoordPixel * texSizeInv;
++    const min16float2 pl = min16float2(imgCoord - imgCoordPixel);
++
++    min16float4 left = min16float4(tex.GatherGreen(samp, coord));
++    const min16float edgeVote = abs(left.z - left.y) + abs(color.g - left.y) + abs(color.g - left.z);
++    if (edgeVote > kEdgeThreshold)
++    {
++        coord.x += texSizeInv.x;
++        min16float4 right = min16float4(tex.GatherGreen(samp, coord + float2(texSizeInv.x, 0.0)));
++        min16float4 upDown;
++        upDown.xy = min16float2(tex.GatherGreen(samp, coord + float2(0.0, -texSizeInv.y)).wz);
++        upDown.zw = min16float2(tex.GatherGreen(samp, coord + float2(0.0, texSizeInv.y)).yx);
++
++        const min16float mean = (left.y + left.z + right.x + right.w) * min16float(0.25);
++        left -= mean;
++        right -= mean;
++        upDown -= mean;
++        const min16float centerY = color.g - mean;
++
++        const min16float sum =
++            abs(left.x) + abs(left.y) + abs(left.z) + abs(left.w) +
++            abs(right.x) + abs(right.y) + abs(right.z) + abs(right.w) +
++            abs(upDown.x) + abs(upDown.y) + abs(upDown.z) + abs(upDown.w);
++        const min16float sumMean = min16float(10.14185) / max(sum, min16float(1e-4));
++        const min16float std = sumMean * sumMean;
++        const min16float3 data = min16float3(std, EdgeDirection(left, right));
++
++        min16float2 aWY = WeightY(pl.x, pl.y + min16float(1.0), upDown.x, data);
++        aWY += WeightY(pl.x - min16float(1.0), pl.y + min16float(1.0), upDown.y, data);
++        aWY += WeightY(pl.x - min16float(1.0), pl.y - min16float(2.0), upDown.z, data);
++        aWY += WeightY(pl.x, pl.y - min16float(2.0), upDown.w, data);
++        aWY += WeightY(pl.x + min16float(1.0), pl.y - min16float(1.0), left.x, data);
++        aWY += WeightY(pl.x, pl.y - min16float(1.0), left.y, data);
++        aWY += WeightY(pl.x, pl.y, left.z, data);
++        aWY += WeightY(pl.x + min16float(1.0), pl.y, left.w, data);
++        aWY += WeightY(pl.x - min16float(1.0), pl.y - min16float(1.0), right.x, data);
++        aWY += WeightY(pl.x - min16float(2.0), pl.y - min16float(1.0), right.y, data);
++        aWY += WeightY(pl.x - min16float(2.0), pl.y, right.z, data);
++        aWY += WeightY(pl.x - min16float(1.0), pl.y, right.w, data);
++
++        const min16float finalY = aWY.y / max(abs(aWY.x), min16float(1e-4));
++        const min16float maxY = max(max(left.y, left.z), max(right.x, right.w));
++        const min16float minY = min(min(left.y, left.z), min(right.x, right.w));
++        min16float deltaY = clamp(kEdgeSharpness * finalY, minY, maxY) - centerY;
++        deltaY = clamp(deltaY, min16float(-23.0 / 255.0), min16float(23.0 / 255.0));
++        color = saturate(color + deltaY);
++    }
++
++    return float4(PresentOutput(float3(color)), 1.0);
++}

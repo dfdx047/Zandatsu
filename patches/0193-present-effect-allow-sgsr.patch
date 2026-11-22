@@ -1,0 +1,26 @@
+Zandatsu (Phase 5C): allow "sgsr" (Qualcomm SGSR1 Edge Direction, renut/0058) in present_effect cvar.
+
+--- a/src/ui/presenter.cpp
++++ b/src/ui/presenter.cpp
+@@ -43,8 +43,8 @@
+ // (TextureCache::GetConfigDrawResolutionScale) - live on D3D12.
+ #if defined(REX_HAS_FIDELITYFX_SDK)
+ REXCVAR_DEFINE_STRING(present_effect, "bilinear", "UI/Presenter",
+-                      "Guest output effect: bilinear, cas, fsr, fsr2, fsr3")
+-    .allowed({"bilinear", "cas", "fsr", "fsr2", "fsr3"});
++                      "Guest output effect: bilinear, cas, fsr, sgsr, fsr2, fsr3")
++    .allowed({"bilinear", "cas", "fsr", "sgsr", "fsr2", "fsr3"});
+ 
+ REXCVAR_DEFINE_DOUBLE(present_cas_additional_sharpness,
+                       rex::ui::Presenter::GuestOutputPaintConfig::kCasAdditionalSharpnessDefault,
+@@ -71,8 +71,8 @@
+     "ultra_performance = 1x")
+     .allowed({"auto", "nativeaa", "quality", "balanced", "performance", "ultra_performance"});
+ #else
+-REXCVAR_DEFINE_STRING(present_effect, "bilinear", "UI/Presenter", "Guest output effect: bilinear")
+-    .allowed({"bilinear"});
++REXCVAR_DEFINE_STRING(present_effect, "bilinear", "UI/Presenter", "Guest output effect: bilinear, sgsr")
++    .allowed({"bilinear", "sgsr"});
+ #endif
+ 
+ REXCVAR_DEFINE_BOOL(present_dither, false, "UI/Presenter",

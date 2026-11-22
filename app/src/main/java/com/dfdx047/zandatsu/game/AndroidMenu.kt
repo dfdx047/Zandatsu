@@ -448,7 +448,7 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
         val list = ArrayList<MenuItem>()
         list += choice(
             s(R.string.settings_filter), s(R.string.settings_filter_sub),
-            listOf("bilinear" to "Bilinear", "cas" to "AMD CAS", "fsr" to "AMD FSR 1"), c.presentEffect,
+            listOf("bilinear" to "Bilinear", "cas" to "AMD CAS", "fsr" to "AMD FSR 1", "sgsr" to "SGSR 1"), c.presentEffect,
         ) { v -> set(c.copy(presentEffect = v), mapOf("present_effect" to v)) }
         if (c.presentEffect == "fsr") {
             if (quality) list += choice(
