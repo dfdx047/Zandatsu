@@ -1,0 +1,18 @@
+Zandatsu (Android, Phase 5D+++++): fill full Ultrawide screen on 2D menus/videos too.
+FrontBufferImageLocked already crops to the clean 0..1280 region for Frame2D; FitFrame now fills
+the full display in widescreen mode so menus have zero black bars while 3D stays true Hor+ Ultrawide.
+
+--- a/app/src/renut_engine/gpu/backend/present.cpp
++++ b/app/src/renut_engine/gpu/backend/present.cpp
+@@ -240,7 +240,10 @@
+ FrameFit FitFrame(uint32_t out_w, uint32_t out_h, uint32_t src_w, uint32_t src_h) {
+   FrameFit fit;
+   fit.viewport = plume::RenderViewport(0.0f, 0.0f, float(out_w), float(out_h));
+-  if (src_w == 0 || src_h == 0 || out_w == 0 || out_h == 0 || REXCVAR_GET(swordman_aspect) == "stretch")
++  const std::string &aspect = REXCVAR_GET(swordman_aspect);
++  // Zandatsu (renut/0064): in widescreen mode, fill the entire screen on 2D menus/videos too
++  // (sampling only the clean 0..1280 region via FrontBufferImageLocked) so there are no 16:9 bars.
++  if (src_w == 0 || src_h == 0 || out_w == 0 || out_h == 0 || aspect == "stretch" || aspect == "widescreen")
+     return fit;
+   const float out_aspect = float(out_w) / float(out_h);
+   const float src_aspect = float(src_w) / float(src_h);
