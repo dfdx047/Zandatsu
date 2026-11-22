@@ -1,0 +1,41 @@
+Zandatsu (Android, Mali Phase 5A): FP16 half-precision FSR 1 RCAS (FSR_RCAS_H) matching EASU (renut/0021).
+Without -enable-16bit-types ffx_a.h maps AH* to min16float (SPIR-V RelaxedPrecision), doubling ALU throughput
+and halving register pressure on Mali and Adreno without requiring shaderFloat16.
+
+--- a/app/src/renut_engine/gpu/shaders/host/present_rcas_ps.hlsl
++++ b/app/src/renut_engine/gpu/shaders/host/present_rcas_ps.hlsl
+@@ -7,15 +7,19 @@
+ 
+ #define A_GPU 1
+ #define A_HLSL 1
++// Zandatsu (renut/0052): half-precision RCAS (FSR_RCAS_H), matching present_easu_ps.hlsl (renut/0021).
++// Without -enable-16bit-types ffx_a.h maps AH* to min16float (SPIR-V RelaxedPrecision), which Mali and
++// Adreno execute at 2x FP16 throughput without needing shaderFloat16.
++#define A_HALF 1
+ #include "ffx_a.h"
+ 
+-AF4 FsrRcasLoadF(ASU2 p)
++AH4 FsrRcasLoadH(ASW2 p)
+ {
+-    return g_Textures[g_Push.textureIndex].Load(int3(p, 0));  // SwordMan (renut/0021): uniform index
++    return AH4(g_Textures[g_Push.textureIndex].Load(int3(p, 0)));  // SwordMan (renut/0021): uniform index
+ }
+-void FsrRcasInputF(inout AF1 r, inout AF1 g, inout AF1 b) {}
++void FsrRcasInputH(inout AH1 r, inout AH1 g, inout AH1 b) {}
+ 
+-#define FSR_RCAS_F 1
++#define FSR_RCAS_H 1
+ #include "ffx_fsr1.h"
+ 
+ struct PSInput
+@@ -28,7 +32,7 @@
+ {
+     AU4 con;
+     FsrRcasCon(con, asfloat(g_Push.samplerIndex));
+-    AF3 color;
+-    FsrRcasF(color.r, color.g, color.b, AU2(PresentPixel(input.uv)), con);
+-    return float4(PresentOutput(color), 1.0);
++    AH3 color;
++    FsrRcasH(color.r, color.g, color.b, AU2(PresentPixel(input.uv)), con);
++    return float4(PresentOutput(AF3(color)), 1.0);
+ }
