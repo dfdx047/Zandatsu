@@ -1,0 +1,23 @@
+Zandatsu (Android, Phase 5D++++++): expand viewport for XUI 2-pass menu blur (PS 10140E45F89324E5) in Ultrawide.
+Eliminates the 20% transparent right strip where raw 3D bricks showed through the green Pause/Save blur.
+
+--- a/app/src/renut_engine/gpu/render/draw.cpp
++++ b/app/src/renut_engine/gpu/render/draw.cpp
+@@ -4725,6 +4725,17 @@
+     viewport.viewport.width = float(targets.scale.Size(1280));
+     viewport.scissor.right = std::min(viewport.scissor.right, int32_t(targets.scale.Size(1280)));
+   }
++  // Zandatsu (renut/0065): XUI's 2-pass menu blur (VS E99AD8B18875E3AE / PS 10140E45F89324E5) draws a 1280-column
++  // quad (NDC [-1, +0.6]) into a GuestScreenWidth()x720 target, leaving the right 20% empty (alpha=0) in pass 1,
++  // which causes pass 2 to leave 1024..1280 transparent (raw 3D scene showing through). Expand viewport width by
++  // GuestScreenWidth()/1280 so both passes fill 0..GuestScreenWidth() cleanly (scissor stays clamped to target).
++  if (ps && ps->hash == 0x10140E45F89324E5ull && GuestScreenWidth() > 1280 &&
++      targets.guest_width == GuestScreenWidth() && !viewport.screen_space && viewport.viewport.x == 0.0f &&
++      std::fabs(viewport.viewport.width - float(targets.scale.Size(GuestScreenWidth()))) < 1.0f) {
++    const float ratio = float(GuestScreenWidth()) / 1280.0f;
++    viewport.viewport.width *= ratio;
++    viewport.guest_size[0] *= ratio;
++  }
+   sc.screen_space = viewport.screen_space ? 1 : 0;
+   std::memcpy(sc.screen_scale, viewport.screen_scale, sizeof(sc.screen_scale));
+   std::memcpy(sc.screen_offset, viewport.screen_offset, sizeof(sc.screen_offset));
