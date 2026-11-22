@@ -1,0 +1,52 @@
+Zandatsu (Android, Phase 5D+): prevent Ultrawide from flipping to 16:9 during boss attacks/heavy effects:
+- Increase kMaxWidened from 32 to 128 so chapter/boss targets never overflow.
+- Count draws to any full-width (GuestScreenWidth x 720) surface, not only IsWidenedSurface.
+- Gate captures-based 2D menu detection to widened < 500 and require 6 consecutive frames.
+
+--- a/app/src/renut_engine/gpu/guest/sa2_screen.cpp
++++ b/app/src/renut_engine/gpu/guest/sa2_screen.cpp
+@@ -56,7 +56,8 @@
+ 
+ namespace {
+ // The render targets WidenScreenSurface widened (the scene's; not the device's back buffer, already the screen's).
+-constexpr int kMaxWidened = 32;
++// Zandatsu (renut/0060): 128 slots (32 overflowed across chapters/boss phases, causing false 16:9 flips).
++constexpr int kMaxWidened = 128;
+ u32 g_widened[kMaxWidened] = {};
+ int g_widened_count = 0;
+ }  // namespace
+--- a/app/src/renut_engine/gpu/render/draw.cpp
++++ b/app/src/renut_engine/gpu/render/draw.cpp
+@@ -4705,11 +4705,11 @@
+     g_viewport_reuse.predication = g_replay_predication;
+     g_viewport_reuse.viewport = viewport;
+   }
+-  // Zandatsu (renut/0039, 12/11): every draw to a widened target counts for the frame's 2D test (guest/widescreen.h),
+-  // the ones whose viewport is reused too (sa2_renut_chain_reuse; ComputeViewport counted only the others).
++  // Zandatsu (renut/0039, 0060): count draws to widened targets OR full-width targets (so boss effects drawing
++  // directly to a GuestScreenWidth() surface don't drop widened count to 0 and flip the screen to 16:9).
+   if (GuestScreenWidth() > 1280) {
+     const HostSurface *first = targets.color_count && targets.colors[0] ? targets.colors[0] : targets.depth;
+-    if (first && IsWidenedSurface(first->guest_va))
++    if (first && (IsWidenedSurface(first->guest_va) || (first->width == GuestScreenWidth() && first->height == 720)))
+       NoteWidenedDraw();
+   }
+   // SwordMan (2026-10-26, widescreen): MGR's movies (the prerendered cutscenes, CRI's pixel shader 6E6A2121A431D6E8,
+--- a/app/src/renut_engine/gpu/d3d/hooks/device.cpp
++++ b/app/src/renut_engine/gpu/d3d/hooks/device.cpp
+@@ -952,10 +952,12 @@
+     bool frame_2d = false;
+     if (renut::gpu::GuestScreenWidth() > 1280) {
+       const uint32_t widened = renut::gpu::TakeWidenedDraws();
+-      // Zandatsu (renut/0046): or a menu over the scene (a copy of the back buffer's 1280 columns this frame).
++      // Zandatsu (renut/0046, 0060): a 2D logo/movie has < 8 widened draws; a Save/Pause menu over the scene
++      // captures the back buffer's 1280 columns while having < 500 draws (boss attacks with distortion captures
++      // have 700-2000+ draws and must stay Ultrawide). Require 6 consecutive frames to avoid mid-combat flickers.
+       const uint32_t captures = renut::gpu::TakeScreenCaptures();
+-      run_2d = (widened < 8 || captures > 0) ? run_2d + 1 : 0;
+-      frame_2d = run_2d >= 3;
++      run_2d = (widened < 8 || (captures > 0 && widened < 500)) ? run_2d + 1 : 0;
++      frame_2d = run_2d >= 6;
+       if (frame_2d != shown_2d && logged_2d < 40) {
+         ++logged_2d;
+         RGPU_INFO("[renut] widescreen: {} no swap {} ({} draws alargados)", frame_2d ? "frames 2D (16:9)" : "imagem inteira",
