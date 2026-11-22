@@ -1,2 +1,18 @@
-# Opcoes do gerador de codigo (SDK 0178, do mgr-nx-deko), ligadas uma de cada vez e medidas com tools/fight-bench.sh
-# e validadas com tools/validate-run.sh (docs/RENUT_ANDROID.md, "Fase codegen"). Vazio = o codigo classico.
+# Opcoes do gerador de codigo (SDK 0178, de third_party/mgr-nx-deko/app/codegen_flavor.toml).
+# Fase 3B: registradores locais + diet_ops + modos de float sem trocas desnecessarias de FPCR.
+cr_as_local = true
+ctr_as_local = true
+xer_as_local = true
+reserved_as_local = true
+skip_msr = true
+dform_disp_split = true
+fctiwz_inline = true
+non_volatile_as_local = true
+elide_lr_stores = true
+fp_moves_modeless = true
+fp_compares_modeless = true
+fp_mode_lookahead = true
+fp_mode_lookahead_past_branch = false
+fcti_inline = true
+fp_copy_pairs = true
+div_inline = true

@@ -44,7 +44,7 @@ echo "== compilar o rexglue do SDK para o PC (so a primeira vez demora)"
 cmake -S "$SDK" -B "$BUILD" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_C_COMPILER="$CC_BIN" -DCMAKE_CXX_COMPILER="$CXX_BIN" \
-  -DCMAKE_C_FLAGS="-march=x86-64-v2" -DCMAKE_CXX_FLAGS="-march=x86-64-v2" \
+  -DCMAKE_C_FLAGS="-march=x86-64-v2 -Dposix_spawn_file_actions_addchdir=posix_spawn_file_actions_addchdir_np" -DCMAKE_CXX_FLAGS="-march=x86-64-v2" \
   -DREXGLUE_ENABLE_TRACY=OFF -DREXGLUE_BUILD_TESTS=OFF \
   -DREXGLUE_OUTPUT_DIR="$BUILD/bin" \
   -DCMAKE_POLICY_VERSION_MINIMUM=3.5 > /dev/null
