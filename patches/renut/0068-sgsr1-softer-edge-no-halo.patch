@@ -1,0 +1,26 @@
+Zandatsu (Android, v1.4 polish): soften SGSR 1 edge sharpness and clamp negative deltaY.
+Eliminates dark ringing halo around character silhouettes over bright explosions.
+
+--- a/app/src/renut_engine/gpu/shaders/host/present_sgsr_ps.hlsl
++++ b/app/src/renut_engine/gpu/shaders/host/present_sgsr_ps.hlsl
+@@ -8,8 +8,8 @@
+ #include "utility.hlsli"
+ #include "present_output.hlsli"
+ 
+-static const min16float kEdgeThreshold = min16float(8.0 / 255.0);
+-static const min16float kEdgeSharpness = min16float(2.0);
++static const min16float kEdgeThreshold = min16float(10.0 / 255.0);
++static const min16float kEdgeSharpness = min16float(1.2);
+ 
+ min16float FastLanczos2(min16float x)
+ {
+@@ -103,7 +103,8 @@
+         const min16float maxY = max(max(left.y, left.z), max(right.x, right.w));
+         const min16float minY = min(min(left.y, left.z), min(right.x, right.w));
+         min16float deltaY = clamp(kEdgeSharpness * finalY, minY, maxY) - centerY;
+-        deltaY = clamp(deltaY, min16float(-23.0 / 255.0), min16float(23.0 / 255.0));
++        // Asymmetric clamp: avoid dark ringing halo around silhouettes over bright explosions.
++        deltaY = clamp(deltaY, min16float(-10.0 / 255.0), min16float(18.0 / 255.0));
+         color = saturate(color + deltaY);
+     }
+ 

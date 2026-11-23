@@ -306,6 +306,8 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
 
     /** Ao abrir: le o que esta no jogo agora. */
     fun refresh() {
+        // Garante que qualquer gravacao pendente no executor serial ja terminou antes de reler o mgr.toml.
+        runCatching { SAVE_EXECUTOR.submit {}.get() }
         cfg = GameConfig.load()
         for (k in LIVE_CVARS) live[k] = NativeGameState.getCvar(k)
         touchMode = prefs.touchMode
@@ -328,13 +330,13 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
             val ok = NativeGameState.setCvars(nativeCvars, persist = false)
             AppLog.i("menu", "cvars ${nativeCvars.entries.joinToString { "${it.key}=${it.value}" }}" + if (ok) "" else " (falhou)")
         }
-        GameConfig.save(next)
+        SAVE_EXECUTOR.execute { GameConfig.save(next) }
     }
 
     /** Opcoes so do app (volume, modo seguro): ficam no mgr.toml para o launcher. */
     private fun saveAppOnly(next: GameConfig) {
         cfg = next
-        GameConfig.save(next)
+        SAVE_EXECUTOR.execute { GameConfig.save(next) }
     }
 
     private fun setLive(name: String, value: String) {
@@ -825,6 +827,7 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
     private fun num(x: Double): String = String.format(java.util.Locale.ROOT, "%.4f", x)
 
     private companion object {
+        val SAVE_EXECUTOR: java.util.concurrent.ExecutorService = java.util.concurrent.Executors.newSingleThreadExecutor()
         val LIVE_CVARS = listOf("debug_overlay_position", "swordman_renut_scissor_pass", "swordman_renut_scissor_area")
         val APP_ONLY_KEYS = setOf(
             "swordman_renut_preset",
