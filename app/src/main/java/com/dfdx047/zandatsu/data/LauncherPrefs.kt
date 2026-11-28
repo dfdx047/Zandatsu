@@ -163,15 +163,30 @@ class LauncherPrefs(context: Context) {
         get() = prefs.getBoolean("touch_blade_toggle", true)
         set(value) = prefs.edit().putBoolean("touch_blade_toggle", value).apply()
 
-    /** Teste de GPU (04/11): o aviso de arranque nas GPUs com problema conhecido ("Nao mostrar de novo"). */
-    var diagPromptNever: Boolean
-        get() = prefs.getBoolean("diag_prompt_never", false)
-        set(value) = prefs.edit().putBoolean("diag_prompt_never", value).apply()
+    /** Issue #30/#66: empurrar o analogico esquerdo ate a borda ativa o Ninja Run (RT). */
+    var stickSprint: Boolean
+        get() = prefs.getBoolean("touch_stick_sprint", false)
+        set(value) = prefs.edit().putBoolean("touch_stick_sprint", value).apply()
 
-    /** O teste de GPU ja correu ate ao fim neste aparelho (o aviso de arranque deixa de aparecer). */
-    var diagDone: Boolean
-        get() = prefs.getBoolean("diag_done", false)
-        set(value) = prefs.edit().putBoolean("diag_done", value).apply()
+    /** Issue #30/#66: RT alterna Ninja Run (um toque liga, outro desliga). */
+    var sprintToggle: Boolean
+        get() = prefs.getBoolean("touch_sprint_toggle", false)
+        set(value) = prefs.edit().putBoolean("touch_sprint_toggle", value).apply()
+
+    /** Issue #30: inverter o eixo vertical ao deslizar no Blade Mode. */
+    var invertBladeSwipe: Boolean
+        get() = prefs.getBoolean("touch_invert_blade_swipe", false)
+        set(value) = prefs.edit().putBoolean("touch_invert_blade_swipe", value).apply()
+
+    /** Issue #30/#66: camara por arrasto direto (estilo CODM/PUBGM: gira enquanto o dedo mexe e para ao parar). */
+    var touchCameraDelta: Boolean
+        get() = prefs.getBoolean("touch_camera_delta", false)
+        set(value) = prefs.edit().putBoolean("touch_camera_delta", value).apply()
+
+    /** Sensibilidade da camara por toque (0.3-2.5). */
+    var touchCameraSensitivity: Float
+        get() = prefs.getFloat("touch_camera_sens", 1.0f).coerceIn(0.3f, 2.5f)
+        set(value) = prefs.edit().putFloat("touch_camera_sens", value.coerceIn(0.3f, 2.5f)).apply()
 
     /** Tamanho de todos os botoes (multiplica o de cada um). */
     var touchScale: Float

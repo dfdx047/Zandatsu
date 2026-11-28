@@ -40,6 +40,7 @@ fun MoreScreen(goTo: (LauncherTab) -> Unit) {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
+        MoreEntry(LauncherTab.ACHIEVEMENTS, stringResource(R.string.more_achievements_sub), goTo)
         MoreEntry(LauncherTab.SETTINGS, stringResource(R.string.more_settings_sub), goTo)
         MoreEntry(LauncherTab.DEBUG, stringResource(R.string.more_debug_sub), goTo)
         MoreEntry(LauncherTab.ABOUT, stringResource(R.string.more_about_sub), goTo)

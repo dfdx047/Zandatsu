@@ -472,8 +472,11 @@ REXCVAR_DEFINE_BOOL(swordman_audio_little_cores, false, "SwordMan",
 
 namespace {
 
-void AudioPlacementLoop(cpu_set_t little, std::string list) {
-  static const char* const kNames[] = {"AK::", "XMA Decoder", "Audio Worker", "SDLThread"};
+void AudioPlacementLoop(cpu_set_t little, std::string list, bool include_wwise) {
+  static const char* const kAllNames[] = {"AK::", "XMA Decoder", "Audio Worker", "SDLThread"};
+  static const char* const kLightNames[] = {"XMA Decoder", "Audio Worker", "SDLThread"};
+  const char* const* names = include_wwise ? kAllNames : kLightNames;
+  const size_t name_count = include_wwise ? std::size(kAllNames) : std::size(kLightNames);
   std::set<int> done;
   for (int round = 0;; ++round) {
     if (DIR* dir = opendir("/proc/self/task")) {
@@ -483,8 +486,8 @@ void AudioPlacementLoop(cpu_set_t little, std::string list) {
         std::ifstream f(std::string("/proc/self/task/") + e->d_name + "/comm");
         std::string name;
         std::getline(f, name);
-        for (const char* prefix : kNames) {
-          if (name.rfind(prefix, 0) != 0) continue;
+        for (size_t i = 0; i < name_count; ++i) {
+          if (name.rfind(names[i], 0) != 0) continue;
           done.insert(tid);
           const bool ok = sched_setaffinity(tid, sizeof(little), &little) == 0;
           REXLOG_INFO("swordman: {} ({}) nos núcleos {}{}", name, tid, list, ok ? "" : " (recusado)");
@@ -521,12 +524,24 @@ void SwordManStartAudioPlacement() {
   cpu_set_t little;
   CPU_ZERO(&little);
   std::string list;
+  int big_count = 0;
   for (const auto& [cpu, khz] : cpus) {
-    if (khz != lo) continue;
+    if (khz != lo) {
+      ++big_count;
+      continue;
+    }
     CPU_SET(cpu, &little);
     list += (list.empty() ? "" : ",") + std::to_string(cpu);
   }
-  std::thread(AudioPlacementLoop, little, list).detach();
+  // Issues #82 (Dimensity 8100, 4x A78 + 4x A55) e #146 (POCO F7, all-big): prender AK::EventManager (45-50% de um
+  // nucleo) nos nucleos pequenos quando ha >= 4 nucleos grandes/medios causa picos de 40-66 ms e falhas de audio.
+  // So inclui AK:: nos pequenos em SoCs com poucos nucleos grandes (<= 3, ex. SD480/RG Cube).
+  const bool include_wwise = big_count <= 3;
+  if (!include_wwise) {
+    REXLOG_INFO("swordman: {} núcleos grandes disponíveis; AK::EventManager fica livre para evitar engasgos de áudio",
+                big_count);
+  }
+  std::thread(AudioPlacementLoop, little, list, include_wwise).detach();
 }
 
 // ---------------------------------------------------------------------------------------------------------------

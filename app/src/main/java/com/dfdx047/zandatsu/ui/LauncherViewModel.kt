@@ -237,6 +237,35 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
     @JvmName("changeBladeToggle")
     fun setBladeToggle(v: Boolean) { bladeToggle = v; prefs.bladeToggle = v }
 
+    var stickSprint by mutableStateOf(prefs.stickSprint)
+        private set
+    @JvmName("changeStickSprint")
+    fun setStickSprint(v: Boolean) { stickSprint = v; prefs.stickSprint = v }
+
+    var sprintToggle by mutableStateOf(prefs.sprintToggle)
+        private set
+    @JvmName("changeSprintToggle")
+    fun setSprintToggle(v: Boolean) { sprintToggle = v; prefs.sprintToggle = v }
+
+    var invertBladeSwipe by mutableStateOf(prefs.invertBladeSwipe)
+        private set
+    @JvmName("changeInvertBladeSwipe")
+    fun setInvertBladeSwipe(v: Boolean) { invertBladeSwipe = v; prefs.invertBladeSwipe = v }
+
+    var touchCameraDelta by mutableStateOf(prefs.touchCameraDelta)
+        private set
+    @JvmName("changeTouchCameraDelta")
+    fun setTouchCameraDelta(v: Boolean) { touchCameraDelta = v; prefs.touchCameraDelta = v }
+
+    var touchCameraSensitivity by mutableStateOf(prefs.touchCameraSensitivity)
+        private set
+    @JvmName("changeTouchCameraSensitivity")
+    fun setTouchCameraSensitivity(v: Float) {
+        val clamped = v.coerceIn(0.3f, 2.5f)
+        touchCameraSensitivity = clamped
+        prefs.touchCameraSensitivity = clamped
+    }
+
     var touchScale by mutableStateOf(prefs.touchScale)
         private set
     @JvmName("changeTouchScale")
@@ -292,6 +321,24 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
     var install by mutableStateOf<GameInstall?>(null)
         private set
 
+    // ------------------------------------------------------- conquistas (#91)
+    var achievements by mutableStateOf<com.dfdx047.zandatsu.data.AchievementsSummary?>(null)
+        private set
+    var achievementsLoading by mutableStateOf(false)
+        private set
+
+    fun refreshAchievements() {
+        val ctx = getApplication<Application>()
+        viewModelScope.launch(Dispatchers.IO) {
+            withContext(Dispatchers.Main) { achievementsLoading = true }
+            val loaded = runCatching { com.dfdx047.zandatsu.data.AchievementsRepo.load(ctx) }.getOrNull()
+            withContext(Dispatchers.Main) {
+                if (loaded != null) achievements = loaded
+                achievementsLoading = false
+            }
+        }
+    }
+
     // ------------------------------------------------------- avisos de erro
     /** Aviso de erro aberto (crash, jogo nao abriu, driver, ISO corrompida...). */
     var errorReport by mutableStateOf<CrashReport?>(null)
@@ -343,6 +390,7 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
             withContext(Dispatchers.Main) { config = c }
         }
         checkLastRun()
+        refreshAchievements()
     }
 
     /** Com a ISO ativa: bytes de ficheiros extraidos de importacoes antigas que ja se podem apagar. */
@@ -654,35 +702,10 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
         prefs.whatsNewSeen = com.dfdx047.zandatsu.BuildConfig.VERSION_NAME
     }
 
-    // ------------------------------------------------------------ teste de GPU (Configuracoes > Diagnostico)
-    var showDiag by mutableStateOf(false)
-    var diagPromptGpu by mutableStateOf<String?>(null)
-    private var diagPromptChecked = false
-
-    /** O aviso de arranque, uma vez por abertura, so nas familias com problema conhecido (GpuFamily). */
-    private fun checkDiagPrompt() {
-        if (diagPromptChecked) return
-        diagPromptChecked = true
-        val gpu = com.dfdx047.zandatsu.diag.DiagRunner.gpu()
-        if (gpu.knownProblem && !prefs.diagPromptNever && !prefs.diagDone) diagPromptGpu = gpu.name
-    }
-
-    fun diagPromptAnswer(run: Boolean, never: Boolean, context: Context) {
-        diagPromptGpu = null
-        if (never) prefs.diagPromptNever = true
-        if (run) startDiag(context)
-    }
-
-    fun startDiag(context: Context) {
-        showDiag = true
-        com.dfdx047.zandatsu.diag.DiagRunner.start(context.applicationContext) { prefs.diagDone = true }
-    }
-
     fun refreshDrivers() {
         viewModelScope.launch(Dispatchers.IO) {
             val xclipse = DriverRepository.isXclipse()
             gpuName = DriverRepository.gpuName()
-            withContext(Dispatchers.Main) { checkDiagPrompt() }
             isXclipse = xclipse
             val mali = DriverRepository.isMali()
             isMali = mali
@@ -908,6 +931,7 @@ class LauncherViewModel(app: Application) : AndroidViewModel(app) {
         }
         refreshInstall(false)
         refreshDrivers()
+        refreshAchievements()
     }
 
     companion object {

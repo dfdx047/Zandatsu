@@ -45,55 +45,6 @@ public class GameActivity extends SDLActivity {
 
     private GameOverlay mOverlay;
 
-    /** Teste de GPU (diag/DiagRunner.kt): o nome do teste, ou null num arranque normal. */
-    private String mDiag;
-
-    /**
-     * 04/11, teste de GPU: o launcher abre o jogo com os extras "diag" (o teste), "diag_cvars" (linhas "nome = valor",
-     * como no cvars.txt, depois dele) e "diag_log" (o log vai para la, para nao apagar o swordman_last.log do jogador).
-     * Nestes arranques o SessionState e o DriverBootFails nao mudam: uma queda do teste nao troca o renderizador.
-     */
-    private String applyDiagMode() {
-        android.content.Intent intent = getIntent();
-        String diag = intent != null ? intent.getStringExtra("diag") : null;
-        if (diag == null || diag.isEmpty()) {
-            return null;
-        }
-        String cvars = intent.getStringExtra("diag_cvars");
-        if (cvars != null) {
-            for (String line : cvars.split("\n")) {
-                int eq = line.indexOf('=');
-                if (eq <= 0) {
-                    continue;
-                }
-                String name = line.substring(0, eq).trim();
-                String value = line.substring(eq + 1).trim();
-                if (name.startsWith("env:")) {
-                    setEnv(name.substring(4).trim(), value);
-                } else {
-                    setEnv("REX_" + name.toUpperCase(Locale.ROOT), value);
-                }
-                Log.i(TAG, "diag " + diag + ": " + name + " = " + value);
-            }
-        }
-        String log = intent.getStringExtra("diag_log");
-        if (log != null && !log.isEmpty()) {
-            setEnv("REX_LOG_FILE", log);
-        }
-        // 04/11 (POCO X7 Pro: thread principal a 30 ms por frame com 14% de CPU): perfil de CPU por thread, pilhas e
-        // frequencias, para o teste de desempenho (libzdiag, profiler.cpp).
-        String profile = intent.getStringExtra("diag_profile");
-        if (profile != null && !profile.isEmpty()) {
-            try {
-                boolean ok = com.dfdx047.zandatsu.diag.DiagNative.profileStart(profile);
-                Log.i(TAG, "diag " + diag + ": perfil de CPU em " + profile + (ok ? "" : " (ja corria)"));
-            } catch (Throwable t) {
-                Log.w(TAG, "diag " + diag + ": perfil de CPU falhou", t);
-            }
-        }
-        return diag;
-    }
-
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         applyOrientation();
@@ -127,16 +78,11 @@ public class GameActivity extends SDLActivity {
         if (!driverCrashedBefore(appDir)) {
             installCustomVulkanDriver(appDir);
         }
-        mDiag = applyDiagMode();
-        if (mDiag == null) {
-            prepareLogFile(appDir);  // no teste de GPU o log vai para diag_log; o do jogador fica
-        }
+        prepareLogFile(appDir);
         com.dfdx047.zandatsu.data.AppLog.INSTANCE.setProcess("game");
         // O driver que este arranque usa fica no registo do app (entra no "Exportar logs").
         com.dfdx047.zandatsu.data.AppLog.INSTANCE.i("driver", mDriverNote);
-        if (mDiag == null) {
-            com.dfdx047.zandatsu.data.SessionState.INSTANCE.markStarting(appDir);
-        }
+        com.dfdx047.zandatsu.data.SessionState.INSTANCE.markStarting(appDir);
         com.dfdx047.zandatsu.data.AppLog.INSTANCE.i("game", "arranque: pasta " + appDir.getAbsolutePath() + "/game");
         super.onCreate(savedInstanceState);
 
@@ -214,9 +160,6 @@ public class GameActivity extends SDLActivity {
                 }
                 if (NativeGameState.INSTANCE.frames() > 30) {
                     com.dfdx047.zandatsu.data.AppLog.INSTANCE.i("game", "primeiros frames apresentados");
-                    if (mDiag != null) {
-                        return;  // teste de GPU: nao mexe no estado da sessao do jogador
-                    }
                     com.dfdx047.zandatsu.data.SessionState.INSTANCE.markRunning(appDir);
                     com.dfdx047.zandatsu.data.DriverBootFails.reset(appDir);
                 } else if (++tries < 120) {

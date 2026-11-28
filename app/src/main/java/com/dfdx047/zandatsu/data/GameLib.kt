@@ -100,6 +100,21 @@ object GameLib {
     @JvmStatic
     private external fun nativeXexImage(path: String, titleOut: IntArray, errorOut: Array<String?>): ByteArray?
 
+    @JvmStatic
+    private external fun nativeReadAchievements(path: String, langId: Int): String?
+
+    /** Le a tabela XDBF de conquistas do default.xex instalado (devolve JSON ou null). */
+    @JvmStatic
+    fun readAchievementsJson(xex: File, langId: Int): String? {
+        if (!xex.isFile) return null
+        return try {
+            System.loadLibrary("main")
+            nativeReadAchievements(xex.absolutePath, langId)
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
     /**
      * Le o default.xex instalado, deriva a chave e desencripta o libgame.so para getFilesDir(). XEX de outra versao:
      * ImportException UNSUPPORTED_VERSION com o title ID e o SHA-1 esperados.

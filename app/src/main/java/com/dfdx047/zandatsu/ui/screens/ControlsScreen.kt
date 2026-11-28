@@ -152,6 +152,40 @@ fun ControlsScreen(vm: LauncherViewModel) {
                 selected = vm.bladeToggle,
                 onSelect = vm::setBladeToggle,
             )
+            SettingSwitch(
+                stringResource(R.string.settings_invert_blade_swipe),
+                stringResource(R.string.settings_invert_blade_swipe_sub),
+                checked = vm.invertBladeSwipe,
+                onChange = vm::setInvertBladeSwipe,
+            )
+            SettingSwitch(
+                stringResource(R.string.settings_stick_sprint),
+                stringResource(R.string.settings_stick_sprint_sub),
+                checked = vm.stickSprint,
+                onChange = vm::setStickSprint,
+            )
+            SettingSwitch(
+                stringResource(R.string.settings_sprint_toggle),
+                stringResource(R.string.settings_sprint_toggle_sub),
+                checked = vm.sprintToggle,
+                onChange = vm::setSprintToggle,
+            )
+            SettingSegmented(
+                title = stringResource(R.string.settings_camera_mode),
+                subtitle = stringResource(R.string.settings_camera_mode_sub),
+                options = listOf(
+                    false to stringResource(R.string.camera_mode_stick),
+                    true to stringResource(R.string.camera_mode_delta),
+                ),
+                selected = vm.touchCameraDelta,
+                onSelect = vm::setTouchCameraDelta,
+            )
+            SettingSlider(
+                title = stringResource(R.string.settings_camera_sens),
+                value = vm.touchCameraSensitivity,
+                range = 0.3f..2.5f,
+                label = { v -> "${(v * 100).roundToInt()}%" },
+            ) { v -> vm.setTouchCameraSensitivity(v) }
             SettingSwitch(stringResource(R.string.settings_touch_haptics), checked = vm.touchHaptics, onChange = vm::setTouchHaptics)
             SettingSwitch(
                 stringResource(R.string.settings_pause_menus),

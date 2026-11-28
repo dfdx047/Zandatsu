@@ -138,13 +138,13 @@ class AdpfHint(private val context: Context, private val targetNs: Long) {
             val frames = stats[0]
             val now = SystemClock.elapsedRealtimeNanos()
             val df = frames - lastFrames
-            // 12/11 (POCO X6 Pro): o alvo segue o ritmo que o jogo pede (renut/0044). Com o alvo fixo em 16,7 ms, as
-            // cutscenes e os menus a 30 reportavam 33 ms por quadro e o sistema subia os clocks sem ganho (so calor).
-            val wanted = maxOf(baseTargetNs, FRAME_60_NS * NativeGameState.frameRefreshes().coerceIn(1, 4))
+            // Issue #146 (POCO F7): relaxar o alvo ADPF para 33 ms nas cutscenes a 30 fps fazia o governador derrubar
+            // clocks de CPU/GPU e travar a decodificacao de video/audio (CriMana/Wwise). Mantemos baseTargetNs.
+            val wanted = baseTargetNs
             if (wanted != currentTargetNs) {
                 try {
                     s.updateTargetWorkDuration(wanted)
-                    AppLog.i("adpf", "alvo ${wanted / 1000} us (o jogo pede ${1_000_000_000L / wanted} fps)")
+                    AppLog.i("adpf", "alvo ${wanted / 1000} us")
                     currentTargetNs = wanted
                 } catch (_: Throwable) {
                 }

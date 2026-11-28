@@ -297,6 +297,12 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
     private var badge by mutableStateOf(prefs.buttonBadge)
     private var opacity by mutableFloatStateOf(prefs.touchOpacity)
     private var haptics by mutableStateOf(prefs.touchHaptics)
+    private var bladeToggle by mutableStateOf(prefs.bladeToggle)
+    private var stickSprint by mutableStateOf(prefs.stickSprint)
+    private var sprintToggle by mutableStateOf(prefs.sprintToggle)
+    private var invertBladeSwipe by mutableStateOf(prefs.invertBladeSwipe)
+    private var touchCameraDelta by mutableStateOf(prefs.touchCameraDelta)
+    private var touchCameraSensitivity by mutableFloatStateOf(prefs.touchCameraSensitivity)
     private var pauseMenus by mutableStateOf(prefs.pauseOnMenus)
     private var hideOverlayButtons by mutableStateOf(prefs.hideOverlayButtons)
     private var confirmExit by mutableStateOf(false)
@@ -316,6 +322,12 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
         badge = prefs.buttonBadge
         opacity = prefs.touchOpacity
         haptics = prefs.touchHaptics
+        bladeToggle = prefs.bladeToggle
+        stickSprint = prefs.stickSprint
+        sprintToggle = prefs.sprintToggle
+        invertBladeSwipe = prefs.invertBladeSwipe
+        touchCameraDelta = prefs.touchCameraDelta
+        touchCameraSensitivity = prefs.touchCameraSensitivity
         pauseMenus = prefs.pauseOnMenus
         hideOverlayButtons = prefs.hideOverlayButtons
         confirmExit = false
@@ -730,6 +742,45 @@ class MenuModel(private val context: Context, private val prefs: LauncherPrefs, 
             val next = ((opacity * 10).roundToInt() + d).coerceIn(1, 10) / 10f
             opacity = next
             prefs.touchOpacity = next
+            appearance()
+        }
+        list += choice(
+            s(R.string.settings_blade_mode), s(R.string.settings_blade_mode_sub),
+            listOf(true to s(R.string.blade_toggle), false to s(R.string.blade_hold)),
+            bladeToggle,
+        ) { v ->
+            bladeToggle = v
+            prefs.bladeToggle = v
+            appearance()
+        }
+        list += MToggle(s(R.string.settings_invert_blade_swipe), s(R.string.settings_invert_blade_swipe_sub), invertBladeSwipe) { v ->
+            invertBladeSwipe = v
+            prefs.invertBladeSwipe = v
+            appearance()
+        }
+        list += MToggle(s(R.string.settings_stick_sprint), s(R.string.settings_stick_sprint_sub), stickSprint) { v ->
+            stickSprint = v
+            prefs.stickSprint = v
+            appearance()
+        }
+        list += MToggle(s(R.string.settings_sprint_toggle), s(R.string.settings_sprint_toggle_sub), sprintToggle) { v ->
+            sprintToggle = v
+            prefs.sprintToggle = v
+            appearance()
+        }
+        list += choice(
+            s(R.string.settings_camera_mode), s(R.string.settings_camera_mode_sub),
+            listOf(false to s(R.string.camera_mode_stick), true to s(R.string.camera_mode_delta)),
+            touchCameraDelta,
+        ) { v ->
+            touchCameraDelta = v
+            prefs.touchCameraDelta = v
+            appearance()
+        }
+        list += MStep(s(R.string.settings_camera_sens), null, "${(touchCameraSensitivity * 100).roundToInt()}%") { d ->
+            val next = ((touchCameraSensitivity * 10).roundToInt() + d).coerceIn(3, 25) / 10f
+            touchCameraSensitivity = next
+            prefs.touchCameraSensitivity = next
             appearance()
         }
         list += MToggle(s(R.string.settings_touch_haptics), null, haptics) { v ->

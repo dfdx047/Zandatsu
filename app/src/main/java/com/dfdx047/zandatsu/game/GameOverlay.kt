@@ -98,8 +98,6 @@ class GameOverlay(private val activity: Activity) : InputManager.InputDeviceList
         AppPaths.init(activity)
         try {
             val fps = GameConfig.load().frameRate
-            // Teste de GPU, variante "sem ADPF" (DiagRunner): env ZDIAG_NO_ADPF=1.
-            if (android.system.Os.getenv("ZDIAG_NO_ADPF") == "1") throw IllegalStateException("ADPF desligado pelo teste")
             adpf = AdpfHint(activity, if (fps == 30) 33_333_333L else 16_666_667L).also { it.start() }
         } catch (_: Throwable) {
         }
@@ -128,7 +126,10 @@ class GameOverlay(private val activity: Activity) : InputManager.InputDeviceList
                 it.layout = currentLayout()
             }
         }
-        engine.onLeftGame = { view?.stopBlade() }
+        engine.onLeftGame = {
+            view?.stopBlade()
+            view?.stopSprint()
+        }
         // O motor corre sempre (pausa, luta/menus), mesmo com os controles desligados.
         main.postDelayed(attachRunnable, 2500)
         val density = activity.resources.displayMetrics.density
@@ -151,6 +152,11 @@ class GameOverlay(private val activity: Activity) : InputManager.InputDeviceList
                 override fun onStick(right: Boolean, x: Float, y: Float) {
                     ensurePad()
                     if (right) engine.setLook(x, y) else engine.setStick(x, y)
+                }
+
+                override fun onStickSprint(active: Boolean) {
+                    ensurePad()
+                    engine.setStickSprint(active)
                 }
 
                 override fun onLookTap(element: ControlElement) {
@@ -469,6 +475,11 @@ class GameOverlay(private val activity: Activity) : InputManager.InputDeviceList
         v.globalOpacity = prefs.touchOpacity
         v.haptics = prefs.touchHaptics
         v.bladeToggle = prefs.bladeToggle
+        v.stickSprint = prefs.stickSprint
+        v.sprintToggle = prefs.sprintToggle
+        v.invertBladeSwipe = prefs.invertBladeSwipe
+        v.touchCameraDelta = prefs.touchCameraDelta
+        v.touchCameraSensitivity = prefs.touchCameraSensitivity
         v.globalScale = prefs.touchScale
         engine.autoSwitch = prefs.touchAutoSwitch
         engine.pauseQuickMenu = prefs.pauseOnMenus

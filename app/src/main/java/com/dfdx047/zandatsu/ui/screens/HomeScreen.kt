@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Forum
@@ -112,6 +113,7 @@ fun HomeScreen(vm: LauncherViewModel, goTo: (LauncherTab) -> Unit) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                         Hero(vm, wide = true)
                         SetupSummary(vm, goTo)
+                        if (vm.install?.playable == true) AchievementsTile(vm, goTo)
                     }
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                         GameFilesCard(vm)
@@ -120,7 +122,10 @@ fun HomeScreen(vm: LauncherViewModel, goTo: (LauncherTab) -> Unit) {
                 }
             } else {
                 Hero(vm, wide = false)
-                if (vm.install?.playable == true) SetupSummary(vm, goTo)
+                if (vm.install?.playable == true) {
+                    SetupSummary(vm, goTo)
+                    AchievementsTile(vm, goTo)
+                }
                 GameFilesCard(vm)
                 LaunchOptionsCard(vm)
             }
@@ -234,6 +239,62 @@ private fun SetupSummary(vm: LauncherViewModel, goTo: (LauncherTab) -> Unit) {
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun AchievementsTile(vm: LauncherViewModel, goTo: (LauncherTab) -> Unit) {
+    val summary = vm.achievements
+    val subtitle = if (summary != null && summary.totalCount > 0) {
+        stringResource(
+            R.string.achievements_progress_sub,
+            summary.unlockedCount,
+            summary.totalCount,
+            summary.unlockedScore,
+            summary.totalScore,
+        )
+    } else {
+        stringResource(R.string.more_achievements_sub)
+    }
+    androidx.compose.material3.Card(
+        onClick = { goTo(LauncherTab.ACHIEVEMENTS) },
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        colors = androidx.compose.material3.CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        ),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Row(
+            Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                Modifier
+                    .size(40.dp)
+                    .background(DfColors.Gold.copy(alpha = 0.16f), RoundedCornerShape(10.dp)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Filled.EmojiEvents, null, tint = DfColors.Gold)
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(stringResource(R.string.tab_achievements), style = MaterialTheme.typography.titleMedium)
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Icon(
+                Icons.Filled.PlayArrow,
+                null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp),
+            )
         }
     }
 }

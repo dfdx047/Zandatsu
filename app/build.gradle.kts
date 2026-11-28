@@ -52,8 +52,8 @@ android {
         // estao todos disponiveis no bionic.
         minSdk = 30
         targetSdk = 35
-        versionCode = 7
-        versionName = "1.4"  // a v1.0 publicada saiu como 0.1.0 (1): o aviso de atualizacao voltava sempre (issue #1)
+        versionCode = 8
+        versionName = "1.4.1"  // a v1.0 publicada saiu como 0.1.0 (1): o aviso de atualizacao voltava sempre (issue #1)
 
         ndk {
             abiFilters += listOf("arm64-v8a")
@@ -82,8 +82,6 @@ android {
                     cppFlags += "-fno-omit-frame-pointer"
                     targets += listOf(
                         "main", "rexruntime", "rexgpu-xenos", "SDL3-shared",
-                        // Teste de GPU (libzdiag.so, app/src/main/cpp/diag).
-                        "zdiag",
                         // Hooks do libadrenotools (driver Vulkan alternativo, ex. Turnip).
                         "main_hook", "file_redirect_hook", "gsl_alloc_hook", "hook_impl",
                     )

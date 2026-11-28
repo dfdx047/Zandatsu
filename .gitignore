@@ -33,3 +33,6 @@ generated/.codegen-stamp
 out/renut/
 mgr_game/
 tools/__pycache__/
+
+# Versao PC separada (nao misturar com main Xbox 360)
+PC Version/

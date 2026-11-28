@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.MoreHoriz
@@ -79,6 +80,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.dfdx047.zandatsu.R
 import com.dfdx047.zandatsu.ui.screens.AboutScreen
+import com.dfdx047.zandatsu.ui.screens.AchievementsScreen
 import com.dfdx047.zandatsu.ui.screens.ControlsScreen
 import com.dfdx047.zandatsu.ui.screens.DebugScreen
 import com.dfdx047.zandatsu.ui.screens.DriversScreen
@@ -97,6 +99,7 @@ enum class LauncherTab(@StringRes val title: Int, val icon: ImageVector, val mai
     CONTROLS(R.string.tab_controls, Icons.Filled.Gamepad),
     DRIVERS(R.string.tab_drivers, Icons.Filled.Memory),
     MORE(R.string.tab_more, Icons.Filled.MoreHoriz),
+    ACHIEVEMENTS(R.string.tab_achievements, Icons.Filled.EmojiEvents, main = false),
     SETTINGS(R.string.tab_settings, Icons.Filled.Settings, main = false),
     DEBUG(R.string.tab_debug, Icons.Filled.BugReport, main = false),
     ABOUT(R.string.tab_about, Icons.Filled.Info, main = false),
@@ -198,8 +201,6 @@ fun LauncherApp(vm: LauncherViewModel) {
     if (vm.showGpuNotice) GpuNotice(vm, openTab = { tab = it })
     if (vm.showWhatsNew && !vm.showGpuNotice && !vm.needsProfile) WhatsNewDialog(vm)
     if (vm.showUpdateDialog) UpdateDialog(vm)
-    if (vm.showDiag) com.dfdx047.zandatsu.ui.screens.DiagnosticsScreen(vm)
-    vm.diagPromptGpu?.let { if (!vm.showGpuNotice && !vm.showDiag) com.dfdx047.zandatsu.ui.screens.DiagPromptDialog(vm, it) }
     vm.errorReport?.let { ErrorDialog(vm, it, openTab = { t -> tab = t }) }
 }
 
@@ -257,6 +258,7 @@ private fun TabContent(tab: LauncherTab, vm: LauncherViewModel, goTo: (LauncherT
                 LauncherTab.CONTROLS -> ControlsScreen(vm)
                 LauncherTab.DRIVERS -> DriversScreen(vm)
                 LauncherTab.MORE -> com.dfdx047.zandatsu.ui.screens.MoreScreen(goTo)
+                LauncherTab.ACHIEVEMENTS -> AchievementsScreen(vm)
                 LauncherTab.DEBUG -> DebugScreen(vm)
                 LauncherTab.SETTINGS -> SettingsScreen(vm)
                 LauncherTab.ABOUT -> AboutScreen(vm)

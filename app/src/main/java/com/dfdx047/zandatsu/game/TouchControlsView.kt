@@ -52,6 +52,8 @@ class TouchControlsView(context: Context) : View(context) {
         fun onRelease(element: ControlElement)
         /** Analogico esquerdo ([right] = false) ou direito (rstick e zona da camara). */
         fun onStick(right: Boolean, x: Float, y: Float)
+        /** Issue #30/#66: Ninja Run automatico ao empurrar o analogico esquerdo ate a borda. */
+        fun onStickSprint(active: Boolean) {}
         fun onDpad(element: ControlElement, inputs: Set<PadInput>)
         /** Toque rapido na zona da camara: R3 por um instante. */
         fun onLookTap(element: ControlElement)
@@ -102,8 +104,32 @@ class TouchControlsView(context: Context) : View(context) {
             if (field && !value) stopBlade()
             field = value
         }
+    /** Issue #30/#66: empurrar o analogico esquerdo ate a borda aciona Ninja Run (RT). */
+    var stickSprint = false
+        set(value) {
+            if (field && !value) stopStickSprint()
+            field = value
+        }
+    /** Issue #30/#66: RT alterna Ninja Run com um toque. */
+    var sprintToggle = false
+        set(value) {
+            if (field && !value) stopSprint()
+            field = value
+        }
+    /** Issue #30: inverter o eixo vertical ao deslizar o corte no Blade Mode. */
+    var invertBladeSwipe = false
+    /** Issue #30/#66: camara por arrasto direto (estilo CODM/PUBGM). */
+    var touchCameraDelta = false
+    /** Sensibilidade da camara por toque (0.3-2.5). */
+    var touchCameraSensitivity = 1.0f
+        set(value) {
+            field = value.coerceIn(0.3f, 2.5f)
+        }
     private var bladeId: String? = null
     private var bladeElement: ControlElement? = null
+    private var sprintId: String? = null
+    private var sprintElement: ControlElement? = null
+    private var stickSprintActive = false
     private class Swipe(val pointer: Int, var ax: Float, var ay: Float) {
         var x = ax
         var y = ay
@@ -143,10 +169,18 @@ class TouchControlsView(context: Context) : View(context) {
     private class LookState(val pointer: Int, val ax: Float, val ay: Float, val downAt: Long) {
         var x = ax
         var y = ay
+        var lastX = ax
+        var lastY = ay
+        var lastMs = downAt
         var moved = false
     }
     private var look: LookState? = null
     private var lookId: String? = null
+    private val lookDecay = Runnable {
+        if (touchCameraDelta && look != null) {
+            listener?.onStick(true, 0f, 0f)
+        }
+    }
 
     private val dpadState = HashMap<String, Set<PadInput>>()
 
@@ -177,6 +211,25 @@ class TouchControlsView(context: Context) : View(context) {
 
     private fun isBladeButton(e: ControlElement) =
         (e.action as? ControlAction.Press)?.inputs == setOf(PadInput.LT)
+
+    private fun isSprintButton(e: ControlElement) =
+        (e.action as? ControlAction.Press)?.inputs == setOf(PadInput.RT)
+
+    fun stopSprint() {
+        val e = sprintElement ?: return
+        sprintElement = null
+        sprintId = null
+        pressed.remove(e.id)
+        listener?.onRelease(e)
+        invalidate()
+    }
+
+    private fun stopStickSprint() {
+        if (!stickSprintActive) return
+        stickSprintActive = false
+        listener?.onStickSprint(false)
+        invalidate()
+    }
 
     /**
      * Durante o Blade Mode so o X, o Y, o B e o proprio LT ficam no lado direito (o resto e zona de corte).
@@ -512,6 +565,12 @@ class TouchControlsView(context: Context) : View(context) {
         ring.alpha = alphaOf(e, 0.9f)
         ring.strokeWidth = 1.5f * density
         c.drawCircle(kx, ky, kr, ring)
+        if (stickSprintActive && e.id == "stick" && !editMode) {
+            ring.color = red
+            ring.alpha = alphaOf(e, 0.9f)
+            ring.strokeWidth = 2.5f * density
+            c.drawCircle(x, y, r - ring.strokeWidth / 2f, ring)
+        }
         if (e.id == "rstick") {
             text.color = cold
             text.alpha = alphaOf(e, 0.8f)
@@ -634,6 +693,13 @@ class TouchControlsView(context: Context) : View(context) {
         }
         val st = look ?: return
         if (lookId != e.id || !st.moved) return
+        if (touchCameraDelta) {
+            fill.shader = null
+            fill.color = cyan
+            fill.alpha = alphaOf(e, 0.35f)
+            c.drawCircle(st.x, st.y, 14f * density, fill)
+            return
+        }
         val r = LOOK_RADIUS_DP * density
         ring.color = cyan
         ring.alpha = alphaOf(e, 0.45f)
@@ -660,8 +726,8 @@ class TouchControlsView(context: Context) : View(context) {
 
     private fun lookVector(st: LookState): Pair<Float, Float> {
         val r = LOOK_RADIUS_DP * density
-        var dx = (st.x - st.ax) / r
-        var dy = (st.y - st.ay) / r
+        var dx = (st.x - st.ax) / r * touchCameraSensitivity
+        var dy = (st.y - st.ay) / r * touchCameraSensitivity
         val len = hypot(dx, dy)
         if (len > 1f) {
             dx /= len
@@ -782,6 +848,7 @@ class TouchControlsView(context: Context) : View(context) {
             ElementKind.STICK -> {
                 sticks.remove(e.id)
                 listener?.onStick(e.id == "rstick", 0f, 0f)
+                if (e.id == "stick") stopStickSprint()
                 invalidate()
             }
             ElementKind.DPAD -> {
@@ -791,6 +858,7 @@ class TouchControlsView(context: Context) : View(context) {
             }
             ElementKind.BUTTON -> releaseButton(e)
             ElementKind.LOOK -> {
+                removeCallbacks(lookDecay)
                 val st = look
                 look = null
                 if (st != null) {
@@ -825,7 +893,8 @@ class TouchControlsView(context: Context) : View(context) {
             dx = dx / len * r
             dy = dy / len * r
         }
-        listener?.onStick(true, dx / r, dy / r)
+        val sy = if (invertBladeSwipe) -dy / r else dy / r
+        listener?.onStick(true, dx / r, sy)
         invalidate()
     }
 
@@ -843,6 +912,19 @@ class TouchControlsView(context: Context) : View(context) {
             }
             return
         }
+        if (sprintToggle && isSprintButton(e)) {
+            if (sprintId == e.id) {
+                stopSprint()
+            } else {
+                sprintId = e.id
+                sprintElement = e
+                pressed.add(e.id)
+                if (haptics) performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                listener?.onPress(e)
+                invalidate()
+            }
+            return
+        }
         if (!pressed.add(e.id)) return
         if (haptics) performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
         listener?.onPress(e)
@@ -851,6 +933,7 @@ class TouchControlsView(context: Context) : View(context) {
 
     private fun releaseButton(e: ControlElement) {
         if (bladeToggle && isBladeButton(e)) return  // alterna: so outro toque solta
+        if (sprintToggle && isSprintButton(e)) return  // alterna: so outro toque solta
         if (!pressed.remove(e.id)) return
         listener?.onRelease(e)
         invalidate()
@@ -861,27 +944,53 @@ class TouchControlsView(context: Context) : View(context) {
         val r = radius(e) * 0.55f
         var dx = (px - cx(e)) / r
         var dy = (py - cy(e)) / r
-        val len = hypot(dx, dy)
-        if (len > 1f) {
-            dx /= len
-            dy /= len
+        val rawLen = hypot(dx, dy)
+        if (rawLen > 1f) {
+            dx /= rawLen
+            dy /= rawLen
         }
         st.dx = dx
         st.dy = dy
         listener?.onStick(e.id == "rstick", dx, dy)
+        if (stickSprint && e.id == "stick") {
+            if (!stickSprintActive && rawLen >= STICK_SPRINT_ON) {
+                stickSprintActive = true
+                if (haptics) performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                listener?.onStickSprint(true)
+            } else if (stickSprintActive && rawLen < STICK_SPRINT_OFF) {
+                stickSprintActive = false
+                listener?.onStickSprint(false)
+            }
+        }
         invalidate()
     }
 
     private fun updateLook(px: Float, py: Float) {
         val st = look ?: return
+        val now = SystemClock.uptimeMillis()
+        val ddx = px - st.lastX
+        val ddy = py - st.lastY
+        val dtMs = (now - st.lastMs).coerceIn(6L, 40L)
         st.x = px
         st.y = py
+        st.lastX = px
+        st.lastY = py
+        st.lastMs = now
         if (!st.moved && (abs(px - st.ax) > TAP_SLOP_DP * density || abs(py - st.ay) > TAP_SLOP_DP * density)) {
             st.moved = true
         }
         if (!st.moved) return
-        val (dx, dy) = lookVector(st)
-        listener?.onStick(true, dx, dy)
+        if (touchCameraDelta) {
+            val scale = (touchCameraSensitivity / (24f * density)) * (16f / dtMs.toFloat())
+            val vx = (ddx * scale).coerceIn(-1f, 1f)
+            val vy = (ddy * scale).coerceIn(-1f, 1f)
+            listener?.onStick(true, vx, vy)
+            removeCallbacks(lookDecay)
+            postDelayed(lookDecay, 45L)
+        } else {
+            val (dx, dy) = lookVector(st)
+            listener?.onStick(true, dx, dy)
+        }
         invalidate()
     }
 
@@ -919,7 +1028,10 @@ class TouchControlsView(context: Context) : View(context) {
 
     /** Solta tudo (ex.: o jogo foi para segundo plano, ou o layout mudou). */
     fun releaseAll() {
+        removeCallbacks(lookDecay)
         stopBlade()
+        stopSprint()
+        stopStickSprint()
         endSwipe()
         pointers.keys.toList().forEach(::endPointer)
         pressed.clear()
@@ -964,5 +1076,8 @@ class TouchControlsView(context: Context) : View(context) {
         const val TAP_MS = 220L
         const val TAP_SLOP_DP = 10f
         const val SWIPE_RADIUS_DP = 40f
+        /** Empurrar o analogico esquerdo ate a borda (rawLen = dist / (0.55*r)): 1.65 ~= 91% do raio externo. */
+        const val STICK_SPRINT_ON = 1.65f
+        const val STICK_SPRINT_OFF = 1.30f
     }
 }

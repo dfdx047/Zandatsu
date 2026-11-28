@@ -98,21 +98,26 @@ object CrashReports {
             return null
         }
         val time = lines.firstOrNull()?.trim()?.toLongOrNull() ?: return null
-        if (time <= prefs.lastCrashShown || time < SessionState.time() - 2000) return null
+        val sessionState = SessionState.read()
+        val sessionStarted = SessionState.time()
+        if (time <= prefs.lastCrashShown || time < sessionStarted - 2000) return null
         prefs.lastCrashShown = time
         SessionState.acknowledge()
         var reason = lines.getOrNull(1)?.trim().orEmpty()
         AppLog.e("crash", "GPU_RESET: $reason")
-        if (reason.contains("sonda do Renut") && GameConfig.load().renderer == "auto" && !RenutSupport.autoFailed()) {
+        val cfg = GameConfig.load()
+        val earlyRenutLoss = cfg.renderer == "auto" && cfg.useRenut && !RenutSupport.autoFailed() &&
+            (reason.contains("sonda do Renut") || sessionState == SessionState.State.STARTING || (time - sessionStarted) < 15_000L)
+        if (earlyRenutLoss) {
             RenutSupport.noteProbeFailure()
-            AppLog.w("crash", "Renut falhou na sonda: o auto passa ao Xenia com este driver")
+            AppLog.w("crash", "Renut perdeu a GPU no arranque: o auto passa ao Xenia com este driver")
             reason += "\n\n" + when (java.util.Locale.getDefault().language) {
-                "pt" -> "O renderizador nativo não funciona com este driver: o modo automático passa a usar o Emulado. Você pode escolhê-lo de novo em Desempenho."
-                "es" -> "El renderizador nativo no funciona con este driver: el modo automático pasa a usar el Emulado. Puedes volver a elegirlo en Rendimiento."
-                else -> "The native renderer does not work with this driver: automatic mode now uses Emulated. You can choose it again in Performance."
+                "pt" -> "O renderizador nativo não funcionou de forma estável com este driver: o modo automático passa a usar o Emulado. Você pode escolhê-lo de novo em Desempenho."
+                "es" -> "El renderizador nativo no funcionó de forma estable con este driver: el modo automático pasa a usar el Emulado. Puedes volver a elegirlo en Rendimiento."
+                else -> "The native renderer did not run stably with this driver: automatic mode now uses Emulated. You can choose it again in Performance."
             }
         }
-        if (reason.contains("kgsl") && GameConfig.load().useRenut && RenutSupport.turnip() && !RenutSupport.hangGuard()) {
+        if (reason.contains("kgsl") && cfg.useRenut && RenutSupport.turnip() && !RenutSupport.hangGuard()) {
             RenutSupport.noteHang()
             AppLog.w("crash", "Hang da GPU: marcadores do inicio ligados com este driver")
             reason += "\n\n" + when (java.util.Locale.getDefault().language) {

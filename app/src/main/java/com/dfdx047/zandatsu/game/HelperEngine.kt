@@ -198,6 +198,14 @@ class HelperEngine {
         handler.post { step() }
     }
 
+    /** Issue #30/#66: Ninja Run automatico ao empurrar o analogico esquerdo ate a borda. */
+    fun setStickSprint(active: Boolean) {
+        synchronized(lock) {
+            if (active) held["stick_sprint"] = setOf(PadInput.RT) else held.remove("stick_sprint")
+        }
+        handler.post { step() }
+    }
+
     private fun step() {
         paused = NativeGameState.syncPause(menuOpen || freeze, pauseQuickMenu)
         if (!paused) {
@@ -273,28 +281,42 @@ class HelperEngine {
         }
         dwellTicks++
         if (wanted == null) return
-        if (wanted != lastClass) {
-            lastClass = wanted
-            candidateTicks = 0
-            manualHold = false
-        }
-        if (wanted == inBattle || manualHold) {
-            candidateTicks = 0
-            return
-        }
-        candidateTicks++
         val need = when {
             wanted -> GAME_STABLE_TICKS
             mode == 0 -> TITLE_STABLE_TICKS
             else -> MENU_STABLE_TICKS
         }
+        if (wanted != lastClass) {
+            lastClass = wanted
+            candidateTicks = 0
+        }
+        if (wanted == inBattle) {
+            candidateTicks = 0
+            return
+        }
+        // Issue #82: nao trocar de combate para menus enquanto o jogador estiver a tocar nos botoes ou no analogico.
+        if (inBattle && !wanted && hasActiveTouchInput()) {
+            candidateTicks = 0
+            return
+        }
+        candidateTicks++
         if (candidateTicks < need || dwellTicks < MIN_DWELL_TICKS) return
+        // So solta a escolha manual quando o jogo confirmou de forma estavel uma classe diferente (evita glitches de 1 frame).
+        if (manualHold) {
+            manualHold = false
+        }
         inBattle = wanted
         candidateTicks = 0
         dwellTicks = 0
         com.dfdx047.zandatsu.data.AppLog.i("controls", "estado: " + if (wanted) "jogo" else "menus")
         diag?.invoke("troca -> " + (if (wanted) "luta" else "menus") + " (modo=$mode)")
         mainHandler.post { onBattleChanged?.invoke(wanted) }
+    }
+
+    private fun hasActiveTouchInput(): Boolean = synchronized(lock) {
+        held.isNotEmpty() || sequences.isNotEmpty() ||
+            kotlin.math.abs(stickX) > 0.15f || kotlin.math.abs(stickY) > 0.15f ||
+            kotlin.math.abs(lookX) > 0.15f || kotlin.math.abs(lookY) > 0.15f
     }
 
     /** O jogador trocou de layout pelo botao: nao o desfaz enquanto o jogo nao mudar de classe. */
@@ -349,9 +371,9 @@ class HelperEngine {
     companion object {
         /** Ticks de 60 Hz: em jogo 1 s estavel, menus 0,5 s (a pausa tem de responder), titulo 3 s, 2 s entre trocas. */
         const val GAME_STABLE_TICKS = 60
-        const val MENU_STABLE_TICKS = 30
-        const val TITLE_STABLE_TICKS = 180
-        const val MIN_DWELL_TICKS = 120
+        const val MENU_STABLE_TICKS = 36
+        const val TITLE_STABLE_TICKS = 300
+        const val MIN_DWELL_TICKS = 150
         /** Duracao minima de um toque num botao (2 frames a 30 fps + folga). */
         const val MIN_PRESS_MS = 80L
     }

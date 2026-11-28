@@ -1,0 +1,107 @@
+--- a/app/thirdparty/plume/plume_vulkan.cpp
++++ b/app/thirdparty/plume/plume_vulkan.cpp
+@@ -5197,7 +5197,10 @@
+         }
+ 
+         // banjo-nx: the extension is enabled with the optional ones; its feature has to be asked for too.
+-        pipelineRobustness = pipelineRobustnessFound && pipelineRobustnessFeatures.pipelineRobustness;
++        // Zandatsu (renut/0069, issues #151, #16): Mali r54p1/r54p3 (Vulkan 1.4, e.g. Pixel 6 Mali-G78) exposes
++        // VK_EXT_pipeline_robustness; disabling robustness on game pipelines triggers VK_ERROR_DEVICE_LOST on startup.
++        pipelineRobustness = pipelineRobustnessFound && pipelineRobustnessFeatures.pipelineRobustness &&
++                             (physicalDeviceProperties.vendorID != 0x13B5u);
+         if (pipelineRobustness) {
+             pipelineRobustnessFeatures.pNext = createDeviceChain;
+             createDeviceChain = &pipelineRobustnessFeatures;
+--- a/app/src/renut_engine/gpu/backend/present.cpp
++++ b/app/src/renut_engine/gpu/backend/present.cpp
+@@ -878,6 +878,8 @@
+   return true;
+ }
+ 
++extern "C" uint32_t swordman_renut_frame_refreshes();
++
+ bool ZeroFGOn(std::string &mode_out) {
+   mode_out = REXCVAR_GET(swordman_zerofg_mode);
+   if (mode_out != "reallyzero" && mode_out != "zero")
+@@ -886,6 +888,10 @@
+   const bool fps30 = !skip.empty() && std::atoi(skip.c_str()) > 0;
+   if (fps30)
+     return true;  // 30 -> 60 FPS works on 60 Hz and 120 Hz displays
++  // Zandatsu (renut/0069, issue #131): in 60->120 mode, pause ZeroFG during 30 fps videos/cutscenes/menus
++  // (swordman_renut_frame_refreshes() >= 2) to avoid cadence jitter and optical-flow flicker on cuts.
++  if (swordman_renut_frame_refreshes() >= 2)
++    return false;
+   return rex::perf::GetDisplayRefreshRate() >= 100.0f;  // 60 -> 120 FPS needs >=100 Hz
+ }
+ 
+@@ -979,9 +985,17 @@
+     ci.vulkan.device = vk_dev->vk;
+     ci.vulkan.get_instance_proc_addr = vk_if->getInstanceProcAddr;
+     ci.mode = (mode == "zero") ? zerofg::Mode::kZero : zerofg::Mode::kReallyZero;
+-    // On Mali (0x13B5), use Backend::kCompat (portable golden workgroup path; avoids Mali subgroup/quad artifacts).
+-    const bool is_mali = uint32_t(s.device->getDescription().vendor) == 0x13B5u;
+-    ci.backend = is_mali ? zerofg::Backend::kCompat : zerofg::Backend::kAuto;
++    // On Mali (0x13B5) and Qualcomm proprietary Adreno drivers (0x5143 without Turnip/Freedreno, e.g. Adreno
++    // 735/750 E031.45 in issues #131/#136/#145), use Backend::kCompat (avoids subgroup/int16 compute flicker).
++    const auto &gpu_desc = s.device->getDescription();
++    const uint32_t vendor_id = uint32_t(gpu_desc.vendor);
++    const bool is_mali = vendor_id == 0x13B5u;
++    const bool is_turnip = gpu_desc.name.find("Turnip") != std::string::npos ||
++                           gpu_desc.name.find("turnip") != std::string::npos ||
++                           gpu_desc.name.find("Purple") != std::string::npos ||
++                           gpu_desc.name.find("Freedreno") != std::string::npos;
++    const bool use_compat = is_mali || (vendor_id == 0x5143u && !is_turnip);
++    ci.backend = use_compat ? zerofg::Backend::kCompat : zerofg::Backend::kAuto;
+     ci.frame_context_count = kFramesInFlight;
+     ci.capabilities.effective_api_version = vk_dev->effectiveApiVersion;
+     ci.capabilities.synchronization2_enabled = vk_dev->synchronization2Supported;
+@@ -1115,9 +1129,9 @@
+   if (ZeroFGInterpolateLocked(s, image, out))
+     return true;
+   {
+-    std::string mode;
+-    if (!g_zerofg.unsupported && ZeroFGOn(mode))
+-      return false;  // ZeroFG active (just recorded first history frame)
++    const std::string mode = REXCVAR_GET(swordman_zerofg_mode);
++    if (!g_zerofg.unsupported && (mode == "reallyzero" || mode == "zero"))
++      return false;  // ZeroFG selected (recording first history frame or paused during 30 fps cutscene)
+   }
+ #endif
+   FrameInterp &f = g_interp;
+--- a/app/src/renut_engine/display_sync.cpp
++++ b/app/src/renut_engine/display_sync.cpp
+@@ -144,6 +144,10 @@
+ // Zandatsu (renut/0043): the render thread's present times (zandatsu_desired_present_ns).
+ uint64_t g_target_ns = 0;
+ std::atomic<uint64_t> g_timed{0}, g_reanchored{0};
++// Zandatsu (renut/0069, issue #146): LTPO/VRR panels (e.g. POCO F7 HyperOS) dynamically change refresh rate during
++// 30 fps cutscenes; when period jumps >0.5 ms, yield to sa2_renut_pacing's steady clock.
++std::atomic<uint64_t> g_ltpo_change_ns{0};
++std::atomic<bool> g_ltpo_seen{false};
+ 
+ // The limiter's releases, by the Swap of the frame each released.
+ struct Release {
+@@ -374,6 +378,10 @@
+     const uint64_t now = uint64_t(frame_ns);  // CLOCK_MONOTONIC, o mesmo do steady_clock
+     const int64_t hint = s_hint.load(std::memory_order_relaxed);
+     if (hint > 0) {
++      if (c->period > 0.0 && std::fabs(double(hint) - c->period) > 500'000.0) {
++        g_ltpo_seen.store(true, std::memory_order_relaxed);
++        g_ltpo_change_ns.store(now, std::memory_order_relaxed);
++      }
+       c->period = double(hint);
+     } else if (c->last && now > c->last) {
+       const double gap = double(now - c->last);
+@@ -422,6 +430,12 @@
+   const uint64_t period = g_period.load(std::memory_order_relaxed);
+   if (!vsync || !period || now > vsync + kGridStaleNs)
+     return 0;
++  const uint64_t ltpo_at = g_ltpo_change_ns.load(std::memory_order_relaxed);
++  if ((ltpo_at && now < ltpo_at + 2'000'000'000ull) ||
++      (g_ltpo_seen.load(std::memory_order_relaxed) && frame_ns >= 30'000'000ull)) {
++    g_frame_ns.store(0, std::memory_order_relaxed);
++    return 0;
++  }
+   const double ratio = double(frame_ns) / double(period);
+   const uint64_t refreshes = std::max<uint64_t>(1, uint64_t(std::llround(ratio)));
+   // Zandatsu (renut/0042): um frame que nao e um numero inteiro de refreshes (60 fps numa tela de 90 Hz): o timer.

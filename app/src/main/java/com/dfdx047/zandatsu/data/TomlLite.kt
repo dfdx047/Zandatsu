@@ -127,8 +127,10 @@ object TomlLite {
     /**
      * Atualiza as chaves de topo do ficheiro mantendo o resto (comentarios,
      * outras chaves, tabelas), como o SaveConfig do SDK. Chaves novas entram
-     * antes da primeira tabela. Escrita atomica (tmp + rename).
+     * antes da primeira tabela. Escrita atomica (tmp unico + rename), sincronizada
+     * para evitar corrida quando duas coroutines gravam ao mesmo tempo (issue #156).
      */
+    @Synchronized
     fun merge(file: File, updates: Map<String, Any>) {
         val lines = if (file.isFile) file.readLines().toMutableList() else mutableListOf()
         val done = HashSet<String>()
@@ -150,11 +152,15 @@ object TomlLite {
         val fresh = updates.filterKeys { it !in done }.map { (k, v) -> "$k = ${format(v)}" }
         lines.addAll(firstTable, fresh)
         file.parentFile?.mkdirs()
-        val tmp = File(file.parentFile, file.name + ".tmp")
-        tmp.writeText(lines.joinToString("\n", postfix = "\n"))
-        if (!tmp.renameTo(file)) {
-            file.writeText(tmp.readText())
-            tmp.delete()
+        val content = lines.joinToString("\n", postfix = "\n")
+        val tmp = File(file.parentFile, "${file.name}.${Thread.currentThread().id}.${System.nanoTime()}.tmp")
+        try {
+            tmp.writeText(content)
+            if (!tmp.renameTo(file)) {
+                file.writeText(content)
+            }
+        } finally {
+            if (tmp.exists()) tmp.delete()
         }
     }
 }
